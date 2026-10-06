@@ -4,9 +4,17 @@ import re
 from bs4 import BeautifulSoup
 from site_layout import ROOT, config, render_page, module_url, relative, icon
 import json
+from docs_layout import group_id
 
 def refresh_note_chrome(main, path):
     topics = {t['id']: t for t in json.loads((ROOT / 'config/topics.json').read_text())}
+    if path == ROOT / 'notes/index.html':
+        main.select_one('.notes-hero h1').string = '专题笔记'
+        main.select_one('.notes-description').string = '按专题整理算法、计算机基础与 AI 技术笔记，收录概念、方法和开发实践。'
+    for group in main.select('.note-group[data-group]'):
+        heading = group.select_one('h2')
+        label = ''.join(str(text) for text in heading.find_all(string=True, recursive=False)).strip()
+        group['id'] = group_id(label)
     for card in main.select('.topic-card'):
         card.find(['h2', 'h3']).name = 'h2'
         topic_id = card['href'].split('/')[0]

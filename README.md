@@ -2,7 +2,7 @@
 
 在线主页：https://uestc-ly.github.io/
 
-极简首页通过统一菜单连接独立模块：项目、专题笔记、关于。桌面显示横向菜单，手机显示可展开菜单。笔记和项目的详细内容位于各自页面。
+采用文档式布局：固定顶栏与全站搜索、左侧专题目录、中央阅读区、右侧文章目录。首页仅介绍博客内容；项目、专题笔记、关于仍是独立模块。手机通过抽屉展开专题目录，文章目录显示在正文上方。
 
 ## 结构与职责
 
@@ -13,23 +13,27 @@ config/
 templates/pages/           首页、项目、关于的正文模板
 scripts/
   site_layout.py           共用页面框架、导航、页脚与 URL
+  docs_layout.py           根据笔记索引生成专题树、文章目录、上一篇与下一篇
   build_site.py            生成模块页面，刷新笔记公共框架
   build_notes.py           导入 Markdown、生成专题与文章
   check_site.py            检查导航、页面和站内链接
 assets/
   fonts/                  Fontsource 本地 WOFF2 字体与许可证
   icons/lucide/            按需选取的 SVG 与许可证
-  vendor/radix-colors/      Sand/Teal 色阶与许可证
+  vendor/radix-colors/      Sand/Blue 浅色与深色色阶、许可证
   resources.json           上游版本、地址与校验记录
   css/site.css             全站导航、页脚和模块布局
   css/home.css             首页专用样式
   css/portfolio.css        项目与关于的展示组件
   js/navigation.js         手机菜单交互与键盘行为
+  js/reader.js             全站搜索、目录抽屉、目录高亮、主题和阅读偏好
 notes/                     生成的专题、文章、原文与渲染依赖
 styles.css                 颜色、排版和基本组件
 ```
 
-页面框架、内容模板和模块配置相互独立。模块 URL 为实际目录页面，无需客户端路由；刷新文章链接可以直接访问。导航在构建时写入 HTML，关闭 JavaScript 仍能使用；JavaScript 仅增强手机菜单、搜索和图表。
+页面框架、内容模板和模块配置相互独立。模块 URL 为实际目录页面，无需客户端路由；刷新文章链接可以直接访问。导航与专题树在构建时写入 HTML，关闭 JavaScript 仍能浏览。目录与全站搜索共同读取 `notes/manifest.json`，新增笔记后无需手动添加导航。
+
+全站搜索按需加载索引，支持标题与分类关键词、`/` 或 `Ctrl/Cmd+K` 快捷键、Escape 关闭。深色模式和桌面侧栏收起状态保存在本地浏览器；手机抽屉提供焦点约束、背景隔离和 Escape 关闭。原始 Markdown 下载、公式与流程图继续可用。
 
 ## 构建与验证
 
@@ -83,6 +87,6 @@ GitHub Pages 从 `main` 分支根目录发布生成后的静态 HTML，不要求
 
 ## 视觉设计与资源
 
-使用 UI UX Pro Max 的极简排版建议，搭配 Fontsource Inter / JetBrains Mono、Lucide SVG 与 Radix Sand / Teal 色阶。字体、图标和色阶随站点部署；中文优先系统字体。公共样式与模块样式分离，新模块复用设计变量和图标接口。
+使用 UI UX Pro Max 的导航层级与阅读排版建议，搭配 Fontsource Inter / JetBrains Mono、Lucide SVG 与 Radix Sand / Blue 色阶。字体、图标和色阶随站点部署；中文优先系统字体。公共样式与模块样式分离，新模块复用文档框架、设计变量和图标接口。
 
 完整规范见 [设计规范](design-system/MASTER.md)，资源版本和许可证见 [资源说明](assets/README.md)。

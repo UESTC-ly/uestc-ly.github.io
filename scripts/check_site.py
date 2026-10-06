@@ -15,6 +15,11 @@ references = 0
 for path, soup in soups.items():
     assert len(soup.select('.site-header nav a')) == len(site['modules']) + 1, path
     assert len(soup.select('.site-header nav a[aria-current="page"]')) == 1, path
+    assert len(soup.select('#docs-sidebar, .docs-outline, .site-search-trigger, .reader-bar')) == 4, path
+    assert len(soup.select('#search-dialog, #global-search-input')) == 2, path
+    if path.name.startswith('n-'):
+        assert len(soup.select('.docs-sidebar a[aria-current="page"]')) == 1, path
+        assert len(soup.select('.note-content')) == 1, path
     for tag, attribute in [('a', 'href'), ('img', 'src'), ('link', 'href'), ('script', 'src')]:
         for element in soup.select(f'{tag}[{attribute}]'):
             value = element[attribute]

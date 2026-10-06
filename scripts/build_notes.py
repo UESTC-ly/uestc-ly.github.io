@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
 from site_layout import render_page, icon
+from docs_layout import group_id, catalog
 TOPICS = {
  item['id']: (item['name'], item['code'], icon(item.get('icon', 'book-open')), item['description'], item['tags'])
  for item in json.loads((ROOT / 'config/topics.json').read_text())
@@ -188,6 +189,16 @@ def build(base):
      # Preserve the original reference as a valid alias at the destination.
      span=ds.new_tag('span',id=anchor);span['class']='heading-anchor';ds.insert(0,span)
  counts=Counter(p['topic'] for p in posts.values())
+ manifest=[]
+ for topic in TOPICS:
+  groups=defaultdict(list)
+  for key,p in posts.items():
+   if p['topic']==topic:
+    groups[p['group']].append({'source':key,'title':p['title'],'topic':p['topic'],'group':p['group'],'url':'/'+p['path'].relative_to(ROOT).as_posix()})
+  for group,entries in sorted(groups.items()): manifest.extend(entries)
+ (ROOT/'notes').mkdir(exist_ok=True)
+ (ROOT/'notes/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
+ catalog.cache_clear()
  for k,f in sources.items():
   sourcepath[k].parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(f,sourcepath[k])
  for key,p in posts.items():
@@ -200,17 +211,15 @@ def build(base):
   if soup.select('pre.mermaid'): extra+='<script type="module" src="../render-diagrams.js"></script>'
   extra+='<script defer src="../article.js"></script>'
   p['path'].parent.mkdir(parents=True,exist_ok=True);p['path'].write_text(shell(p['title'],description,p['path'],body,extra))
- manifest=[]
  for topic,v in TOPICS.items():
   path=ROOT/'notes'/topic/'index.html'; groups=defaultdict(list)
   for key,p in posts.items():
    if p['topic']==topic: groups[p['group']].append((key,p))
   content=''
   for i,(group,entries) in enumerate(sorted(groups.items())):
-   content+=f'<section class="note-group" data-group><h2>{esc(group)}<span class="group-count">{len(entries)} 篇</span></h2><div class="note-list">'
+   content+=f'<section class="note-group" id="{group_id(group)}" data-group><h2>{esc(group)}<span class="group-count">{len(entries)} 篇</span></h2><div class="note-list">'
    for key,p in entries:
     content+=f'<article class="note-entry" data-search="{esc(p["title"]+" "+group)}"><h3><a href="{p["path"].name}">{esc(p["title"])}</a></h3><p>{esc(p["description"])}</p></article>'
-    manifest.append({'source':key,'title':p['title'],'topic':topic,'group':group,'url':'/'+p['path'].relative_to(ROOT).as_posix()})
    content+='</div></section>'
   if topic=='leetcode':
    demos=[k for k in sources if k.startswith('力扣刷题笔记/') and k.endswith('.html')]
@@ -218,7 +227,7 @@ def build(base):
   body=f'<nav class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><span>{v[0]}</span></nav><section class="notes-hero"><p class="eyebrow">{v[1]}</p><h1>{v[0]}<span class="topic-hero-symbol">{v[2]}</span></h1><p class="notes-description">{v[3]}</p><p class="notes-overview">{counts[topic]} 篇笔记 · {len(groups)} 个分类</p></section>'+topicnav(path,topic)+f'<section class="topic-posts"><div class="search-row"><label for="note-search">搜索本专题</label><input id="note-search" type="search" placeholder="搜索标题或分类…" autocomplete="off"><span id="search-count" role="status">{counts[topic]} 篇笔记</span></div><p id="no-results" hidden>没有找到匹配的笔记，试试其他关键词。</p>{content}</section>'
   path.write_text(shell(v[0],v[3],path,body,'<script defer src="../search.js"></script>'))
  path=ROOT/'notes/index.html'
- body='<nav class="breadcrumb"><a href="../index.html">首页</a><span>/</span><span>专题笔记</span></nav><section class="notes-hero"><p class="eyebrow">LEARNING NOTES</p><h1>学习，留下一点痕迹。</h1><p class="notes-description">从一道题、一个概念到一次开发实践。把零散的收获整理成笔记，也给未来的自己留一份索引。</p>'+f'<p class="notes-overview">{len(TOPICS)} 个专题 / {len(posts)} 篇笔记</p></section>'+cards(path,counts)
+ body='<nav class="breadcrumb"><a href="../index.html">首页</a><span>/</span><span>专题笔记</span></nav><section class="notes-hero"><p class="eyebrow">LEARNING NOTES</p><h1>专题笔记</h1><p class="notes-description">按专题整理算法、计算机基础与 AI 技术笔记，收录概念、方法和开发实践。</p>'+f'<p class="notes-overview">{len(TOPICS)} 个专题 / {len(posts)} 篇笔记</p></section>'+cards(path,counts)
  path.write_text(shell('专题笔记','、'.join(v[0] for v in TOPICS.values())+'。',path,body))
  (ROOT/'notes/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
  (ROOT/'notes/import-report.json').write_text(json.dumps({'counts':dict(counts),'total':len(posts),'support_files':len(sources)-len(posts),'unavailable_source_references':list({(x['source'],x['target']):x for x in unresolved}.values())},ensure_ascii=False,indent=2)+'\n')
