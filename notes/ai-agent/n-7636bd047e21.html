@@ -1,11 +1,24 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-05 重排器评估、延迟与成本 · 李杨的学习笔记</title><meta name="description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0">
+<title>08-05 重排器评估、延迟与成本 · 李杨的学习笔记</title><meta name="description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
 提到第一位。但工程决策需要回答更完整的问题：它改善了哪些查询，又损害了哪些查询；
 第一阶段是否本来就包含正确证据；额外延迟与费用是多少；失败时系统怎样退化；权限、
-版本和无答案行为是否发生回归。"><meta property="og:title" content="08-05 重排器评估、延迟与成本 · 李杨的学习笔记"><meta property="og:description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
+版本和无答案行为是否发生回归。">
+<meta property="og:type" content="website"><meta property="og:title" content="08-05 重排器评估、延迟与成本 · 李杨的学习笔记"><meta property="og:description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
 提到第一位。但工程决策需要回答更完整的问题：它改善了哪些查询，又损害了哪些查询；
 第一阶段是否本来就包含正确证据；额外延迟与费用是多少；失败时系统怎样退化；权限、
-版本和无答案行为是否发生回归。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08-05 重排器评估、延迟与成本</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/05-reranker-evaluation-latency-and-cost.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">“感觉前几条更相关”不是完成条件</a></li><li><a href="#_2">第一步：定义任务和基线</a></li><li><a href="#_3">第二步：建立代表性查询集</a></li><li><a href="#_4">第三步：控制候选输入</a></li><li><a href="#_5">第四步：选择排序指标</a></li><li><a href="#recallk-precisionk">Recall@K 与 Precision@K</a></li><li><a href="#_6">首个相关结果的倒数名次</a></li><li><a href="#_7">带等级相关性的排名指标</a></li><li><a href="#_8">任务覆盖与无答案行为</a></li><li><a href="#_9">平均数之外必须看什么</a></li><li><a href="#_10">第五步：测量延迟</a></li><li><a href="#_11">第六步：计算成本与容量</a></li><li><a href="#_12">设计一张评估矩阵</a></li><li><a href="#_13">采用与停止条件</a></li><li><a href="#_14">安全与诚实边界</a></li><li><a href="#_15">评估方案练习</a></li><li><a href="#_16">自测</a></li><li><a href="#_17">本章状态与导航</a></li></ul></details><article class="note-content">
+版本和无答案行为是否发生回归。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><link rel="stylesheet" href="../../assets/css/site.css"><script defer src="../../assets/js/navigation.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header wrap site-header">
+  <a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-icon" aria-hidden="true"></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></nav>
+</header></div>
+<main id="main" class="notes-page wrap" tabindex="-1"><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08-05 重排器评估、延迟与成本</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/05-reranker-evaluation-latency-and-cost.md">下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">“感觉前几条更相关”不是完成条件</a></li><li><a href="#_2">第一步：定义任务和基线</a></li><li><a href="#_3">第二步：建立代表性查询集</a></li><li><a href="#_4">第三步：控制候选输入</a></li><li><a href="#_5">第四步：选择排序指标</a></li><li><a href="#recallk-precisionk">Recall@K 与 Precision@K</a></li><li><a href="#_6">首个相关结果的倒数名次</a></li><li><a href="#_7">带等级相关性的排名指标</a></li><li><a href="#_8">任务覆盖与无答案行为</a></li><li><a href="#_9">平均数之外必须看什么</a></li><li><a href="#_10">第五步：测量延迟</a></li><li><a href="#_11">第六步：计算成本与容量</a></li><li><a href="#_12">设计一张评估矩阵</a></li><li><a href="#_13">采用与停止条件</a></li><li><a href="#_14">安全与诚实边界</a></li><li><a href="#_15">评估方案练习</a></li><li><a href="#_16">自测</a></li><li><a href="#_17">本章状态与导航</a></li></ul></details><article class="note-content">
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -264,4 +277,6 @@
 <p>上一章：<a href="n-2267a610577c.html">08-04 多阶段、Top-K、召回率与精确率</a></p>
 </li>
 <li>返回：<a href="n-5d4f0a9a34fa.html">08 重排索引</a></li>
-</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main>
+<footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>保持好奇，持续构建。</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></footer>
+</body></html>
