@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03. 栈、队列与单调结构 · 李杨的学习笔记</title><meta name="description" content="栈和队列是受限线性表：栈后进先出，队列先进先出；单调栈和单调队列通过维护有序性，把许多看似 O(n²) 的比较优化到 O(n)。"><meta property="og:title" content="03. 栈、队列与单调结构 · 李杨的学习笔记"><meta property="og:description" content="栈和队列是受限线性表：栈后进先出，队列先进先出；单调栈和单调队列通过维护有序性，把许多看似 O(n²) 的比较优化到 O(n)。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-106d902313ba.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-106d902313ba.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据结构</p><h1>03. 栈、队列与单调结构</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/03-%E6%A0%88%E9%98%9F%E5%88%97%E4%B8%8E%E5%8D%95%E8%B0%83%E7%BB%93%E6%9E%84.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-stack">1. 栈 Stack</a></li><li><a href="#2-queue">2. 队列 Queue</a></li><li><a href="#3-deque">3. Deque 双端队列</a></li><li><a href="#4">4. 单调栈</a></li><li><a href="#5">5. 单调队列</a></li><li><a href="#6">6. 常见应用</a></li><li><a href="#7">7. 常见坑</a></li><li><a href="#8">8. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>栈和队列分别维护什么访问顺序？</li>
+<li>单调栈为什么能在线性时间找到下一个更大元素？</li>
+<li>单调队列为什么能维护滑动窗口最值？</li>
+<li>C++ 中 <code>stack</code>、<code>queue</code>、<code>deque</code> 应该怎么用？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>栈和队列是受限线性表：栈后进先出，队列先进先出；单调栈和单调队列通过维护有序性，把许多看似 O(n²) 的比较优化到 O(n)。</p>
+<blockquote>
+<p>记忆口诀：<strong>栈看最近，队列排队，单调结构丢掉不可能成为答案的元素。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((栈队列))
+    栈
+      LIFO
+      括号匹配
+      递归模拟
+      单调栈
+    队列
+      FIFO
+      BFS
+      任务调度
+      单调队列
+    deque
+      双端操作
+      滑动窗口
+    复杂度
+      每个元素进出一次
+      常为O(n)
+</pre>
+<span class="heading-anchor" id="1. 栈 Stack"></span><h2 id="1-stack">1. 栈 Stack</h2>
+<p>栈是后进先出结构。</p>
+<pre class="mermaid">flowchart TD
+  A["push 1"] --&gt; B["push 2"]
+  B --&gt; C["push 3"]
+  C --&gt; D["pop得到3"]
+</pre>
+<p>C++ demo：括号匹配。</p>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+bool isValid(string s) {
+    stack&lt;char&gt; st;
+    for (char c : s) {
+        if (c == '(' || c == '[' || c == '{') {
+            st.push(c);
+        } else {
+            if (st.empty()) return false;
+            char t = st.top();
+            st.pop();
+            if ((c == ')' &amp;&amp; t != '(') ||
+                (c == ']' &amp;&amp; t != '[') ||
+                (c == '}' &amp;&amp; t != '{')) {
+                return false;
+            }
+        }
+    }
+    return st.empty();
+}
+
+int main() {
+    cout &lt;&lt; boolalpha &lt;&lt; isValid("([]{})") &lt;&lt; "\n";
+    return 0;
+}
+</code></pre>
+<span class="heading-anchor" id="2. 队列 Queue"></span><h2 id="2-queue">2. 队列 Queue</h2>
+<p>队列是先进先出结构。</p>
+<pre class="mermaid">flowchart LR
+  A["front出队"] --&gt; B["元素1"]
+  B --&gt; C["元素2"]
+  C --&gt; D["元素3"]
+  D --&gt; E["back入队"]
+</pre>
+<p>常用于 BFS、任务调度、层序遍历。</p>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+int main() {
+    queue&lt;int&gt; q;
+    q.push(1);
+    q.push(2);
+    q.push(3);
+    while (!q.empty()) {
+        cout &lt;&lt; q.front() &lt;&lt; ' ';
+        q.pop();
+    }
+    cout &lt;&lt; "\n";
+    return 0;
+}
+</code></pre>
+<span class="heading-anchor" id="3. Deque 双端队列"></span><h2 id="3-deque">3. Deque 双端队列</h2>
+<p><code>deque</code> 支持两端 O(1) 插入删除：</p>
+<ul>
+<li><code>push_front</code></li>
+<li><code>push_back</code></li>
+<li><code>pop_front</code></li>
+<li><code>pop_back</code></li>
+</ul>
+<p>它常用于单调队列。</p>
+<span class="heading-anchor" id="4. 单调栈"></span><h2 id="4">4. 单调栈</h2>
+<p>单调栈维护栈内元素单调递增或递减。典型问题：下一个更大元素。</p>
+<pre class="mermaid">flowchart TD
+  A["遍历元素x"] --&gt; B{栈顶小于x}
+  B -- 是 --&gt; C["栈顶的下一个更大是x"]
+  C --&gt; D["弹出栈顶"]
+  D --&gt; B
+  B -- 否 --&gt; E["x入栈"]
+</pre>
+<p>C++ demo：下一个更大元素。</p>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+vector&lt;int&gt; nextGreater(vector&lt;int&gt;&amp; nums) {
+    int n = nums.size();
+    vector&lt;int&gt; ans(n, -1);
+    stack&lt;int&gt; st; // 存下标，保持对应值递减
+    for (int i = 0; i &lt; n; ++i) {
+        while (!st.empty() &amp;&amp; nums[st.top()] &lt; nums[i]) {
+            ans[st.top()] = nums[i];
+            st.pop();
+        }
+        st.push(i);
+    }
+    return ans;
+}
+
+int main() {
+    vector&lt;int&gt; a = {2, 1, 2, 4, 3};
+    auto ans = nextGreater(a);
+    for (int x : ans) cout &lt;&lt; x &lt;&lt; ' ';
+    cout &lt;&lt; "\n";
+    return 0;
+}
+</code></pre>
+<p>为什么是 O(n)：每个下标最多入栈一次、出栈一次。</p>
+<span class="heading-anchor" id="5. 单调队列"></span><h2 id="5">5. 单调队列</h2>
+<p>单调队列常用于滑动窗口最大值。队列中保存下标，并保证对应值单调递减。</p>
+<pre class="mermaid">flowchart TD
+  A["新元素进入"] --&gt; B["弹出队尾更小元素"]
+  B --&gt; C["新下标入队"]
+  C --&gt; D["弹出过期队首"]
+  D --&gt; E["队首就是窗口最大值"]
+</pre>
+<p>C++ demo：滑动窗口最大值。</p>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+vector&lt;int&gt; maxSlidingWindow(vector&lt;int&gt;&amp; nums, int k) {
+    deque&lt;int&gt; dq; // 存下标，值单调递减
+    vector&lt;int&gt; ans;
+    for (int i = 0; i &lt; (int)nums.size(); ++i) {
+        while (!dq.empty() &amp;&amp; nums[dq.back()] &lt;= nums[i]) dq.pop_back();
+        dq.push_back(i);
+
+        if (dq.front() &lt;= i - k) dq.pop_front();
+        if (i &gt;= k - 1) ans.push_back(nums[dq.front()]);
+    }
+    return ans;
+}
+
+int main() {
+    vector&lt;int&gt; a = {1, 3, -1, -3, 5, 3, 6, 7};
+    auto ans = maxSlidingWindow(a, 3);
+    for (int x : ans) cout &lt;&lt; x &lt;&lt; ' ';
+    cout &lt;&lt; "\n";
+    return 0;
+}
+</code></pre>
+<span class="heading-anchor" id="6. 常见应用"></span><h2 id="6">6. 常见应用</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>结构</th>
+<th>典型应用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>栈</td>
+<td>括号匹配、表达式求值、递归模拟、DFS</td>
+</tr>
+<tr>
+<td>单调栈</td>
+<td>下一个更大元素、柱状图最大矩形</td>
+</tr>
+<tr>
+<td>队列</td>
+<td>BFS、层序遍历、任务调度</td>
+</tr>
+<tr>
+<td>单调队列</td>
+<td>滑动窗口最值、区间 DP 优化</td>
+</tr>
+<tr>
+<td>deque</td>
+<td>双端操作、0-1 BFS</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="7. 常见坑"></span><h2 id="7">7. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空栈取 top</td>
+<td>调用前必须 <code>empty()</code> 检查</td>
+</tr>
+<tr>
+<td>单调栈存值还是下标</td>
+<td>需要位置时存下标</td>
+</tr>
+<tr>
+<td>队列过期判断</td>
+<td>滑动窗口要及时弹出过期下标</td>
+</tr>
+<tr>
+<td>单调方向搞反</td>
+<td>最大值维护递减队列，最小值维护递增队列</td>
+</tr>
+<tr>
+<td>等号处理</td>
+<td><code>&lt;=</code> 或 <code>&lt;</code> 会影响重复元素保留</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="8. 学习自检"></span><h2 id="8">8. 学习自检</h2>
+<ol>
+<li>为什么括号匹配适合用栈？</li>
+<li>单调栈为什么是 O(n)？</li>
+<li>滑动窗口最大值为什么不能每次排序？</li>
+<li>单调队列中为什么存下标而不是只存值？</li>
+<li><code>deque</code> 和 <code>queue</code> 有什么区别？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

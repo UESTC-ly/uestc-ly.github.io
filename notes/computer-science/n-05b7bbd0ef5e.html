@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>分布式系统：复制分片与事务 · 李杨的学习笔记</title><meta name="description" content="扩展性来自分片，可用性来自复制，但二者都会增加一致性复杂度。"><meta property="og:title" content="分布式系统：复制分片与事务 · 李杨的学习笔记"><meta property="og:description" content="扩展性来自分片，可用性来自复制，但二者都会增加一致性复杂度。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-05b7bbd0ef5e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-05b7bbd0ef5e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 分布式系统</p><h1>分布式系统：复制分片与事务</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/03-%E5%A4%8D%E5%88%B6%E5%88%86%E7%89%87%E4%B8%8E%E4%BA%8B%E5%8A%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">分章节讲解</a></li><li><a href="#1">1. 主从复制</a></li><li><a href="#2">2. 分片</a></li><li><a href="#3">3. 两阶段提交</a></li><li><a href="#4-saga">4. Saga</a></li><li><a href="#_7">关键对比表</a></li><li><a href="#_8">边界条件表</a></li><li><a href="#_9">常见误区总结</a></li><li><a href="#_10">自检题</a></li><li><a href="#_11">速记卡片</a></li><li><a href="#_12">深度扩展：底层原理与应用边界</a></li><li><a href="#1_1">1. 本章在「分布式系统」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_13">专题深化：具体机制、案例与追问</a></li><li><a href="#1_2">1. 具体案例：把「复制分片与事务」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_1">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li><li><a href="#_14">本轮扩写：复制、分片与事务的工程边界</a></li><li><a href="#1_3">1. 复制延迟不是一个“监控数字”，而是读写语义的一部分</a></li><li><a href="#2_3">2. 分片的难点是“后续变化”</a></li><li><a href="#3-2pc-saga">3. 2PC 与 Saga 的选择</a></li><li><a href="#4_2">4. 案例：下单链路的状态拆解</a></li><li><a href="#5_2">5. 面试追问路径</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握主从复制、分片、两阶段提交和 Saga 的工程权衡。</li>
+<li>能从底层机制、适用边界、工程实践和面试表达四个角度解释本章概念。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出至少一个不适用场景、一个常见误区和一个纠正方式。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>扩展性来自分片，可用性来自复制，但二者都会增加一致性复杂度。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>复制保可用，分片扩容量，事务控一致</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((复制分片与事务))
+    核心概念
+      主从复制
+      分片
+      两阶段提交
+      Saga
+    底层视角
+      资产与状态
+      边界与信任
+      失败与恢复
+    工程动作
+      识别前提
+      选择机制
+      设定边界
+      验证效果
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  N1["主从复制"]
+  N2["分片"]
+  N3["两阶段提交"]
+  N4["Saga"]
+  N1 --&gt; N2
+  N2 --&gt; N3
+  N3 --&gt; N4
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_6">分章节讲解</h2>
+<span class="heading-anchor" id="1. 主从复制"></span><h3 id="1">1. 主从复制</h3>
+<p><strong>核心定义：</strong> 主从复制由主节点处理写入并把变更传播给从节点，从节点提供冗余、读扩展或故障接管。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 异步复制延迟低但主挂时可能丢最近写入；同步复制更安全但增加写延迟和不可用风险。
+- 复制日志需要记录顺序、位置、事务边界和幂等应用，故障切换要处理脑裂和旧主回归。
+- 读从库会遇到复制延迟，需要读己之写、会话一致或强制读主等方案。</p>
+<p><strong>适用场景：</strong> 适用于读多写少、容灾备份、读扩展、冷热分离和同城高可用。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合把异步从库当最新数据来源，也不适合无仲裁机制自动双主写入。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上监控复制延迟、半同步状态、binlog 位点和切换演练；面试中讲清同步/异步差异。</p>
+<p><strong>常见误区与纠正方式：</strong> 有从库就不会丢数据；纠正方式是说明复制模式、提交确认点和故障切换窗口。</p>
+<p><strong>速记：</strong> 主写从读要看延迟，切主防脑裂。</p>
+<span class="heading-anchor" id="2. 分片"></span><h3 id="2">2. 分片</h3>
+<p><strong>核心定义：</strong> 分片把数据按范围、哈希或业务维度分布到多个节点，以提升容量、吞吐和故障隔离。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 范围分片便于区间查询但易热点；哈希分片均匀但范围查询困难；业务分片贴近访问模式但迁移复杂。
+- 分片路由可由客户端、代理或元数据服务完成，扩缩容需要数据迁移和双写/回放校验。
+- 跨分片查询、聚合、事务和唯一约束会显著提高复杂度。</p>
+<p><strong>适用场景：</strong> 适用于单机容量/吞吐瓶颈、数据天然按租户/用户分隔、热点可拆分的系统。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合早期数据量小但查询关系复杂的系统；过早分片会增加运维和开发成本。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上先定义 shard key，评估基数、倾斜、查询模式和扩容路径；面试中说明“分片键决定未来代价”。</p>
+<p><strong>常见误区与纠正方式：</strong> 随机哈希一定均衡；纠正方式是分析热点 Key、明星用户、大租户和时间集中写入。</p>
+<p><strong>速记：</strong> 分片先问键，热点看分布。</p>
+<span class="heading-anchor" id="3. 两阶段提交"></span><h3 id="3">3. 两阶段提交</h3>
+<p><strong>核心定义：</strong> 两阶段提交通过准备阶段和提交阶段协调多个参与者，使分布式事务要么全部提交要么全部回滚。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 准备阶段协调者询问参与者能否提交，参与者持久化预提交并锁定资源。
+- 提交阶段协调者根据投票发送 commit/abort；参与者按决定完成。
+- 若协调者在参与者 prepared 后失效，参与者可能阻塞等待最终决定。</p>
+<p><strong>适用场景：</strong> 适用于参与者少、强原子性要求高、可接受锁等待和阻塞风险的内部事务。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合长事务、跨组织服务、用户交互流程和高可用优先的互联网业务链路。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上控制事务范围、设置超时和人工恢复通道；面试中突出“强原子性换阻塞和锁持有”。</p>
+<p><strong>常见误区与纠正方式：</strong> 2PC 能解决所有分布式一致；纠正方式是说明阻塞、协调者单点、长锁和性能成本。</p>
+<p><strong>速记：</strong> 先问能不能，再通知做不做。</p>
+<span class="heading-anchor" id="4. Saga"></span><h3 id="4-saga">4. Saga</h3>
+<p><strong>核心定义：</strong> Saga 把长事务拆成一系列本地事务，每步成功后推进，失败时通过补偿动作尽量恢复业务一致。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- Saga 可编排式集中控制，也可协同式事件驱动。
+- 每个本地事务提交后不可简单回滚，需要设计语义正确的补偿，例如取消订单、释放库存、退款。
+- Saga 保证的是最终业务一致，不是数据库层原子隔离。</p>
+<p><strong>适用场景：</strong> 适用于跨服务长流程、订单履约、支付后处理、库存预占、审批和外部系统调用。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合不可补偿或必须瞬时强一致的核心约束，例如同一余额的严格扣减。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上为每一步设计幂等键、状态机、补偿动作和人工兜底；面试中强调“补偿不是反向 SQL，而是业务动作”。</p>
+<p><strong>常见误区与纠正方式：</strong> 把 Saga 当自动回滚事务；纠正方式是逐步定义可补偿性、失败窗口和用户可见状态。</p>
+<p><strong>速记：</strong> 长流程走本地事务，失败靠补偿收敛。</p>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_7">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>解决的核心问题</th>
+<th>适用边界</th>
+<th>不适用/风险边界</th>
+<th>面试抓手</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主从复制</td>
+<td>主从复制由主节点处理写入并把变更传播给从节点，从节点提供冗余、读扩展或故障接管。</td>
+<td>适用于读多写少、容灾备份、读扩展、冷热分离和同城高可用。</td>
+<td>不适合把异步从库当最新数据来源，也不适合无仲裁机制自动双主写入。</td>
+<td>主写从读要看延迟，切主防脑裂。</td>
+</tr>
+<tr>
+<td>分片</td>
+<td>分片把数据按范围、哈希或业务维度分布到多个节点，以提升容量、吞吐和故障隔离。</td>
+<td>适用于单机容量/吞吐瓶颈、数据天然按租户/用户分隔、热点可拆分的系统。</td>
+<td>不适合早期数据量小但查询关系复杂的系统；过早分片会增加运维和开发成本。</td>
+<td>分片先问键，热点看分布。</td>
+</tr>
+<tr>
+<td>两阶段提交</td>
+<td>两阶段提交通过准备阶段和提交阶段协调多个参与者，使分布式事务要么全部提交要么全部回滚。</td>
+<td>适用于参与者少、强原子性要求高、可接受锁等待和阻塞风险的内部事务。</td>
+<td>不适合长事务、跨组织服务、用户交互流程和高可用优先的互联网业务链路。</td>
+<td>先问能不能，再通知做不做。</td>
+</tr>
+<tr>
+<td>Saga</td>
+<td>Saga 把长事务拆成一系列本地事务，每步成功后推进，失败时通过补偿动作尽量恢复业务一致。</td>
+<td>适用于跨服务长流程、订单履约、支付后处理、库存预占、审批和外部系统调用。</td>
+<td>不适合不可补偿或必须瞬时强一致的核心约束，例如同一余额的严格扣减。</td>
+<td>长流程走本地事务，失败靠补偿收敛。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="边界条件表"></span><h2 id="_8">边界条件表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>边界条件</th>
+<th>应优先检查什么</th>
+<th>如果忽视会怎样</th>
+<th>推荐纠正方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入跨信任边界</td>
+<td>身份、来源、格式、权限</td>
+<td>被伪造、篡改或越权利用</td>
+<td>边界处重新认证、授权、校验和审计</td>
+</tr>
+<tr>
+<td>控制依赖人工流程</td>
+<td>owner、时限、证据</td>
+<td>例外长期存在，风险不可追踪</td>
+<td>自动化门禁 + 风险接受有效期</td>
+</tr>
+<tr>
+<td>机制带来额外复杂度</td>
+<td>性能、可用性、维护成本</td>
+<td>安全控制被绕过或误伤业务</td>
+<td>用威胁和资产价值决定控制强度</td>
+</tr>
+<tr>
+<td>运行环境会变化</td>
+<td>配置、依赖、权限漂移</td>
+<td>文档正确但系统实际暴露</td>
+<td>持续扫描、基线检测和复盘更新</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_9">常见误区总结</h2>
+<ul>
+<li><strong>主从复制：</strong> 有从库就不会丢数据；纠正方式是说明复制模式、提交确认点和故障切换窗口。</li>
+<li><strong>分片：</strong> 随机哈希一定均衡；纠正方式是分析热点 Key、明星用户、大租户和时间集中写入。</li>
+<li><strong>两阶段提交：</strong> 2PC 能解决所有分布式一致；纠正方式是说明阻塞、协调者单点、长锁和性能成本。</li>
+<li><strong>Saga：</strong> 把 Saga 当自动回滚事务；纠正方式是逐步定义可补偿性、失败窗口和用户可见状态。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_10">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：扩展性来自分片，可用性来自复制，但二者都会增加一致性复杂度。</li>
+<li>任选两个概念，说出它们的适用场景和不适用场景。</li>
+<li>如果机制失效，最可能先出现在哪个边界？如何验证？</li>
+<li>面试中如何用“定义 → 机制 → 场景 → 权衡 → 误区”回答本章任一概念？</li>
+<li>给一个真实系统例子，说明你会怎样落地本章控制或设计。</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_11">速记卡片</h2>
+<ul>
+<li>章节口诀：复制保可用，分片扩容量，事务控一致</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区 → 记忆点。</li>
+<li>工程落地：先列前提，再定机制，最后用日志、测试或演练验证。</li>
+<li>主从复制：主写从读要看延迟，切主防脑裂。</li>
+<li>分片：分片先问键，热点看分布。</li>
+<li>两阶段提交：先问能不能，再通知做不做。</li>
+<li>Saga：长流程走本地事务，失败靠补偿收敛。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_12">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「分布式系统」中的位置"></span><h3 id="1_1">1. 本章在「分布式系统」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>本章作用：</strong> 「分布式系统：复制分片与事务」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是把远程调用当本地调用，忽视超时、重试、幂等、分区和一致性语义。</li>
+<li><strong>实践抓手：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 主从复制"></span><h4 id="31">3.1 主从复制</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 主从复制 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 主从复制，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 分片"></span><h4 id="32">3.2 分片</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 分片 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 分片，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 两阶段提交"></span><h4 id="33">3.3 两阶段提交</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 两阶段提交 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 两阶段提交，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 Saga"></span><h4 id="34-saga">3.4 Saga</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> Saga 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 Saga，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_13">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「复制分片与事务」放进真实问题"></span><h3 id="1_2">1. 具体案例：把「复制分片与事务」放进真实问题</h3>
+<p>例如下单链路要考虑请求超时、重复提交、消息至少一次投递、库存扣减幂等、读写一致性和补偿任务。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>复制提升可用性但带来副本延迟和冲突。</li>
+<li>分片提升容量但跨分片查询和事务更贵。</li>
+<li>2PC 保原子但可能阻塞，Saga 用业务补偿换可用性。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主从复制</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>分片</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>两阶段提交</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>Saga</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「分布式系统」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_1">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>网络分区时选择什么语义？</li>
+<li>重试是否幂等？</li>
+<li>副本之间如何收敛或提交？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用故障注入、超时重试测试、乱序重复消息测试和一致性检查验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul>
+<span class="heading-anchor" id="本轮扩写：复制、分片与事务的工程边界"></span><h2 id="_14">本轮扩写：复制、分片与事务的工程边界</h2>
+<span class="heading-anchor" id="1. 复制延迟不是一个“监控数字”，而是读写语义的一部分"></span><h3 id="1_3">1. 复制延迟不是一个“监控数字”，而是读写语义的一部分</h3>
+<p>复制带来读扩展和容灾，但也带来读旧值、写冲突、故障切换和回放顺序问题。</p>
+<pre class="mermaid">flowchart LR
+  W["写主库"] --&gt; L["写入日志"]
+  L --&gt; R1["同步到副本A"]
+  L --&gt; R2["同步到副本B"]
+  R1 --&gt; Q["读请求"]
+  R2 --&gt; Q
+</pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>读策略</th>
+<th>优点</th>
+<th>风险</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读主</td>
+<td>语义简单，读己之写容易保证</td>
+<td>主库压力大</td>
+<td>订单支付状态、账户余额</td>
+</tr>
+<tr>
+<td>读从</td>
+<td>扩展读吞吐</td>
+<td>复制延迟导致旧读</td>
+<td>商品详情、内容浏览</td>
+</tr>
+<tr>
+<td>会话粘滞</td>
+<td>用户体验更稳定</td>
+<td>路由复杂</td>
+<td>用户刚写完马上查看</td>
+</tr>
+<tr>
+<td>quorum 读</td>
+<td>可提升一致性</td>
+<td>延迟高，实现复杂</td>
+<td>多副本 KV、配置存储</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. 分片的难点是“后续变化”"></span><h3 id="2_3">2. 分片的难点是“后续变化”</h3>
+<p>分片不是把 key hash 一下就结束，真正难点在扩容、热点、跨分片事务和二级索引。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>触发条件</th>
+<th>机制</th>
+<th>误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>热点分片</td>
+<td>明星用户、秒杀商品、递增 ID</td>
+<td>key 打散、预分片、队列削峰</td>
+<td>只看平均 QPS</td>
+</tr>
+<tr>
+<td>扩容迁移</td>
+<td>数据量增长或节点故障</td>
+<td>一致性哈希、虚拟节点、在线迁移</td>
+<td>停机全量搬迁</td>
+</tr>
+<tr>
+<td>跨分片查询</td>
+<td>查询条件不是分片键</td>
+<td>全局索引、查询改写、异步索引</td>
+<td>让所有请求都 fanout</td>
+</tr>
+<tr>
+<td>跨分片事务</td>
+<td>不变量跨多个 key</td>
+<td>2PC、Saga、业务冻结</td>
+<td>默认本地事务能覆盖全局</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3. 2PC 与 Saga 的选择"></span><h3 id="3-2pc-saga">3. 2PC 与 Saga 的选择</h3>
+<ul>
+<li><strong>2PC 适合：</strong> 参与方少、事务短、强一致要求高、协调者高可用且参与方能锁定资源。</li>
+<li><strong>2PC 不适合：</strong> 长流程、人为审批、外部支付、库存物流等不可长期锁资源的链路。</li>
+<li><strong>Saga 适合：</strong> 长业务流程、每步可补偿、允许中间状态暴露但最终业务收敛。</li>
+<li><strong>Saga 不适合：</strong> 补偿不可逆、要求强隔离、外部副作用不能撤销且没有冻结机制。</li>
+</ul>
+<span class="heading-anchor" id="4. 案例：下单链路的状态拆解"></span><h3 id="4_2">4. 案例：下单链路的状态拆解</h3>
+<pre class="mermaid">flowchart LR
+  A["创建订单"] --&gt; B["冻结库存"]
+  B --&gt; C["发起支付"]
+  C --&gt; D{支付结果}
+  D --&gt;|成功| E["确认库存"]
+  D --&gt;|失败/超时| F["释放库存"]
+  E --&gt; G["发货事件"]
+</pre>
+<ul>
+<li>冻结库存比直接扣减更利于补偿。</li>
+<li>支付回调必须幂等，因为回调可能重复或乱序。</li>
+<li>订单状态机要禁止非法跳转，如“已取消”不能再变“已支付”。</li>
+<li>对账任务是最终兜底，不是主流程的替代品。</li>
+</ul>
+<span class="heading-anchor" id="5. 面试追问路径"></span><h3 id="5_2">5. 面试追问路径</h3>
+<ol>
+<li>“如何避免超卖？”——先讲单分片原子扣减，再讲热点削峰和异步确认。</li>
+<li>“跨分片如何保证一致？”——先说明是否真的需要强一致，再比较 2PC、Saga 和业务冻结。</li>
+<li>“扩容时如何不影响线上？”——回答双写/迁移标记、增量追平、校验、灰度切流和回滚。</li>
+<li>“副本落后怎么办？”——回答复制延迟监控、读路由、读己之写和降级策略。</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

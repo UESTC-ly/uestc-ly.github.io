@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>MCP（Model Context Protocol）工作流程 · 李杨的学习笔记</title><meta name="description" content="MCP 是由 Anthropic 提出的开放标准协议，用于将 AI 模型与外部工具和数据源连接起来。"><meta property="og:title" content="MCP（Model Context Protocol）工作流程 · 李杨的学习笔记"><meta property="og:description" content="MCP 是由 Anthropic 提出的开放标准协议，用于将 AI 模型与外部工具和数据源连接起来。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-7458dc59a1ae.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-7458dc59a1ae.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 02-Agent-RAG-MCP</p><h1>MCP（Model Context Protocol）工作流程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/02-Agent-RAG-MCP/MCP%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E7%AC%94%E8%AE%B0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、核心概念</a></li><li><a href="#_2">二、架构全景</a></li><li><a href="#_3">三、四大角色详解</a></li><li><a href="#1-user">1. 用户（User）</a></li><li><a href="#2-model-llm">2. 模型（Model / LLM）</a></li><li><a href="#3-mcp-mcp-client">3. MCP 客户端（MCP Client）</a></li><li><a href="#4-mcp-mcp-server">4. MCP 服务器（MCP Server）</a></li><li><a href="#_4">四、完整工作流程示例</a></li><li><a href="#_5"></a></li><li><a href="#_6">五、关键设计理念</a></li><li><a href="#51">5.1 标准化协议</a></li><li><a href="#52-model-driven">5.2 模型驱动（Model-Driven）</a></li><li><a href="#53">5.3 安全边界</a></li><li><a href="#54">5.4 可组合性</a></li><li><a href="#55-api">5.5 与传统 API 的区别</a></li><li><a href="#mcp">六、MCP 服务器配置</a></li><li><a href="#_7">七、总结</a></li><li><a href="#_8">参考资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>📅 创建日期：2026-02-15</p>
+<p>MCP 是由 Anthropic 提出的开放标准协议，用于将 AI 模型与外部工具和数据源连接起来。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="一、核心概念"></span><h2 id="_1">一、核心概念</h2>
+<p>MCP 的全称是 <strong>Model Context Protocol（模型上下文协议）</strong>，它定义了一套标准化的通信协议，使 AI 模型能够安全、统一地与外部系统进行交互。</p>
+<p>可以把 MCP 类比为 <strong>"AI 的 USB 接口"</strong>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类比</th>
+<th>对应角色</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>USB 标准</td>
+<td>MCP 协议</td>
+</tr>
+<tr>
+<td>电脑 USB 口</td>
+<td>MCP 客户端</td>
+</tr>
+<tr>
+<td>USB 设备</td>
+<td>MCP 服务器</td>
+</tr>
+<tr>
+<td>操作系统</td>
+<td>模型（LLM）</td>
+</tr>
+<tr>
+<td>使用电脑的人</td>
+<td>用户（User）</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="二、架构全景"></span><h2 id="_2">二、架构全景</h2>
+<pre><code>┌─────────┐     自然语言      ┌──────────────────────────────────┐
+│         │ ◄──────────────► │          宿主应用程序              │
+│  用户    │                  │  (Host Application)              │
+│ (User)  │                  │  如: VS Code, Claude Desktop     │
+└─────────┘                  │                                  │
+                             │  ┌────────────┐  ┌────────────┐  │
+                             │  │   模型      │  │ MCP 客户端  │  │
+                             │  │  (LLM)     │◄►│ (Client)   │  │
+                             │  └────────────┘  └─────┬──────┘  │
+                             └────────────────────────┼─────────┘
+                                                      │ MCP 协议
+                                          ┌───────────┼───────────┐
+                                          │           │           │
+                                    ┌─────▼─────┐ ┌──▼────┐ ┌───▼─────┐
+                                    │ MCP Server│ │Server │ │ Server  │
+                                    │ (文件系统) │ │(数据库)│ │(Cloud   │
+                                    │           │ │       │ │  Run)   │
+                                    └───────────┘ └───────┘ └─────────┘
+</code></pre>
+<p>MCP 采用 <strong>客户端-服务器架构</strong>，一个宿主应用可以内嵌多个 MCP 客户端，每个客户端与一个 MCP 服务器建立 <strong>1:1 的连接</strong>。</p>
+<hr/>
+<span class="heading-anchor" id="三、四大角色详解"></span><h2 id="_3">三、四大角色详解</h2>
+<span class="heading-anchor" id="1. 用户（User）"></span><h3 id="1-user">1. 用户（User）</h3>
+<p>用户是整个流程的发起者和最终接收者。</p>
+<ul>
+<li><strong>输入</strong>：发起自然语言请求（如"帮我部署项目到 Cloud Run"）</li>
+<li><strong>审批</strong>：对敏感操作进行确认（如确认项目 ID、同意执行命令）</li>
+<li><strong>输出</strong>：接收模型整理后的自然语言回答</li>
+</ul>
+<span class="heading-anchor" id="2. 模型（Model / LLM）"></span><h3 id="2-model-llm">2. 模型（Model / LLM）</h3>
+<p>模型是整个流程的 <strong>"大脑"</strong>，负责理解和决策。</p>
+<ul>
+<li>理解用户的自然语言意图</li>
+<li><strong>自主决定</strong> 是否需要调用工具，以及调用哪些工具</li>
+<li>将用户请求转化为具体的工具调用（function call）</li>
+<li>整合工具返回的结果，生成用户友好的回答</li>
+</ul>
+<blockquote>
+<p>⚠️ 关键点：是 <strong>模型</strong> 决定调用什么工具，而不是用户直接指定。</p>
+</blockquote>
+<span class="heading-anchor" id="3. MCP 客户端（MCP Client）"></span><h3 id="3-mcp-mcp-client">3. MCP 客户端（MCP Client）</h3>
+<p>MCP 客户端是 <strong>协议层的桥梁</strong>，内置在宿主应用程序中。</p>
+<ul>
+<li>与 MCP 服务器建立 1:1 连接</li>
+<li>将模型的工具调用请求按 MCP 协议格式发送给服务器</li>
+<li>将服务器的响应返回给模型</li>
+<li>管理服务器的生命周期（启动、连接、断开）</li>
+</ul>
+<p>常见的宿主应用：
+- Claude Desktop
+- VS Code（通过插件）
+- 其他支持 MCP 的 IDE 或应用</p>
+<span class="heading-anchor" id="4. MCP 服务器（MCP Server）"></span><h3 id="4-mcp-mcp-server">4. MCP 服务器（MCP Server）</h3>
+<p>MCP 服务器是 <strong>能力的提供者</strong>，负责与外部系统交互。</p>
+<p>服务器暴露三类能力：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力类型</th>
+<th>说明</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Tools（工具）</strong></td>
+<td>可执行的操作</td>
+<td><code>deploy_local_folder</code>、<code>list_projects</code></td>
+</tr>
+<tr>
+<td><strong>Resources（资源）</strong></td>
+<td>可读取的数据</td>
+<td>文件内容、数据库记录、API 数据</td>
+</tr>
+<tr>
+<td><strong>Prompts（提示模板）</strong></td>
+<td>预定义的交互模板</td>
+<td>代码审查模板、翻译模板</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="四、完整工作流程示例"></span><h2 id="_4">四、完整工作流程示例</h2>
+<p>以 Cloud Run MCP Server 为例，用户请求 <strong>"帮我列出所有 GCP 项目"</strong>：</p>
+<pre><code>步骤 1: 用户
+        │
+        │  "帮我列出所有 GCP 项目"
+        ▼
+步骤 2: 宿主应用 ──► 将用户消息 + 可用工具列表一起发送给模型
+        │              （工具列表: list_projects, deploy_local_folder, ...）
+        ▼
+步骤 3: 模型 (LLM)
+        │  理解意图 → 决定调用 list_projects 工具
+        │  生成 tool_call: list_projects()
+        ▼
+步骤 4: MCP 客户端
+        │  按 MCP 协议格式封装请求
+        │  发送给 Cloud Run MCP Server
+        ▼
+步骤 5: Cloud Run MCP Server
+        │  调用 GCP API
+        │  获取项目列表
+        ▼
+步骤 6: 原路返回
+        MCP Server → MCP 客户端 → 模型
+        ▼
+步骤 7: 模型整合结果
+        │  将原始 JSON 数据整理为自然语言
+        │  "您有以下 GCP 项目: project-a, project-b, ..."
+        ▼
+步骤 8: 用户看到最终回答 ✅
+</code></pre>
+<span class="heading-anchor" id=""></span><h2 id="_5"><img alt="b35566b25061c34064dd61563a84400f.png" loading="lazy" referrerpolicy="no-referrer" src="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/_assets/b35566b25061c34064dd61563a84400f.png"/></h2>
+<span class="heading-anchor" id="五、关键设计理念"></span><h2 id="_6">五、关键设计理念</h2>
+<span class="heading-anchor" id="5.1 标准化协议"></span><h3 id="51">5.1 标准化协议</h3>
+<p>MCP 定义了统一的通信协议，任何服务器只要遵循该协议就能被任何客户端使用，实现 <strong>即插即用</strong>。</p>
+<span class="heading-anchor" id="5.2 模型驱动（Model-Driven）"></span><h3 id="52-model-driven">5.2 模型驱动（Model-Driven）</h3>
+<p>与传统 API 由程序员直接调用不同，MCP 的工具描述包含 <strong>自然语言说明</strong>，由 AI 模型自主决定何时、调用哪个工具。</p>
+<span class="heading-anchor" id="5.3 安全边界"></span><h3 id="53">5.3 安全边界</h3>
+<ul>
+<li>MCP 服务器运行在本地或受控环境中</li>
+<li>敏感操作需要 <strong>用户确认</strong>（human-in-the-loop）</li>
+<li>权限由宿主应用控制</li>
+</ul>
+<span class="heading-anchor" id="5.4 可组合性"></span><h3 id="54">5.4 可组合性</h3>
+<p>一个客户端可以同时连接 <strong>多个 MCP 服务器</strong>，获得不同领域的能力：</p>
+<pre><code>MCP 客户端 ──► 文件系统 MCP Server（读写文件）
+           ──► 数据库 MCP Server（查询数据）
+           ──► Cloud Run MCP Server（部署服务）
+           ──► GitHub MCP Server（管理仓库）
+</code></pre>
+<span class="heading-anchor" id="5.5 与传统 API 的区别"></span><h3 id="55-api">5.5 与传统 API 的区别</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>传统 API</th>
+<th>MCP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>使用者</td>
+<td>程序员</td>
+<td>AI 模型</td>
+</tr>
+<tr>
+<td>调用方式</td>
+<td>硬编码调用</td>
+<td>模型自主决策</td>
+</tr>
+<tr>
+<td>接口描述</td>
+<td>OpenAPI/Swagger</td>
+<td>自然语言 + JSON Schema</td>
+</tr>
+<tr>
+<td>发现机制</td>
+<td>文档查阅</td>
+<td>协议内自动发现</td>
+</tr>
+<tr>
+<td>交互模式</td>
+<td>请求-响应</td>
+<td>对话式、上下文感知</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="六、MCP 服务器配置"></span><h2 id="mcp">六、MCP 服务器配置</h2>
+<p>MCP 服务器通常通过 JSON 配置文件来管理。配置文件定义了要连接哪些服务器、启动命令、环境变量等。</p>
+<pre><code class="language-json">{
+  "mcpServers": {
+    "server-name": {
+      "command": "启动命令",
+      "args": ["参数1", "参数2"],
+      "env": {
+        "API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+</code></pre>
+<p>常见的 MCP 服务器类型：
+- <strong>云服务</strong>：Cloud Run、AWS Lambda
+- <strong>开发工具</strong>：GitHub、GitLab
+- <strong>数据库</strong>：PostgreSQL、MongoDB
+- <strong>文件系统</strong>：本地文件读写
+- <strong>搜索引擎</strong>：Brave Search、Google Search
+- <strong>自定义服务</strong>：任何遵循 MCP 协议的服务</p>
+<hr/>
+<span class="heading-anchor" id="七、总结"></span><h2 id="_7">七、总结</h2>
+<pre><code>用户 ←→ 宿主应用（模型 + MCP客户端）←→ MCP服务器 ←→ 外部系统
+</code></pre>
+<ul>
+<li><strong>用户</strong> 只需用自然语言表达需求</li>
+<li><strong>模型</strong> 理解意图并决定使用什么工具</li>
+<li><strong>MCP 客户端</strong> 负责协议通信</li>
+<li><strong>MCP 服务器</strong> 提供具体能力并执行操作</li>
+</ul>
+<p>MCP 的核心价值在于：让 AI 模型能够以 <strong>标准化、安全、可扩展</strong> 的方式与外部世界交互，而无需为每个工具编写专门的集成代码。</p>
+<hr/>
+<span class="heading-anchor" id="参考资料"></span><h2 id="_8">参考资料</h2>
+<ul>
+<li><a href="https://modelcontextprotocol.io/">MCP 官方文档</a></li>
+<li><a href="https://github.com/modelcontextprotocol/specification">MCP 规范（GitHub）</a></li>
+<li><a href="https://www.anthropic.com/news/model-context-protocol">Anthropic MCP 介绍博客</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

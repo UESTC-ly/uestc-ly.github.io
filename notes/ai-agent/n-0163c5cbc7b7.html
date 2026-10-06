@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-05 清洗、编码与去重 · 李杨的学习笔记</title><meta name="description" content="一页扫描稿可能有重复页眉、断行和多余空格。去掉这些噪声能改善阅读，但若把否定词、
+小数点或代码缩进一起删掉，文档意思就变了。清洗的目标是减少已知噪声，同时保留业务
+含义和回溯能力，而不是让文本看起来统一。"><meta property="og:title" content="03-05 清洗、编码与去重 · 李杨的学习笔记"><meta property="og:description" content="一页扫描稿可能有重复页眉、断行和多余空格。去掉这些噪声能改善阅读，但若把否定词、
+小数点或代码缩进一起删掉，文档意思就变了。清洗的目标是减少已知噪声，同时保留业务
+含义和回溯能力，而不是让文本看起来统一。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-0163c5cbc7b7.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-0163c5cbc7b7.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 03-data-ingestion</p><h1>03-05 清洗、编码与去重</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/03-data-ingestion/05-cleaning-encoding-and-deduplication.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">清洗像修复扫描稿，不是重写原文</a></li><li><a href="#_2">第一步：按证据解码字符</a></li><li><a href="#_3">规范化与清洗不是同一层</a></li><li><a href="#_4">页眉页脚不能只按固定行数删除</a></li><li><a href="#_5">谨慎处理空白、标点与大小写</a></li><li><a href="#_6">精确重复：内容完全相同</a></li><li><a href="#_7">近似重复：内容相似但不相同</a></li><li><a href="#_8">具体例子：两份退货政策</a></li><li><a href="#_9">对照实验</a></li><li><a href="#_10">安全与工程边界</a></li><li><a href="#_11">自测</a></li><li><a href="#_12">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>03-05</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门到初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 25 分钟对照实验</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td><a href="n-03fc89470dbe.html">03-01 文档模型、Loader 与 Parser</a></td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用两个短文本手工比较清洗前后差异</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分字符解码、规范化、清洗和去重；</li>
+<li>解释为什么“更干净”不一定“更正确”；</li>
+<li>为每次不可逆转换保留规则版本和对照证据；</li>
+<li>设计精确重复与近似重复的不同处理边界。</li>
+</ul>
+<span class="heading-anchor" id="清洗像修复扫描稿，不是重写原文"></span><h2 id="_1">清洗像修复扫描稿，不是重写原文</h2>
+<p>一页扫描稿可能有重复页眉、断行和多余空格。去掉这些噪声能改善阅读，但若把否定词、
+小数点或代码缩进一起删掉，文档意思就变了。清洗的目标是减少已知噪声，同时保留业务
+含义和回溯能力，而不是让文本看起来统一。</p>
+<p>合理的管线通常保留原始内容或可定位的原始引用，再生成规范化内容。这样发现规则有误时
+可以重新处理，而不是只能接受被永久修改的结果。</p>
+<span class="heading-anchor" id="第一步：按证据解码字符"></span><h2 id="_2">第一步：按证据解码字符</h2>
+<p>文件存储的是字节，文本需要按字符编码（character encoding）解释。UTF-8、UTF-16 和
+历史编码对同一字节可能给出不同字符。出现乱码时，不能通过删除异常字符假装解决。</p>
+<p>建议记录：来源声明的编码、探测结果、实际采用的编码、替换字符数量和失败状态。编码
+不确定时，可以拒绝自动发布或请求人工选择。使用“忽略所有解码错误”虽然能得到字符串，
+却可能静默丢失姓名、金额或关键标点。</p>
+<p>换行也有平台差异。把不同换行统一为内部表示通常是可接受的规范化，但原始文件仍应可
+追踪，输出位置映射也要考虑换行变化。</p>
+<span class="heading-anchor" id="规范化与清洗不是同一层"></span><h2 id="_3">规范化与清洗不是同一层</h2>
+<p><strong>规范化（normalization）</strong>把等价表示转换成一致形式，例如统一换行、明确的 Unicode
+规范形式或受控空白规则。<strong>清洗（cleaning）</strong>则根据来源和任务去除已知噪声，例如重复
+页眉、导航菜单或 OCR 产生的断词。</p>
+<p>两者都可能改变文本，因此规则需要版本化。一个可观察的清洗记录可以包含：</p>
+<ul>
+<li>输入内容摘要；</li>
+<li>清洗规则版本；</li>
+<li>每条规则命中的数量和位置；</li>
+<li>输出内容摘要；</li>
+<li>被删除片段的受控审计记录；</li>
+<li>警告与人工复核状态。</li>
+</ul>
+<p>不要在日志中无条件保存包含敏感信息的全文差异。</p>
+<span class="heading-anchor" id="页眉页脚不能只按固定行数删除"></span><h2 id="_4">页眉页脚不能只按固定行数删除</h2>
+<p>“删除每页第一行”会误删某些页面的正文标题。更好的方法是结合跨页重复、位置、字体或
+明确模板判断，并用边界样本验证。</p>
+<p>例如十页报告中，“内部资料”在每页顶部重复，可以作为页眉候选；但第一页顶部的“退款
+政策”只出现一次，更可能是真正标题。即使规则命中，也应先在小样本上比较清洗前后内容，
+确认没有删除关键条件。</p>
+<span class="heading-anchor" id="谨慎处理空白、标点与大小写"></span><h2 id="_5">谨慎处理空白、标点与大小写</h2>
+<ul>
+<li>连续普通空格可能归一化，但代码缩进和表格对齐可能有意义；</li>
+<li>全角半角转换可能改善检索，也可能改变产品编号；</li>
+<li>大小写对自然语言有时影响较小，对代码、缩写和标识符却很重要；</li>
+<li>连字符可能是断词噪声，也可能属于型号；</li>
+<li>标点可能承载小数、否定、范围和句子边界。</li>
+</ul>
+<p>因此不存在对所有来源都安全的“超级清洗函数”。规则应按格式、语言和业务域组合。</p>
+<span class="heading-anchor" id="精确重复：内容完全相同"></span><h2 id="_6">精确重复：内容完全相同</h2>
+<p>对规范化后的内容计算摘要，可以发现字节或文本完全相同的副本。但相同内容可能属于不同
+权限、来源或生命周期。不能只保留一条文本，然后把所有来源元数据覆盖成最后一次上传。</p>
+<p>一种做法是把“内容实体”与“来源记录”分开：内容可以复用存储，每个来源仍保留自己的
+权限、版本、引用和删除状态。删除一个来源不应意外删除仍被其他来源合法使用的内容。</p>
+<span class="heading-anchor" id="近似重复：内容相似但不相同"></span><h2 id="_7">近似重复：内容相似但不相同</h2>
+<p>页眉差异、格式转换和轻微修订会产生近似重复。相似度规则只能提供候选，不能证明两个
+文档可互换。两份政策只差“30 天”和“15 天”时，大部分文字相同，恰恰是差异最重要。</p>
+<p>近似重复可以用于：</p>
+<ul>
+<li>提示人工确认；</li>
+<li>降低同一来源的重复索引；</li>
+<li>建立版本关联；</li>
+<li>在评估中分析重复候选。</li>
+</ul>
+<p>它不应在没有业务规则的情况下自动删除高相似文档。</p>
+<span class="heading-anchor" id="具体例子：两份退货政策"></span><h2 id="_8">具体例子：两份退货政策</h2>
+<p>文件 A 写“标准商品 30 天内可退”，文件 B 写“标准商品 15 天内可退”，其余段落相同。
+若清洗先删除数字，或近似去重只保留 A，系统会给出过期答案。</p>
+<p>正确处理需要保留数字和版本差异，把两份文档关联到同一逻辑身份，再由生效时间与版本
+规则决定当前有效项。去重负责减少无意义副本，版本管理负责表达真实变更，两者不能互相
+替代。</p>
+<span class="heading-anchor" id="对照实验"></span><h2 id="_9">对照实验</h2>
+<p>准备一份含重复页眉、连字符型号、金额和代码缩进的短文本。为每条清洗规则记录：</p>
+<ol>
+<li>规则意图；</li>
+<li>清洗前片段；</li>
+<li>清洗后片段；</li>
+<li>预期改善；</li>
+<li>可能误伤；</li>
+<li>是否可逆。</li>
+</ol>
+<p>一次只改变一条规则。若检索效果变化，先检查内容是否被误改，再讨论是否保留规则。</p>
+<span class="heading-anchor" id="安全与工程边界"></span><h2 id="_10">安全与工程边界</h2>
+<ul>
+<li>去重摘要可能成为跨租户关联信号，需要按威胁模型保护；</li>
+<li>清洗不能承担删除敏感信息的全部责任，脱敏需要独立规则和验证；</li>
+<li>原文、清洗结果和差异记录都应继承访问控制；</li>
+<li>不可逆规则必须可审计、可版本化、可重新运行；</li>
+<li>“没有乱码”不等于采用了正确编码。</li>
+</ul>
+<p>计划中的 <code>cleaning.py</code>、重复检测边界测试和清洗管线图将在后续批次实现。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_11">自测</h2>
+<ol>
+<li>为什么忽略解码错误可能比直接失败更危险？</li>
+<li>规范化与来源相关清洗有什么区别？</li>
+<li>相同内容为什么仍需保留多个来源记录？</li>
+<li>近似重复为什么不能直接自动删除？</li>
+<li>清洗规则为什么需要版本和对照样本？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_12">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已做轻量静态检查；清洗与去重实现尚未完成。</li>
+<li>代码与图表：<code>cleaning.py</code>、边界测试和清洗图均为后续计划。</li>
+<li>
+<p>摘要：<a href="n-db15171214ac.html">03-05 摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-d348d38c9f8d.html">03-04 表格、布局与结构</a></p>
+</li>
+<li>下一章：<a href="n-bf6b644a092d.html">03-06 元数据、权限与来源血缘</a></li>
+<li>返回：<a href="n-526fec9608d7.html">03 数据摄取索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

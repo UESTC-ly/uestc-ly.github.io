@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04. 类型标注、`dataclass` 与 Pydantic · 李杨的学习笔记</title><meta name="description" content="目标读者：已经会写基础 Python，希望把代码提升到可维护、可测试，并能安全承接大模型输入/工具输出的学习者。"><meta property="og:title" content="04. 类型标注、`dataclass` 与 Pydantic · 李杨的学习笔记"><meta property="og:description" content="目标读者：已经会写基础 Python，希望把代码提升到可维护、可测试，并能安全承接大模型输入/工具输出的学习者。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-f140b3277ea0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-f140b3277ea0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python_ai_agent</p><h1>04. 类型标注、`dataclass` 与 Pydantic</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python_ai_agent/04_%E7%B1%BB%E5%9E%8B%E6%A0%87%E6%B3%A8_dataclass%E4%B8%8EPydantic.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#0">0. 运行本章示例</a></li><li><a href="#1">1. 类型标注的定位：给人和工具看的契约</a></li><li><a href="#11">1.1 基础类型与容器</a></li><li><a href="#12-optional">1.2 联合类型、Optional 和默认值</a></li><li><a href="#13-literal">1.3 类型别名、Literal 与有限状态</a></li><li><a href="#14-typeddict">1.4 TypedDict：给“字典形状”加静态契约</a></li><li><a href="#15-protocol">1.5 Protocol：按能力而不是按继承关系编程</a></li><li><a href="#16-callable">1.6 泛型与 Callable</a></li><li><a href="#17-typeguard">1.7 类型缩窄与 TypeGuard</a></li><li><a href="#18">1.8 静态类型与运行时类型的边界</a></li><li><a href="#19">1.9 注解如何求值：运行时对象、字符串和静态检查</a></li><li><a href="#110-anyobject-unknown">1.10 Any、object 与 Unknown 的安全梯度</a></li><li><a href="#111">1.11 联合类型的可读性、容器不变性和缩窄策略</a></li><li><a href="#112-typealiasliteral">1.12 TypeAlias、Literal 和可演进的状态机</a></li><li><a href="#113-typeddict-requiredoptional">1.13 TypedDict 的 required/optional 细节</a></li><li><a href="#114-protocol">1.14 Protocol 的运行时检查与测试替身</a></li><li><a href="#115-typevar">1.15 TypeVar、边界与类型安全的返回值</a></li><li><a href="#116-callable">1.16 Callable、回调和保留签名的装饰器</a></li><li><a href="#117">1.17 类型缩窄的完整流程</a></li><li><a href="#2-dataclass">2. dataclass：轻量的进程内数据对象</a></li><li><a href="#21-default_factory">2.1 基本字段、默认值与 default_factory</a></li><li><a href="#22-frozenslotspost_init">2.2 frozen、slots、post_init 与派生字段</a></li><li><a href="#23">2.3 生成的方法与字段生命周期</a></li><li><a href="#24-dataclass">2.4 dataclass 继承、默认字段和不变量</a></li><li><a href="#25-frozenslotskw_only">2.5 选择 frozen、slots、kw_only 的标准</a></li><li><a href="#3-pydantic-v2">3. Pydantic v2：运行时数据边界</a></li><li><a href="#31">3.1 安装与最小模型</a></li><li><a href="#32">3.2 字段约束、配置与验证器</a></li><li><a href="#33-pydantic-v2">3.3 Pydantic v2 的校验管线与模式选择</a></li><li><a href="#34-field">3.4 Field、别名和错误信息设计</a></li><li><a href="#35">3.5 嵌套模型与判别联合</a></li><li><a href="#36-typeadapter">3.6 TypeAdapter：不必为每个片段创建模型类</a></li><li><a href="#37">3.7 嵌套模型、别名与序列化</a></li><li><a href="#38-basesettings">3.8 BaseSettings：从环境变量读取配置</a></li><li><a href="#39">3.9 序列化、反序列化和字段暴露</a></li><li><a href="#4-dataclass-pydantic">4. dataclass 与 Pydantic 如何分工</a></li><li><a href="#41-agent-schema">4.1 Agent 工具 Schema 与结构化输出的闭环</a></li><li><a href="#42-dataclass-basemodel">4.2 dataclass 与 BaseModel 决策矩阵</a></li><li><a href="#5">5. 常见坑与排查清单</a></li><li><a href="#6">6. 练习题</a></li><li><a href="#61">6.1 练习提示与验收标准</a></li><li><a href="#_2">小结</a></li></ul></details><article class="note-content"><span class="heading-anchor" id="04. 类型标注、dataclass 与 Pydantic"></span><h1 id="04-dataclass-pydantic">04. 类型标注、<code>dataclass</code> 与 Pydantic</h1>
+<blockquote>
+<p>目标读者：已经会写基础 Python，希望把代码提升到可维护、可测试，并能安全承接大模型输入/工具输出的学习者。</p>
+<p>本章示例按 Python 3.11+ 编写。代码中的类型标注主要服务于阅读、IDE、静态检查和重构；真正接收外部数据（HTTP、环境变量、模型生成的 JSON、工具参数）时，还需要运行时校验。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本章后，你应当能够：</p>
+<ol>
+<li>用现代语法表达基础类型、容器、联合类型、字面量和可复用的类型别名。</li>
+<li>区分 <code>TypedDict</code>、<code>Protocol</code>、泛型、<code>Callable</code> 与具体的运行时对象。</li>
+<li>使用 <code>isinstance</code>、<code>is None</code>、<code>TypeGuard</code> 等方式进行类型缩窄，并理解静态类型检查和运行时检查的边界。</li>
+<li>用 <code>dataclass</code> 表达进程内的领域对象，用 <code>default_factory</code> 正确处理可变字段，用 <code>frozen</code>/<code>slots</code> 控制对象行为。</li>
+<li>用 Pydantic v2 定义输入模型、嵌套模型、工具参数和结构化输出，并完成校验、序列化和反序列化。</li>
+<li>知道何时选 <code>dataclass</code>、何时选 Pydantic，并把模型校验放在 Agent 系统的正确边界。</li>
+</ol>
+<span class="heading-anchor" id="0. 运行本章示例"></span><h2 id="0">0. 运行本章示例</h2>
+<p>在笔记项目根目录执行。下面的命令创建一个隔离环境并安装 Pydantic；不要把包安装到系统 Python：</p>
+<pre><code class="language-bash">python3 --version
+python3 -m venv .venv
+source .venv/bin/activate                 # macOS/Linux
+# Windows PowerShell：.venv\Scripts\Activate.ps1
+python -m pip install "pydantic&gt;=2.11,&lt;3" "pydantic-settings&gt;=2.11,&lt;3"
+</code></pre>
+<p>每个代码块都可以复制到一个 <code>.py</code> 文件中运行。例如：</p>
+<pre><code class="language-bash">python 04_type_demo.py
+</code></pre>
+<p>若你的环境只有 <code>python</code> 命令，后续命令中的 <code>python3</code> 可替换为 <code>python</code>。</p>
+<span class="heading-anchor" id="1. 类型标注的定位：给人和工具看的契约"></span><h2 id="1">1. 类型标注的定位：给人和工具看的契约</h2>
+<span class="heading-anchor" id="1.1 基础类型与容器"></span><h3 id="11">1.1 基础类型与容器</h3>
+<p>Python 变量本身没有“声明后不可改变类型”的限制，但标注可以说明函数的输入、输出和数据结构：</p>
+<pre><code class="language-python">from collections.abc import Iterable, Mapping, Sequence
+
+user_id: int = 42
+name: str = "Ada"
+enabled: bool = True
+score: float = 0.95
+tags: list[str] = ["python", "agent"]
+scores: dict[str, float] = {"planning": 0.95}
+unique_tags: set[str] = {"python", "agent"}
+point: tuple[int, int] = (10, 20)
+words: tuple[str, ...] = ("one", "two", "three")
+
+def average(values: Sequence[float]) -&gt; float:
+    return sum(values) / len(values)
+
+def print_items(items: Iterable[str]) -&gt; None:
+    for item in items:
+        print(item)
+
+def get_name(record: Mapping[str, str]) -&gt; str:
+    return record["name"]
+</code></pre>
+<p>推荐优先使用 <code>list[str]</code>、<code>dict[str, int]</code> 等内置泛型，而不是旧式的 <code>typing.List</code>、<code>typing.Dict</code>。<code>Sequence</code> 表示可按下标访问的序列（如 <code>list</code>、<code>tuple</code>），<code>Iterable</code> 表示可以被 <code>for</code> 遍历；参数应尽量接受更抽象的接口，返回值再根据需要具体化。</p>
+<p>常见特殊类型：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>含义</th>
+<th>使用提醒</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Any</code></td>
+<td>放弃静态检查，任意值都可通过</td>
+<td>只在边界或确实无法描述时使用，避免污染调用链</td>
+</tr>
+<tr>
+<td><code>object</code></td>
+<td>所有对象的共同父类型</td>
+<td>比 <code>Any</code> 安全；使用前通常要缩窄</td>
+</tr>
+<tr>
+<td><code>None</code></td>
+<td>空值，通常写在联合类型中</td>
+<td><code>None</code> 不是“未提供”的唯一表示，需明确业务语义</td>
+</tr>
+<tr>
+<td><code>Never</code></td>
+<td>理论上不会正常返回</td>
+<td>可用于总是抛异常或无限循环的函数</td>
+</tr>
+<tr>
+<td><code>Final</code></td>
+<td>约定一个名称不再重新绑定</td>
+<td>主要由静态检查器检查，不是运行时常量保护</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="1.2 联合类型、Optional 和默认值"></span><h3 id="12-optional">1.2 联合类型、<code>Optional</code> 和默认值</h3>
+<p>Python 3.10+ 推荐用 <code>A | B</code> 表示联合类型：</p>
+<pre><code class="language-python">def normalize(value: str | bytes) -&gt; str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value.strip()
+
+def find_user(user_id: int) -&gt; str | None:
+    # 找不到时返回 None
+    return "Ada" if user_id == 1 else None
+</code></pre>
+<p><code>Optional[str]</code> 等价于 <code>str | None</code>，只是旧式写法仍很常见。注意“允许为 <code>None</code>”与“参数可以省略”是两件事：</p>
+<pre><code class="language-python">def f(value: str | None) -&gt; None:  # 调用者仍应传入 value
+    ...
+
+def g(value: str | None = None) -&gt; None:  # value 可以省略
+    ...
+</code></pre>
+<p>Pydantic v2 也遵循这一语义：<code>field: str | None</code> 默认仍是必填字段；若要可省略，显式写 <code>field: str | None = None</code>。</p>
+<span class="heading-anchor" id="1.3 类型别名、Literal 与有限状态"></span><h3 id="13-literal">1.3 类型别名、<code>Literal</code> 与有限状态</h3>
+<p>类型别名让业务概念有名字。Python 3.11 写法如下；Python 3.12 才可使用 <code>type UserId = int</code> 的新语法：</p>
+<pre><code class="language-python">from typing import Literal, TypeAlias
+
+UserId: TypeAlias = int
+AgentStatus: TypeAlias = Literal["queued", "running", "completed", "failed"]
+
+def set_status(status: AgentStatus) -&gt; None:
+    print(f"status={status}")
+
+set_status("running")
+# 静态检查器会拒绝 set_status("unknown")；运行时 Python 默认不会拒绝。
+</code></pre>
+<p><code>Literal</code> 适合表达动作名、状态、工具类别等有限选项。若选项会由服务端动态变化，不要把动态数据硬编码成 <code>Literal</code>。</p>
+<span class="heading-anchor" id="1.4 TypedDict：给“字典形状”加静态契约"></span><h3 id="14-typeddict">1.4 <code>TypedDict</code>：给“字典形状”加静态契约</h3>
+<p><code>TypedDict</code> 仍然是普通字典，不能在运行时自动验证键和值。它适合描述内部 JSON-like 数据，特别是逐步迁移旧代码时：</p>
+<pre><code class="language-python">from typing import Literal, NotRequired, TypedDict
+
+class Message(TypedDict):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str
+    tool_name: NotRequired[str]
+
+message: Message = {"role": "user", "content": "搜索 Python 文档"}
+</code></pre>
+<p><code>NotRequired</code> 表示键可以缺少；这不等于键存在但值为 <code>None</code>。外部不可信输入若必须验证，应使用 Pydantic 或手写校验，而不是只写 <code>TypedDict</code>。</p>
+<span class="heading-anchor" id="1.5 Protocol：按能力而不是按继承关系编程"></span><h3 id="15-protocol">1.5 <code>Protocol</code>：按能力而不是按继承关系编程</h3>
+<p><code>Protocol</code> 支持结构化子类型（鸭子类型的静态版本）。只要对象具有所需方法，通常不必显式继承协议：</p>
+<pre><code class="language-python">from collections.abc import Sequence
+from typing import Protocol
+
+class Retriever(Protocol):
+    def search(self, query: str, *, limit: int = 5) -&gt; Sequence[str]:
+        ...
+
+class InMemoryRetriever:
+    def search(self, query: str, *, limit: int = 5) -&gt; list[str]:
+        return [f"结果：{query}"][:limit]
+
+def answer(query: str, retriever: Retriever) -&gt; str:
+    return "\n".join(retriever.search(query))
+
+print(answer("什么是协程？", InMemoryRetriever()))
+</code></pre>
+<p>如果需要在运行时使用 <code>isinstance(value, Retriever)</code>，为协议添加 <code>@runtime_checkable</code>。运行时检查通常只能检查“是否有这个属性”，不能可靠检查参数类型和返回类型，因此不能代替测试或 Pydantic 校验。</p>
+<span class="heading-anchor" id="1.6 泛型与 Callable"></span><h3 id="16-callable">1.6 泛型与 <code>Callable</code></h3>
+<p>泛型把“结构相同、元素类型不同”表达为一个可复用的抽象：</p>
+<pre><code class="language-python">from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+@dataclass
+class Result(Generic[T]):
+    value: T | None = None
+    error: str | None = None
+
+def first(items: list[T]) -&gt; T:
+    if not items:
+        raise ValueError("items 不能为空")
+    return items[0]
+
+number_result: Result[int] = Result(value=200)
+text_result: Result[str] = Result(value="ok")
+</code></pre>
+<p><code>Callable</code> 描述函数的参数和返回值：</p>
+<pre><code class="language-python">from collections.abc import Callable
+
+Handler = Callable[[str, int], str]
+
+def run_handler(handler: Handler, text: str) -&gt; str:
+    return handler(text, 1)
+</code></pre>
+<p>复杂装饰器若希望保留被装饰函数的参数类型，可以进一步学习 <code>ParamSpec</code> 和 <code>Concatenate</code>；在 Agent 工具注册器中，它们比写成 <code>Callable[..., Any]</code> 更安全。</p>
+<span class="heading-anchor" id="1.7 类型缩窄与 TypeGuard"></span><h3 id="17-typeguard">1.7 类型缩窄与 <code>TypeGuard</code></h3>
+<p>静态检查器不会因为一个变量标注为联合类型就自动知道它的具体分支。通过条件判断进行类型缩窄：</p>
+<pre><code class="language-python">def stringify(value: int | str | None) -&gt; str:
+    if value is None:
+        return "&lt;empty&gt;"
+    if isinstance(value, int):
+        return str(value + 1)
+    return value.upper()
+</code></pre>
+<p>对于可复用的复杂判断，可返回 <code>TypeGuard[T]</code>：</p>
+<pre><code class="language-python">from typing import TypeGuard
+
+def is_str_list(value: object) -&gt; TypeGuard[list[str]]:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+def join_if_valid(value: object) -&gt; str:
+    if is_str_list(value):
+        return ", ".join(value)
+    return ""
+</code></pre>
+<p>类型缩窄是静态工具根据代码路径做出的推断。它不会自动把运行时错误变成安全结果；外部输入仍须先验证。</p>
+<span class="heading-anchor" id="1.8 静态类型与运行时类型的边界"></span><h3 id="18">1.8 静态类型与运行时类型的边界</h3>
+<pre><code class="language-python">def add(a: int, b: int) -&gt; int:
+    return a + b
+
+result = add("1", "2")  # 多数静态检查器报错；运行时实际得到字符串 "12"
+print(result, type(result))
+</code></pre>
+<p>可以把数据流分成两层：</p>
+<pre><code class="language-text">网络/文件/环境变量/LLM JSON
+        │ 运行时验证：Pydantic、显式解析、权限检查
+        ▼
+可信的领域对象与函数调用
+        │ 静态约束：mypy/Pyright、IDE、代码审查
+        ▼
+可维护的业务逻辑
+</code></pre>
+<p>类型标注不是权限系统、序列化协议或安全边界。<code>cast()</code> 只是告诉静态检查器“相信我”，不会转换或验证对象；不要把 <code>cast()</code> 当作校验函数。</p>
+<span class="heading-anchor" id="1.9 注解如何求值：运行时对象、字符串和静态检查"></span><h3 id="19">1.9 注解如何求值：运行时对象、字符串和静态检查</h3>
+<p>类型注解写在源代码里，但它有两个容易混淆的生命周期：</p>
+<ol>
+<li><strong>解释器定义阶段</strong>：类或函数定义时，Python 可能立即求值注解表达式，并把结果放到 <code>__annotations__</code>。</li>
+<li><strong>静态检查阶段</strong>：mypy、Pyright、IDE 等读取源码/AST，独立推断类型，不会把标注变成运行时检查器。</li>
+</ol>
+<pre><code class="language-python">from __future__ import annotations
+
+from typing import get_type_hints
+
+class Node:
+    def __init__(self, value: str, next_node: Node | None = None) -&gt; None:
+        self.value = value
+        self.next_node = next_node
+
+def describe(node: Node) -&gt; list[str]:
+    return [node.value]
+
+print(Node.__init__.__annotations__)  # 使用 future 注解时，部分值会以字符串保存
+print(get_type_hints(Node.__init__))   # 在可信模块上下文中解析为真正的类型对象
+</code></pre>
+<p><code>from __future__ import annotations</code> 必须放在文件开头（仅允许出现在模块文档字符串之后），可以让前向引用更容易书写，也减少定义顺序问题。<code>typing.get_type_hints()</code> 会在运行时解析名称，可能执行属性访问或读取模块全局环境；不要把它当成对不可信源码的沙箱工具。框架（如 FastAPI、Pydantic）会自行读取注解，具体解析规则以框架为准。</p>
+<p>如果库要支持 Python 3.11，不能使用 Python 3.12 才加入的 <code>type Alias = ...</code> 语法；应使用 <code>Alias: TypeAlias = ...</code>。注解解析失败通常来自：导入缺失、前向引用名称不在命名空间、循环导入或运行时对象与静态标注不一致。</p>
+<span class="heading-anchor" id="1.10 Any、object 与 Unknown 的安全梯度"></span><h3 id="110-anyobject-unknown">1.10 <code>Any</code>、<code>object</code> 与 <code>Unknown</code> 的安全梯度</h3>
+<p>这三个词经常被混用，但它们承担不同职责：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>表达</th>
+<th>静态含义</th>
+<th>访问属性/调用</th>
+<th>适合 Agent 的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Any</code></td>
+<td>放弃对该值的大部分检查，向上下游传播“动态”</td>
+<td>静态检查器通常全部放行</td>
+<td>第三方无类型边界、临时迁移；应尽快收窄</td>
+</tr>
+<tr>
+<td><code>object</code></td>
+<td>任何 Python 对象，但不知道它的能力</td>
+<td>不能直接调用或访问未知属性，必须先缩窄</td>
+<td>不可信 JSON 尚未解析前的安全占位</td>
+</tr>
+<tr>
+<td><code>Unknown</code></td>
+<td>某些检查器（尤其 Pyright）用于“类型未知”的内部概念</td>
+<td>通常要求先检查才能安全使用</td>
+<td>逐步引入严格检查时的信号；不是 Python 运行时类型</td>
+</tr>
+</tbody>
+</table></div>
+<p>Python 标准 <code>typing</code> 没有一个可以在运行时实例化的 <code>Unknown</code>。若函数接收模型输出，宁可先写 <code>object</code>，再通过 Pydantic/<code>TypeGuard</code> 验证，也不要为了消除报错直接改成 <code>Any</code>：</p>
+<pre><code class="language-python">from typing import Any
+
+def unsafe_title(payload: Any) -&gt; str:
+    return payload["title"].strip()  # 任意错误都被推迟到运行时
+
+def safe_title(payload: object) -&gt; str:
+    if not isinstance(payload, dict):
+        raise TypeError("payload 必须是字典")
+    title = payload.get("title")
+    if not isinstance(title, str):
+        raise TypeError("title 必须是字符串")
+    return title.strip()
+</code></pre>
+<p><code>object</code> 不能保证业务字段存在，但它迫使你显式处理不确定性；对重复出现的结构，应升级为 <code>TypedDict</code>（静态形状）或 Pydantic（运行时校验）。</p>
+<span class="heading-anchor" id="1.11 联合类型的可读性、容器不变性和缩窄策略"></span><h3 id="111">1.11 联合类型的可读性、容器不变性和缩窄策略</h3>
+<p><code>A | B</code> 描述的是“值可能属于 A 或 B”，不是“两个值同时存在”。联合分支越多，调用者越难推理，通常应抽取成 <code>dataclass</code>/Pydantic 模型或使用判别字段：</p>
+<pre><code class="language-python">from typing import Literal, TypedDict
+
+class ToolMessage(TypedDict):
+    kind: Literal["tool"]
+    name: str
+
+class TextMessage(TypedDict):
+    kind: Literal["text"]
+    content: str
+
+Message = ToolMessage | TextMessage
+
+def message_label(message: Message) -&gt; str:
+    if message["kind"] == "tool":
+        return f"tool:{message['name']}"
+    return message["content"]
+</code></pre>
+<p>对泛型容器要注意可变性：<code>list[Dog]</code> 不能在类型安全上当作 <code>list[Animal]</code>，因为调用者可能向后者写入一只不是 <code>Dog</code> 的 <code>Animal</code>。只读参数优先使用协变的 <code>Sequence[Animal]</code>：</p>
+<pre><code class="language-python">from collections.abc import Sequence
+
+class Animal:
+    pass
+
+class Dog(Animal):
+    pass
+
+def count_animals(animals: Sequence[Animal]) -&gt; int:
+    return len(animals)
+
+dogs: list[Dog] = [Dog(), Dog()]
+print(count_animals(dogs))  # Sequence 只读接口允许这种安全传递
+</code></pre>
+<p><code>Optional[T]</code> 只是一种写法糖，等价于 <code>T | None</code>；它不代表异常、缺失键、空字符串或空列表。Agent 请求要分别决定“字段缺失”“字段显式为 null”和“字段为空字符串”是否有不同意义，再选择默认值和校验规则。</p>
+<span class="heading-anchor" id="1.12 TypeAlias、Literal 和可演进的状态机"></span><h3 id="112-typealiasliteral">1.12 <code>TypeAlias</code>、<code>Literal</code> 和可演进的状态机</h3>
+<p>类型别名应表达领域概念，而不是给每个简单类型机械加名字：</p>
+<pre><code class="language-python">from typing import Literal, TypeAlias
+
+RunId: TypeAlias = str
+Action: TypeAlias = Literal["call_tool", "respond", "ask_user"]
+
+def transition(action: Action) -&gt; str:
+    return {
+        "call_tool": "执行工具",
+        "respond": "输出答案",
+        "ask_user": "等待补充信息",
+    }[action]
+
+print(transition("respond"))
+</code></pre>
+<p><code>Literal</code> 由静态检查器约束拼写，但 Python 运行时仍可接收动态字符串；需要运行时约束时，使用 Pydantic 的 <code>Literal</code> 字段或显式集合检查。状态选项会随服务端配置动态变化时，使用 <code>str</code> 加运行时注册表更合适，不要每次改配置都修改类型源码。</p>
+<span class="heading-anchor" id="1.13 TypedDict 的 required/optional 细节"></span><h3 id="113-typeddict-requiredoptional">1.13 <code>TypedDict</code> 的 required/optional 细节</h3>
+<pre><code class="language-python">from typing import NotRequired, Required, TypedDict
+
+class RunContext(TypedDict, total=False):
+    request_id: Required[str]
+    user_id: NotRequired[str]
+    metadata: NotRequired[dict[str, str]]
+
+context: RunContext = {"request_id": "req-1"}
+</code></pre>
+<p><code>total=False</code> 会让字段默认可缺失，<code>Required</code> 可把其中字段重新设为必需，<code>NotRequired</code> 可明确表示可缺失。它们影响静态工具对“键可能不存在”的提示；运行时 <code>RunContext</code> 仍然只是 <code>dict</code>，不会阻止 <code>{"request_id": 123}</code>。将 LLM 输出从字典转成 <code>RunContext</code> 之前，仍须用 Pydantic 或显式解析。</p>
+<span class="heading-anchor" id="1.14 Protocol 的运行时检查与测试替身"></span><h3 id="114-protocol">1.14 <code>Protocol</code> 的运行时检查与测试替身</h3>
+<pre><code class="language-python">from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class Clock(Protocol):
+    def now(self) -&gt; float:
+        ...
+
+class FakeClock:
+    def __init__(self, value: float) -&gt; None:
+        self.value = value
+
+    def now(self) -&gt; float:
+        return self.value
+
+clock = FakeClock(10.0)
+print(isinstance(clock, Clock))  # True；这里只检查所需属性是否存在
+</code></pre>
+<p><code>runtime_checkable</code> 的 <code>isinstance</code> 不会验证方法参数和返回值签名，也不能验证行为契约（例如“时间必须单调递增”）。Agent 测试中，<code>Protocol</code> 用于注入模型客户端、检索器、时钟或事件发布器；测试替身还要用测试断言验证调用结果和副作用。</p>
+<span class="heading-anchor" id="1.15 TypeVar、边界与类型安全的返回值"></span><h3 id="115-typevar">1.15 <code>TypeVar</code>、边界与类型安全的返回值</h3>
+<pre><code class="language-python">from collections.abc import Sequence
+from typing import TypeVar
+
+T = TypeVar("T")
+NumberT = TypeVar("NumberT", int, float)
+
+def first_item(items: Sequence[T]) -&gt; T:
+    if not items:
+        raise ValueError("序列不能为空")
+    return items[0]
+
+def add_numbers(left: NumberT, right: NumberT) -&gt; NumberT:
+    return left + right
+
+print(first_item(["a", "b"]))
+print(add_numbers(1, 2))
+</code></pre>
+<p>无约束 <code>T</code> 表示“输入和输出保持同一类型关系”；约束 <code>NumberT</code> 表示只能是列出的几种类型。也可用 <code>TypeVar("T", bound=ProtocolName)</code> 表示“满足某种能力的任意子类型”。不要在函数内部把 <code>T</code> 强行转换成某个具体类型，否则标注的泛型关系就失真。</p>
+<span class="heading-anchor" id="1.16 Callable、回调和保留签名的装饰器"></span><h3 id="116-callable">1.16 <code>Callable</code>、回调和保留签名的装饰器</h3>
+<p>简单回调用 <code>Callable[[参数类型...], 返回类型]</code>：</p>
+<pre><code class="language-python">from collections.abc import Callable
+
+Formatter = Callable[[str], str]
+
+def render(text: str, formatter: Formatter) -&gt; str:
+    return formatter(text)
+
+print(render("hello", str.upper))
+</code></pre>
+<p>装饰器若写成 <code>Callable[..., Any]</code>，会丢失参数信息。更严格的通用装饰器可以使用 <code>ParamSpec</code>：</p>
+<pre><code class="language-python">from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+def traced(func: Callable[P, R]) -&gt; Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -&gt; R:
+        print(f"calling {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@traced
+def add(left: int, right: int) -&gt; int:
+    return left + right
+
+print(add(1, 2))
+</code></pre>
+<p><code>ParamSpec</code> 主要帮助静态检查器保留被包装函数的调用签名；它不在运行时检查参数。工具注册器仍需在注册时验证名字唯一、参数模型存在，并在执行前做权限检查。</p>
+<span class="heading-anchor" id="1.17 类型缩窄的完整流程"></span><h3 id="117">1.17 类型缩窄的完整流程</h3>
+<p>当数据来自 JSON 时，可以先做便宜的形状判断，再交给模型验证：</p>
+<pre><code class="language-python">from typing import TypeGuard
+
+def looks_like_mapping(value: object) -&gt; TypeGuard[dict[str, object]]:
+    return isinstance(value, dict) and all(isinstance(key, str) for key in value)
+
+def get_action(raw: object) -&gt; str:
+    if not looks_like_mapping(raw):
+        raise TypeError("输出必须是字符串键字典")
+    action = raw.get("action")
+    if not isinstance(action, str):
+        raise ValueError("action 必须是字符串")
+    return action
+
+print(get_action({"action": "respond"}))
+</code></pre>
+<p><code>TypeGuard</code> 的返回值是给静态检查器看的承诺；如果实现错误，检查器也会被误导。因此应为守卫函数写测试。对于复杂嵌套和跨字段约束，直接使用 Pydantic 通常比手写多层 <code>isinstance</code> 更清晰。</p>
+<span class="heading-anchor" id="2. dataclass：轻量的进程内数据对象"></span><h2 id="2-dataclass">2. <code>dataclass</code>：轻量的进程内数据对象</h2>
+<span class="heading-anchor" id="2.1 基本字段、默认值与 default_factory"></span><h3 id="21-default_factory">2.1 基本字段、默认值与 <code>default_factory</code></h3>
+<p><code>@dataclass</code> 自动生成 <code>__init__</code>、<code>__repr__</code>、<code>__eq__</code> 等方法，适合表示已经在程序内部具有可信结构的对象：</p>
+<pre><code class="language-python">from dataclasses import dataclass, field
+
+@dataclass
+class AgentState:
+    request_id: str
+    messages: list[str] = field(default_factory=list)
+    metadata: dict[str, str] = field(default_factory=dict)
+    max_steps: int = 8
+
+state = AgentState("req-001")
+state.messages.append("用户：解释迭代器")
+print(state)
+</code></pre>
+<p>绝对不要写 <code>messages: list[str] = []</code> 或 <code>metadata: dict[str, str] = {}</code>。可变对象会被多个实例共享；<code>default_factory</code> 会在每次实例化时新建一个对象。</p>
+<p>字段顺序遵循普通函数参数规则：没有默认值的字段放在有默认值字段之前。<code>field()</code> 可指定 <code>default</code>、<code>default_factory</code>、<code>init</code>、<code>repr</code>、<code>compare</code> 和 <code>metadata</code>。</p>
+<span class="heading-anchor" id="2.2 frozen、slots、post_init 与派生字段"></span><h3 id="22-frozenslotspost_init">2.2 <code>frozen</code>、<code>slots</code>、<code>post_init</code> 与派生字段</h3>
+<pre><code class="language-python">from dataclasses import dataclass, field
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    name: str
+    arguments: dict[str, object] = field(default_factory=dict)
+    normalized_name: str = field(init=False)
+
+    def __post_init__(self) -&gt; None:
+        if not self.name.strip():
+            raise ValueError("工具名不能为空")
+        object.__setattr__(self, "normalized_name", self.name.strip().lower())
+
+call = ToolCall(" Search ", {"query": "Python"})
+print(call.normalized_name)
+</code></pre>
+<ul>
+<li><code>frozen=True</code> 禁止通过普通赋值重新绑定字段，并使对象通常可哈希（是否可哈希还取决于字段）。它是浅不可变的：如果字段内有 <code>list</code>/<code>dict</code>，容器内部仍可变。</li>
+<li><code>slots=True</code> 用槽位存储字段，通常能减少对象开销，并阻止随意添加未声明的属性；需要动态属性时不要使用它。</li>
+<li><code>__post_init__</code> 在自动生成的 <code>__init__</code> 之后运行，适合做简单不变量检查或计算派生字段。它不会自动递归验证嵌套数据。</li>
+<li><code>ClassVar</code> 字段不是实例字段，不会参与生成的 <code>__init__</code>：</li>
+</ul>
+<pre><code class="language-python">from dataclasses import dataclass
+from typing import ClassVar
+
+@dataclass
+class RetryPolicy:
+    attempts: int = 3
+    default_backoff: ClassVar[float] = 0.5
+</code></pre>
+<p>常用辅助函数：<code>dataclasses.asdict()</code> 递归转成字典，<code>dataclasses.replace(obj, field=value)</code> 创建修改后的副本。若对象要接收不可信 JSON，不要仅依赖 <code>dataclass</code> 的标注。</p>
+<span class="heading-anchor" id="2.3 生成的方法与字段生命周期"></span><h3 id="23">2.3 生成的方法与字段生命周期</h3>
+<p>可以把 <code>dataclass</code> 看成一个“根据字段声明生成样板代码”的装饰器，而不是一个验证框架。默认情况下它主要生成：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>生成项</th>
+<th>作用</th>
+<th>何时调整</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>__init__</code></td>
+<td>按字段接收构造参数</td>
+<td><code>init=False</code>、<code>kw_only=True</code> 可改变参数形状</td>
+</tr>
+<tr>
+<td><code>__repr__</code></td>
+<td>输出便于调试的表示</td>
+<td>密钥/大文本字段应设 <code>repr=False</code></td>
+</tr>
+<tr>
+<td><code>__eq__</code></td>
+<td>按字段比较相等性</td>
+<td><code>compare=False</code> 排除缓存/运行时字段</td>
+</tr>
+<tr>
+<td><code>__hash__</code></td>
+<td>由 <code>frozen</code> 等配置决定</td>
+<td>可变对象不要随意启用 <code>unsafe_hash</code></td>
+</tr>
+<tr>
+<td>排序方法</td>
+<td><code>order=True</code> 时生成</td>
+<td>只有确有全序语义时才启用</td>
+</tr>
+</tbody>
+</table></div>
+<p>字段大致经历“类定义 → 构造参数 → <code>__post_init__</code> → 正常使用 → 序列化/复制”的生命周期：</p>
+<pre><code class="language-python">from dataclasses import asdict, dataclass, field, replace
+
+@dataclass
+class RunState:
+    run_id: str
+    messages: list[str] = field(default_factory=list, repr=False)
+    step_count: int = field(default=0, compare=False)
+
+    def add_message(self, message: str) -&gt; None:
+        self.messages.append(message)
+        self.step_count += 1
+
+state = RunState("run-1")
+state.add_message("开始")
+copied = replace(state, run_id="run-2")
+print(asdict(state))
+print(copied.run_id, copied.messages is state.messages)
+</code></pre>
+<p><code>replace()</code> 会重新构造对象；对于普通字段，结果通常是浅复制，嵌套可变对象仍可能共享。若要完全隔离消息历史，应显式复制列表。<code>asdict()</code> 会递归复制 dataclass 字段，但不应直接用来输出秘密或大规模对象。</p>
+<span class="heading-anchor" id="2.4 dataclass 继承、默认字段和不变量"></span><h3 id="24-dataclass">2.4 <code>dataclass</code> 继承、默认字段和不变量</h3>
+<p>继承时，父类字段会参与子类构造函数，默认字段仍不能排在无默认字段之前：</p>
+<pre><code class="language-python">from dataclasses import dataclass
+
+@dataclass
+class Event:
+    event_id: str
+
+@dataclass
+class ToolEvent(Event):
+    tool_name: str
+    success: bool = True
+
+event = ToolEvent(event_id="e-1", tool_name="search")
+print(event)
+</code></pre>
+<p>当父类已经有默认字段、子类又要添加无默认字段时，可能出现 <code>TypeError: non-default argument follows default argument</code>。解决方式包括：使用 <code>kw_only=True</code>、调整继承层次、把配置组合而不是继承，或让新增字段也有合理默认值。Agent 的状态对象通常更适合组合（例如 <code>RunState</code> 持有 <code>RetryPolicy</code>）而不是深层继承。</p>
+<p><code>__post_init__</code> 适合校验局部不变量，但不要在其中联网或读取全局可变配置：</p>
+<pre><code class="language-python">from dataclasses import dataclass
+
+@dataclass
+class RetryPolicy:
+    max_attempts: int = 3
+    backoff_s: float = 0.5
+
+    def __post_init__(self) -&gt; None:
+        if self.max_attempts &lt; 1:
+            raise ValueError("max_attempts 必须至少为 1")
+        if self.backoff_s &lt; 0:
+            raise ValueError("backoff_s 不能为负数")
+</code></pre>
+<p>如果类通过自定义 <code>__init__</code> 构造，<code>__post_init__</code> 不会自动被调用；自定义构造逻辑时要明确是否需要手动调用或改用类方法工厂。</p>
+<span class="heading-anchor" id="2.5 选择 frozen、slots、kw_only 的标准"></span><h3 id="25-frozenslotskw_only">2.5 选择 <code>frozen</code>、<code>slots</code>、<code>kw_only</code> 的标准</h3>
+<ul>
+<li>值对象（ID、策略、不可变请求快照）优先考虑 <code>frozen=True</code>；若内部有列表，应改为元组或在边界复制。</li>
+<li>大量短生命周期对象（事件、消息元数据）且不需要动态属性时考虑 <code>slots=True</code>；先用基准测试确认收益。</li>
+<li>参数很多、未来容易增加字段的配置对象可使用 <code>kw_only=True</code>，避免位置参数错位：</li>
+</ul>
+<pre><code class="language-python">from dataclasses import dataclass
+
+@dataclass(kw_only=True, slots=True)
+class AgentLimits:
+    max_steps: int = 8
+    timeout_s: float = 30.0
+
+limits = AgentLimits(timeout_s=10.0)
+print(limits)
+</code></pre>
+<p><code>frozen</code> 是对象属性重新绑定的限制，不是并发安全保证；<code>slots</code> 是布局/属性限制，也不是序列化协议。需要跨进程或网络传输时仍要定义明确的 schema。</p>
+<span class="heading-anchor" id="3. Pydantic v2：运行时数据边界"></span><h2 id="3-pydantic-v2">3. Pydantic v2：运行时数据边界</h2>
+<span class="heading-anchor" id="3.1 安装与最小模型"></span><h3 id="31">3.1 安装与最小模型</h3>
+<p>在已激活的虚拟环境中执行：</p>
+<pre><code class="language-bash">python -m pip install "pydantic&gt;=2.11,&lt;3" "pydantic-settings&gt;=2.11,&lt;3"
+</code></pre>
+<p>Pydantic 模型会在实例化时解析和校验数据：</p>
+<pre><code class="language-python">from pydantic import BaseModel, ConfigDict, Field
+
+class UserInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    age: int = Field(ge=0, le=150)
+
+user = UserInput(name=" Ada ", age="36")
+print(user.name, type(user.age))  # Ada  &lt;class 'int'&gt;
+print(user.model_dump())
+</code></pre>
+<p>默认情况下 Pydantic 会做适度的类型转换（例如可解析的数字字符串转为整数），但转换不是业务校验的全部。需要严格行为时，使用 <code>ConfigDict(strict=True)</code> 或对字段设置严格类型，并为业务规则写验证器。</p>
+<span class="heading-anchor" id="3.2 字段约束、配置与验证器"></span><h3 id="32">3.2 字段约束、配置与验证器</h3>
+<p>下面是一个可独立运行的 Agent 工具参数模型：</p>
+<pre><code class="language-python">from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+class SearchArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",              # 拒绝模型多生成的未知字段
+        str_strip_whitespace=True,
+    )
+
+    query: str = Field(min_length=1, max_length=200, description="搜索关键词")
+    top_k: int = Field(default=5, ge=1, le=20)
+    language: Literal["zh", "en"] = "zh"
+
+    @field_validator("query")
+    @classmethod
+    def query_must_have_text(cls, value: str) -&gt; str:
+        if not any(char.isalnum() for char in value):
+            raise ValueError("query 至少要包含字母或数字")
+        return value
+
+class SearchResult(BaseModel):
+    title: str
+    url: str
+    score: float = Field(ge=0, le=1)
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult] = Field(default_factory=list)
+
+class AgentDecision(BaseModel):
+    """约束 Agent 的可执行决策；rationale 只记录简短理由，不保存隐式思维链。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["tool", "final", "ask_user"]
+    reason_summary: str = Field(min_length=1, max_length=500)
+    # 当前示例只有 search 工具，因此名称与参数模型保持一一对应。
+    tool_name: Literal["search"] | None = None
+    tool_args: SearchArgs | None = None
+
+    @model_validator(mode="after")
+    def check_tool_fields(self) -&gt; "AgentDecision":
+        if self.action == "tool" and (self.tool_name is None or self.tool_args is None):
+            raise ValueError("action=tool 时必须提供 tool_name 和 tool_args")
+        if self.action != "tool" and (self.tool_name is not None or self.tool_args is not None):
+            raise ValueError("非 tool 动作不应携带工具调用字段")
+        return self
+
+args = SearchArgs.model_validate({"query": "  Python typing  ", "top_k": 3})
+decision = AgentDecision.model_validate(
+    {
+        "action": "tool",
+        "reason_summary": "需要检索资料",
+        "tool_name": "search",
+        "tool_args": args.model_dump(),
+    }
+)
+print(decision.model_dump(mode="json"))
+print(AgentDecision.model_json_schema())
+</code></pre>
+<p>这个 <code>AgentDecision</code> 是“只有一个搜索工具”的教学模型，不是任意工具都安全适用的通用协议。工具增加后，应像 3.5 节那样使用判别联合，或通过服务端工具注册表把每个工具名映射到自己的参数模型并再次校验，避免出现“名称是 calculator，参数却是 SearchArgs”的错配。</p>
+<p>Pydantic v2 中常用 API：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>API</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Model.model_validate(data)</code></td>
+<td>从 Python 字典/对象校验并构造模型</td>
+</tr>
+<tr>
+<td><code>Model.model_validate_json(text)</code></td>
+<td>从 JSON 字符串校验并构造模型</td>
+</tr>
+<tr>
+<td><code>model.model_dump()</code></td>
+<td>转为 Python 字典</td>
+</tr>
+<tr>
+<td><code>model.model_dump(mode="json")</code></td>
+<td>产生更适合 JSON 的 Python 值</td>
+</tr>
+<tr>
+<td><code>model.model_dump_json()</code></td>
+<td>序列化为 JSON 字符串</td>
+</tr>
+<tr>
+<td><code>Model.model_json_schema()</code></td>
+<td>生成 JSON Schema，可给工具注册或结构化输出使用</td>
+</tr>
+<tr>
+<td><code>Field(...)</code></td>
+<td>约束、默认值、描述、别名等字段元数据</td>
+</tr>
+<tr>
+<td><code>@field_validator</code></td>
+<td>一个或多个字段的自定义校验</td>
+</tr>
+<tr>
+<td><code>@model_validator</code></td>
+<td>需要同时查看多个字段的不变量校验</td>
+</tr>
+</tbody>
+</table></div>
+<p>验证器应保持确定性、快速、无外部副作用。网络请求、数据库查询和模型调用不应放进字段验证器。</p>
+<span class="heading-anchor" id="3.3 Pydantic v2 的校验管线与模式选择"></span><h3 id="33-pydantic-v2">3.3 Pydantic v2 的校验管线与模式选择</h3>
+<p>一次 <code>Model.model_validate(data)</code> 可以按以下顺序理解：</p>
+<pre><code class="language-text">输入 Python 对象/JSON
+        ↓
+字段和模型配置决定 schema
+        ↓
+before/wrap 验证器（需要时先预处理）
+        ↓
+核心类型解析与字段约束（如 int、Literal、ge/le）
+        ↓
+after 字段验证器
+        ↓
+after 模型验证器（跨字段不变量）
+        ↓
+成功得到模型，或集中抛出 ValidationError
+</code></pre>
+<p>验证器模式的选择：</p>
+<ul>
+<li><code>mode="before"</code>：收到原始输入，适合兼容旧格式或清理外层数据；输入类型可能是任何对象，必须谨慎。</li>
+<li>默认 <code>mode="after"</code>：字段已完成类型解析，适合检查规范化后的值。</li>
+<li><code>mode="wrap"</code>：在核心验证前后包裹流程，适合记录或有条件地转换异常；复杂度更高，少用。</li>
+<li><code>@model_validator(mode="after")</code>：字段都通过后检查互相依赖的规则。</li>
+</ul>
+<pre><code class="language-python">from pydantic import BaseModel, ValidationError, field_validator
+
+class PositiveBatch(BaseModel):
+    values: list[int]
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def split_csv(cls, value: object) -&gt; object:
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",")]
+        return value
+
+try:
+    PositiveBatch.model_validate({"values": "1, 2, 3"})
+    PositiveBatch.model_validate({"values": [1, "bad"]})
+except ValidationError as exc:
+    print(exc.errors())  # 每条错误包含 location、type、message 等结构化信息
+</code></pre>
+<p>上例的 <code>before</code> 验证器只做输入形状兼容；真正的整数解析仍由 Pydantic 完成。不要在 <code>before</code> 中假设值一定是字符串，也不要直接修改可能被其他分支共享的可变输入。</p>
+<p>宽松和严格模式的取舍：</p>
+<pre><code class="language-python">from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
+
+class LaxRequest(BaseModel):
+    count: int
+
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(strict=True)
+    count: int
+
+print(LaxRequest.model_validate({"count": "3"}).count)  # 可能解析为 3
+try:
+    StrictRequest.model_validate({"count": "3"})
+except ValidationError:
+    print("严格模式拒绝字符串")
+
+class FieldStrictRequest(BaseModel):
+    count: StrictInt
+</code></pre>
+<p>宽松模式适合已知格式、需要兼容表单/环境变量的输入；严格模式适合工具参数、金额、计数、权限级别等不应隐式转换的边界。<code>bool</code> 与 <code>int</code> 的兼容性也可能让宽松校验产生意外，关键字段应使用严格类型并配合测试。模式选择应在项目边界统一，不要一部分模型宽松、一部分模型无说明。</p>
+<span class="heading-anchor" id="3.4 Field、别名和错误信息设计"></span><h3 id="34-field">3.4 <code>Field</code>、别名和错误信息设计</h3>
+<p><code>Field</code> 不只是写范围，也可以描述 JSON Schema、默认工厂和外部字段名：</p>
+<pre><code class="language-python">from pydantic import BaseModel, Field
+
+class ToolPage(BaseModel):
+    query: str = Field(
+        min_length=1,
+        max_length=200,
+        description="用户可见的搜索关键词，不要包含凭证",
+        examples=["Python 迭代器"],
+    )
+    page_size: int = Field(default=10, ge=1, le=50, alias="pageSize")
+
+page = ToolPage.model_validate({"query": "Python", "pageSize": 5})
+print(page.page_size)
+print(page.model_dump(by_alias=True))
+</code></pre>
+<p>字段描述会进入 JSON Schema，可能被工具注册器或模型调用协议使用；描述要准确、短小，不要把秘密或执行权限藏在描述中。面向外部协议时用 <code>alias</code> 固定 wire format，内部 Python 名称保持符合 PEP 8。Pydantic 2.11+ 推荐用 <code>validate_by_name</code> 与 <code>validate_by_alias</code> 分别控制是否接受字段名和别名；旧代码常见的 <code>populate_by_name=True</code> 在新版本中已不推荐，迁移时要配合项目的版本下限测试输入兼容性。</p>
+<span class="heading-anchor" id="3.5 嵌套模型与判别联合"></span><h3 id="35">3.5 嵌套模型与判别联合</h3>
+<p>当一个字段可能是几种结构时，使用带判别字段的联合比“很多可选字段”更清晰：</p>
+<pre><code class="language-python">from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field
+
+class SearchCall(BaseModel):
+    kind: Literal["search"]
+    query: str
+
+class CalculatorCall(BaseModel):
+    kind: Literal["calculator"]
+    expression: str
+
+ToolCall = Annotated[SearchCall | CalculatorCall, Field(discriminator="kind")]
+
+class Plan(BaseModel):
+    calls: list[ToolCall]
+
+plan = Plan.model_validate(
+    {"calls": [{"kind": "search", "query": "Python"}]}
+)
+print(type(plan.calls[0]).__name__)
+</code></pre>
+<p>判别联合让 Pydantic 能根据 <code>kind</code> 选择分支并给出局部错误路径，也让 Agent 工具协议更容易演进。执行前仍需把 <code>kind</code> 映射到白名单注册表，不能直接把模型生成的字符串当作 Python 函数名。</p>
+<span class="heading-anchor" id="3.6 TypeAdapter：不必为每个片段创建模型类"></span><h3 id="36-typeadapter">3.6 <code>TypeAdapter</code>：不必为每个片段创建模型类</h3>
+<p><code>TypeAdapter</code> 可验证任意类型（包括列表、联合、标准库类型和 TypedDict），适合工具返回值或配置片段：</p>
+<pre><code class="language-python">from typing import Literal
+
+from pydantic import TypeAdapter, ValidationError
+
+adapter = TypeAdapter(list[Literal["read", "write"]])
+print(adapter.validate_python(["read", "write"]))
+print(adapter.dump_json(["read"]))
+
+try:
+    adapter.validate_json('["delete"]')
+except ValidationError as exc:
+    print(exc.errors()[0]["type"])
+</code></pre>
+<p>选择标准：有多个字段、方法和业务不变量时定义 <code>BaseModel</code>；只有一个可复用类型表达式时使用 <code>TypeAdapter</code>。两者都提供运行时校验，但 <code>TypeAdapter</code> 不生成模型类属性，也没有 <code>model_dump()</code> 这类实例 API。</p>
+<span class="heading-anchor" id="3.7 嵌套模型、别名与序列化"></span><h3 id="37">3.7 嵌套模型、别名与序列化</h3>
+<p>嵌套模型把复杂输出拆成可复用的结构：</p>
+<pre><code class="language-python">from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field
+
+class Citation(BaseModel):
+    title: str
+    url: str
+
+class FinalAnswer(BaseModel):
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
+    answer: str = Field(min_length=1)
+    citations: list[Citation] = Field(default_factory=list)
+    generated_at: datetime
+    trace_id: str = Field(alias="traceId")
+
+payload = {
+    "answer": "迭代器按需产生值。",
+    "citations": [{"title": "Python 文档", "url": "https://docs.python.org/3/"}],
+    "generated_at": "2025-01-01T00:00:00Z",
+    "traceId": "trace-001",
+}
+answer = FinalAnswer.model_validate(payload)
+print(answer.model_dump(by_alias=True, mode="json"))
+</code></pre>
+<p>选择 <code>extra="forbid"</code> 还是 <code>extra="ignore"</code> 要看边界：工具参数和 Agent 决策通常应该拒绝未知字段，兼容第三方响应时才可能选择忽略。<code>model_dump(exclude_none=True)</code> 可以省略空值，但不要因此丢掉业务上“明确为 null”的语义。</p>
+<span class="heading-anchor" id="3.8 BaseSettings：从环境变量读取配置"></span><h3 id="38-basesettings">3.8 <code>BaseSettings</code>：从环境变量读取配置</h3>
+<p>配置是另一个不可信边界。使用 <code>pydantic-settings</code> 的 <code>BaseSettings</code> 可把环境变量解析为类型化配置：</p>
+<pre><code class="language-python">from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AGENT_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    model_name: str = "default-model"
+    request_timeout_s: float = Field(default=30.0, gt=0)
+    debug: bool = False
+
+settings = Settings()
+print(settings.model_name, settings.request_timeout_s)
+</code></pre>
+<p>运行前可设置环境变量：</p>
+<pre><code class="language-bash">AGENT_MODEL_NAME=my-model AGENT_REQUEST_TIMEOUT_S=10 python settings_demo.py
+</code></pre>
+<p><code>.env</code> 适合本地开发，不应提交真实密钥；生产环境优先使用平台 Secret/环境变量。不要把 API key 放进日志、异常文本、模型提示词或 <code>model_dump()</code> 的调试输出。</p>
+<p><code>BaseSettings</code> 的读取顺序也应写进项目说明：明确传入的构造参数通常优先于环境变量，环境变量优先于默认值；<code>.env</code> 是本地便利来源，不应成为生产秘密管理系统。需要嵌套设置时可以约定分隔符，但要避免把任意环境变量自动映射成权限字段：</p>
+<pre><code class="language-python">import os
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class ServiceSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AGENT_", extra="ignore")
+
+    timeout_s: float = 30.0
+    environment: str = "development"
+
+os.environ["AGENT_TIMEOUT_S"] = "12.5"
+settings = ServiceSettings()
+print(settings.timeout_s, settings.environment)
+</code></pre>
+<p>真实项目不要在模块导入时无条件创建全局 <code>Settings()</code> 并打印内容；测试需要通过构造参数或 monkeypatch 注入配置，避免测试顺序和进程环境互相影响。</p>
+<span class="heading-anchor" id="3.9 序列化、反序列化和字段暴露"></span><h3 id="39">3.9 序列化、反序列化和字段暴露</h3>
+<p>Pydantic 的“模型对象”与“传输格式”应明确区分：</p>
+<pre><code class="language-python">from datetime import datetime, timezone
+
+from pydantic import BaseModel, SecretStr
+
+class InternalConfig(BaseModel):
+    model_name: str
+    api_key: SecretStr
+    created_at: datetime
+
+config = InternalConfig(
+    model_name="demo",
+    api_key="do-not-log",
+    created_at=datetime.now(timezone.utc),
+)
+print(config.model_dump(mode="json", exclude={"api_key"}))
+print(config.model_dump_json(exclude={"api_key"}))
+</code></pre>
+<p><code>model_dump()</code> 默认产生 Python 值；<code>mode="json"</code> 会把日期等值转换为 JSON 友好表示；<code>model_dump_json()</code> 直接输出字符串。<code>exclude</code>/<code>include</code> 是字段暴露策略的一部分，尤其适合把内部配置和用户响应分开。<code>SecretStr</code> 的打印表示会遮蔽值，但如果主动调用 <code>get_secret_value()</code> 或把原始输入写日志，仍然会泄露。</p>
+<p>输入和输出要测试往返契约：</p>
+<pre><code class="language-python">from pydantic import BaseModel
+
+class ToolResult(BaseModel):
+    items: list[str]
+    truncated: bool = False
+
+raw = '{"items": ["a", "b"], "truncated": false}'
+result = ToolResult.model_validate_json(raw)
+round_trip = ToolResult.model_validate(result.model_dump(mode="json"))
+assert round_trip == result
+</code></pre>
+<p>序列化成功不代表数据可以安全地发送给模型或用户；仍需限制结果长度、去除内部字段、脱敏和内容安全检查。</p>
+<span class="heading-anchor" id="4. dataclass 与 Pydantic 如何分工"></span><h2 id="4-dataclass-pydantic">4. <code>dataclass</code> 与 Pydantic 如何分工</h2>
+<p>一个实用边界是：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent 内部状态、队列项、策略对象</td>
+<td><code>dataclass</code></td>
+<td>轻量、明确、构造快，不强行做输入解析</td>
+</tr>
+<tr>
+<td>HTTP 请求/响应、配置、LLM JSON、工具参数</td>
+<td>Pydantic</td>
+<td>需要运行时校验、错误定位和 JSON Schema</td>
+</tr>
+<tr>
+<td>只需给 IDE/检查器提示的字典</td>
+<td><code>TypedDict</code></td>
+<td>无运行时开销，但不提供验证</td>
+</tr>
+<tr>
+<td>需要由调用方提供能力的接口</td>
+<td><code>Protocol</code></td>
+<td>解耦实现，便于替换和测试</td>
+</tr>
+</tbody>
+</table></div>
+<p>典型 Agent 工具流水线：</p>
+<pre><code class="language-text">模型生成 JSON
+   ↓ model_validate_json()
+Pydantic ToolArgs（拒绝未知字段、校验范围）
+   ↓ 业务授权/限流/超时
+工具函数（接收已验证参数）
+   ↓
+Pydantic ToolResult 或内部 dataclass
+   ↓ model_dump_json()
+模型/HTTP 响应
+</code></pre>
+<p>验证通过不代表操作被授权。工具调用仍应检查用户权限、URL/路径白名单、资源额度、超时和重试策略。Pydantic 的 JSON Schema 可以帮助模型生成格式正确的参数，但模型仍可能生成危险或不符合业务意图的值。</p>
+<span class="heading-anchor" id="4.1 Agent 工具 Schema 与结构化输出的闭环"></span><h3 id="41-agent-schema">4.1 Agent 工具 Schema 与结构化输出的闭环</h3>
+<p>一个稳健的工具注册记录可以同时保存名称、参数模型和执行函数：</p>
+<pre><code class="language-python">from collections.abc import Callable
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+class WeatherArgs(BaseModel):
+    city: str = Field(min_length=1, max_length=80)
+
+class ToolSpec:
+    def __init__(
+        self,
+        name: str,
+        args_model: type[BaseModel],
+        execute: Callable[[BaseModel], Any],
+    ) -&gt; None:
+        self.name = name
+        self.args_model = args_model
+        self.execute = execute
+
+def fake_weather(args: BaseModel) -&gt; dict[str, str]:
+    weather = WeatherArgs.model_validate(args)
+    return {"city": weather.city, "condition": "sunny"}
+
+spec = ToolSpec("weather", WeatherArgs, fake_weather)
+arguments = spec.args_model.model_validate({"city": "上海"})
+result = spec.execute(arguments)
+print(result)
+print(spec.args_model.model_json_schema()["properties"].keys())
+</code></pre>
+<p>生产级注册器还应在注册时拒绝重复名称，在执行前检查用户权限、工具白名单、参数大小、超时和资源配额。对模型返回的结构化决策，推荐以下闭环：</p>
+<ol>
+<li>读取模型响应的 JSON 或 SDK 提供的结构化对象；</li>
+<li>用 <code>model_validate_json()</code>/<code>model_validate()</code> 校验结构和跨字段规则；</li>
+<li>校验动作名是否在本次请求允许的白名单；</li>
+<li>对路径、URL、SQL、表达式等高风险参数做业务安全检查；</li>
+<li>在有界超时与取消语义下执行工具；</li>
+<li>将工具结果裁剪、脱敏后通过 <code>model_dump(mode="json")</code> 反馈给 Agent。</li>
+</ol>
+<p>校验失败时可以让模型重新生成，但要限制重试次数，并记录结构化错误类型而不是把完整内部 traceback 直接放进提示词。不要把“模型给出了正确 JSON”误认为“用户已经授权”或“工具操作安全”。</p>
+<span class="heading-anchor" id="4.2 dataclass 与 BaseModel 决策矩阵"></span><h3 id="42-dataclass-basemodel">4.2 <code>dataclass</code> 与 <code>BaseModel</code> 决策矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断问题</th>
+<th>更偏向 <code>dataclass</code></th>
+<th>更偏向 Pydantic <code>BaseModel</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据是否已经由内部代码构造？</td>
+<td>是</td>
+<td>否，来自 JSON/HTTP/环境变量/LLM</td>
+</tr>
+<tr>
+<td>是否需要类型转换和详细错误路径？</td>
+<td>很少</td>
+<td>是</td>
+</tr>
+<tr>
+<td>是否要生成 JSON Schema？</td>
+<td>通常不需要</td>
+<td>工具/结构化输出通常需要</td>
+</tr>
+<tr>
+<td>是否希望对象轻量、少依赖？</td>
+<td>是</td>
+<td>可接受运行时验证依赖</td>
+</tr>
+<tr>
+<td>是否包含跨字段约束？</td>
+<td>简单规则可用 <code>post_init</code></td>
+<td>复杂规则用 <code>model_validator</code></td>
+</tr>
+<tr>
+<td>是否需要严格拒绝未知字段？</td>
+<td>需手写</td>
+<td><code>extra="forbid"</code> 直接表达</td>
+</tr>
+<tr>
+<td>是否是高频不可变值对象？</td>
+<td><code>frozen</code>/<code>slots</code> 合适</td>
+<td>可用，但需要评估验证开销</td>
+</tr>
+<tr>
+<td>是否需要序列化给外部系统？</td>
+<td>需自行定义协议</td>
+<td>内置 dump/JSON Schema，更方便</td>
+</tr>
+</tbody>
+</table></div>
+<p>两者可以组合：入口先用 Pydantic 验证 <code>ToolArgs</code>，应用层转换成不可变 <code>dataclass</code> 快照；不要在每一层反复把同一数据来回解析。</p>
+<span class="heading-anchor" id="5. 常见坑与排查清单"></span><h2 id="5">5. 常见坑与排查清单</h2>
+<ol>
+<li><strong>把标注当成运行时检查。</strong> <code>def f(x: int)</code> 不会自动阻止字符串调用；边界数据需要 Pydantic 或显式校验。</li>
+<li><strong>滥用 <code>Any</code> 和 <code>cast</code>。</strong> 它们会隐藏错误；先定义最小协议或数据模型。</li>
+<li><strong>可变默认值共享。</strong> <code>dataclass</code> 用 <code>field(default_factory=list)</code>；Pydantic 用 <code>Field(default_factory=list)</code>。</li>
+<li><strong>误解 <code>Optional</code>。</strong> <code>str | None</code> 表示可为 <code>None</code>，不一定表示可以省略；默认值要显式写 <code>= None</code>。</li>
+<li><strong>混淆 <code>TypedDict</code> 与 Pydantic。</strong> 前者只在静态分析时有用，后者会在运行时构造和验证。</li>
+<li><strong><code>frozen=True</code> 不是深度不可变。</strong> <code>frozen</code> 对象中的列表和字典仍可能被修改；需要不可变集合时使用 <code>tuple</code> 或不可变数据结构。</li>
+<li><strong><code>slots=True</code> 影响兼容性。</strong> 某些序列化库、动态属性逻辑或继承写法可能依赖 <code>__dict__</code>，启用前先测试。</li>
+<li><strong>协议运行时检查过于乐观。</strong> <code>@runtime_checkable</code> 主要检查属性是否存在，不检查完整的类型签名。</li>
+<li><strong>验证器有副作用。</strong> 验证器可能被重复调用；不要在其中发邮件、写数据库或调用 LLM。</li>
+<li><strong>默认接受未知字段。</strong> 工具参数模型建议 <code>extra="forbid"</code>，否则模型多生成的字段可能被静默忽略，掩盖提示词或调用器 bug。</li>
+<li><strong>只验证格式，不验证业务安全。</strong> <code>url: str</code> 不等于允许访问任意 URL；仍需 SSRF 防护和域名策略。</li>
+<li><strong>把秘密放进模型。</strong> <code>model_dump()</code> 和异常信息可能被记录，敏感字段要显式脱敏或排除。</li>
+</ol>
+<span class="heading-anchor" id="6. 练习题"></span><h2 id="6">6. 练习题</h2>
+<ol>
+<li>定义 <code>AgentEvent</code> 的 <code>TypedDict</code>，要求 <code>kind</code> 只能是 <code>"message"</code>、<code>"tool_call"</code>、<code>"tool_result"</code>，并让 <code>payload</code> 成为可选键。用静态检查器检查一个错误事件。</li>
+<li>编写一个 <code>Protocol</code>，描述 <code>VectorStore.search(query, top_k)</code> 能力；分别用内存实现和测试桩实现它，并说明为何不需要继承协议。</li>
+<li>创建泛型 <code>Result[T]</code>，补充 <code>ok(value)</code> 与 <code>fail(message)</code> 工厂函数；让静态检查器能推断 <code>Result[int]</code> 和 <code>Result[str]</code>。</li>
+<li>用 <code>dataclass(slots=True)</code> 实现 <code>RetryConfig</code>，包含次数、退避时间和抖动开关；在 <code>__post_init__</code> 中拒绝负数，并为列表字段正确使用 <code>default_factory</code>。</li>
+<li>写一个 Pydantic <code>ToolArgs</code>，字段包括查询词、分页大小和 <code>Literal</code> 排序方式；要求查询词去空白、页大小在合理范围、未知字段报错。</li>
+<li>定义一个嵌套的 <code>AgentResponse</code>，让 <code>citations</code> 使用子模型；分别演示 <code>model_validate()</code>、<code>model_dump()</code> 和 <code>model_dump_json()</code>。</li>
+<li>设计 <code>AgentDecision</code> 的校验规则：<code>action="final"</code> 必须有 <code>answer</code>，<code>action="tool"</code> 必须有工具名和参数，其他动作不能带多余字段。为每条规则写一个失败用例。</li>
+<li>写一个 <code>Settings</code>，从 <code>AGENT_</code> 前缀环境变量读取超时和调试开关；故意设置非法超时，观察 Pydantic 的错误路径和错误类型。</li>
+<li>对比 <code>dataclass</code> 和 Pydantic：给同一个 JSON 输入，分别构造对象，记录哪一个会把数字字符串转成整数、哪一个会接受未知字段。</li>
+<li>给工具参数加入 URL 字段。除了 Pydantic 的字符串校验，再设计域名白名单、超时和权限检查，并解释为什么“模型输出通过 Schema”仍然不够安全。</li>
+</ol>
+<span class="heading-anchor" id="6.1 练习提示与验收标准"></span><h3 id="61">6.1 练习提示与验收标准</h3>
+<p>不要只追求“程序能跑”，每题至少提交一段类型清晰的实现和一个失败案例：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>练习</th>
+<th>提示</th>
+<th>最低验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>用 <code>Literal</code> 和 <code>NotRequired</code> 表达事件形状；再让静态检查器检查错误值</td>
+<td>合法事件通过；错误 <code>kind</code> 在静态检查报告中出现；说明运行时为何仍需验证</td>
+</tr>
+<tr>
+<td>2</td>
+<td>定义最小 <code>Protocol</code>，内存实现和桩实现只需满足方法签名</td>
+<td><code>answer()</code> 不依赖具体实现类；两个实现都能被测试替换</td>
+</tr>
+<tr>
+<td>3</td>
+<td>让 <code>Result[T]</code> 的成功和失败状态有清晰不变量，考虑 <code>T | None</code></td>
+<td><code>Result[int]</code>/<code>Result[str]</code> 的返回类型可被推断；空结果不会被静默当成功</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>__post_init__</code> 做边界检查，列表字段只使用工厂</td>
+<td>两个实例的列表互不共享；非法次数/退避时间抛明确异常</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>Field</code> 写范围，<code>extra="forbid"</code> 拒绝未知键，验证器只做纯逻辑</td>
+<td>空查询、越界页大小、未知字段各有一个失败用例</td>
+</tr>
+<tr>
+<td>6</td>
+<td>先构造子模型，再调用父模型的 <code>model_validate</code> 和 dump API</td>
+<td>JSON 往返结果等价；输出不包含未声明内部字段</td>
+</tr>
+<tr>
+<td>7</td>
+<td>用判别字段或 <code>model_validator</code> 表达动作之间的互斥规则</td>
+<td>每条规则各有成功/失败测试；错误位置和信息可定位</td>
+</tr>
+<tr>
+<td>8</td>
+<td>为环境变量准备干净的 monkeypatch；确认 <code>BaseSettings</code> 的前缀</td>
+<td>合法值被解析为目标类型；非法值失败且不会泄露秘密</td>
+</tr>
+<tr>
+<td>9</td>
+<td>对同一字典分别用 dataclass 构造和 Pydantic 校验</td>
+<td>写下转换、未知字段和缺失字段的差异，不用“看起来一样”下结论</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Schema 只校验形状，白名单/权限/超时属于执行前策略</td>
+<td>对非法域名和未授权用户拒绝执行；测试证明 Schema 通过仍可能被策略拦截</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="小结"></span><h2 id="_2">小结</h2>
+<ul>
+<li>类型标注是静态契约，不是运行时安全边界；<code>Any</code>、<code>cast</code> 和 <code>TypedDict</code> 都不会替你验证外部数据。</li>
+<li><code>Protocol</code> 适合 Agent 组件的能力抽象，泛型适合复用容器和结果类型，<code>Literal</code> 适合有限状态和动作集合。</li>
+<li><code>dataclass</code> 适合内部领域对象；可变默认值必须用 <code>default_factory</code>，<code>frozen</code> 和 <code>slots</code> 要根据使用方式选择。</li>
+<li>Pydantic v2 适合请求、配置、模型 JSON 和工具参数：用 <code>Field</code>、验证器、嵌套模型、<code>extra="forbid"</code> 构建明确边界，用 <code>model_dump</code>/<code>model_validate</code> 做序列化与反序列化。</li>
+<li>Agent 的结构化输出流程应是“解析 → 运行时校验 → 授权/安全检查 → 执行”，Schema 正确不等于操作安全。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

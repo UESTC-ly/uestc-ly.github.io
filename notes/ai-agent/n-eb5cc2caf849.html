@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Query Rewrite、意图识别与 Rerank · 李杨的学习笔记</title><meta name="description" content="上一节： 04-BM25、混合检索与多路召回 ｜导航： 00-RAG学习路线 ｜下一节： 06-上下文压缩、去重与引用溯源"><meta property="og:title" content="Query Rewrite、意图识别与 Rerank · 李杨的学习笔记"><meta property="og:description" content="上一节： 04-BM25、混合检索与多路召回 ｜导航： 00-RAG学习路线 ｜下一节： 06-上下文压缩、去重与引用溯源"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-eb5cc2caf849.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-eb5cc2caf849.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>Query Rewrite、意图识别与 Rerank</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/05-Query-Rewrite%E3%80%81%E6%84%8F%E5%9B%BE%E8%AF%86%E5%88%AB%E4%B8%8ERerank.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 本节定位</a></li><li><a href="#2">2. 学习目标</a></li><li><a href="#3-rag">3. 在 RAG 流程中的位置</a></li><li><a href="#4">4. 为什么原始查询经常不适合直接检索</a></li><li><a href="#41">4.1 口语化和省略</a></li><li><a href="#42">4.2 指代和多轮上下文</a></li><li><a href="#43">4.3 一个问题包含多个检索目标</a></li><li><a href="#44">4.4 使用了文档中的别名或不同术语</a></li><li><a href="#45">4.5 查询包含非检索内容</a></li><li><a href="#5">5. 意图识别：先判断用户想做什么</a></li><li><a href="#51">5.1 常见检索意图</a></li><li><a href="#52">5.2 从问题中提取结构化信息</a></li><li><a href="#53">5.3 结构化输出的工程约束</a></li><li><a href="#6-query-rewrite">6. Query Rewrite 的主要类型</a></li><li><a href="#61">6.1 查询规范化</a></li><li><a href="#62">6.2 指代消解与上下文补全</a></li><li><a href="#63">6.3 查询扩展</a></li><li><a href="#64">6.4 查询分解</a></li><li><a href="#65">6.5 假设性答案或文档导向的查询</a></li><li><a href="#7">7. 改写的输入、输出与安全边界</a></li><li><a href="#71">7.1 推荐保留多种表示</a></li><li><a href="#72">7.2 改写提示词的核心要求</a></li><li><a href="#73">7.3 防止查询注入和越权扩展</a></li><li><a href="#8-rerank">8. 初步召回与 Rerank 的职责边界</a></li><li><a href="#81">8.1 初步召回：追求覆盖面</a></li><li><a href="#82-rerank">8.2 Rerank：追求前排精度</a></li><li><a href="#83">8.3 两阶段检索的直觉</a></li><li><a href="#9-rerank">9. Rerank 的常见实现方式</a></li><li><a href="#91">9.1 词法打分</a></li><li><a href="#92">9.2 向量相似度重排</a></li><li><a href="#93-cross-encoder-rerank">9.3 Cross-Encoder Rerank</a></li><li><a href="#94-llm-rerank">9.4 LLM Rerank</a></li><li><a href="#95">9.5 规则与模型的组合</a></li><li><a href="#10">10. 一个可落地的检索链路示例</a></li><li><a href="#_1">第一步：识别上下文</a></li><li><a href="#_2">第二步：识别意图和约束</a></li><li><a href="#_3">第三步：生成检索查询</a></li><li><a href="#_4">第四步：初步召回</a></li><li><a href="#rerank">第五步：Rerank</a></li><li><a href="#_5">第六步：生成与核验</a></li><li><a href="#11">11. 结果合并与排序策略</a></li><li><a href="#111">11.1 直接合并后按统一分数排序</a></li><li><a href="#112">11.2 轮流取各列表前排结果</a></li><li><a href="#113-reciprocal-rank-fusion">11.3 Reciprocal Rank Fusion</a></li><li><a href="#114">11.4 按子问题设置配额</a></li><li><a href="#12">12. 参数与延迟的权衡</a></li><li><a href="#13">13. 评估：不要只看最终答案</a></li><li><a href="#131">13.1 查询改写评估</a></li><li><a href="#132">13.2 初步召回指标</a></li><li><a href="#133">13.3 重排指标</a></li><li><a href="#134">13.4 端到端指标</a></li><li><a href="#14">14. 常见误区</a></li><li><a href="#_6">误区一：改写得越详细越好</a></li><li><a href="#_7">误区二：只保留改写结果</a></li><li><a href="#rerank_1">误区三：把 Rerank 当成召回器</a></li><li><a href="#_8">误区四：只按主题相似度排序</a></li><li><a href="#_9">误区五：让模型决定权限</a></li><li><a href="#_10">误区六：忽略多查询带来的重复和冲突</a></li><li><a href="#_11">误区七：只用最终答案评价链路</a></li><li><a href="#15">15. 推荐的最小实现路径</a></li><li><a href="#16">16. 实践检查清单</a></li><li><a href="#17">17. 小结</a></li><li><a href="#18">18. 来源与资料说明</a></li><li><a href="#_12">相关笔记</a></li><li><a href="#_13">版本记录</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>上一节：<a href="n-d2b4fdd4a5ca.html">04-BM25、混合检索与多路召回</a>｜导航：<a href="n-1984c9335328.html">00-RAG学习路线</a>｜下一节：<a href="n-4ae54a3fe83c.html">06-上下文压缩、去重与引用溯源</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 本节定位"></span><h2 id="1">1. 本节定位</h2>
+<p>在 RAG 中，检索质量不只取决于向量库或关键词算法。用户说出来的问题往往是口语化的、缺少上下文的，或者同时包含多个子问题；即使召回了候选文档，候选结果的顺序也未必适合直接交给生成模型。</p>
+<p>本节关注检索链路中的三个环节：</p>
+<ol>
+<li><strong>Query Rewrite（查询改写）</strong>：把用户原始问题转换成更适合检索的查询；</li>
+<li><strong>意图识别（Intent Recognition）</strong>：判断用户想查什么、应使用哪种检索策略，以及是否需要结构化过滤或路由；</li>
+<li><strong>Rerank（重排）</strong>：对初步召回的候选结果进行更精细的相关性排序。</li>
+</ol>
+<p>可以把它们概括为：</p>
+<blockquote>
+<p>先理解问题，再生成适合检索的表达，最后从候选证据中选出最相关的内容。</p>
+</blockquote>
+<span class="heading-anchor" id="2. 学习目标"></span><h2 id="2">2. 学习目标</h2>
+<p>完成本节后，应能够：</p>
+<ul>
+<li>识别用户问题中的检索意图、时间范围、实体、约束条件和多个子问题；</li>
+<li>区分查询改写、查询扩展、查询分解和答案生成；</li>
+<li>处理多轮对话中的指代、省略、口语化表达和歧义；</li>
+<li>理解初步召回与精排的职责边界；</li>
+<li>选择适合的 Rerank 方法，并在效果、延迟和成本之间做权衡；</li>
+<li>设计可观测、可回退、可评估的查询理解与重排链路。</li>
+</ul>
+<span class="heading-anchor" id="3. 在 RAG 流程中的位置"></span><h2 id="3-rag">3. 在 RAG 流程中的位置</h2>
+<p>一个常见的检索链路如下：</p>
+<pre><code class="language-text">用户问题
+  ↓
+查询理解与意图识别
+  ↓
+查询改写 / 查询分解 / 过滤条件提取
+  ↓
+初步召回（关键词、向量或混合检索）
+  ↓
+候选集合
+  ↓
+Rerank 重排
+  ↓
+上下文压缩、去重与组装
+  ↓
+答案生成与引用
+</code></pre>
+<p>三个环节的边界可以这样理解：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>主要问题</th>
+<th>典型输出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查询改写</td>
+<td>用户的表达是否适合检索</td>
+<td>一个或多个检索查询</td>
+</tr>
+<tr>
+<td>意图识别</td>
+<td>用户要查什么、怎么查</td>
+<td>意图、实体、过滤器、路由决策</td>
+</tr>
+<tr>
+<td>初步召回</td>
+<td>哪些文档可能相关</td>
+<td>候选文档集合</td>
+</tr>
+<tr>
+<td>Rerank</td>
+<td>候选文档中哪些最相关</td>
+<td>带新排序分数的候选列表</td>
+</tr>
+<tr>
+<td>生成</td>
+<td>如何基于证据回答</td>
+<td>最终答案与引用</td>
+</tr>
+</tbody>
+</table></div>
+<p>需要特别注意：<strong>Query Rewrite 和 Rerank 都可能提升检索效果，但它们作用在不同位置</strong>。改写改变的是检索输入；重排改变的是候选结果的顺序。</p>
+<span class="heading-anchor" id="4. 为什么原始查询经常不适合直接检索"></span><h2 id="4">4. 为什么原始查询经常不适合直接检索</h2>
+<span class="heading-anchor" id="4.1 口语化和省略"></span><h3 id="41">4.1 口语化和省略</h3>
+<p>用户可能说：</p>
+<blockquote>
+<p>这个配置怎么改？</p>
+</blockquote>
+<p>如果没有上一轮对话或当前页面信息，“这个配置”缺少可检索的实体。查询理解阶段需要补全上下文，而不能让向量检索自行猜测。</p>
+<span class="heading-anchor" id="4.2 指代和多轮上下文"></span><h3 id="42">4.2 指代和多轮上下文</h3>
+<p>例如：</p>
+<pre><code class="language-text">用户：如何配置文档权限？
+助手：可以按租户和用户角色配置。
+用户：那它和数据过滤有什么区别？
+</code></pre>
+<p>第二个问题中的“它”需要结合上一轮确定指代对象。适合检索的独立查询可以是：</p>
+<blockquote>
+<p>文档权限控制与数据过滤的区别是什么？</p>
+</blockquote>
+<span class="heading-anchor" id="4.3 一个问题包含多个检索目标"></span><h3 id="43">4.3 一个问题包含多个检索目标</h3>
+<p>例如：</p>
+<blockquote>
+<p>介绍混合检索的原理，并说明它在延迟和召回率方面有什么影响。</p>
+</blockquote>
+<p>它至少包含“原理”和“性能影响”两个目标。如果只使用整句检索，某些系统可能只召回其中一部分证据。可以将其拆为多个子查询，再合并和去重结果。</p>
+<span class="heading-anchor" id="4.4 使用了文档中的别名或不同术语"></span><h3 id="44">4.4 使用了文档中的别名或不同术语</h3>
+<p>用户说“重排”，文档可能使用“二阶段排序”；用户说“知识库”，文档可能使用“文档索引”。查询扩展可以补充同义词、缩写或相关术语，但不能无限添加概念，以免引入无关结果。</p>
+<span class="heading-anchor" id="4.5 查询包含非检索内容"></span><h3 id="45">4.5 查询包含非检索内容</h3>
+<p>“请用通俗的语言、分三点回答，并举一个例子”主要是回答格式要求，不一定应该原样送入检索器。可以把问题拆成：</p>
+<ul>
+<li>检索目标：需要查找的事实或规则；</li>
+<li>回答约束：语言、格式、长度、受众等生成阶段要求。</li>
+</ul>
+<span class="heading-anchor" id="5. 意图识别：先判断用户想做什么"></span><h2 id="5">5. 意图识别：先判断用户想做什么</h2>
+<span class="heading-anchor" id="5.1 常见检索意图"></span><h3 id="51">5.1 常见检索意图</h3>
+<p>在一个 RAG 应用中，可以根据业务定义意图。通用示例包括：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>意图</th>
+<th>说明</th>
+<th>可能的检索策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>事实查询</td>
+<td>查找某个定义、数值或规则</td>
+<td>直接检索，优先返回精确证据</td>
+</tr>
+<tr>
+<td>操作指南</td>
+<td>询问如何配置、安装或排障</td>
+<td>按步骤、版本和环境过滤</td>
+</tr>
+<tr>
+<td>比较分析</td>
+<td>比较两个或多个对象</td>
+<td>分别召回对象资料，再做对齐比较</td>
+</tr>
+<tr>
+<td>多跳问题</td>
+<td>需要连接多份文档或多个事实</td>
+<td>分解查询，分阶段检索</td>
+</tr>
+<tr>
+<td>摘要归纳</td>
+<td>总结某篇文档或一组材料</td>
+<td>先定位目标文档，再做范围受限的总结</td>
+</tr>
+<tr>
+<td>代码或配置查询</td>
+<td>查找 API、参数、示例或错误原因</td>
+<td>保留版本、语言、框架等结构化条件</td>
+</tr>
+<tr>
+<td>闲聊或无须检索</td>
+<td>不依赖项目知识即可回答</td>
+<td>直接回答或走普通对话链路</td>
+</tr>
+<tr>
+<td>无法判断</td>
+<td>信息不足或存在多种解释</td>
+<td>追问澄清，或使用低风险回退策略</td>
+</tr>
+</tbody>
+</table></div>
+<p>意图分类不是为了给所有问题贴上唯一标签，而是为了帮助系统做出后续决策：是否检索、检索哪些数据源、使用哪些过滤条件、是否拆分查询以及需要多少候选结果。</p>
+<span class="heading-anchor" id="5.2 从问题中提取结构化信息"></span><h3 id="52">5.2 从问题中提取结构化信息</h3>
+<p>一个实用的意图识别输出可以包含：</p>
+<pre><code class="language-json">{
+  "intent": "操作指南",
+  "query": "如何配置文档权限",
+  "entities": ["文档权限"],
+  "filters": {
+    "product": null,
+    "version": null,
+    "tenant": null,
+    "time_range": null
+  },
+  "needs_retrieval": true,
+  "needs_clarification": false,
+  "sub_queries": []
+}
+</code></pre>
+<p>字段不应为了“看起来完整”而随意增加。每个字段都应该能影响路由、过滤、检索或生成，否则会增加解析失败和维护成本。</p>
+<span class="heading-anchor" id="5.3 结构化输出的工程约束"></span><h3 id="53">5.3 结构化输出的工程约束</h3>
+<p>如果使用模型做意图识别，建议：</p>
+<ul>
+<li>预先定义有限的意图枚举，而不是允许模型自由发明类别；</li>
+<li>规定字段类型、必填字段和空值表达方式；</li>
+<li>对 JSON 解析失败设置回退路径；</li>
+<li>保存原始问题，不能只保留模型改写结果；</li>
+<li>低置信度时优先追问或使用原始查询，不要静默地做高风险路由；</li>
+<li>对权限、租户、时间和版本等过滤条件进行程序侧校验，不能完全信任模型提取结果。</li>
+</ul>
+<span class="heading-anchor" id="6. Query Rewrite 的主要类型"></span><h2 id="6-query-rewrite">6. Query Rewrite 的主要类型</h2>
+<span class="heading-anchor" id="6.1 查询规范化"></span><h3 id="61">6.1 查询规范化</h3>
+<p>目标是消除不影响语义的表达差异，例如：</p>
+<ul>
+<li>统一大小写、空白和标点；</li>
+<li>处理常见缩写、别名和产品名称；</li>
+<li>纠正明显的拼写错误；</li>
+<li>将相对时间转换为明确时间，但需要结合当前时间和业务时区；</li>
+<li>保留代码、版本号、错误码等不能被随意改写的字符串。</li>
+</ul>
+<p>规范化通常是低风险、低延迟操作，可以优先用规则和词典完成，避免每个查询都调用模型。</p>
+<span class="heading-anchor" id="6.2 指代消解与上下文补全"></span><h3 id="62">6.2 指代消解与上下文补全</h3>
+<p>把依赖对话历史的短问题改写为独立问题。例如：</p>
+<pre><code class="language-text">历史：项目使用混合检索。
+当前：它为什么还需要向量检索？
+改写：在混合检索中，为什么还需要使用向量检索？
+</code></pre>
+<p>补全时应遵守两个原则：</p>
+<ol>
+<li><strong>只补全已有上下文能够支持的信息</strong>；</li>
+<li><strong>无法确定时保留歧义或发起澄清</strong>，不能把猜测当成事实。</li>
+</ol>
+<span class="heading-anchor" id="6.3 查询扩展"></span><h3 id="63">6.3 查询扩展</h3>
+<p>在原始查询之外生成相关表达，用于提高召回覆盖面。常见扩展包括：</p>
+<ul>
+<li>同义词和术语别名；</li>
+<li>缩写的全称；</li>
+<li>领域中的上下位词；</li>
+<li>用户问题中隐含但必要的检索关键词。</li>
+</ul>
+<p>扩展查询应与原始查询一起保留，并在结果合并阶段记录每个候选来自哪个查询。扩展过度会扩大噪声集合，因此需要控制数量并评估收益。</p>
+<span class="heading-anchor" id="6.4 查询分解"></span><h3 id="64">6.4 查询分解</h3>
+<p>将复杂问题拆成能够分别检索的子问题。例如：</p>
+<pre><code class="language-text">原问题：比较 BM25 和向量检索的原理、优缺点以及适用场景。
+
+子查询 1：BM25 的原理和相关性计算依据是什么？
+子查询 2：向量检索的原理和相关性计算依据是什么？
+子查询 3：BM25 和向量检索各自的优缺点及适用场景是什么？
+</code></pre>
+<p>查询分解适合比较题、多跳题和包含多个实体的问题，但会带来额外请求和结果合并成本。分解后还需要确认所有子问题共同覆盖了原问题，避免只召回局部证据。</p>
+<span class="heading-anchor" id="6.5 假设性答案或文档导向的查询"></span><h3 id="65">6.5 假设性答案或文档导向的查询</h3>
+<p>某些方法会先根据问题生成一个假设性答案、摘要或可能出现的文档表述，再用它进行向量检索。这类方法可能改善“问题语言”和“文档语言”差异较大的场景，但也可能把模型幻觉带入检索。因此：</p>
+<ul>
+<li>生成的假设内容只能作为检索表示，不能作为事实证据；</li>
+<li>仍应保留原始查询作为召回分支；</li>
+<li>必须通过离线评估确认它确实提升了召回，而不是只让结果更像模型预期。</li>
+</ul>
+<span class="heading-anchor" id="7. 改写的输入、输出与安全边界"></span><h2 id="7">7. 改写的输入、输出与安全边界</h2>
+<span class="heading-anchor" id="7.1 推荐保留多种表示"></span><h3 id="71">7.1 推荐保留多种表示</h3>
+<p>不要把原始问题直接覆盖掉。建议在一次请求中保留：</p>
+<pre><code class="language-text">raw_query       用户原始问题
+conversation    参与改写的有限对话上下文
+standalone_query 独立可检索问题
+search_queries  实际执行的一个或多个查询
+intent          识别出的意图
+filters         结构化过滤条件
+rewrite_reason  改写原因或版本
+</code></pre>
+<p>这样可以在检索效果下降时判断问题来自用户表达、改写、过滤、召回还是重排。</p>
+<span class="heading-anchor" id="7.2 改写提示词的核心要求"></span><h3 id="72">7.2 改写提示词的核心要求</h3>
+<p>用于改写的提示词应明确：</p>
+<ul>
+<li>任务是生成检索查询，不是回答问题；</li>
+<li>不得凭空添加历史中不存在的实体、时间、版本或结论；</li>
+<li>需要保留专有名词、错误码、代码标识符和数字；</li>
+<li>如果信息不足，输出澄清标记或原始查询；</li>
+<li>输出固定格式，避免将解释性文字混入检索查询。</li>
+</ul>
+<span class="heading-anchor" id="7.3 防止查询注入和越权扩展"></span><h3 id="73">7.3 防止查询注入和越权扩展</h3>
+<p>用户输入、历史消息和被检索文档都可能包含不可信文本。查询改写器不应因为用户或文档中的指令而泄露系统提示、访问不该访问的资料或改变权限过滤器。</p>
+<p>尤其要注意：</p>
+<ul>
+<li>权限条件应由可信的应用上下文注入，并在服务端强制执行；</li>
+<li>用户可以改变查询内容，但不能通过改写要求绕过租户或文档权限；</li>
+<li>文档中的“请忽略之前规则”等文本应被当作资料内容，而不是系统指令；</li>
+<li>记录改写前后的查询，便于审计和定位异常。</li>
+</ul>
+<span class="heading-anchor" id="8. 初步召回与 Rerank 的职责边界"></span><h2 id="8-rerank">8. 初步召回与 Rerank 的职责边界</h2>
+<span class="heading-anchor" id="8.1 初步召回：追求覆盖面"></span><h3 id="81">8.1 初步召回：追求覆盖面</h3>
+<p>初步召回通常需要在较大的文档集合中快速找到可能相关的候选。它更关心：</p>
+<ul>
+<li>相关文档是否进入候选集合；</li>
+<li>能否在可接受延迟内处理大规模数据；</li>
+<li>是否同时覆盖精确术语和语义相近表达。</li>
+</ul>
+<p>如果真正相关的文档没有被召回，后续 Rerank 无法凭空恢复它。这就是为什么需要关注 <code>Recall@K</code> 等召回指标。</p>
+<span class="heading-anchor" id="8.2 Rerank：追求前排精度"></span><h3 id="82-rerank">8.2 Rerank：追求前排精度</h3>
+<p>Rerank 接收初步召回的候选集合，对“查询—候选文本”的匹配关系进行更精细的判断。它更关心：</p>
+<ul>
+<li>最相关的证据能否排在前面；</li>
+<li>候选是否真正回答了当前问题，而不只是主题相似；</li>
+<li>是否识别了实体、数值、时间、否定和条件等细节。</li>
+</ul>
+<p>Rerank 不应被当成“扩大召回范围”的替代品。它只能重排已经进入候选集合的内容。</p>
+<span class="heading-anchor" id="8.3 两阶段检索的直觉"></span><h3 id="83">8.3 两阶段检索的直觉</h3>
+<pre><code class="language-text">全量文档：数量大、单个文档处理成本必须低
+    ↓ 低成本初步召回
+候选文档：数量小、允许更复杂的匹配
+    ↓ 高精度 Rerank
+最终上下文：数量更小、交给生成模型
+</code></pre>
+<p>因此，Rerank 一般不直接对全量文档运行，而是在初步召回的有限候选上运行。</p>
+<span class="heading-anchor" id="9. Rerank 的常见实现方式"></span><h2 id="9-rerank">9. Rerank 的常见实现方式</h2>
+<span class="heading-anchor" id="9.1 词法打分"></span><h3 id="91">9.1 词法打分</h3>
+<p>可以使用关键词匹配、BM25 分数、字段权重和规则分数进行重排。优点是速度快、解释相对直接；缺点是对同义表达、隐含语义和复杂语境的理解有限。</p>
+<span class="heading-anchor" id="9.2 向量相似度重排"></span><h3 id="92">9.2 向量相似度重排</h3>
+<p>使用查询向量和候选向量的相似度重新排序。它能够识别一定程度的语义相近，但如果初步召回本身已经使用相同的向量分数，重复计算未必带来明显收益。</p>
+<span class="heading-anchor" id="9.3 Cross-Encoder Rerank"></span><h3 id="93-cross-encoder-rerank">9.3 Cross-Encoder Rerank</h3>
+<p>Cross-Encoder 将查询和候选文本一起输入模型，直接预测二者相关性。由于模型可以同时观察两段文本的细节，通常比单独计算两个向量的相似度更适合精细判断；代价是每个候选都需要一次更昂贵的交互计算。</p>
+<p>适用思路：</p>
+<ul>
+<li>初步召回数量较小；</li>
+<li>相关性比极低延迟更重要；</li>
+<li>文档片段长度和候选数量可控。</li>
+</ul>
+<span class="heading-anchor" id="9.4 LLM Rerank"></span><h3 id="94-llm-rerank">9.4 LLM Rerank</h3>
+<p>让大模型比较查询和多个候选，输出相关性判断或排序。它在复杂语义、规则解释和多跳问题上可能有帮助，但通常存在成本高、延迟高、输出不稳定和排序一致性不足等问题。</p>
+<p>如果使用 LLM Rerank，应考虑：</p>
+<ul>
+<li>固定候选输入格式；</li>
+<li>要求输出可解析的候选 ID 和分数或等级；</li>
+<li>不要让模型把候选中的指令当成需要执行的指令；</li>
+<li>对排序结果做格式和范围校验；</li>
+<li>与更便宜的模型或规则方案比较增量收益。</li>
+</ul>
+<span class="heading-anchor" id="9.5 规则与模型的组合"></span><h3 id="95">9.5 规则与模型的组合</h3>
+<p>实际系统常采用组合评分，例如：</p>
+<ul>
+<li>先按权限、租户、版本和数据源做硬过滤；</li>
+<li>再融合 BM25、向量相似度和字段匹配分数；</li>
+<li>最后使用 Rerank 模型精排；</li>
+<li>对标题命中、最新版本、权威来源或用户指定文档增加经过验证的业务权重。</li>
+</ul>
+<p>硬过滤和软排序必须区分：权限条件不能因为相关性分数高而被软排序覆盖。</p>
+<span class="heading-anchor" id="10. 一个可落地的检索链路示例"></span><h2 id="10">10. 一个可落地的检索链路示例</h2>
+<p>以问题“上一版的 API 超时配置怎么改，和重试参数有什么关系？”为例，可以设计如下流程：</p>
+<span class="heading-anchor" id="第一步：识别上下文"></span><h3 id="_1">第一步：识别上下文</h3>
+<p>从会话和用户权限上下文中确定：</p>
+<ul>
+<li>“上一版”对应的具体产品版本；</li>
+<li>“API”对应的产品或服务；</li>
+<li>用户有权访问哪些文档。</li>
+</ul>
+<p>如果版本无法确定，应该追问，而不是随意选择一个版本。</p>
+<span class="heading-anchor" id="第二步：识别意图和约束"></span><h3 id="_2">第二步：识别意图和约束</h3>
+<pre><code class="language-text">意图：操作指南 + 参数关系解释
+实体：API 超时配置、重试参数
+过滤器：产品版本 = 已确认的上一版
+需要检索：是
+是否需要分解：可能需要
+</code></pre>
+<span class="heading-anchor" id="第三步：生成检索查询"></span><h3 id="_3">第三步：生成检索查询</h3>
+<pre><code class="language-text">查询 1：上一版 API 超时配置修改方法
+查询 2：API 超时参数与重试参数的关系
+查询 3：上一版 API 超时配置和重试参数示例
+</code></pre>
+<span class="heading-anchor" id="第四步：初步召回"></span><h3 id="_4">第四步：初步召回</h3>
+<p>分别使用关键词、向量或混合检索召回候选，并记录每个候选来自哪一个子查询。随后进行去重，避免同一文档片段因多个查询重复出现。</p>
+<span class="heading-anchor" id="第五步：Rerank"></span><h3 id="rerank">第五步：Rerank</h3>
+<p>使用查询与候选片段的联合相关性判断，优先保留：</p>
+<ul>
+<li>明确属于目标版本的内容；</li>
+<li>同时解释超时与重试关系的内容；</li>
+<li>包含具体参数名、取值和操作步骤的内容。</li>
+</ul>
+<span class="heading-anchor" id="第六步：生成与核验"></span><h3 id="_5">第六步：生成与核验</h3>
+<p>生成阶段只使用通过权限过滤、重排和上下文整理后的证据。如果候选证据只能解释配置方法，不能证明二者关系，就应明确指出证据不足，而不是自行补充结论。</p>
+<span class="heading-anchor" id="11. 结果合并与排序策略"></span><h2 id="11">11. 结果合并与排序策略</h2>
+<p>当一个原始问题生成多个查询时，需要处理多个结果列表。常见策略包括：</p>
+<span class="heading-anchor" id="11.1 直接合并后按统一分数排序"></span><h3 id="111">11.1 直接合并后按统一分数排序</h3>
+<p>适合多个查询使用同一种检索器、分数尺度一致的情况。不同检索器或不同查询的分数往往不可直接比较，使用前需要验证分数含义。</p>
+<span class="heading-anchor" id="11.2 轮流取各列表前排结果"></span><h3 id="112">11.2 轮流取各列表前排结果</h3>
+<p>可以先取每个查询的前几个结果，再进行去重和后续重排。这样能防止某一个查询的结果完全占据候选集合。</p>
+<span class="heading-anchor" id="11.3 Reciprocal Rank Fusion"></span><h3 id="113-reciprocal-rank-fusion">11.3 Reciprocal Rank Fusion</h3>
+<p>当不同检索器或查询的分数不可比时，可以利用候选在各列表中的名次进行融合。其直觉是：一个结果在多个列表中都排名靠前，通常更值得保留。融合参数和候选数量需要通过验证集调优。</p>
+<span class="heading-anchor" id="11.4 按子问题设置配额"></span><h3 id="114">11.4 按子问题设置配额</h3>
+<p>对比较题或多跳题，可以为每个子问题保留一定数量的候选，确保最终上下文不会只覆盖其中一个方面。之后再通过 Rerank、去重和上下文压缩控制总量。</p>
+<span class="heading-anchor" id="12. 参数与延迟的权衡"></span><h2 id="12">12. 参数与延迟的权衡</h2>
+<p>检索链路中常见的可调参数包括：</p>
+<ul>
+<li>改写生成的查询数量；</li>
+<li>初步召回的候选数量；</li>
+<li>Rerank 的候选数量；</li>
+<li>最终送入生成模型的片段数量；</li>
+<li>是否并行执行多个子查询；</li>
+<li>是否根据意图选择不同的模型和链路。</li>
+</ul>
+<p>通常存在以下权衡：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>调大参数</th>
+<th>可能收益</th>
+<th>可能代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查询数量</td>
+<td>提高覆盖面</td>
+<td>模型调用和合并成本增加，噪声变多</td>
+</tr>
+<tr>
+<td>初步召回数量</td>
+<td>降低漏召回概率</td>
+<td>传输、去重和重排成本增加</td>
+</tr>
+<tr>
+<td>Rerank 候选数</td>
+<td>有更多机会找出高相关片段</td>
+<td>延迟与推理成本增加</td>
+</tr>
+<tr>
+<td>最终上下文长度</td>
+<td>可包含更多证据</td>
+<td>可能稀释重点、增加生成成本</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要只以“召回越多越好”为目标。系统最终需要的是<strong>足够覆盖、前排准确、可被生成模型正确使用</strong>的证据。</p>
+<span class="heading-anchor" id="13. 评估：不要只看最终答案"></span><h2 id="13">13. 评估：不要只看最终答案</h2>
+<span class="heading-anchor" id="13.1 查询改写评估"></span><h3 id="131">13.1 查询改写评估</h3>
+<p>可以检查：</p>
+<ul>
+<li>改写后是否保留了原问题的核心约束；</li>
+<li>指代是否正确消解；</li>
+<li>是否引入了原问题没有的实体、版本或时间；</li>
+<li>分解后的子查询是否覆盖原问题；</li>
+<li>改写是否让召回结果更好，而不是只让文本更通顺。</li>
+</ul>
+<span class="heading-anchor" id="13.2 初步召回指标"></span><h3 id="132">13.2 初步召回指标</h3>
+<ul>
+<li><strong>Hit@K</strong>：正确证据是否出现在前 K 个结果中；</li>
+<li><strong>Recall@K</strong>：标注的相关证据有多少被前 K 个结果覆盖；</li>
+<li><strong>候选覆盖率</strong>：正确答案所需的关键片段是否至少进入候选集合。</li>
+</ul>
+<span class="heading-anchor" id="13.3 重排指标"></span><h3 id="133">13.3 重排指标</h3>
+<ul>
+<li><strong>MRR</strong>：第一个相关结果出现得有多靠前；</li>
+<li><strong>nDCG@K</strong>：考虑不同相关等级的排序质量；</li>
+<li><strong>Precision@K</strong>：前 K 个结果中相关结果的比例；</li>
+<li><strong>Top-K 相关性分布</strong>：观察高相关、部分相关和无关片段的构成。</li>
+</ul>
+<span class="heading-anchor" id="13.4 端到端指标"></span><h3 id="134">13.4 端到端指标</h3>
+<p>还要评估：</p>
+<ul>
+<li>答案是否正确、完整并且直接回应问题；</li>
+<li>答案中的结论能否由引用证据支持；</li>
+<li>是否出现无依据扩展、版本混用或权限泄露；</li>
+<li>P50、P95 延迟和单次请求成本；</li>
+<li>改写失败、解析失败、超时和回退的比例。</li>
+</ul>
+<p>一个重要的诊断顺序是：</p>
+<pre><code class="language-text">答案错误
+  ↓
+相关证据是否进入候选集合？
+  ├─ 否：检查查询、过滤器和初步召回
+  └─ 是：检查 Rerank、上下文组装和生成
+</code></pre>
+<span class="heading-anchor" id="14. 常见误区"></span><h2 id="14">14. 常见误区</h2>
+<span class="heading-anchor" id="误区一：改写得越详细越好"></span><h3 id="_6">误区一：改写得越详细越好</h3>
+<p>改写加入过多背景或推测内容，可能把检索方向带偏。改写的目标是提升可检索性，不是写一段完整答案。</p>
+<span class="heading-anchor" id="误区二：只保留改写结果"></span><h3 id="_7">误区二：只保留改写结果</h3>
+<p>一旦改写错误，系统就失去原始查询这一条回退路径。应保留原始查询，并在必要时并行召回原始查询和改写查询。</p>
+<span class="heading-anchor" id="误区三：把 Rerank 当成召回器"></span><h3 id="rerank_1">误区三：把 Rerank 当成召回器</h3>
+<p>真正相关的文档未进入候选集合时，Rerank 无法找回它。应先确认候选覆盖率，再判断重排模型是否有效。</p>
+<span class="heading-anchor" id="误区四：只按主题相似度排序"></span><h3 id="_8">误区四：只按主题相似度排序</h3>
+<p>“都在讲 RAG”不等于“能回答这个具体问题”。重排需要关注实体、版本、时间、参数、否定和问题约束。</p>
+<span class="heading-anchor" id="误区五：让模型决定权限"></span><h3 id="_9">误区五：让模型决定权限</h3>
+<p>权限过滤必须由可信的应用逻辑强制执行。模型可以帮助理解查询，但不能授权用户访问文档。</p>
+<span class="heading-anchor" id="误区六：忽略多查询带来的重复和冲突"></span><h3 id="_10">误区六：忽略多查询带来的重复和冲突</h3>
+<p>查询分解、同义词扩展和多路召回可能找到重复片段或不同版本的冲突内容。后续需要去重、版本处理、来源排序和引用溯源。</p>
+<span class="heading-anchor" id="误区七：只用最终答案评价链路"></span><h3 id="_11">误区七：只用最终答案评价链路</h3>
+<p>最终答案变好或变坏，可能来自多个环节。应分别记录原始查询、改写结果、意图、过滤器、候选列表、Rerank 分数和最终上下文。</p>
+<span class="heading-anchor" id="15. 推荐的最小实现路径"></span><h2 id="15">15. 推荐的最小实现路径</h2>
+<p>如果正在从零搭建一个 RAG 原型，可以按以下顺序迭代：</p>
+<ol>
+<li>先实现原始查询的基础召回，并保存候选和分数；</li>
+<li>加入对话历史截取和独立问题改写；</li>
+<li>对改写结果与原始查询并行召回，比较候选覆盖率；</li>
+<li>增加少量稳定的意图和过滤字段；</li>
+<li>在固定候选数量上加入 Rerank；</li>
+<li>增加去重、版本优先级和引用信息；</li>
+<li>建立包含事实题、操作题、比较题、多轮指代题和歧义题的评估集；</li>
+<li>只有在数据表明存在收益时，才增加查询分解、查询扩展或更昂贵的模型。</li>
+</ol>
+<p>一个简单但可观测的记录结构可以是：</p>
+<pre><code class="language-json">{
+  "raw_query": "用户原始问题",
+  "rewritten_queries": ["查询 1", "查询 2"],
+  "intent": "事实查询",
+  "filters": {},
+  "retrieval_candidates": [
+    {"id": "doc-1", "source": "vector", "score": 0.82}
+  ],
+  "reranked_candidates": [
+    {"id": "doc-1", "score": 0.91}
+  ],
+  "fallback": null
+}
+</code></pre>
+<p>实际项目中还应加入请求 ID、模型版本、索引版本、延迟和错误信息，但不应记录不必要的敏感内容。</p>
+<span class="heading-anchor" id="16. 实践检查清单"></span><h2 id="16">16. 实践检查清单</h2>
+<ul>
+<li>[ ] 是否保留了用户原始问题？</li>
+<li>[ ] 多轮问题是否被改写成了能够独立检索的表达？</li>
+<li>[ ] 指代、版本、时间和实体是否有明确来源？</li>
+<li>[ ] 无法消解的歧义是否会触发澄清，而不是被模型猜测？</li>
+<li>[ ] 查询扩展是否同时带来了噪声和成本？</li>
+<li>[ ] 多个子查询的结果是否去重并保留来源？</li>
+<li>[ ] 权限、租户、版本等硬过滤是否在程序侧强制执行？</li>
+<li>[ ] 相关证据如果未进入候选集合，是否有方法定位原因？</li>
+<li>[ ] Rerank 是否只处理有限候选，而不是直接扫描全量文档？</li>
+<li>[ ] 是否分别评估了召回、重排、引用支持和端到端答案？</li>
+<li>[ ] 是否记录了延迟、成本、失败率和回退路径？</li>
+</ul>
+<span class="heading-anchor" id="17. 小结"></span><h2 id="17">17. 小结</h2>
+<p>Query Rewrite、意图识别与 Rerank 是互相配合但不能互相替代的能力：</p>
+<ul>
+<li><strong>意图识别</strong>回答“用户想完成什么，以及系统应该走哪条路”；</li>
+<li><strong>Query Rewrite</strong>把原始表达转换为更适合检索的一个或多个查询；</li>
+<li><strong>初步召回</strong>负责尽量把可能相关的证据带入候选集合；</li>
+<li><strong>Rerank</strong>负责在候选集合中提高前排相关性；</li>
+<li><strong>后续上下文处理</strong>负责去重、压缩、处理冲突并建立引用。</li>
+</ul>
+<p>高质量的检索链路不是让模型“更会猜”，而是让每一步都有明确边界、可验证输入、可观测输出和可回退方案。</p>
+<span class="heading-anchor" id="18. 来源与资料说明"></span><h2 id="18">18. 来源与资料说明</h2>
+<ul>
+<li>本项目已有课程导航将本篇定位为 RAG 学习路线中的“Query Rewrite、意图识别与 Rerank”章节，并与前后的混合检索、上下文压缩章节相连。</li>
+<li>本篇关于查询改写、意图识别、两阶段检索、Rerank 方法、评估指标和工程实践的具体解释，属于基于通用 RAG 工程知识的整理；当前项目检索结果未提供这些主题的完整独立原始资料。</li>
+<li>因此，文中的流程、示例和参数均应结合实际数据集、模型、索引规模和延迟目标进行验证，不应直接视为某个具体框架的唯一实现方式。</li>
+</ul>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_12">相关笔记</h2>
+<ul>
+<li><a href="n-d2b4fdd4a5ca.html">04-BM25、混合检索与多路召回</a></li>
+<li><a href="n-4ae54a3fe83c.html">06-上下文压缩、去重与引用溯源</a></li>
+<li><a href="n-758dc45c7b99.html">07-文档权限与多租户隔离</a></li>
+<li><a href="n-d9bb48b929e7.html">08-检索与生成评测</a></li>
+<li><a href="n-3a9f79208663.html">09-增量更新、删除与索引一致性</a></li>
+<li><a href="n-6e7610736812.html">10-向量存储选型</a></li>
+<li><a href="n-1984c9335328.html">00-RAG学习路线</a></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="版本记录"></span><h2 id="_13">版本记录</h2>
+<ul>
+<li>重写：补充查询改写类型、意图识别结构化输出、Rerank 边界、结果融合、评估方法、安全约束和工程落地路径。</li>
+<li>资料边界：项目检索结果提供了本节主题和课程导航；正文中的系统化解释以通用知识补充，并已在“来源与资料说明”中标注。</li>
+</ul>
+<p>据此操作将覆盖目标 Markdown 文件，生成一次待确认的文件预览，不会直接写入磁盘。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

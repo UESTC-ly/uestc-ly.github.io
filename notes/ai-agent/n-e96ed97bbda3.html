@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-02 相似度度量与归一化 · 李杨的学习笔记</title><meta name="description" content="上一章把嵌入描述为向量空间中的位置。但两个点是否接近，取决于使用哪把尺子。地图上
+可以比较直线距离，也可以比较行进方向；向量检索同样可以比较方向、长度或两者的组合。"><meta property="og:title" content="05-02 相似度度量与归一化 · 李杨的学习笔记"><meta property="og:description" content="上一章把嵌入描述为向量空间中的位置。但两个点是否接近，取决于使用哪把尺子。地图上
+可以比较直线距离，也可以比较行进方向；向量检索同样可以比较方向、长度或两者的组合。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-e96ed97bbda3.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-e96ed97bbda3.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-02 相似度度量与归一化</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/02-similarity-metrics-and-normalization.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">“靠近”必须先定义尺子</a></li><li><a href="#_2">点积：方向与长度共同参与</a></li><li><a href="#_3">余弦相似度：比较方向</a></li><li><a href="#_4">欧氏距离：比较直线距离</a></li><li><a href="#l2">L2 归一化：把向量缩放到单位长度</a></li><li><a href="#_5">一张比较表</a></li><li><a href="#_6">一个排序例子：相似分数不是业务结论</a></li><li><a href="#_7">怎样验证度量选择</a></li><li><a href="#_8">工程记录与排障</a></li><li><a href="#_9">安全边界</a></li><li><a href="#_10">手算练习</a></li><li><a href="#_11">自测</a></li><li><a href="#_12">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-02</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门到初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 20 分钟手算与排序练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 <a href="n-61f38e9590e5.html">05-01 嵌入与向量空间直觉</a>；会做平方、开方和简单乘法</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用本章给出的二维向量手算，不需要编程环境</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分点积、余弦相似度和欧氏距离；</li>
+<li>解释 L2 归一化改变了什么，以及为什么不能只在一侧随意归一化；</li>
+<li>说明“分数更高”为什么不等于“答案更正确”；</li>
+<li>在配置检索系统时记录度量、归一化和阈值的适用数据。</li>
+</ul>
+<span class="heading-anchor" id="“靠近”必须先定义尺子"></span><h2 id="_1">“靠近”必须先定义尺子</h2>
+<p>上一章把嵌入描述为向量空间中的位置。但两个点是否接近，取决于使用哪把尺子。地图上
+可以比较直线距离，也可以比较行进方向；向量检索同样可以比较方向、长度或两者的组合。</p>
+<p>如果建立索引时按一种规则组织向量，查询时却按另一种规则理解分数，结果可能变化。度量
+不是数据库旁边可随意切换的装饰选项，而是表示模型、归一化方法、索引结构和评估共同
+组成的检索契约。</p>
+<span class="heading-anchor" id="点积：方向与长度共同参与"></span><h2 id="_2">点积：方向与长度共同参与</h2>
+<p>两个同维向量的点积（dot product）是对应位置相乘后相加。对于二维向量：</p>
+<p><code>a = (a1, a2)</code>，<code>b = (b1, b2)</code></p>
+<p>点积为：</p>
+<p><code>a · b = a1 × b1 + a2 × b2</code></p>
+<p>例如 <code>a = (1, 0)</code>，<code>b = (0.8, 0.6)</code>，则点积为 <code>0.8</code>。若
+<code>c = (2, 0)</code>，<code>a · c = 2</code>。</p>
+<p>点积同时受到方向和向量长度影响。一个方向较接近但长度很大的向量，可能获得更大的点积。
+这不一定是错误；某些模型就是按照这种比较方式训练和发布的。关键是遵循模型约定并用
+自己的任务数据验证，而不是凭直觉认定某种度量永远更好。</p>
+<span class="heading-anchor" id="余弦相似度：比较方向"></span><h2 id="_3">余弦相似度：比较方向</h2>
+<p>余弦相似度（cosine similarity）把点积除以两个向量的长度：</p>
+<p><code>cos(a, b) = (a · b) / (||a|| × ||b||)</code></p>
+<p>其中 <code>||a||</code> 表示向量长度。对于非零向量，余弦相似度主要比较方向，减弱绝对长度的影响。</p>
+<p>继续使用前面的向量：</p>
+<ul>
+<li><code>a = (1, 0)</code> 的长度为 <code>1</code>；</li>
+<li><code>b = (0.8, 0.6)</code> 的长度为 <code>1</code>；</li>
+<li><code>c = (2, 0)</code> 的长度为 <code>2</code>。</li>
+</ul>
+<p>于是 <code>cos(a, b) = 0.8</code>，而 <code>cos(a, c) = 1</code>。虽然 <code>c</code> 比 <code>a</code> 长一倍，它们方向完全
+相同，因此余弦相似度为最高方向一致值。</p>
+<p>余弦分数的数学范围和实际分布不是一回事。某个数据集的分数可能集中在很窄区间，不能
+把别处使用的阈值直接搬过来。更不能把 <code>0.8</code> 解读成“答案有 80% 概率正确”。</p>
+<span class="heading-anchor" id="欧氏距离：比较直线距离"></span><h2 id="_4">欧氏距离：比较直线距离</h2>
+<p>欧氏距离（Euclidean distance，L2 distance）计算两个点之间的直线距离：</p>
+<p><code>distance(a, b) = sqrt((a1-b1)^2 + (a2-b2)^2)</code></p>
+<p>距离越小表示越接近，这与“相似度越大越接近”的排序方向相反。日志和接口必须标清字段
+表示相似度还是距离，否则排查时很容易把最好结果当成最差结果。</p>
+<p>对于 <code>a = (1, 0)</code> 和 <code>b = (0.8, 0.6)</code>，欧氏距离约为 <code>0.63</code>；对于 <code>a</code> 和
+<code>c = (2, 0)</code>，距离为 <code>1</code>。在这个例子中，欧氏距离认为 b 更近，而余弦相似度认为 c
+方向完全一致。两把尺子给出不同排序，正是因为它们回答的问题不同。</p>
+<span class="heading-anchor" id="L2 归一化：把向量缩放到单位长度"></span><h2 id="l2">L2 归一化：把向量缩放到单位长度</h2>
+<p>L2 归一化（L2 normalization）用向量除以自身长度，使非零向量的长度变为 <code>1</code>。</p>
+<p><code>normalize(a) = a / ||a||</code></p>
+<p>归一化后的 <code>(2, 0)</code> 变成 <code>(1, 0)</code>。当所有向量都做相同 L2 归一化后，点积与余弦
+相似度的排序关系会变得紧密；欧氏距离也能与方向相似性建立对应关系。这种数学关系有助于
+理解实现，但不代表可以忽略产品或模型的正式配置要求。</p>
+<p>归一化需要注意四个边界：</p>
+<ol>
+<li><strong>零向量不能直接除以长度。</strong> 应明确拒绝、记录或采用有依据的处理策略。</li>
+<li><strong>文档与查询要一致。</strong> 只归一化一侧可能改变分数含义。</li>
+<li><strong>索引与查询配置要一致。</strong> 已建立的索引可能假定输入已归一化或由存储层处理。</li>
+<li><strong>缓存键要包含配置。</strong> 同一文本的原始向量与归一化向量不能共享模糊缓存条目。</li>
+</ol>
+<span class="heading-anchor" id="一张比较表"></span><h2 id="_5">一张比较表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>度量</th>
+<th>越大还是越小越接近</th>
+<th>主要受什么影响</th>
+<th>容易误解的地方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>点积</td>
+<td>通常越大越接近</td>
+<td>方向和长度</td>
+<td>长向量可能放大分数</td>
+</tr>
+<tr>
+<td>余弦相似度</td>
+<td>越大越接近</td>
+<td>方向</td>
+<td>分数不是正确概率</td>
+</tr>
+<tr>
+<td>欧氏距离</td>
+<td>越小越接近</td>
+<td>位置差和长度</td>
+<td>排序方向与相似度相反</td>
+</tr>
+</tbody>
+</table></div>
+<p>表格只用于建立直觉。实际系统还可能使用由存储或模型定义的其他距离形式。采用前需要确认
+模型建议、索引能力和评估结果三者是否一致。</p>
+<span class="heading-anchor" id="一个排序例子：相似分数不是业务结论"></span><h2 id="_6">一个排序例子：相似分数不是业务结论</h2>
+<p>用户查询“如何关闭账户”。候选包括：</p>
+<ul>
+<li>A：“关闭个人账户前请导出账单。”</li>
+<li>B：“暂时停用通知的方法。”</li>
+<li>C：“管理员可关闭企业子账户。”</li>
+</ul>
+<p>向量分数可能把 A、C、B 依次排序。但如果当前用户是企业普通成员，A 可能属于错误产品，
+C 可能描述管理员权限，B 虽然主题稍远却不回答问题。系统仍需用产品、角色和文档版本
+过滤候选，并允许在证据不足时不回答。</p>
+<p>阈值也不能解决全部问题。把最低相似度设得更高，可能减少弱相关候选，同时也可能丢掉
+措辞不同但正确的资料。阈值需要在代表性查询集上观察召回、误召回和无答案行为。</p>
+<span class="heading-anchor" id="怎样验证度量选择"></span><h2 id="_7">怎样验证度量选择</h2>
+<p>一个轻量验证过程可以这样设计：</p>
+<ol>
+<li>收集一组真实或经过审查的查询；</li>
+<li>为每个查询标注允许作为证据的文本块，以及确实无答案的情况；</li>
+<li>固定嵌入版本，分别比较候选度量与归一化配置；</li>
+<li>记录正确证据是否出现在前 K 个候选中，也检查错误租户、旧版本和重复块；</li>
+<li>对差异案例逐条阅读，不只比较一个平均数；</li>
+<li>把最终配置和评估集版本写入表示契约。</li>
+</ol>
+<p>这类评估只能支持“在当前数据和任务上表现如何”，不能证明对所有语言、领域和未来数据
+都成立。</p>
+<span class="heading-anchor" id="工程记录与排障"></span><h2 id="_8">工程记录与排障</h2>
+<p>至少记录以下信息，才能解释一次检索：</p>
+<ul>
+<li>嵌入模型与表示版本；</li>
+<li>向量维度和是否归一化；</li>
+<li>使用的度量及排序方向；</li>
+<li>Top-K、过滤条件和阈值；</li>
+<li>候选分数、来源、版本和被过滤原因；</li>
+<li>查询是否为空、被截断或使用了错误输入模式。</li>
+</ul>
+<p>若分数突然整体漂移，先检查模型或预处理版本、归一化是否变化、索引是否混入不同版本，
+再考虑修改阈值。直接调阈值可能暂时掩盖不兼容问题。</p>
+<span class="heading-anchor" id="安全边界"></span><h2 id="_9">安全边界</h2>
+<p>高相似度不会自动绕过授权。权限过滤应与数据访问策略绑定，而不是通过一个相似度阈值
+间接推断。恶意或被投毒的文本也可能与高价值查询高度相似，因此候选进入上下文前仍需
+验证来源、适用范围和内容处理规则。</p>
+<p>检索内容始终是数据，不是系统指令。分数再高，也不能让文本块获得修改系统规则、调用
+工具或读取其他用户数据的权限。</p>
+<span class="heading-anchor" id="手算练习"></span><h2 id="_10">手算练习</h2>
+<p>给定查询 <code>q = (1, 0)</code> 和三个候选：<code>a = (0.6, 0.8)</code>、<code>b = (3, 0)</code>、
+<code>c = (-1, 0)</code>。</p>
+<ol>
+<li>分别计算 q 与三者的点积。</li>
+<li>比较余弦相似度的排序。</li>
+<li>比较欧氏距离的排序。</li>
+<li>说明为什么 b 在点积和余弦比较中会出现不同的数值含义。</li>
+</ol>
+<span class="heading-anchor" id="自测"></span><h2 id="_11">自测</h2>
+<ol>
+<li>点积与余弦相似度对向量长度的处理有什么不同？</li>
+<li>为什么距离字段必须明确“越大越近”还是“越小越近”？</li>
+<li>为什么余弦相似度 <code>0.8</code> 不能解释为 80% 正确率？</li>
+<li>只对查询向量归一化可能带来什么问题？</li>
+<li>修改阈值前，为什么应先检查表示版本和分数分布？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_12">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，公式与手算例子已做轻量检查；未对具体向量库或模型做性能验证。</li>
+<li>代码与图表：度量对比代码和分数分布图为后续计划，本章不声称已经实现或渲染。</li>
+<li>
+<p>摘要：<a href="n-63dd36b5088c.html">05-02 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-61f38e9590e5.html">05-01 嵌入与向量空间直觉</a></p>
+</li>
+<li>下一章：<a href="n-0a3f69ead2fc.html">05-03 文本嵌入模型选择</a></li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

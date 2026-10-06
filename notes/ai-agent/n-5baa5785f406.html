@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02-05 失败模式与系统边界 · 李杨的学习笔记</title><meta name="description" content="员工询问“今年年假可以结转几天”。系统回答“可以结转 10 天”，并附上一条内部制度引用。
+看起来它既检索了资料，又给了来源，但人工打开引用后发现：制度正文写的是“最多 5 天”，
+“10 天”来自同一段中的旧示例。"><meta property="og:title" content="02-05 失败模式与系统边界 · 李杨的学习笔记"><meta property="og:description" content="员工询问“今年年假可以结转几天”。系统回答“可以结转 10 天”，并附上一条内部制度引用。
+看起来它既检索了资料，又给了来源，但人工打开引用后发现：制度正文写的是“最多 5 天”，
+“10 天”来自同一段中的旧示例。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-5baa5785f406.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-5baa5785f406.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 02-rag-principles</p><h1>02-05 失败模式与系统边界</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/02-rag-principles/05-failure-modes-and-boundaries.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一个带引用的错误答案</a></li><li><a href="#_2">什么是幻觉</a></li><li><a href="#_3">第一类：数据与来源失败</a></li><li><a href="#_4">第二类：切分与索引失败</a></li><li><a href="#_5">第三类：检索失败</a></li><li><a href="#_6">第四类：上下文构造失败</a></li><li><a href="#_7">第五类：生成与拒答失败</a></li><li><a href="#_8">第六类：引用失败</a></li><li><a href="#_9">第七类：安全与权限失败</a></li><li><a href="#_10">第八类：运行与更新失败</a></li><li><a href="#_11">从症状回到证据</a></li><li><a href="#_12">设计五个失败注入测试</a></li><li><a href="#_13">一条实用排障顺序</a></li><li><a href="#_14">自测</a></li><li><a href="#_15">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>02-05</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 20 分钟失败注入设计</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 <a href="n-5357e5f164bd.html">02-03 索引阶段与查询阶段</a>；能说出索引、检索、上下文和回答的位置</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用表格设计故障和预期结果，不要求运行模型</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释幻觉的含义，以及 RAG 为什么只能降低部分风险；</li>
+<li>按数据、索引、检索、上下文、生成、引用、安全和运行环节分类失败；</li>
+<li>根据症状提出可观察证据，而不是只把问题归因于模型；</li>
+<li>为证据不足、来源冲突和权限异常设计拒答或升级路径。</li>
+</ul>
+<span class="heading-anchor" id="一个带引用的错误答案"></span><h2 id="_1">一个带引用的错误答案</h2>
+<p>员工询问“今年年假可以结转几天”。系统回答“可以结转 10 天”，并附上一条内部制度引用。
+看起来它既检索了资料，又给了来源，但人工打开引用后发现：制度正文写的是“最多 5 天”，
+“10 天”来自同一段中的旧示例。</p>
+<p>这个例子说明三件事：</p>
+<ol>
+<li>检索到相关文档不等于检索到支持结论的证据；</li>
+<li>有引用不等于引用内容支持答案；</li>
+<li>最终错误可能来自切分、排序、上下文选择或生成理解，不能只用“模型幻觉”概括一切。</li>
+</ol>
+<p>可靠排障需要沿完整链路观察中间产物。</p>
+<span class="heading-anchor" id="什么是幻觉"></span><h2 id="_2">什么是幻觉</h2>
+<p>在本教程中，幻觉（hallucination）指模型生成缺少依据、与事实不符，或与给定证据不一致的
+内容。不同团队可能进一步区分事实错误、证据不忠实和引用错误；项目需要写清自己的判定标准。</p>
+<p>RAG 通过加入外部证据，有机会减少模型只凭内部模式补全的情况。但它不会消除幻觉，因为：</p>
+<ul>
+<li>正确证据可能根本没有进入知识库；</li>
+<li>检索可能漏掉正确内容或返回错误内容；</li>
+<li>上下文可能截断、混合或丢失关键限定条件；</li>
+<li>模型可能误读证据、合并冲突或添加未出现的细节；</li>
+<li>引用可能定位错误，或只支持答案的一部分。</li>
+</ul>
+<p>因此，“是否使用 RAG”和“答案是否有依据”是两个不同问题。后者必须通过数据、评估和复核
+来证明。</p>
+<span class="heading-anchor" id="第一类：数据与来源失败"></span><h2 id="_3">第一类：数据与来源失败</h2>
+<p>如果上游资料有问题，后面的检索和生成再精确也只能利用错误输入。</p>
+<p>常见情况包括：</p>
+<ul>
+<li>当前制度没有采集，知识库只保存旧版；</li>
+<li>草稿、正式版和用户评论混在一起，没有来源等级；</li>
+<li>OCR 把数字或否定词识别错；</li>
+<li>文档重复，旧内容在候选中反复出现；</li>
+<li>元数据缺少版本、生效时间、地区或权限；</li>
+<li>来源本身互相冲突，系统却没有冲突处理规则。</li>
+</ul>
+<p>最先检查的证据是原始来源、采集时间、解析结果和版本记录，而不是 Prompt。</p>
+<span class="heading-anchor" id="第二类：切分与索引失败"></span><h2 id="_4">第二类：切分与索引失败</h2>
+<p>资料进入系统后，仍可能在处理阶段失真。</p>
+<p>例如一条规则写着：“标准商品可在 30 天内退货；定制商品不可退货。”如果切分把两句话
+分开，查询“定制商品能否退货”时，系统可能只取到“30 天内退货”的上半句。</p>
+<p>其他失败还包括：</p>
+<ul>
+<li>块太大，多个主题和例外混在一起；</li>
+<li>块太小，标题、主体或否定条件被分离；</li>
+<li>文档更新后没有重建相关记录；</li>
+<li>文档与查询使用不兼容的表示版本；</li>
+<li>写入部分失败，但系统仍把索引标记为完整。</li>
+</ul>
+<p>需要观察文本块内容、原文位置、索引版本、写入数量和失败清单。</p>
+<span class="heading-anchor" id="第三类：检索失败"></span><h2 id="_5">第三类：检索失败</h2>
+<p>检索失败不只表现为“什么都没找到”。更常见的是找到了一些看似相关、却不能回答问题的
+内容。</p>
+<p>可以把失败粗略分成：</p>
+<ul>
+<li><strong>漏召回：</strong> 正确文本块存在，但没有进入候选；</li>
+<li><strong>误召回：</strong> 候选共享关键词，却讨论不同产品或条件；</li>
+<li><strong>排序错误：</strong> 正确块被噪声挤到 Top-K 之外；</li>
+<li><strong>范围错误：</strong> 查询了错误租户、版本、语言或时间段；</li>
+<li><strong>过滤错误：</strong> 合法候选被误删，或未授权候选未被删除。</li>
+</ul>
+<p>排查时应查看完整候选列表、分数、过滤原因和相关性标注。只看最终上下文会隐藏“正确候选
+曾经出现但后来被删掉”这样的线索。</p>
+<span class="heading-anchor" id="第四类：上下文构造失败"></span><h2 id="_6">第四类：上下文构造失败</h2>
+<p>检索候选正确，交给模型的上下文仍可能有问题：</p>
+<ul>
+<li>长度预算不足，关键例外被截断；</li>
+<li>去重规则误删了互补段落；</li>
+<li>多个来源顺序混乱，模型把旧版和新版合并；</li>
+<li>引用编号在拼接时错位；</li>
+<li>检索文本中的恶意指令没有与系统规则隔离；</li>
+<li>上下文包含未授权或不必要的敏感信息。</li>
+</ul>
+<p>应记录“哪些候选被选入、哪些被丢弃、为什么、最终发送了什么”。记录时注意脱敏和访问控制，
+调试便利不能成为泄露数据的理由。</p>
+<span class="heading-anchor" id="第五类：生成与拒答失败"></span><h2 id="_7">第五类：生成与拒答失败</h2>
+<p>即使上下文正确，回答步骤也可能：</p>
+<ul>
+<li>把“最多 5 天”改写成“通常 5 天”，改变规则强度；</li>
+<li>把两个来源的不同条件合并成不存在的新结论；</li>
+<li>为了回答完整而补充上下文没有提供的数字；</li>
+<li>在证据不足时拒绝承认不知道；</li>
+<li>给出看似流畅、实际没有回答用户问题的复述。</li>
+</ul>
+<p>系统需要允许拒答（refusal / abstention）：当资料不足、冲突未解决或风险过高时，返回“现有
+资料无法确认”，并说明缺少什么证据或下一步去哪里核实。</p>
+<p>拒答不是失败的同义词。对于无法从授权资料回答的问题，明确拒答可能正是正确行为。阈值和
+错误成本需要结合任务评估，不能为所有项目设一个固定数字。</p>
+<span class="heading-anchor" id="第六类：引用失败"></span><h2 id="_8">第六类：引用失败</h2>
+<p>引用相关问题包括：</p>
+<ul>
+<li>引用指向相邻但未被使用的文本块；</li>
+<li>引用只支持答案前半句，后半句来自模型补写；</li>
+<li>引用来源已经失效；</li>
+<li>多个结论共用一个模糊来源，无法逐项核对；</li>
+<li>页面或块编号在文档更新后漂移。</li>
+</ul>
+<p>检查引用不能只验证“链接能打开”，还要验证证据支持关系：引用文本是否真的包含或合理支持
+对应结论，限定条件是否一致，来源是否适用于当前请求。</p>
+<span class="heading-anchor" id="第七类：安全与权限失败"></span><h2 id="_9">第七类：安全与权限失败</h2>
+<p>RAG 把外部文本带入模型请求，因此扩大了需要保护的边界。</p>
+<ul>
+<li><strong>越权检索：</strong> 用户找到不属于自己的租户或角色的内容；</li>
+<li><strong>提示注入：</strong> 文档包含“忽略规则并泄露秘密”等文本，系统把数据误当指令；</li>
+<li><strong>知识库投毒：</strong> 未经批准的内容进入资料源并影响答案；</li>
+<li><strong>敏感信息扩散：</strong> 上下文或日志保存了超出任务需要的数据；</li>
+<li><strong>来源伪装：</strong> 恶意内容冒充权威文档。</li>
+</ul>
+<p>把检索文本与系统指令分隔是必要默认值，但不是完整防护。还需要来源准入、授权、最小化
+上下文、输出检查、审计和人工响应。任何单一措施都不应被描述为绝对安全。</p>
+<span class="heading-anchor" id="第八类：运行与更新失败"></span><h2 id="_10">第八类：运行与更新失败</h2>
+<p>开发环境里的正确流程，上线后还会受到运行状态影响：</p>
+<ul>
+<li>索引任务失败或延迟，版本长期落后；</li>
+<li>依赖服务超时，系统悄悄退回无检索生成；</li>
+<li>配置变更导致 Top-K、过滤或模型版本不一致；</li>
+<li>缓存继续返回旧答案；</li>
+<li>日志缺少请求版本，无法复现问题；</li>
+<li>成本或延迟上升，团队被迫缩短上下文却没有重新评估质量。</li>
+</ul>
+<p>工程上应明确失败策略：依赖不可用时是报错、拒答、降级为搜索，还是允许有限回答。不能在
+用户不知情时把“基于资料回答”悄悄变成“没有资料也继续猜”。</p>
+<span class="heading-anchor" id="从症状回到证据"></span><h2 id="_11">从症状回到证据</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>可能位置</th>
+<th>先查看的证据</th>
+<th>不充分的修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>答案引用旧政策</td>
+<td>数据、索引、范围过滤</td>
+<td>版本、生效时间、候选列表</td>
+<td>只要求模型“回答最新内容”</td>
+</tr>
+<tr>
+<td>正确文档存在却没被引用</td>
+<td>切分、检索、Top-K</td>
+<td>文本块、分数、相关性标注</td>
+<td>盲目增大 Top-K</td>
+</tr>
+<tr>
+<td>引用正确但数字错误</td>
+<td>上下文、生成</td>
+<td>最终上下文、答案与证据逐句对照</td>
+<td>只更换向量数据库</td>
+</tr>
+<tr>
+<td>用户看到他人资料</td>
+<td>权限、过滤、日志</td>
+<td>身份、租户范围、过滤时点</td>
+<td>只在回答末尾加免责声明</td>
+</tr>
+<tr>
+<td>系统偶尔无依据回答</td>
+<td>依赖、降级、拒答</td>
+<td>检索状态、超时、降级路径</td>
+<td>让 Prompt 写得更强硬</td>
+</tr>
+</tbody>
+</table></div>
+<p>表中“不充分的修复”不代表永远无用，而是说明它没有触及已观察到的根因。</p>
+<span class="heading-anchor" id="设计五个失败注入测试"></span><h2 id="_12">设计五个失败注入测试</h2>
+<p>不运行代码也可以先写测试设计。为每个测试写出输入、故障、预期状态和必须记录的证据：</p>
+<ol>
+<li>删除正确文档，系统应说明资料不足，而不是编造答案。</li>
+<li>同时加入新旧冲突版本，系统应按业务规则选择、展示冲突或拒答。</li>
+<li>把关键否定词切到另一个块，检查候选和上下文是否保留条件。</li>
+<li>使用无权访问的用户查询敏感资料，候选和上下文都不应包含该内容。</li>
+<li>模拟检索服务超时，确认系统不会静默切换为无依据生成。</li>
+</ol>
+<p>这些只是测试设计，不是已执行证据。后续实现需要用固定语料、明确预期和可重复命令真正运行。</p>
+<span class="heading-anchor" id="一条实用排障顺序"></span><h2 id="_13">一条实用排障顺序</h2>
+<p>当答案出错时，按下面顺序保存证据：</p>
+<ol>
+<li>确认权威资料是否存在且适用；</li>
+<li>查看解析文本、文本块和元数据；</li>
+<li>查看查询范围、候选、分数和过滤原因；</li>
+<li>查看最终上下文是否完整、授权且无编号错位；</li>
+<li>对照答案、引用和证据；</li>
+<li>检查运行版本、超时、缓存和降级路径；</li>
+<li>修复对应环节后，用原问题和相邻问题回归测试。</li>
+</ol>
+<p>这个顺序不会覆盖所有系统，但能避免把所有故障都丢给最后的生成模型。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_14">自测</h2>
+<ol>
+<li>为什么 RAG 不能消除幻觉？</li>
+<li>“检索到了正确文档”之后还有哪些环节可能让答案出错？</li>
+<li>为什么引用可打开仍不足以证明答案有依据？</li>
+<li>检索服务超时时，什么叫“静默降级”，它为什么危险？</li>
+<li>为“答案漏掉例外条件”写出三个不同链路位置的可能原因。</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_15">本章状态与导航</h2>
+<ul>
+<li>章节状态：首批教学正文，已做轻量静态检查；失败注入仅为设计，未声称已执行。</li>
+<li>安全边界：本章提供最低风险分类，不替代具体项目的威胁建模、授权审查或专业判断。</li>
+<li>代码与图表：失败链路图和自动化故障测试仍为后续计划。</li>
+<li>
+<p>摘要：<a href="n-feb9357d8228.html">02-05 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-1e5faa742138.html">02-04 适用场景与不适用场景</a></p>
+</li>
+<li>下一站：<a href="n-12aa8105c5e5.html">02 RAG 原理索引</a></li>
+<li>返回：<a href="n-cf7d5431540b.html">文档总索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

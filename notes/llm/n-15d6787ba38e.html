@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 09 课：Token、Tokenizer、Embedding · 李杨的学习笔记</title><meta name="description" content="本课解释文本如何进入语言模型：Tokenizer 将文本切分为 Token 并映射为 Token ID，Embedding 再将离散 ID 转换为 Transformer 可以处理的连续向量。"><meta property="og:title" content="第 09 课：Token、Tokenizer、Embedding · 李杨的学习笔记"><meta property="og:description" content="本课解释文本如何进入语言模型：Tokenizer 将文本切分为 Token 并映射为 Token ID，Embedding 再将离散 ID 转换为 Transformer 可以处理的连续向量。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-15d6787ba38e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-15d6787ba38e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 01-机器学习与深度学习基础</p><h1>第 09 课：Token、Tokenizer、Embedding</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/01-%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/09-Token%E3%80%81Tokenizer%E3%80%81Embedding.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 学习目标</a></li><li><a href="#2-transformer">2. 从文本到 Transformer 的完整流程</a></li><li><a href="#3-token">3. 什么是 Token</a></li><li><a href="#4">4. 为什么现代模型常用子词切分</a></li><li><a href="#41">4.1 直接使用完整单词的问题</a></li><li><a href="#42-tokenization">4.2 子词 Tokenization</a></li><li><a href="#5-tokenizer">5. Tokenizer 的职责</a></li><li><a href="#51-token-id">5.1 Token ID 只是索引</a></li><li><a href="#6-bpe">6. BPE 的基本直觉</a></li><li><a href="#7-token">7. 特殊 Token</a></li><li><a href="#8-embedding">8. 什么是 Embedding</a></li><li><a href="#81-pytorch-embedding">8.1 PyTorch Embedding 示例</a></li><li><a href="#9-token-embedding-embedding">9. Token Embedding、位置表示与上下文 Embedding</a></li><li><a href="#91-token-embedding">9.1 Token Embedding</a></li><li><a href="#92-contextual-embedding">9.2 Contextual Embedding</a></li><li><a href="#10-attention-mask-padding">10. Attention Mask 与 Padding</a></li><li><a href="#11-hugging-face-token">11. 使用 Hugging Face 查看 Token</a></li><li><a href="#12-token">12. Token 数量为什么重要</a></li><li><a href="#121">12.1 上下文长度</a></li><li><a href="#122">12.2 成本</a></li><li><a href="#123">12.3 推理速度与显存</a></li><li><a href="#124">12.4 编码效率</a></li><li><a href="#13-gpt-token">13. GPT 类模型中的 Token 生成流程</a></li><li><a href="#14">14. 常见误区</a></li><li><a href="#token">误区一：Token 就是单词</a></li><li><a href="#token-id">误区二：Token ID 越大越重要</a></li><li><a href="#embedding-tokenizer">误区三：Embedding 就是 Tokenizer</a></li><li><a href="#token_1">误区四：同一个 Token 在任何句子中意义完全一样</a></li><li><a href="#token-id_1">误区五：不同模型可以共用同一个 Token ID</a></li><li><a href="#token_2">误区六：Token 越少，模型一定越聪明</a></li><li><a href="#padding-mask-causal-mask-mask">误区七：Padding Mask 和 Causal Mask 是同一种 Mask</a></li><li><a href="#15">15. 核心知识链</a></li><li><a href="#16">16. 自测题</a></li><li><a href="#1-token">1. Token 和单词有什么区别？</a></li><li><a href="#2-token-id">2. 为什么 Token ID 不能直接作为语义向量？</a></li><li><a href="#3-tokenizer-embedding">3. Tokenizer 和 Embedding 的职责分别是什么？</a></li><li><a href="#4_1">4. 为什么同一个“苹果”在不同句子中的最终表示可能不同？</a></li><li><a href="#5-padding-mask-causal-mask">5. Padding Mask 和 Causal Mask 有什么区别？</a></li><li><a href="#6-token">6. 为什么 Token 数量会影响上下文长度、成本和速度？</a></li><li><a href="#17">17. 课后练习</a></li><li><a href="#18">18. 本课小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本课解释文本如何进入语言模型：Tokenizer 将文本切分为 Token 并映射为 Token ID，Embedding 再将离散 ID 转换为 Transformer 可以处理的连续向量。</p>
+<p><strong>内容来源说明</strong>：项目现有资料检索结果仅提供本课标题和课程大纲；本笔记的具体知识、示例与代码整理自本次会话中的课程讲解，并结合通用大语言模型知识补全，未引用项目中的其他外部资料。</p>
+<p><strong>相关课程</strong>：<a href="../deep-learning/n-93d8cda86bff.html">08-Transformer和Self-Attention</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 学习目标"></span><h2 id="1">1. 学习目标</h2>
+<p>完成本课后，应能够：</p>
+<ol>
+<li>解释 Token 与字符、单词、子词之间的区别；</li>
+<li>说明 Tokenizer、Token ID 和 Embedding 各自的职责；</li>
+<li>理解子词 Tokenization 和 BPE 的基本思想；</li>
+<li>解释特殊 Token、Padding Mask 与 Causal Mask 的作用；</li>
+<li>说明 Token Embedding、位置表示和上下文 Embedding 的区别；</li>
+<li>使用 Python 查看文本的 Token、Token ID 和 Attention Mask；</li>
+<li>理解 Token 数量对上下文长度、成本和推理速度的影响。</li>
+</ol>
+<span class="heading-anchor" id="2. 从文本到 Transformer 的完整流程"></span><h2 id="2-transformer">2. 从文本到 Transformer 的完整流程</h2>
+<p>语言模型不能直接对原始字符串进行矩阵计算，通常需要经过以下步骤：</p>
+<pre><code class="language-text">原始文本
+  ↓
+Tokenizer 分词
+  ↓
+Token
+  ↓
+Token ID
+  ↓
+Token Embedding + 位置表示
+  ↓
+向量序列
+  ↓
+Transformer / Self-Attention
+</code></pre>
+<p>生成模型还会把模型预测出的 Token ID 解码回文本：</p>
+<pre><code class="language-text">Transformer 输出 logits
+  ↓
+选择下一个 Token ID
+  ↓
+Tokenizer Decode
+  ↓
+生成文本
+</code></pre>
+<span class="heading-anchor" id="3. 什么是 Token"></span><h2 id="3-token">3. 什么是 Token</h2>
+<p>Token 是模型处理文本时使用的基本单位，但它不一定等于一个汉字、一个英文单词或一个完整句子。它可能是：</p>
+<ul>
+<li>一个字符；</li>
+<li>一个完整单词；</li>
+<li>单词的一部分或子词；</li>
+<li>标点符号；</li>
+<li>空格或其他特殊符号。</li>
+</ul>
+<p>例如，<code>I love AI</code> 可能被切分为：</p>
+<pre><code class="language-text">["I", " love", " AI"]
+</code></pre>
+<p>也可能被切分为：</p>
+<pre><code class="language-text">["I", " ", "love", " ", "AI"]
+</code></pre>
+<p>中文也不一定严格按照“一字一个 Token”切分。例如 <code>人工智能很有趣</code> 可能被切分为：</p>
+<pre><code class="language-text">["人工", "智能", "很", "有趣"]
+</code></pre>
+<p>也可能被切分为：</p>
+<pre><code class="language-text">["人", "工", "智", "能", "很", "有", "趣"]
+</code></pre>
+<p>具体结果由模型使用的词表和 Tokenizer 决定。因此，Token 是一种<strong>模型专用的文本切分单位</strong>，不能简单等同于“单词”。</p>
+<span class="heading-anchor" id="4. 为什么现代模型常用子词切分"></span><h2 id="4">4. 为什么现代模型常用子词切分</h2>
+<span class="heading-anchor" id="4.1 直接使用完整单词的问题"></span><h3 id="41">4.1 直接使用完整单词的问题</h3>
+<p>如果每个完整单词都单独进入词表，会遇到两个主要问题：</p>
+<ol>
+<li><strong>词表规模过大</strong>：词形变化会产生大量不同形式，例如 <code>play</code>、<code>plays</code>、<code>played</code>、<code>playing</code>；</li>
+<li><strong>未知词问题</strong>：生僻词、拼写错误和新词可能不在词表中，只能被替换为未知标记，如 <code>[UNK]</code>，造成信息损失。</li>
+</ol>
+<span class="heading-anchor" id="4.2 子词 Tokenization"></span><h3 id="42-tokenization">4.2 子词 Tokenization</h3>
+<p>子词切分把词拆成常见的词根、词缀或片段。例如：</p>
+<pre><code class="language-text">unhappiness
+</code></pre>
+<p>可能被切分为：</p>
+<pre><code class="language-text">["un", "happiness"]
+</code></pre>
+<p>或：</p>
+<pre><code class="language-text">["un", "happy", "ness"]
+</code></pre>
+<p>这样，即使模型没有见过完整的 <code>unhappiness</code>，也可以利用已知子词组合出部分结构信息。现代语言模型常见的子词方法包括：</p>
+<ul>
+<li>BPE（Byte Pair Encoding）；</li>
+<li>WordPiece；</li>
+<li>Unigram；</li>
+<li>SentencePiece 相关方案。</li>
+</ul>
+<span class="heading-anchor" id="5. Tokenizer 的职责"></span><h2 id="5-tokenizer">5. Tokenizer 的职责</h2>
+<p>Tokenizer 负责把文本转换成模型可处理的离散表示，常见步骤包括：</p>
+<ol>
+<li>文本规范化；</li>
+<li>按模型词表切分文本；</li>
+<li>处理空格、标点和特殊字符；</li>
+<li>添加必要的特殊 Token；</li>
+<li>将 Token 映射成 Token ID；</li>
+<li>生成 <code>attention_mask</code> 等辅助信息；</li>
+<li>在生成阶段把 Token 或 Token ID 解码回字符串。</li>
+</ol>
+<p>例如，示意过程如下：</p>
+<pre><code class="language-text">文本：我喜欢 AI
+Tokens：["我", "喜欢", " AI"]
+Token IDs：[103, 2456, 7821]
+</code></pre>
+<p>其中数字仅用于说明，不代表任何特定模型的真实词表。</p>
+<span class="heading-anchor" id="5.1 Token ID 只是索引"></span><h3 id="51-token-id">5.1 Token ID 只是索引</h3>
+<p>Token ID 是 Token 在词表中的整数编号。假设词表如下：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Token</th>
+<th>ID</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[PAD]</code></td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>[UNK]</code></td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>我</code></td>
+<td>103</td>
+</tr>
+<tr>
+<td><code>喜欢</code></td>
+<td>2456</td>
+</tr>
+<tr>
+<td><code>AI</code></td>
+<td>7821</td>
+</tr>
+</tbody>
+</table></div>
+<p>则文本可能被表示为：</p>
+<pre><code class="language-text">[103, 2456, 7821]
+</code></pre>
+<p>Token ID 只是查表索引：</p>
+<ul>
+<li>ID 较大不代表语义更重要；</li>
+<li>ID 之间的数值差距不代表语义距离；</li>
+<li>不同模型的词表和编号可能完全不同。</li>
+</ul>
+<p>因此，不能把 Token ID 本身直接当作语义向量，也不能随意混用不同模型的 Tokenizer 与 Token ID。</p>
+<span class="heading-anchor" id="6. BPE 的基本直觉"></span><h2 id="6-bpe">6. BPE 的基本直觉</h2>
+<p>BPE 可以粗略理解为：</p>
+<blockquote>
+<p>从较小的片段开始，反复合并语料中频繁出现的相邻片段。</p>
+</blockquote>
+<p>例如，初始字符片段可能是：</p>
+<pre><code class="language-text">l o w
+l o w e r
+</code></pre>
+<p>如果 <code>l</code> 和 <code>o</code> 经常相邻，算法可能先合并为：</p>
+<pre><code class="language-text">lo
+</code></pre>
+<p>随后继续合并为：</p>
+<pre><code class="language-text">low
+</code></pre>
+<p>最终词表可能同时包含：</p>
+<pre><code class="language-text">["l", "o", "lo", "low", "er"]
+</code></pre>
+<p>常见词可以使用较完整的 Token，陌生词则可以拆分为多个已经存在的片段，在词表规模与未知词处理能力之间取得平衡。</p>
+<span class="heading-anchor" id="7. 特殊 Token"></span><h2 id="7-token">7. 特殊 Token</h2>
+<p>Tokenizer 可能使用特殊 Token 表示序列结构或特殊状态：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特殊 Token</th>
+<th>常见作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[PAD]</code></td>
+<td>将不同长度的序列填充到相同长度</td>
+</tr>
+<tr>
+<td><code>[UNK]</code></td>
+<td>表示词表无法识别的 Token</td>
+</tr>
+<tr>
+<td><code>[CLS]</code></td>
+<td>一些 Encoder 模型的序列起始标记</td>
+</tr>
+<tr>
+<td><code>[SEP]</code></td>
+<td>分隔句子或表示序列边界</td>
+</tr>
+<tr>
+<td><code>&lt;BOS&gt;</code></td>
+<td>Beginning of Sequence，序列开始</td>
+</tr>
+<tr>
+<td><code>&lt;EOS&gt;</code></td>
+<td>End of Sequence，序列结束</td>
+</tr>
+<tr>
+<td><code>&lt;MASK&gt;</code></td>
+<td>掩码语言模型中的遮盖标记</td>
+</tr>
+</tbody>
+</table></div>
+<p>不同模型对特殊 Token 的名称、是否使用以及具体语义可能不同。例如，BERT 常见：</p>
+<pre><code class="language-text">[CLS] 我喜欢 AI [SEP]
+</code></pre>
+<p>GPT 类模型则可能使用另一套开始、结束或填充 Token。使用模型时，应始终使用与模型匹配的 Tokenizer。</p>
+<span class="heading-anchor" id="8. 什么是 Embedding"></span><h2 id="8-embedding">8. 什么是 Embedding</h2>
+<p>Tokenizer 输出的 Token ID 是离散整数，例如：</p>
+<pre><code class="language-text">[103, 2456, 7821]
+</code></pre>
+<p>神经网络需要连续向量作为输入，因此 Embedding 的作用是：</p>
+<blockquote>
+<p>将离散的 Token ID 映射为连续向量。</p>
+</blockquote>
+<p>假设：</p>
+<ul>
+<li>词表大小为 <span class="arithmatex">\(V\)</span>；</li>
+<li>Embedding 维度为 <span class="arithmatex">\(d\)</span>。</li>
+</ul>
+<p>Embedding 矩阵为：</p>
+<div class="arithmatex">\[
+E\in\mathbb{R}^{V\times d}
+\]</div>
+<p>其中每一行对应一个 Token 的向量。对于 Token ID <span class="arithmatex">\(i\)</span>，其向量为：</p>
+<div class="arithmatex">\[
+e_i=E[i]
+\]</div>
+<p>这本质上是对 Embedding 矩阵进行查表，而不是把整数机械地复制或缩放。向量中的数值由模型训练学习得到。</p>
+<span class="heading-anchor" id="8.1 PyTorch Embedding 示例"></span><h3 id="81-pytorch-embedding">8.1 PyTorch Embedding 示例</h3>
+<pre><code class="language-python">import torch
+import torch.nn as nn
+
+vocab_size = 10_000
+d_model = 768
+
+embedding = nn.Embedding(
+    num_embeddings=vocab_size,
+    embedding_dim=d_model,
+)
+
+input_ids = torch.tensor([
+    [103, 2456, 7821],
+    [103, 891, 4567],
+])
+
+vectors = embedding(input_ids)
+
+print(vectors.shape)
+</code></pre>
+<p>输出形状：</p>
+<pre><code class="language-text">torch.Size([2, 3, 768])
+</code></pre>
+<p>形状含义：</p>
+<ul>
+<li><code>2</code>：批次中有两条文本；</li>
+<li><code>3</code>：每条文本包含三个 Token；</li>
+<li><code>768</code>：每个 Token 被表示为 768 维向量。</li>
+</ul>
+<span class="heading-anchor" id="9. Token Embedding、位置表示与上下文 Embedding"></span><h2 id="9-token-embedding-embedding">9. Token Embedding、位置表示与上下文 Embedding</h2>
+<p>Transformer 需要同时知道 Token 的内容和位置。输入表示通常可以概括为：</p>
+<div class="arithmatex">\[
+H_0=E_{\text{token}}+E_{\text{position}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(E_{\text{token}}\)</span>：表示 Token 内容的向量；</li>
+<li><span class="arithmatex">\(E_{\text{position}}\)</span>：表示 Token 所处位置的向量或其他位置机制。</li>
+</ul>
+<p>例如，<code>我喜欢 AI</code> 与 <code>AI喜欢我</code> 可能包含相同的 Token，但顺序不同。位置机制帮助模型区分 Token 出现的位置。在现代模型中，位置机制还可能采用 RoPE 等方法，不一定是简单的可学习位置 Embedding。</p>
+<p>还要区分两种表示：</p>
+<span class="heading-anchor" id="9.1 Token Embedding"></span><h3 id="91-token-embedding">9.1 Token Embedding</h3>
+<p>这是输入层从 Embedding 矩阵查表得到的基础向量：</p>
+<div class="arithmatex">\[
+X=E[\text{input\_ids}]
+\]</div>
+<p>同一个 Token 在输入层通常对应同一个基础向量。</p>
+<span class="heading-anchor" id="9.2 Contextual Embedding"></span><h3 id="92-contextual-embedding">9.2 Contextual Embedding</h3>
+<p>经过多层 Transformer、Self-Attention 和 FFN 处理后，Token 的表示会结合当前上下文而变化。例如“苹果”在下列句子中的语境不同：</p>
+<pre><code class="language-text">我喜欢吃苹果。
+苹果公司发布了新产品。
+</code></pre>
+<p>可以用下面的直觉区分：</p>
+<pre><code class="language-text">Token Embedding：这个 Token 通常是什么
+Contextual Embedding：这个 Token 在当前句子中是什么意思
+</code></pre>
+<span class="heading-anchor" id="10. Attention Mask 与 Padding"></span><h2 id="10-attention-mask-padding">10. Attention Mask 与 Padding</h2>
+<p>为了将不同长度的文本组成一个批次，通常需要对较短序列补齐 <code>[PAD]</code>：</p>
+<pre><code class="language-text">[我, 喜欢, AI, [PAD], [PAD]]
+[今, 天, 天, 气, 很, 好]
+</code></pre>
+<p>对应的 <code>attention_mask</code> 可以是：</p>
+<pre><code class="language-text">[1, 1, 1, 0, 0]
+[1, 1, 1, 1, 1, 1]
+</code></pre>
+<p>通常：</p>
+<ul>
+<li><code>1</code> 表示真实 Token；</li>
+<li><code>0</code> 表示 Padding，不应参与有效注意力计算。</li>
+</ul>
+<p>Padding Mask 与 Causal Mask 的目的不同：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Mask</th>
+<th>解决的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Padding Mask</td>
+<td>忽略为了对齐长度而添加的 <code>[PAD]</code></td>
+</tr>
+<tr>
+<td>Causal Mask</td>
+<td>阻止当前位置读取未来 Token</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11. 使用 Hugging Face 查看 Token"></span><h2 id="11-hugging-face-token">11. 使用 Hugging Face 查看 Token</h2>
+<pre><code class="language-python">from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
+
+text = "我喜欢人工智能。"
+
+encoded = tokenizer(
+    text,
+    return_tensors="pt",
+)
+
+print("Token IDs：")
+print(encoded["input_ids"])
+
+print("Attention Mask：")
+print(encoded["attention_mask"])
+
+tokens = tokenizer.convert_ids_to_tokens(
+    encoded["input_ids"][0]
+)
+
+print("Tokens：")
+print(tokens)
+</code></pre>
+<p>可能得到类似结果：</p>
+<pre><code class="language-text">['[CLS]', '我', '喜', '欢', '人', '工', '智', '能', '。', '[SEP]']
+</code></pre>
+<p>具体切分结果取决于实际使用的模型与词表，不应把示例输出当成所有模型的固定行为。</p>
+<p>可以用以下方式查看 Token 数量：</p>
+<pre><code class="language-python">token_count = len(encoded["input_ids"][0])
+print("Token 数量：", token_count)
+</code></pre>
+<span class="heading-anchor" id="12. Token 数量为什么重要"></span><h2 id="12-token">12. Token 数量为什么重要</h2>
+<span class="heading-anchor" id="12.1 上下文长度"></span><h3 id="121">12.1 上下文长度</h3>
+<p>模型通常有最大上下文长度限制。如果输入超过限制，可能被截断，或者需要分段处理。</p>
+<span class="heading-anchor" id="12.2 成本"></span><h3 id="122">12.2 成本</h3>
+<p>许多模型 API 会根据输入和输出 Token 数量计费。Token 数量越多，费用通常越高。</p>
+<span class="heading-anchor" id="12.3 推理速度与显存"></span><h3 id="123">12.3 推理速度与显存</h3>
+<p>标准 Self-Attention 会产生长度为 <span class="arithmatex">\(n\)</span> 的 <span class="arithmatex">\(n\times n\)</span> 注意力矩阵，因此序列长度增加会带来显著的计算和显存压力：</p>
+<div class="arithmatex">\[
+O(n^2)
+\]</div>
+<p>这与第 08 课中的标准注意力复杂度结论相连接。</p>
+<span class="heading-anchor" id="12.4 编码效率"></span><h3 id="124">12.4 编码效率</h3>
+<p>相同字符长度的内容不一定产生相同数量的 Token。代码、URL、表格、特殊符号以及不同语言的文本，Token 数量可能差异很大。</p>
+<span class="heading-anchor" id="13. GPT 类模型中的 Token 生成流程"></span><h2 id="13-gpt-token">13. GPT 类模型中的 Token 生成流程</h2>
+<p>GPT 类模型通常以自回归方式逐步预测下一个 Token：</p>
+<pre><code class="language-text">用户输入文本
+  ↓
+Tokenizer
+  ↓
+input_ids
+  ↓
+Token Embedding + 位置表示
+  ↓
+Transformer
+  ↓
+输出 logits
+  ↓
+选择下一个 Token ID
+  ↓
+重复生成
+  ↓
+Tokenizer Decode
+  ↓
+文本
+</code></pre>
+<p>模型建模的目标可以表示为：</p>
+<div class="arithmatex">\[
+P(x_t\mid x_1,x_2,\ldots,x_{t-1})
+\]</div>
+<p>例如：</p>
+<pre><code class="language-text">输入：今天天气
+预测：很
+再预测：好
+再预测：。
+</code></pre>
+<p>模型实际逐步处理的是 Token 序列，而不是一次性直接输出完整句子。</p>
+<span class="heading-anchor" id="14. 常见误区"></span><h2 id="14">14. 常见误区</h2>
+<span class="heading-anchor" id="误区一：Token 就是单词"></span><h3 id="token">误区一：Token 就是单词</h3>
+<p>不一定。Token 可能是字符、子词、标点、空格或特殊符号。</p>
+<span class="heading-anchor" id="误区二：Token ID 越大越重要"></span><h3 id="token-id">误区二：Token ID 越大越重要</h3>
+<p>错误。Token ID 只是词表索引，不表示重要性或语义距离。</p>
+<span class="heading-anchor" id="误区三：Embedding 就是 Tokenizer"></span><h3 id="embedding-tokenizer">误区三：Embedding 就是 Tokenizer</h3>
+<p>不是：</p>
+<ul>
+<li>Tokenizer：文本 $
+ightarrow$ Token / Token ID；</li>
+<li>Embedding：Token ID $
+ightarrow$ 连续向量。</li>
+</ul>
+<span class="heading-anchor" id="误区四：同一个 Token 在任何句子中意义完全一样"></span><h3 id="token_1">误区四：同一个 Token 在任何句子中意义完全一样</h3>
+<p>Token Embedding 可以相同，但经过 Transformer 后的上下文表示会受到周围 Token 影响。</p>
+<span class="heading-anchor" id="误区五：不同模型可以共用同一个 Token ID"></span><h3 id="token-id_1">误区五：不同模型可以共用同一个 Token ID</h3>
+<p>通常不可以。不同模型的词表、特殊 Token 和编号规则可能不同。</p>
+<span class="heading-anchor" id="误区六：Token 越少，模型一定越聪明"></span><h3 id="token_2">误区六：Token 越少，模型一定越聪明</h3>
+<p>不一定。Token 数量主要反映编码效率，还需要结合模型结构、训练数据、上下文和任务能力判断模型效果。</p>
+<span class="heading-anchor" id="误区七：Padding Mask 和 Causal Mask 是同一种 Mask"></span><h3 id="padding-mask-causal-mask-mask">误区七：Padding Mask 和 Causal Mask 是同一种 Mask</h3>
+<p>错误。前者屏蔽补齐位置，后者屏蔽未来位置，服务于不同场景。</p>
+<span class="heading-anchor" id="15. 核心知识链"></span><h2 id="15">15. 核心知识链</h2>
+<pre><code class="language-text">原始文本
+  ↓
+Tokenizer 按模型词表切分
+  ↓
+Token
+  ↓
+Token ID（词表索引）
+  ↓
+Embedding 查表
+  ↓
+Token Embedding
+  ↓
+加入位置表示
+  ↓
+Transformer / Self-Attention
+  ↓
+Contextual Embedding 或下一个 Token 的概率
+  ↓
+生成时逐 Token 解码为文本
+</code></pre>
+<p>必须掌握的两个表达式是：</p>
+<div class="arithmatex">\[
+X=E[\text{input\_ids}]
+\]</div>
+<p>以及 Transformer 输入的概念表示：</p>
+<div class="arithmatex">\[
+H_0=E_{\text{token}}+E_{\text{position}}
+\]</div>
+<span class="heading-anchor" id="16. 自测题"></span><h2 id="16">16. 自测题</h2>
+<span class="heading-anchor" id="1. Token 和单词有什么区别？"></span><h3 id="1-token">1. Token 和单词有什么区别？</h3>
+<details>
+<summary>参考答案</summary>
+
+Token 是模型专用的文本切分单位，可能是字符、完整单词、子词、标点或特殊符号，不一定对应一个自然语言单词。
+
+</details>
+<span class="heading-anchor" id="2. 为什么 Token ID 不能直接作为语义向量？"></span><h3 id="2-token-id">2. 为什么 Token ID 不能直接作为语义向量？</h3>
+<details>
+<summary>参考答案</summary>
+
+Token ID 只是词表中的离散索引，数字大小和差值没有语义含义。模型需要通过 Embedding 将它查表转换为连续向量。
+
+</details>
+<span class="heading-anchor" id="3. Tokenizer 和 Embedding 的职责分别是什么？"></span><h3 id="3-tokenizer-embedding">3. Tokenizer 和 Embedding 的职责分别是什么？</h3>
+<details>
+<summary>参考答案</summary>
+
+Tokenizer 将文本切分并映射为 Token ID；Embedding 将 Token ID 映射为神经网络可以处理的连续向量。
+
+</details>
+<span class="heading-anchor" id="4. 为什么同一个“苹果”在不同句子中的最终表示可能不同？"></span><h3 id="4_1">4. 为什么同一个“苹果”在不同句子中的最终表示可能不同？</h3>
+<details>
+<summary>参考答案</summary>
+
+输入层的 Token Embedding 可以相同，但经过 Self-Attention、FFN 和多层 Transformer 后，表示会融合不同上下文，因此形成不同的上下文相关表示。
+
+</details>
+<span class="heading-anchor" id="5. Padding Mask 和 Causal Mask 有什么区别？"></span><h3 id="5-padding-mask-causal-mask">5. Padding Mask 和 Causal Mask 有什么区别？</h3>
+<details>
+<summary>参考答案</summary>
+
+Padding Mask 用于忽略批处理对齐时添加的 Padding Token；Causal Mask 用于阻止自回归模型读取当前位置之后的未来 Token。
+
+</details>
+<span class="heading-anchor" id="6. 为什么 Token 数量会影响上下文长度、成本和速度？"></span><h3 id="6-token">6. 为什么 Token 数量会影响上下文长度、成本和速度？</h3>
+<details>
+<summary>参考答案</summary>
+
+Token 数量决定输入占用的上下文空间，也常影响 API 计费；标准 Self-Attention 会生成 $n\times n$ 的关系矩阵，因此序列变长会增加计算和显存开销。
+
+</details>
+<span class="heading-anchor" id="17. 课后练习"></span><h2 id="17">17. 课后练习</h2>
+<ol>
+<li>使用一个实际模型的 Tokenizer，比较中文、英文、代码和 URL 的 Token 数量；</li>
+<li>打印一段文本的 Tokens、Token IDs 和 <code>attention_mask</code>，观察特殊 Token 是否被自动添加；</li>
+<li>修改 PyTorch Embedding 示例中的 <code>input_ids</code>，确认输出形状只由批次大小、序列长度和 Embedding 维度决定；</li>
+<li>对比同一个 Token 在不同句子中的输入层向量与 Transformer 输出，理解基础 Embedding 和上下文表示的区别；</li>
+<li>将本课流程与第 08 课的 Self-Attention 公式连接起来，说明 Token ID 为什么必须先转换为向量。</li>
+</ol>
+<span class="heading-anchor" id="18. 本课小结"></span><h2 id="18">18. 本课小结</h2>
+<p>Token 是模型处理文本的基本单位，但不一定等于字或词。Tokenizer 负责将文本切分为 Token 并转换成 Token ID；Token ID 只是词表索引，不能直接代表语义。Embedding 通过可训练矩阵查表，将离散 ID 转换为连续向量；再结合位置表示后，向量序列才能进入 Transformer。经过 Self-Attention 和多层 Transformer 加工，同一个 Token 会形成依赖上下文的表示。生成模型则在此基础上逐 Token 预测并解码为文本。</p>
+<p>一句话概括：</p>
+<blockquote>
+<p>Tokenizer 把文本变成模型词表中的编号，Embedding 把编号变成向量，Transformer 再利用上下文加工这些向量。</p>
+</blockquote></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

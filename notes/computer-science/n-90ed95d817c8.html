@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>连接管理、定时器、线程池 · 李杨的学习笔记</title><meta name="description" content="一个连接对象通常不是简单的 fd 包装，而是状态、缓冲区、定时器、协议解析器和回调的组合。"><meta property="og:title" content="连接管理、定时器、线程池 · 李杨的学习笔记"><meta property="og:description" content="一个连接对象通常不是简单的 fd 包装，而是状态、缓冲区、定时器、协议解析器和回调的组合。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-90ed95d817c8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-90ed95d817c8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>连接管理、定时器、线程池</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/03-%E8%BF%9E%E6%8E%A5%E7%AE%A1%E7%90%86-%E5%AE%9A%E6%97%B6%E5%99%A8-%E7%BA%BF%E7%A8%8B%E6%B1%A0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">连接状态机</a></li><li><a href="#_5">状态机要驱动动作</a></li><li><a href="#fd">fd 生命周期</a></li><li><a href="#fd-id">fd 与连接 id</a></li><li><a href="#_6">心跳与空闲超时</a></li><li><a href="#_7">定时器：时间轮与最小堆</a></li><li><a href="#_8">定时器精度与抖动</a></li><li><a href="#_9">线程池</a></li><li><a href="#_10">线程池队列和背压联动</a></li><li><a href="#one-loop-per-thread">one-loop-per-thread</a></li><li><a href="#_11">跨线程唤醒</a></li><li><a href="#_12">背压</a></li><li><a href="#_13">工程实践/示例</a></li><li><a href="#_14">最小堆定时器伪代码</a></li><li><a href="#_15">跨线程投递</a></li><li><a href="#_16">故障排查/观测</a></li><li><a href="#_17">连接泄漏与卡死</a></li><li><a href="#_18">定时器与跨线程问题</a></li><li><a href="#_19">推导示例</a></li><li><a href="#_20">输出缓冲高水位</a></li><li><a href="#_21">线程池关闭时的连接响应</a></li><li><a href="#one-loop-per-thread_1">如何讲 one-loop-per-thread</a></li><li><a href="#_22">最小验收清单</a></li><li><a href="#_23">常见误区</a></li><li><a href="#_24">自测题</a></li><li><a href="#_25">实践任务</a></li><li><a href="#_26">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>能设计连接对象的状态机和 fd 生命周期。</li>
+<li>理解心跳、空闲超时、时间轮、最小堆定时器的取舍。</li>
+<li>掌握线程池与 one-loop-per-thread 的职责边界。</li>
+<li>理解背压，避免内存被慢连接拖垮。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="连接状态机"></span><h3 id="_4">连接状态机</h3>
+<p>一个连接对象通常不是简单的 fd 包装，而是状态、缓冲区、定时器、协议解析器和回调的组合。</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --&gt; Connecting
+    Connecting --&gt; Connected
+    Connected --&gt; Closing: local close
+    Connected --&gt; PeerClosing: read returns 0
+    PeerClosing --&gt; Closed: flush or close
+    Closing --&gt; Closed: output drained
+    Connected --&gt; Closed: error/timeout
+</pre>
+<p>常见状态：</p>
+<ul>
+<li><code>Connecting</code>：非阻塞 connect 进行中。</li>
+<li><code>Connected</code>：可读写。</li>
+<li><code>Closing</code>：本地决定关闭，可能还要写完输出缓冲区。</li>
+<li><code>Closed</code>：fd 已移出 epoll 并关闭，连接对象等待释放。</li>
+</ul>
+<span class="heading-anchor" id="状态机要驱动动作"></span><h3 id="_5">状态机要驱动动作</h3>
+<p>状态名不是注释，必须限制允许的动作。例如 <code>Connected</code> 可以接收新请求，<code>Closing</code> 只能写完已排队响应，<code>Closed</code> 不能再刷新定时器或修改 epoll interest。每次状态迁移都应有触发原因、时间戳和最终资源动作。</p>
+<pre><code class="language-text">EPOLLIN -&gt; read -&gt; decode complete -&gt; dispatch
+read 0 -&gt; PeerClosing -&gt; no more input
+high watermark -&gt; pause reading
+write buffer empty &amp;&amp; Closing -&gt; shutdown/close
+timer expired -&gt; Closing/Closed
+</code></pre>
+<p>把状态机写清楚后，连接关闭、超时、背压和跨线程响应都可以落在同一套规则上，而不是散落在各个回调里。</p>
+<span class="heading-anchor" id="fd 生命周期"></span><h3 id="fd">fd 生命周期</h3>
+<p>正确顺序通常是：</p>
+<pre><code class="language-text">create fd -&gt; set nonblock/cloexec -&gt; register epoll -&gt; process events -&gt; unregister epoll -&gt; close fd -&gt; destroy connection
+</code></pre>
+<p>重要原则：</p>
+<ul>
+<li>fd 关闭前先从 epoll 移除或保证不会再访问对应连接对象。</li>
+<li>连接对象析构不能和事件处理并发冲突。</li>
+<li>fd 数字会被内核复用，日志和 map key 不能把旧 fd 当成唯一长期身份。可以引入连接 id。</li>
+</ul>
+<span class="heading-anchor" id="fd 与连接 id"></span><h3 id="fd-id">fd 与连接 id</h3>
+<p>连接 id 通常由单调递增序号生成，用来区分 fd 复用带来的歧义。map 可以用连接 id 找对象，日志同时记录 fd 和 id：fd 方便和 <code>ss/lsof</code> 对照，id 方便追踪应用生命周期。</p>
+<p>跨线程任务只携带连接 id 和业务数据，回到 IO 线程后再查表：</p>
+<pre><code class="language-text">worker done -&gt; enqueue(ownerLoop, connId, response) -&gt; ownerLoop find -&gt; state check -&gt; send/drop
+</code></pre>
+<p>如果连接已经关闭并被删除，响应直接丢弃或记录取消；不能在 worker 里保存连接裸指针后直接调用 <code>send</code>。</p>
+<span class="heading-anchor" id="心跳与空闲超时"></span><h3 id="_6">心跳与空闲超时</h3>
+<p>心跳用于发现半开连接或应用层长时间无响应；空闲超时用于释放无活动连接。</p>
+<p>区别：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>目标</th>
+<th>常见实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TCP keepalive</td>
+<td>内核层探测死连接</td>
+<td><code>SO_KEEPALIVE</code> 加系统参数</td>
+</tr>
+<tr>
+<td>应用心跳</td>
+<td>协议层确认对端业务可用</td>
+<td>ping/pong、heartbeat frame</td>
+</tr>
+<tr>
+<td>空闲超时</td>
+<td>清理长时间无读写连接</td>
+<td>每次活动刷新 deadline</td>
+</tr>
+</tbody>
+</table></div>
+<p>应用心跳不要过于频繁，否则大量连接会形成周期性流量尖峰。</p>
+<span class="heading-anchor" id="定时器：时间轮与最小堆"></span><h3 id="_7">定时器：时间轮与最小堆</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据结构</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>最小堆</td>
+<td>实现简单，取最近超时方便</td>
+<td>删除/更新需要额外索引或惰性删除</td>
+<td>中小规模、精确超时</td>
+</tr>
+<tr>
+<td>时间轮</td>
+<td>批量超时效率高</td>
+<td>精度由 tick 决定，实现复杂</td>
+<td>大量连接、超时精度要求不高</td>
+</tr>
+</tbody>
+</table></div>
+<p>最小堆常用惰性删除：刷新定时器时插入新记录，触发时检查 token/version 是否仍有效。</p>
+<span class="heading-anchor" id="定时器精度与抖动"></span><h3 id="_8">定时器精度与抖动</h3>
+<p>空闲超时不需要纳秒级精度。时间轮用 tick 换取批量处理效率，适合大量连接；最小堆更直观，适合先实现正确行为。定时器回调不要执行长时间业务逻辑，否则会阻塞同一事件循环的读写处理。大量连接同时刷新心跳时，可以加入少量随机抖动，避免周期性尖峰。</p>
+<span class="heading-anchor" id="线程池"></span><h3 id="_9">线程池</h3>
+<p>线程池适合处理 CPU 或阻塞型业务任务，避免阻塞 IO 线程。典型结构：</p>
+<pre><code class="language-text">IO thread: read/decode -&gt; enqueue task
+worker thread: run business -&gt; produce response
+IO thread: encode/write
+</code></pre>
+<p>业务线程不要直接操作连接 fd，除非框架设计了清晰的跨线程调度机制。更稳妥的方式是把响应投递回连接所属 IO 线程。</p>
+<span class="heading-anchor" id="线程池队列和背压联动"></span><h3 id="_10">线程池队列和背压联动</h3>
+<p>线程池队列如果无限增长，会把过载变成内存上涨和尾延迟。更可控的做法是设置有界队列，并把队列满映射为明确策略：拒绝请求、返回过载、降级处理、调用方执行或暂停读取。网络层高水位、线程池队列长度和下游连接池等待时间应共同决定是否继续接收新请求。</p>
+<h3 id="one-loop-per-thread">one-loop-per-thread</h3>
+<p>高性能网络库常用一个事件循环绑定一个线程：</p>
+<ul>
+<li>每个连接固定归属某个 EventLoop。</li>
+<li>连接的读写、缓冲区和状态机只在归属线程操作。</li>
+<li>跨线程任务通过队列和 eventfd/pipe 唤醒目标 loop。</li>
+</ul>
+<p>这种模型减少锁竞争，也让连接生命周期更可控。</p>
+<span class="heading-anchor" id="跨线程唤醒"></span><h3 id="_11">跨线程唤醒</h3>
+<p>跨线程投递需要唤醒目标 loop。Linux 常用 <code>eventfd</code>，也可以用 pipe。生产者把任务放进线程安全队列后写 eventfd；IO 线程从 epoll 收到 eventfd 可读，读掉计数并执行队列任务。</p>
+<pre><code class="language-text">worker thread: lock queue -&gt; push functor -&gt; write eventfd
+io thread: epoll eventfd readable -&gt; read eventfd -&gt; drain functor queue
+</code></pre>
+<p>不要只 push 队列不唤醒，否则目标 loop 可能要等到下一次网络事件或 timeout 才处理响应。</p>
+<span class="heading-anchor" id="背压"></span><h3 id="_12">背压</h3>
+<p>背压是系统告诉上游“我处理不过来了”的机制。</p>
+<p>网络服务里的背压点：</p>
+<ul>
+<li>输出缓冲区超过高水位：暂停读取或拒绝新请求。</li>
+<li>任务队列过长：返回过载错误或限流。</li>
+<li>下游 RPC 超时/拥塞：减少并发，快速失败。</li>
+<li>内存接近上限：主动断开低优先级或空闲连接。</li>
+</ul>
+<p>没有背压时，慢客户端可能让服务端为每个连接累积大量待发送数据，最终 OOM。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_13">工程实践/示例</h2>
+<span class="heading-anchor" id="最小堆定时器伪代码"></span><h3 id="_14">最小堆定时器伪代码</h3>
+<pre><code class="language-cpp">struct Timer {
+    int64_t deadlineMs;
+    uint64_t connId;
+    uint64_t version;
+    bool operator&gt;(const Timer&amp; other) const {
+        return deadlineMs &gt; other.deadlineMs;
+    }
+};
+
+void refresh(Connection&amp; c, int64_t nowMs, int64_t idleMs) {
+    c.timerVersion++;
+    heap.push(Timer{nowMs + idleMs, c.id, c.timerVersion});
+}
+
+void runExpired(int64_t nowMs) {
+    while (!heap.empty() &amp;&amp; heap.top().deadlineMs &lt;= nowMs) {
+        Timer t = heap.top();
+        heap.pop();
+        Connection* c = findConnection(t.connId);
+        if (!c || c-&gt;timerVersion != t.version) continue;
+        c-&gt;closeBecauseIdle();
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="跨线程投递"></span><h3 id="_15">跨线程投递</h3>
+<pre><code class="language-cpp">void onBusinessDone(EventLoop&amp; ownerLoop, ConnId id, std::string response) {
+    ownerLoop.runInLoop([id, response = std::move(response)]() mutable {
+        if (Connection* c = findConnection(id)) {
+            c-&gt;send(std::move(response));
+        }
+    });
+}
+</code></pre>
+<p>关键点：业务线程只投递任务，不直接写 fd。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_16">故障排查/观测</h2>
+<span class="heading-anchor" id="连接泄漏与卡死"></span><h3 id="_17">连接泄漏与卡死</h3>
+<p>连接管理至少暴露这些指标：当前连接数、各状态连接数、输入/输出缓冲区总量、定时器数量、超时关闭数、主动关闭数、错误关闭数。若连接数下降慢，按状态拆开看 <code>Closing</code> 是否等待写缓冲、<code>PeerClosing</code> 是否未释放、业务线程是否还有未返回任务。</p>
+<span class="heading-anchor" id="定时器与跨线程问题"></span><h3 id="_18">定时器与跨线程问题</h3>
+<p>定时器问题常表现为连接永不超时或集中被关闭。检查刷新时是否增加 version、过期时是否跳过旧 timer、事件循环 timeout 是否取最近 deadline。跨线程问题常表现为业务已完成但客户端没收到响应，优先看 eventfd 写入是否失败、队列是否积压、连接 id 是否已失效。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_19">推导示例</h2>
+<span class="heading-anchor" id="输出缓冲高水位"></span><h3 id="_20">输出缓冲高水位</h3>
+<pre><code class="language-text">output bytes &lt; low watermark  -&gt; normal read
+output bytes &gt; high watermark -&gt; disable read interest / reject new request
+write drained below low       -&gt; re-enable read interest
+</code></pre>
+<p>使用高低水位而不是单一阈值，可以避免读事件在边界附近频繁开关。这个策略会牺牲单个慢连接的吞吐，但保护进程总内存和其他连接的延迟。</p>
+<span class="heading-anchor" id="线程池关闭时的连接响应"></span><h3 id="_21">线程池关闭时的连接响应</h3>
+<p>如果关闭时选择 drain，线程池要继续执行已接受任务，但连接可能先被客户端断开。业务完成后投递回 IO 线程时必须重新检查连接 id 和状态。若选择 cancel，未开始任务应返回取消状态，IO 线程再决定发送错误响应还是直接关闭连接。</p>
+<span class="heading-anchor" id="如何讲 one-loop-per-thread"></span><h3 id="one-loop-per-thread_1">如何讲 one-loop-per-thread</h3>
+<p>这个模型的重点是“连接状态局部化”。每个连接只在所属 loop 线程修改状态、缓冲区和 fd interest；其他线程通过队列投递任务并唤醒 owner loop。它减少锁竞争，但需要处理跨线程投递积压和连接迁移问题。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_22">最小验收清单</h3>
+<ul>
+<li>连接状态迁移有触发事件和资源动作。</li>
+<li>timer refresh 有 version 或可删除索引。</li>
+<li>跨线程投递有 wakeup 和失效连接检查。</li>
+<li>高低水位能限制输出缓冲增长。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_23">常见误区</h2>
+<ul>
+<li>fd close 后连接对象仍可能被旧事件访问。</li>
+<li>业务线程直接读写 socket，破坏连接归属。</li>
+<li>只做心跳不做空闲超时，死连接仍长期占资源。</li>
+<li>输出缓冲区无限增长。</li>
+<li>线程池越大越好。线程过多会增加上下文切换和缓存抖动。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_24">自测题</h2>
+<ol>
+<li>为什么 fd 数字不能作为长期唯一连接身份？</li>
+<li>one-loop-per-thread 如何减少锁竞争？</li>
+<li>最小堆定时器如何处理刷新和删除？</li>
+<li>输出缓冲区高水位应该触发什么动作？</li>
+<li>业务线程为什么不建议直接操作 socket？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_25">实践任务</h2>
+<ul>
+<li>给 epoll echo server 增加连接 id 和状态机。</li>
+<li>实现空闲超时，分别用最小堆和惰性删除。</li>
+<li>增加输出缓冲区高水位，超过阈值时暂停读事件。</li>
+<li>实现一个固定大小线程池，把业务处理投递出去，再投递回 IO 线程写响应。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_26">延伸阅读</h2>
+<ul>
+<li><code>eventfd(2)</code>: https://man7.org/linux/man-pages/man2/eventfd.2.html</li>
+<li><code>timerfd_create(2)</code>: https://man7.org/linux/man-pages/man2/timerfd_create.2.html</li>
+<li><code>pthread(7)</code>: https://man7.org/linux/man-pages/man7/pthreads.7.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

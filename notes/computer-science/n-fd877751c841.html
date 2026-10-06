@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Linux Socket 与 TCP · 李杨的学习笔记</title><meta name="description" content="socket() 返回的是文件描述符，fd 只是进程访问内核对象的句柄。TCP 连接真正的协议状态、收发缓冲区、拥塞控制等都在内核里。"><meta property="og:title" content="Linux Socket 与 TCP · 李杨的学习笔记"><meta property="og:description" content="socket() 返回的是文件描述符，fd 只是进程访问内核对象的句柄。TCP 连接真正的协议状态、收发缓冲区、拥塞控制等都在内核里。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fd877751c841.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fd877751c841.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>Linux Socket 与 TCP</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/01-Linux-Socket%E4%B8%8ETCP.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#socket">socket 生命周期</a></li><li><a href="#_3">内核队列与连接进入路径</a></li><li><a href="#tcp">TCP 状态</a></li><li><a href="#_4">建连、关闭与半关闭</a></li><li><a href="#bindlistenacceptconnect">bind、listen、accept、connect</a></li><li><a href="#connect">非阻塞 connect 的错误确认</a></li><li><a href="#_5">阻塞与非阻塞</a></li><li><a href="#errno">常见 errno</a></li><li><a href="#_6">短读短写</a></li><li><a href="#_7">读写缓冲区数据流</a></li><li><a href="#sigpipe">SIGPIPE</a></li><li><a href="#_8">端序</a></li><li><a href="#_9">工程实践/示例</a></li><li><a href="#_10">返回值解释</a></li><li><a href="#_11">故障排查/观测</a></li><li><a href="#_12">连接状态与队列</a></li><li><a href="#_13">抓包和错误定位</a></li><li><a href="#_14">推导示例</a></li><li><a href="#_15">一次非阻塞发送如何进入状态机</a></li><li><a href="#close_wait">CLOSE_WAIT 的最小复盘</a></li><li><a href="#accept">如何讲 accept 失败</a></li><li><a href="#_16">最小验收清单</a></li><li><a href="#_17">常见误区</a></li><li><a href="#_18">自测题</a></li><li><a href="#_19">实践任务</a></li><li><a href="#_20">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 socket fd 的创建、绑定、监听、连接、读写和关闭生命周期。</li>
+<li>能解释 TCP 三次握手、四次挥手和常见状态。</li>
+<li>能正确处理阻塞/非阻塞 IO、短读短写、常见 <code>errno</code>、<code>SIGPIPE</code> 和网络字节序。</li>
+<li>能写出一个可读的 C++ TCP echo server 雏形。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="socket 生命周期"></span><h3 id="socket">socket 生命周期</h3>
+<p>服务端典型流程：</p>
+<pre class="mermaid">sequenceDiagram
+    participant S as Server
+    participant K as Kernel
+    S-&gt;&gt;K: socket()
+    S-&gt;&gt;K: setsockopt(SO_REUSEADDR)
+    S-&gt;&gt;K: bind(ip, port)
+    S-&gt;&gt;K: listen(backlog)
+    loop accept clients
+        S-&gt;&gt;K: accept()
+        S-&gt;&gt;K: read()/write()
+    end
+    S-&gt;&gt;K: close()
+</pre>
+<p>客户端典型流程：</p>
+<pre><code class="language-text">socket -&gt; connect -&gt; read/write -&gt; close
+</code></pre>
+<p><code>socket()</code> 返回的是文件描述符，fd 只是进程访问内核对象的句柄。TCP 连接真正的协议状态、收发缓冲区、拥塞控制等都在内核里。</p>
+<span class="heading-anchor" id="内核队列与连接进入路径"></span><h3 id="_3">内核队列与连接进入路径</h3>
+<p>服务端 <code>listen()</code> 之后，内核维护的不是一个简单列表。SYN 到达后先进入半连接相关路径，三次握手完成后进入已完成连接队列，应用 <code>accept()</code> 只是把一个已完成连接取出来并创建新的连接 fd。队列长度受 <code>listen(backlog)</code>、内核参数、SYN cookie、accept 速度和 CPU 调度共同影响，不同 Linux 版本和配置细节会有差异。</p>
+<p>典型路径：</p>
+<pre><code class="language-text">client SYN -&gt; server SYN_RECV -&gt; handshake done -&gt; accept queue -&gt; accept returns conn fd
+</code></pre>
+<p>如果应用处理太慢，已完成连接队列可能积压；如果遭遇大量半连接，SYN 队列和防护参数会影响行为。诊断时不要只看应用是否调用了 <code>listen</code>，还要看 accept 错误、队列溢出、握手重传和服务端 CPU 是否及时调度。</p>
+<span class="heading-anchor" id="TCP 状态"></span><h3 id="tcp">TCP 状态</h3>
+<p>常见状态的工程含义：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>常见位置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LISTEN</code></td>
+<td>服务端监听 socket</td>
+<td>已执行 <code>listen()</code>，等待连接</td>
+</tr>
+<tr>
+<td><code>SYN_SENT</code></td>
+<td>客户端</td>
+<td>已发 SYN，等待 SYN+ACK</td>
+</tr>
+<tr>
+<td><code>SYN_RECV</code></td>
+<td>服务端</td>
+<td>半连接，已收到 SYN 并回 SYN+ACK</td>
+</tr>
+<tr>
+<td><code>ESTABLISHED</code></td>
+<td>双方</td>
+<td>连接建立，可传输数据</td>
+</tr>
+<tr>
+<td><code>FIN_WAIT_1/2</code></td>
+<td>主动关闭方</td>
+<td>已发 FIN，等待对端确认或关闭</td>
+</tr>
+<tr>
+<td><code>CLOSE_WAIT</code></td>
+<td>被动关闭方</td>
+<td>收到 FIN，应用还没 close</td>
+</tr>
+<tr>
+<td><code>LAST_ACK</code></td>
+<td>被动关闭方</td>
+<td>已 close 并发 FIN，等待 ACK</td>
+</tr>
+<tr>
+<td><code>TIME_WAIT</code></td>
+<td>主动关闭方</td>
+<td>等待旧报文自然消失，保护连接四元组</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>TIME_WAIT</code> 不是错误。它保护可靠关闭和旧报文隔离。真正要警惕的是大量长期 <code>CLOSE_WAIT</code>，通常说明应用收到对端关闭后没有释放 fd。</p>
+<span class="heading-anchor" id="建连、关闭与半关闭"></span><h3 id="_4">建连、关闭与半关闭</h3>
+<p>TCP 关闭是双向字节流分别关闭。<code>shutdown(fd, SHUT_WR)</code> 表示本端不再发送，但仍可读取对端数据；<code>read()</code> 返回 0 表示对端发送方向已经关闭，本端是否继续写由协议决定。HTTP/1.1 普通响应通常不需要复杂半关闭，而代理、隧道或自定义流式协议可能需要保留半关闭状态。</p>
+<p>常见关闭路径：</p>
+<pre><code class="language-text">local wants close -&gt; stop reading new requests -&gt; flush output -&gt; shutdown write -&gt; wait peer FIN/timeout -&gt; close fd
+peer FIN -&gt; read returns 0 -&gt; mark peer half-closed -&gt; flush or close
+RST/error -&gt; discard buffers -&gt; close fd
+</code></pre>
+<p><code>SO_LINGER</code> 会改变 <code>close()</code> 行为，配置不当可能让关闭阻塞或发送 RST。教学和多数业务服务先使用默认关闭语义，再在明确需要快速复位或协议要求时研究它。</p>
+<span class="heading-anchor" id="bind、listen、accept、connect"></span><h3 id="bindlistenacceptconnect">bind、listen、accept、connect</h3>
+<ul>
+<li><code>bind()</code> 把本地地址绑定到 socket。服务端通常绑定端口；客户端一般让内核自动选择临时端口。</li>
+<li><code>listen()</code> 把主动 socket 转成监听 socket。<code>backlog</code> 影响已完成连接队列容量，具体行为受内核参数影响。</li>
+<li><code>accept()</code> 从已完成连接队列取出一个新连接 fd。监听 fd 继续负责接入，新 fd 负责数据传输。</li>
+<li><code>connect()</code> 对阻塞 socket 通常等到连接建立或失败才返回；对非阻塞 socket 可能返回 <code>-1</code> 且 <code>errno=EINPROGRESS</code>，之后用可写事件和 <code>getsockopt(SO_ERROR)</code> 判断结果。</li>
+</ul>
+<span class="heading-anchor" id="非阻塞 connect 的错误确认"></span><h3 id="connect">非阻塞 connect 的错误确认</h3>
+<p>非阻塞 <code>connect()</code> 返回 <code>EINPROGRESS</code> 不是失败，而是连接正在进行。事件循环监听可写后必须读取 <code>SO_ERROR</code>：</p>
+<pre><code class="language-cpp">int err = 0;
+socklen_t len = sizeof(err);
+if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &amp;err, &amp;len) &lt; 0) {
+    close(fd);                // getsockopt 本身失败，fd 状态不可继续信任
+} else if (err == 0) {
+    markConnected();
+} else {
+    errno = err;
+    close(fd);                // ECONNREFUSED/ETIMEDOUT/ENETUNREACH 等
+}
+</code></pre>
+<p>这段是简化片段，省略了 epoll 注册、deadline 和连接对象生命周期。关键是不要把“可写事件”直接等同于连接成功。</p>
+<span class="heading-anchor" id="阻塞与非阻塞"></span><h3 id="_5">阻塞与非阻塞</h3>
+<p>阻塞/非阻塞描述系统调用在资源未就绪时是否等待：</p>
+<ul>
+<li>阻塞 fd：<code>read()</code> 没数据时可能睡眠，<code>write()</code> 缓冲区满时可能睡眠。</li>
+<li>非阻塞 fd：资源未就绪时立即失败，常见 <code>errno=EAGAIN</code> 或 <code>EWOULDBLOCK</code>。</li>
+</ul>
+<p>设置非阻塞：</p>
+<pre><code class="language-cpp">#include &lt;fcntl.h&gt;
+#include &lt;stdexcept&gt;
+
+void setNonBlocking(int fd) {
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags == -1) throw std::runtime_error("fcntl F_GETFL failed");
+    if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        throw std::runtime_error("fcntl F_SETFL failed");
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="常见 errno"></span><h3 id="errno">常见 errno</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>errno</th>
+<th>场景</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EINTR</code></td>
+<td>被信号中断</td>
+<td>通常重试系统调用</td>
+</tr>
+<tr>
+<td><code>EAGAIN</code>/<code>EWOULDBLOCK</code></td>
+<td>非阻塞资源未就绪</td>
+<td>等下次事件</td>
+</tr>
+<tr>
+<td><code>ECONNRESET</code></td>
+<td>对端复位连接</td>
+<td>关闭连接 fd</td>
+</tr>
+<tr>
+<td><code>ETIMEDOUT</code></td>
+<td>连接或传输超时</td>
+<td>关闭或按策略重试</td>
+</tr>
+<tr>
+<td><code>EPIPE</code></td>
+<td>向已关闭连接写</td>
+<td>关闭连接，避免进程被 <code>SIGPIPE</code> 终止</td>
+</tr>
+<tr>
+<td><code>EMFILE</code></td>
+<td>进程 fd 达上限</td>
+<td>限流、释放 idle fd、提高 <code>ulimit</code></td>
+</tr>
+<tr>
+<td><code>ENFILE</code></td>
+<td>系统 fd 达上限</td>
+<td>系统级容量问题</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="短读短写"></span><h3 id="_6">短读短写</h3>
+<p>TCP 是字节流，不保留消息边界：</p>
+<ul>
+<li><code>read(fd, buf, 4096)</code> 返回 100 字节并不代表消息只有 100 字节。</li>
+<li><code>write(fd, buf, 4096)</code> 返回 1200 字节说明只写入了一部分，剩余数据必须缓存并等待下次可写。</li>
+</ul>
+<p>网络程序不能假设一次读/写对应一次业务消息。</p>
+<span class="heading-anchor" id="读写缓冲区数据流"></span><h3 id="_7">读写缓冲区数据流</h3>
+<p>服务端通常维护输入缓冲区和输出缓冲区：</p>
+<pre><code class="language-text">read fd -&gt; input buffer -&gt; codec -&gt; request -&gt; business -&gt; response -&gt; output buffer -&gt; write fd
+</code></pre>
+<p>短读只影响输入缓冲区何时凑够一帧；短写要求把剩余数据留在输出缓冲区，并开启写事件。若输出缓冲区超过高水位，连接应暂停读取、拒绝新请求或断开低优先级客户端，否则慢客户端会把服务端内存拖垮。</p>
+<span class="heading-anchor" id="SIGPIPE"></span><h3 id="sigpipe">SIGPIPE</h3>
+<p>进程向已被对端关闭的 socket 写数据，可能收到 <code>SIGPIPE</code>，默认动作是终止进程。常见处理方式：</p>
+<ul>
+<li>进程启动时忽略 <code>SIGPIPE</code>：<code>signal(SIGPIPE, SIG_IGN)</code>。</li>
+<li>Linux 下发送时使用 <code>send(fd, buf, len, MSG_NOSIGNAL)</code>。</li>
+<li>BSD/macOS 常用 <code>SO_NOSIGPIPE</code>，以平台文档为准。</li>
+</ul>
+<span class="heading-anchor" id="端序"></span><h3 id="_8">端序</h3>
+<p>网络协议通常使用大端序，也叫网络字节序。主机字节序可能是小端，因此端口、IPv4 地址和二进制长度字段需要转换：</p>
+<pre><code class="language-cpp">uint16_t port = htons(8080);
+uint32_t ip = htonl(INADDR_ANY);
+uint16_t hostPort = ntohs(port);
+</code></pre>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_9">工程实践/示例</h2>
+<p>一个简化的阻塞 echo server：</p>
+<pre><code class="language-cpp">#include &lt;arpa/inet.h&gt;
+#include &lt;csignal&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;stdexcept&gt;
+#include &lt;sys/socket.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    std::signal(SIGPIPE, SIG_IGN);
+
+    int listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd &lt; 0) throw std::runtime_error("socket failed");
+
+    int on = 1;
+    ::setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &amp;on, sizeof(on));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(8080);
+
+    if (::bind(listenFd, reinterpret_cast&lt;sockaddr*&gt;(&amp;addr), sizeof(addr)) &lt; 0) {
+        throw std::runtime_error("bind failed");
+    }
+    if (::listen(listenFd, SOMAXCONN) &lt; 0) {
+        throw std::runtime_error("listen failed");
+    }
+
+    std::cout &lt;&lt; "listen on 0.0.0.0:8080\n";
+    while (true) {
+        int connFd = ::accept(listenFd, nullptr, nullptr);
+        if (connFd &lt; 0) {
+            if (errno == EINTR) continue;
+            perror("accept");
+            continue;
+        }
+
+        char buf[4096];
+        bool writeFailed = false;
+        while (true) {
+            ssize_t n = ::read(connFd, buf, sizeof(buf));
+            if (n &gt; 0) {
+                ssize_t sent = 0;
+                while (sent &lt; n) {
+                    ssize_t m = ::send(connFd, buf + sent, n - sent, MSG_NOSIGNAL);
+                    if (m &gt; 0) sent += m;
+                    else if (m &lt; 0 &amp;&amp; errno == EINTR) continue;
+                    else {
+                        writeFailed = true;
+                        break;
+                    }
+                }
+                if (writeFailed) break;
+            } else if (n == 0) {
+                break; // peer closed
+            } else if (errno == EINTR) {
+                continue;
+            } else {
+                perror("read");
+                break;
+            }
+        }
+        ::close(connFd);
+    }
+}
+</code></pre>
+<p>这个示例易读但不适合大量连接：它一次只处理一个客户端。任意不可恢复的发送失败都会结束当前连接，不能丢弃未发送数据后继续读；阻塞 <code>send</code> 还可能被慢读客户端长期卡住，使服务无法继续 accept。高并发服务通常使用非阻塞 fd、输出缓冲和按需写事件。</p>
+<span class="heading-anchor" id="返回值解释"></span><h3 id="_10">返回值解释</h3>
+<p>示例里的错误处理边界：</p>
+<ul>
+<li><code>socket/bind/listen</code> 失败是启动阶段不可恢复错误，示例直接抛异常；</li>
+<li><code>accept</code> 被 <code>EINTR</code> 中断后继续循环，其他错误记录后继续服务；</li>
+<li><code>read</code> 返回 <code>0</code> 表示对端正常关闭发送方向；</li>
+<li><code>send</code> 返回正数可能小于剩余长度，所以继续发送未写完部分；</li>
+<li><code>send</code> 失败后示例关闭连接，没有实现输出缓冲区和重试状态机。</li>
+</ul>
+<p>生产代码还要处理 <code>EMFILE</code>：进程 fd 达上限时 <code>accept</code> 会失败。常见做法包括降低接入速率、关闭空闲连接、暴露告警并保留一个“idle fd”用于临时腾出错误处理空间；具体策略要和服务容量模型一致。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_11">故障排查/观测</h2>
+<span class="heading-anchor" id="连接状态与队列"></span><h3 id="_12">连接状态与队列</h3>
+<p>常用命令：</p>
+<pre><code class="language-bash">ss -tanp
+ss -lnt
+cat /proc/net/netstat
+</code></pre>
+<p>观察重点：</p>
+<ul>
+<li><code>LISTEN</code> 是否存在，绑定地址是否正确；</li>
+<li><code>Recv-Q/Send-Q</code> 是否长期积压；</li>
+<li><code>SYN_RECV</code> 是否异常多，提示握手或攻击压力；</li>
+<li><code>CLOSE_WAIT</code> 是否长期增长，提示应用未 close；</li>
+<li><code>TIME_WAIT</code> 是否短期大量出现，通常先判断是否符合连接模式。</li>
+</ul>
+<span class="heading-anchor" id="抓包和错误定位"></span><h3 id="_13">抓包和错误定位</h3>
+<p><code>tcpdump</code> 能验证三次握手、FIN/RST、重传和窗口变化；应用日志应记录 fd、连接 id、peer/local 地址、状态转换、<code>errno</code> 和未发送字节数。连接问题要同时看客户端、服务端和中间负载均衡，因为 RST、超时和半关闭可能来自任一侧。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_14">推导示例</h2>
+<span class="heading-anchor" id="一次非阻塞发送如何进入状态机"></span><h3 id="_15">一次非阻塞发送如何进入状态机</h3>
+<pre><code class="language-text">business produce response
+append to output buffer
+try write
+  wrote all -&gt; disable EPOLLOUT
+  wrote partial -&gt; keep remaining, enable EPOLLOUT
+  EAGAIN -&gt; enable EPOLLOUT
+  EPIPE/ECONNRESET -&gt; close
+</code></pre>
+<p>这里的关键是输出缓冲区属于连接对象，而不是栈上的临时变量。<code>send</code> 返回后未写完的数据必须继续存在，直到下次可写事件处理完成或连接关闭。高水位触发时要暂停读取，否则应用会继续解析请求并产生更多响应。</p>
+<span class="heading-anchor" id="CLOSE_WAIT 的最小复盘"></span><h3 id="close_wait">CLOSE_WAIT 的最小复盘</h3>
+<p>如果 <code>ss -tanp</code> 看到大量长期 <code>CLOSE_WAIT</code>，说明内核已经收到对端 FIN，应用也能从 <code>read</code> 看到 0，但进程没有关闭 fd。排查顺序是：读路径是否处理 <code>n == 0</code>，状态机是否从 PeerClosing 走到 close，是否有未完成输出缓冲阻塞关闭，是否有 shared_ptr 引用环让连接对象无法析构。</p>
+<span class="heading-anchor" id="如何讲 accept 失败"></span><h3 id="accept">如何讲 accept 失败</h3>
+<p><code>accept</code> 失败要先分临时错误和容量错误。<code>EINTR</code> 通常重试，<code>EAGAIN</code> 表示非阻塞监听 fd 暂无连接，<code>EMFILE</code> 是进程 fd 上限，<code>ENFILE</code> 是系统 fd 上限。容量错误需要限流和告警，不是简单 continue。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_16">最小验收清单</h3>
+<ul>
+<li>建连成功通过 <code>SO_ERROR</code> 确认。</li>
+<li>读写路径覆盖短读、短写、0、<code>EINTR</code>、<code>EAGAIN</code>。</li>
+<li>关闭路径区分 FIN、RST、半关闭和超时。</li>
+<li>日志包含 fd、连接 id、peer 和 errno。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_17">常见误区</h2>
+<ul>
+<li>认为 TCP 是消息协议。TCP 只提供有序可靠字节流。</li>
+<li>认为 <code>write()</code> 成功就等于对端应用已收到。它通常只表示数据进入本机内核发送缓冲区。</li>
+<li>看到 <code>TIME_WAIT</code> 就试图全部消除。它是 TCP 正常机制。</li>
+<li>忽略 <code>EINTR</code>、<code>EAGAIN</code> 和短写，导致偶发丢包或连接异常。</li>
+<li>服务端忘记忽略 <code>SIGPIPE</code>，线上被单个断开连接打崩。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_18">自测题</h2>
+<ol>
+<li><code>accept()</code> 返回的新 fd 和监听 fd 分别负责什么？</li>
+<li>非阻塞 <code>connect()</code> 返回 <code>EINPROGRESS</code> 后如何判断连接成功？</li>
+<li>为什么大量 <code>CLOSE_WAIT</code> 比大量短期 <code>TIME_WAIT</code> 更值得警惕？</li>
+<li><code>read()</code> 返回 0 的语义是什么？</li>
+<li>为什么长度字段协议要规定字节序？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_19">实践任务</h2>
+<ul>
+<li>写一个阻塞 echo server 和 client，用 <code>nc</code> 或自写 client 测试。</li>
+<li>给 server 加上 <code>SIGPIPE</code> 处理和短写循环。</li>
+<li>使用 <code>ss -tanp</code> 或 <code>netstat</code> 观察连接状态变化。</li>
+<li>把 fd 改成非阻塞，观察无数据时 <code>read()</code> 的返回值和 <code>errno</code>。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_20">延伸阅读</h2>
+<ul>
+<li><code>socket(2)</code>: https://man7.org/linux/man-pages/man2/socket.2.html</li>
+<li><code>bind(2)</code>: https://man7.org/linux/man-pages/man2/bind.2.html</li>
+<li><code>listen(2)</code>: https://man7.org/linux/man-pages/man2/listen.2.html</li>
+<li><code>accept(2)</code>: https://man7.org/linux/man-pages/man2/accept.2.html</li>
+<li><code>connect(2)</code>: https://man7.org/linux/man-pages/man2/connect.2.html</li>
+<li><code>tcp(7)</code>: https://man7.org/linux/man-pages/man7/tcp.7.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09. NoSQL、缓存、搜索与分析型数据库 · 李杨的学习笔记</title><meta name="description" content="本章回答“什么时候不用关系数据库，什么时候不能只用关系数据库”。读完后你应该能："><meta property="og:title" content="09. NoSQL、缓存、搜索与分析型数据库 · 李杨的学习笔记"><meta property="og:description" content="本章回答“什么时候不用关系数据库，什么时候不能只用关系数据库”。读完后你应该能："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f1016c7c1998.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f1016c7c1998.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>09. NoSQL、缓存、搜索与分析型数据库</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/09-NoSQL%E7%BC%93%E5%AD%98%E6%90%9C%E7%B4%A2%E4%B8%8E%E5%88%86%E6%9E%90%E5%9E%8B%E6%95%B0%E6%8D%AE%E5%BA%93.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">默认主库仍应谨慎选择</a></li><li><a href="#_3">文档数据库</a></li><li><a href="#redis">键值数据库与 Redis</a></li><li><a href="#cache-aside">Cache-Aside 模式</a></li><li><a href="#_4">缓存常见问题</a></li><li><a href="#_5">搜索引擎</a></li><li><a href="#_6">图数据库</a></li><li><a href="#_7">时序数据库</a></li><li><a href="#olap">分析型数据库 / OLAP</a></li><li><a href="#_8">组件选型矩阵</a></li><li><a href="#10">引入新存储前的 10 个问题</a></li><li><a href="#_9">常见误区</a></li><li><a href="#1">误区 1：为了性能先上缓存</a></li><li><a href="#2">误区 2：搜索引擎替代主库</a></li><li><a href="#3">误区 3：微服务必须每个服务一个数据库</a></li><li><a href="#_10">本章练习</a></li><li><a href="#_11">深入展开：多存储系统的关键是“谁是事实源”</a></li><li><a href="#1_1">1. 事实源和派生视图</a></li><li><a href="#2-redis">2. Redis 缓存不是免费的性能</a></li><li><a href="#3_1">3. 搜索同步要能重放</a></li><li><a href="#4-olap">4. OLAP 数据有延迟，要给业务解释清楚</a></li><li><a href="#5">5. 引入新存储的评审模板</a></li><li><a href="#6">6. 典型电商数据流</a></li><li><a href="#_12">思维导图</a></li><li><a href="#1_2">1. 多存储定位</a></li><li><a href="#2-cache-aside">2. Cache Aside</a></li><li><a href="#3_2">3. 派生视图同步</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章回答“什么时候不用关系数据库，什么时候不能只用关系数据库”。读完后你应该能：</p>
+<ul>
+<li>区分文档库、键值库、搜索引擎、图数据库、时序库、分析型数据库。</li>
+<li>判断 Redis 应该作为缓存还是事实源。</li>
+<li>理解缓存一致性和失效策略。</li>
+<li>知道搜索系统和 OLAP 系统为什么通常不是交易事实源。</li>
+<li>建立选型矩阵。</li>
+</ul>
+<span class="heading-anchor" id="默认主库仍应谨慎选择"></span><h2 id="_2">默认主库仍应谨慎选择</h2>
+<p>很多系统可以用关系数据库作为事实源，再按需要增加派生存储：</p>
+<pre class="mermaid">flowchart LR
+  App["应用"] --&gt; DB[(关系型主库)]
+  DB --&gt; Cache[(Redis 缓存)]
+  DB --&gt; Search[(搜索索引)]
+  DB --&gt; OLAP[(分析库)]
+  DB --&gt; MQ["消息 / CDC"]
+</pre>
+<p>核心原则：先明确谁是事实源。缓存、搜索、报表通常是派生视图，不应该随便反向修改主事实。</p>
+<span class="heading-anchor" id="文档数据库"></span><h2 id="_3">文档数据库</h2>
+<p>适合：</p>
+<ul>
+<li>一个文档天然包含完整聚合，例如文章、问卷、配置。</li>
+<li>字段结构变化快。</li>
+<li>查询主要围绕文档自身，不频繁跨集合关联。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>复杂事务。</li>
+<li>强引用完整性。</li>
+<li>多维 ad-hoc 查询。</li>
+</ul>
+<p>设计提醒：文档库中的嵌套不是无限嵌套。文档过大、更新热点集中、数组无限增长都会出问题。</p>
+<span class="heading-anchor" id="键值数据库与 Redis"></span><h2 id="redis">键值数据库与 Redis</h2>
+<p>Redis 常见用途：</p>
+<ul>
+<li>缓存。</li>
+<li>分布式锁的辅助组件。</li>
+<li>计数器。</li>
+<li>排行榜。</li>
+<li>会话。</li>
+<li>限流。</li>
+<li>简单队列或流。</li>
+</ul>
+<span class="heading-anchor" id="Cache-Aside 模式"></span><h3 id="cache-aside">Cache-Aside 模式</h3>
+<p>读取：</p>
+<ol>
+<li>先读缓存。</li>
+<li>未命中则读数据库。</li>
+<li>把结果写入缓存。</li>
+<li>返回结果。</li>
+</ol>
+<p>写入：</p>
+<ol>
+<li>更新数据库。</li>
+<li>删除缓存。</li>
+<li>下次读取重建缓存。</li>
+</ol>
+<p>删除缓存通常比直接更新缓存更安全，因为能避免复杂对象局部更新不一致。</p>
+<span class="heading-anchor" id="缓存常见问题"></span><h3 id="_4">缓存常见问题</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>含义</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>缓存穿透</td>
+<td>查询不存在的数据反复打到 DB</td>
+<td>缓存空值、布隆过滤器</td>
+</tr>
+<tr>
+<td>缓存击穿</td>
+<td>热点 key 过期瞬间大量请求打到 DB</td>
+<td>互斥重建、逻辑过期</td>
+</tr>
+<tr>
+<td>缓存雪崩</td>
+<td>大量 key 同时过期</td>
+<td>随机 TTL、分批预热</td>
+</tr>
+<tr>
+<td>缓存不一致</td>
+<td>DB 与缓存短暂不同</td>
+<td>明确一致性窗口、删除缓存、重试</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要把 Redis 当作“更快的数据库”来随意承载核心交易事实，除非你明确设计了持久化、恢复和一致性方案。</p>
+<span class="heading-anchor" id="搜索引擎"></span><h2 id="_5">搜索引擎</h2>
+<p>搜索引擎适合：</p>
+<ul>
+<li>全文检索。</li>
+<li>相关性排序。</li>
+<li>分词。</li>
+<li>高亮。</li>
+<li>日志检索。</li>
+<li>多字段模糊搜索。</li>
+</ul>
+<p>典型架构：</p>
+<ol>
+<li>主库写入业务事实。</li>
+<li>通过 outbox、消息队列或 CDC 同步到搜索索引。</li>
+<li>搜索接口查搜索引擎。</li>
+<li>详情页仍可回主库校验权限和最新状态。</li>
+</ol>
+<p>注意：搜索索引通常是最终一致。不要用它判断支付状态、库存余量这类强一致事实。</p>
+<span class="heading-anchor" id="图数据库"></span><h2 id="_6">图数据库</h2>
+<p>适合问题：</p>
+<ul>
+<li>“A 和 B 之间是否有路径？”</li>
+<li>“某用户三度关系内有哪些人？”</li>
+<li>“风险账户之间是否形成团伙？”</li>
+</ul>
+<p>如果只是用户和角色、订单和商品这种普通多对多，关系库足够。</p>
+<span class="heading-anchor" id="时序数据库"></span><h2 id="_7">时序数据库</h2>
+<p>适合：</p>
+<ul>
+<li>指标监控。</li>
+<li>设备上报。</li>
+<li>高频时间序列。</li>
+<li>按时间窗口聚合。</li>
+</ul>
+<p>设计关键：</p>
+<ul>
+<li>标签基数控制。</li>
+<li>保留周期。</li>
+<li>降采样策略。</li>
+<li>冷热分层。</li>
+</ul>
+<span class="heading-anchor" id="分析型数据库 / OLAP"></span><h2 id="olap">分析型数据库 / OLAP</h2>
+<p>适合：</p>
+<ul>
+<li>大规模聚合。</li>
+<li>报表。</li>
+<li>用户行为分析。</li>
+<li>日志分析。</li>
+</ul>
+<p>常见特性：</p>
+<ul>
+<li>列式存储。</li>
+<li>压缩。</li>
+<li>向量化执行。</li>
+<li>分区。</li>
+<li>物化视图或预聚合。</li>
+</ul>
+<p>不要用 OLAP 系统承载强事务写入；也不要让 OLTP 主库长期承担重型报表。</p>
+<span class="heading-anchor" id="组件选型矩阵"></span><h2 id="_8">组件选型矩阵</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>首选</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>订单、支付、库存</td>
+<td>关系型数据库</td>
+<td>事务和约束重要</td>
+</tr>
+<tr>
+<td>用户资料缓存</td>
+<td>Redis</td>
+<td>可从主库重建</td>
+</tr>
+<tr>
+<td>商品全文搜索</td>
+<td>搜索引擎</td>
+<td>分词和相关性</td>
+</tr>
+<tr>
+<td>行为日志分析</td>
+<td>OLAP / 数据仓库</td>
+<td>大扫描聚合</td>
+</tr>
+<tr>
+<td>监控指标</td>
+<td>时序数据库</td>
+<td>时间窗口查询</td>
+</tr>
+<tr>
+<td>权限和角色</td>
+<td>关系型数据库</td>
+<td>关系明确、需要约束</td>
+</tr>
+<tr>
+<td>社交路径探索</td>
+<td>图数据库</td>
+<td>多跳关系查询</td>
+</tr>
+<tr>
+<td>灵活配置文档</td>
+<td>文档数据库或 JSONB</td>
+<td>看查询和约束需求</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="引入新存储前的 10 个问题"></span><h2 id="10">引入新存储前的 10 个问题</h2>
+<ol>
+<li>它是不是事实源？</li>
+<li>数据如何从主库同步？</li>
+<li>允许多长时间不一致？</li>
+<li>失败后如何重放？</li>
+<li>如何备份恢复？</li>
+<li>如何监控延迟和错误？</li>
+<li>谁负责运维？</li>
+<li>查询模式是否真的需要它？</li>
+<li>能否用现有数据库加索引/物化视图解决？</li>
+<li>迁移退出成本是什么？</li>
+</ol>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_9">常见误区</h2>
+<span class="heading-anchor" id="误区 1：为了性能先上缓存"></span><h3 id="1">误区 1：为了性能先上缓存</h3>
+<p>很多性能问题来自缺索引、查询过大、N+1、错误分页。缓存会掩盖问题，还会增加一致性复杂度。</p>
+<span class="heading-anchor" id="误区 2：搜索引擎替代主库"></span><h3 id="2">误区 2：搜索引擎替代主库</h3>
+<p>搜索引擎擅长检索，不擅长交易一致性。搜索结果可以延迟，支付状态不能随便延迟。</p>
+<span class="heading-anchor" id="误区 3：微服务必须每个服务一个数据库"></span><h3 id="3">误区 3：微服务必须每个服务一个数据库</h3>
+<p>数据库边界应服务于业务边界和团队边界，不是架构口号。拆库会引入分布式事务、数据同步和排查成本。</p>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_10">本章练习</h2>
+<ol>
+<li>为电商系统设计主库、缓存、搜索、分析库的数据流。</li>
+<li>说明商品详情缓存更新策略。</li>
+<li>判断“订单列表搜索”应该查主库、搜索引擎还是两者结合。</li>
+<li>给一个新存储组件写退出方案。</li>
+</ol>
+<p>下一章：<a href="n-56eb1bc503be.html">10-迁移版本化与零停机变更</a>。</p>
+<span class="heading-anchor" id="深入展开：多存储系统的关键是“谁是事实源”"></span><h2 id="_11">深入展开：多存储系统的关键是“谁是事实源”</h2>
+<p>系统变复杂后，几乎一定会出现多个存储：关系库、Redis、搜索引擎、对象存储、分析库。真正困难的不是引入组件，而是定义数据流和一致性边界。</p>
+<span class="heading-anchor" id="1. 事实源和派生视图"></span><h3 id="1_1">1. 事实源和派生视图</h3>
+<p>以商品为例：</p>
+<ul>
+<li>主库商品表是事实源。</li>
+<li>Redis 商品详情是缓存。</li>
+<li>Elasticsearch 商品索引是搜索视图。</li>
+<li>ClickHouse 商品点击数据是分析视图。</li>
+</ul>
+<p>当商品下架时，主库状态必须先变。缓存和搜索可能延迟，但下单时必须回主库校验 <code>active</code> 和库存。</p>
+<p>如果搜索引擎里还查得到下架商品，用户最多看到旧搜索结果；但不能允许下单成功。这就是事实源的意义。</p>
+<span class="heading-anchor" id="2. Redis 缓存不是免费的性能"></span><h3 id="2-redis">2. Redis 缓存不是免费的性能</h3>
+<p>缓存引入后，多了这些问题：</p>
+<ul>
+<li>缓存什么时候失效？</li>
+<li>删除缓存失败怎么办？</li>
+<li>热点 key 过期怎么办？</li>
+<li>缓存和数据库不一致时以谁为准？</li>
+<li>Redis 故障时系统如何降级？</li>
+</ul>
+<p>Cache-Aside 是常见模式，但它只提供最终一致，不提供强一致。核心交易判断不要只依赖缓存。</p>
+<span class="heading-anchor" id="3. 搜索同步要能重放"></span><h3 id="3_1">3. 搜索同步要能重放</h3>
+<p>主库到搜索引擎的同步常见做法：</p>
+<ul>
+<li>应用双写。</li>
+<li>outbox 事件。</li>
+<li>CDC 订阅 binlog/WAL。</li>
+</ul>
+<p>应用双写最简单，但容易出现主库成功、搜索失败。outbox 更可靠：业务事务里写事件，后台 worker 重试同步。CDC 更通用，但要处理 schema 变化、顺序、重放和监控。</p>
+<p>搜索索引要支持全量重建。否则一旦同步 bug 导致索引污染，很难恢复。</p>
+<span class="heading-anchor" id="4. OLAP 数据有延迟，要给业务解释清楚"></span><h3 id="4-olap">4. OLAP 数据有延迟，要给业务解释清楚</h3>
+<p>报表系统常见延迟：实时、分钟级、小时级、T+1。延迟不是缺陷，而是成本和复杂度的取舍。</p>
+<p>关键是让使用者知道：</p>
+<ul>
+<li>数据更新时间。</li>
+<li>统计口径。</li>
+<li>是否包含退款/取消。</li>
+<li>是否和财务口径一致。</li>
+</ul>
+<p>很多“数据不准”不是数据库算错，而是口径不清。</p>
+<span class="heading-anchor" id="5. 引入新存储的评审模板"></span><h3 id="5">5. 引入新存储的评审模板</h3>
+<p>在引入 MongoDB、Redis、Elasticsearch、ClickHouse 前，至少回答：</p>
+<ol>
+<li>它解决哪个现有数据库解决不了的问题？</li>
+<li>它是不是事实源？</li>
+<li>数据如何写入和同步？</li>
+<li>允许多长时间不一致？</li>
+<li>如何备份、恢复、重建？</li>
+<li>如何监控延迟和失败？</li>
+<li>团队是否能运维？</li>
+<li>如果未来不用了，如何迁出？</li>
+</ol>
+<p>这个模板能避免“为了技术潮流引入新数据库”。</p>
+<span class="heading-anchor" id="6. 典型电商数据流"></span><h3 id="6">6. 典型电商数据流</h3>
+<pre><code class="language-text">PostgreSQL/MySQL 保存订单事实
+  -&gt; outbox/CDC
+  -&gt; Elasticsearch 更新商品和订单搜索
+  -&gt; ClickHouse 生成运营报表
+  -&gt; Redis 缓存热点详情
+</code></pre>
+<p>每条链路都有监控：事件积压、同步失败、索引延迟、缓存命中率。多存储系统的可靠性来自可观测和可重放，而不是相信每次同步都成功。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_12">思维导图</h2>
+<blockquote>
+<p>记忆建议：多存储系统的第一原则是分清“事实源”和“派生视图”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 多存储定位"></span><h3 id="1_2">1. 多存储定位</h3>
+<pre class="mermaid">mindmap
+  root((多存储选型))
+    关系库
+      交易事实源
+      强约束事务
+    Redis
+      缓存
+      计数队列限流
+    搜索引擎
+      全文检索
+      排序过滤视图
+    文档库
+      灵活文档模型
+    OLAP
+      报表分析
+      延迟可接受
+</pre>
+<span class="heading-anchor" id="2. Cache Aside"></span><h3 id="2-cache-aside">2. Cache Aside</h3>
+<pre class="mermaid">flowchart LR
+  A["读请求"] --&gt; B{"缓存命中"}
+  B --&gt;|是| C["返回缓存"]
+  B --&gt;|否| D["查数据库"]
+  D --&gt; E["写入缓存"]
+  E --&gt; C
+  F["写请求"] --&gt; G["更新数据库"]
+  G --&gt; H["删除缓存"]
+</pre>
+<span class="heading-anchor" id="3. 派生视图同步"></span><h3 id="3_2">3. 派生视图同步</h3>
+<pre class="mermaid">flowchart TD
+  A["主库事实变化"] --&gt; B["记录事件或变更日志"]
+  B --&gt; C["异步同步到缓存搜索OLAP"]
+  C --&gt; D{"同步失败"}
+  D --&gt;|是| E["可重放 可校验 可补偿"]
+  D --&gt;|否| F["对外说明延迟和一致性边界"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

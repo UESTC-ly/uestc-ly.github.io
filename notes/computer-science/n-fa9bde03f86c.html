@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>C++ 左值、右值、移动语义与完美转发 · 李杨的学习笔记</title><meta name="description" content="本文整理 C++ 中的值类别、引用、移动语义与完美转发。重点是理解它们之间的关系，并掌握常见用法与易错点。"><meta property="og:title" content="C++ 左值、右值、移动语义与完美转发 · 李杨的学习笔记"><meta property="og:description" content="本文整理 C++ 中的值类别、引用、移动语义与完美转发。重点是理解它们之间的关系，并掌握常见用法与易错点。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fa9bde03f86c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fa9bde03f86c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">02-语言 / C++语法 / 专题</p><h1>C++ 左值、右值、移动语义与完美转发</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/C%2B%2B%E8%AF%AD%E6%B3%95/%E4%B8%93%E9%A2%98/C%2B%2B%E5%B7%A6%E5%80%BC%E3%80%81%E5%8F%B3%E5%80%BC%E3%80%81%E7%A7%BB%E5%8A%A8%E8%AF%AD%E4%B9%89%E4%B8%8E%E5%AE%8C%E7%BE%8E%E8%BD%AC%E5%8F%91.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">目录</a></li><li><a href="#1">1. 核心关系</a></li><li><a href="#2">2. 左值与右值</a></li><li><a href="#21">2.1 左值</a></li><li><a href="#22">2.2 右值</a></li><li><a href="#23">2.3 左值不等于“可修改”</a></li><li><a href="#24">2.4 初学阶段的辅助判断</a></li><li><a href="#3">3. 左值引用与右值引用</a></li><li><a href="#31-t">3.1 左值引用 T&amp;</a></li><li><a href="#32-const-t">3.2 常量左值引用 const T&amp;</a></li><li><a href="#33-t">3.3 右值引用 T&amp;&amp;</a></li><li><a href="#34">3.4 有名字的右值引用变量仍然是左值表达式</a></li><li><a href="#4">4. 移动语义</a></li><li><a href="#41">4.1 为什么需要移动语义</a></li><li><a href="#42">4.2 复制与移动的区别</a></li><li><a href="#5-stdmove">5. std::move</a></li><li><a href="#51">5.1 基本用法</a></li><li><a href="#52-stdmove">5.2 std::move 本身不会移动资源</a></li><li><a href="#53">5.3 常见使用场景</a></li><li><a href="#54-stdmove">5.4 不要滥用 std::move</a></li><li><a href="#55">5.5 返回局部对象时通常不要手动移动</a></li><li><a href="#56-const">5.6 const 对象通常不能真正移动</a></li><li><a href="#6">6. 移动构造与移动赋值</a></li><li><a href="#61">6.1 移动构造函数</a></li><li><a href="#62">6.2 移动赋值运算符</a></li><li><a href="#63">6.3 二者的区别</a></li><li><a href="#64-noexcept">6.4 为什么移动函数常写 noexcept</a></li><li><a href="#7">7. 移动后的对象</a></li><li><a href="#8">8. 完美转发</a></li><li><a href="#81">8.1 完美转发要解决的问题</a></li><li><a href="#82-stdforward">8.2 使用 std::forward</a></li><li><a href="#9">9. 转发引用与引用折叠</a></li><li><a href="#91">9.1 什么是转发引用</a></li><li><a href="#92">9.2 普通右值引用不是转发引用</a></li><li><a href="#93">9.3 引用折叠规则</a></li><li><a href="#10-stdmove-stdforward">10. std::move 与 std::forward 的区别</a></li><li><a href="#stdmove">std::move</a></li><li><a href="#stdforward">std::forward</a></li><li><a href="#11">11. 可变参数的完美转发</a></li><li><a href="#12">12. 常见错误</a></li><li><a href="#121-stdmove">12.1 误以为 std::move 会自动移动</a></li><li><a href="#122">12.2 移动后继续依赖源对象原值</a></li><li><a href="#123">12.3 把有名字的右值引用变量当成右值</a></li><li><a href="#124-stdmove">12.4 返回局部变量时习惯性写 std::move</a></li><li><a href="#125-const-stdmove">12.5 对 const 对象使用 std::move，误以为一定会移动</a></li><li><a href="#126-stdforward">12.6 在非模板函数中使用 std::forward</a></li><li><a href="#13">13. 面试问答</a></li><li><a href="#131">13.1 什么是左值和右值？</a></li><li><a href="#132-stdmove">13.2 std::move 会真正移动对象吗？</a></li><li><a href="#133">13.3 移动后的对象还能使用吗？</a></li><li><a href="#134">13.4 为什么右值引用变量本身是左值？</a></li><li><a href="#135-stdmove-stdforward">13.5 std::move 和 std::forward 有什么区别？</a></li><li><a href="#136">13.6 什么是完美转发？</a></li><li><a href="#137">13.7 什么是转发引用？</a></li><li><a href="#138-noexcept">13.8 为什么移动构造函数经常标记 noexcept？</a></li><li><a href="#14">14. 速记总结</a></li><li><a href="#_4">引用类型</a></li><li><a href="#_5">移动</a></li><li><a href="#_6">完美转发</a></li><li><a href="#_7">最核心的四句话</a></li><li><a href="#_8">相关笔记</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本文整理 C++ 中的值类别、引用、移动语义与完美转发。重点是理解它们之间的关系，并掌握常见用法与易错点。</p>
+</blockquote>
+<span class="heading-anchor" id="目录"></span><h2 id="_1">目录</h2>
+<ul>
+<li><a href="n-fa9bde03f86c.html#1">1. 核心关系</a></li>
+<li><a href="n-fa9bde03f86c.html#2">2. 左值与右值</a></li>
+<li><a href="n-fa9bde03f86c.html#3">3. 左值引用与右值引用</a></li>
+<li><a href="n-fa9bde03f86c.html#4">4. 移动语义</a></li>
+<li><a href="n-fa9bde03f86c.html#5-stdmove">5. <code>std::move</code></a></li>
+<li><a href="n-fa9bde03f86c.html#6">6. 移动构造与移动赋值</a></li>
+<li><a href="n-fa9bde03f86c.html#7">7. 移动后的对象</a></li>
+<li><a href="n-fa9bde03f86c.html#8">8. 完美转发</a></li>
+<li><a href="n-fa9bde03f86c.html#9">9. 转发引用与引用折叠</a></li>
+<li><a href="n-fa9bde03f86c.html#10-stdmove-stdforward">10. <code>std::move</code> 与 <code>std::forward</code> 的区别</a></li>
+<li><a href="n-fa9bde03f86c.html#11">11. 可变参数的完美转发</a></li>
+<li><a href="n-fa9bde03f86c.html#12">12. 常见错误</a></li>
+<li><a href="n-fa9bde03f86c.html#13">13. 面试问答</a></li>
+<li><a href="n-fa9bde03f86c.html#14">14. 速记总结</a></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="1. 核心关系"></span><h2 id="1">1. 核心关系</h2>
+<p>这几个概念可以按下面的逻辑理解：</p>
+<pre><code class="language-text">左值、右值
+    ↓
+描述表达式是否具有稳定身份，以及是否适合转移资源
+    ↓
+左值引用、右值引用
+    ↓
+分别绑定已有对象和临时对象
+    ↓
+移动语义
+    ↓
+接管不再需要的对象所拥有的资源，避免昂贵复制
+    ↓
+完美转发
+    ↓
+模板函数继续传参时，保留实参原来的左值/右值属性
+</code></pre>
+<p>关键结论：</p>
+<ol>
+<li>左值通常表示有明确身份、之后仍可访问的对象。</li>
+<li>右值通常表示临时值，或者即将不再使用的值。</li>
+<li>右值引用为移动语义提供了语言基础。</li>
+<li><code>std::move</code> 不执行移动，只把表达式转换成可移动的右值形式。</li>
+<li>真正的资源转移由移动构造函数或移动赋值运算符完成。</li>
+<li>完美转发依靠转发引用和 <code>std::forward</code> 保留参数原来的值类别。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="2. 左值与右值"></span><h2 id="2">2. 左值与右值</h2>
+<span class="heading-anchor" id="2.1 左值"></span><h3 id="21">2.1 左值</h3>
+<p>可以先把左值理解为：</p>
+<blockquote>
+<p>有明确身份、能够被定位、之后还可以继续访问的对象表达式。</p>
+</blockquote>
+<p>常见左值包括：</p>
+<ul>
+<li>有名字的普通变量；</li>
+<li>解引用表达式；</li>
+<li>返回左值引用的函数调用；</li>
+<li>数组下标访问得到的元素。</li>
+</ul>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+int number = 10;
+std::string name = "Tom";
+
+number = 20;  // number 是左值，可以作为赋值目标
+name = "Bob"; // name 是左值
+
+int* pointer = &amp;number; // 普通左值通常可以取地址
+</code></pre>
+<p>返回引用的函数调用也是左值：</p>
+<pre><code class="language-cpp">int globalValue = 10;
+
+int&amp; getValue() {
+    // 返回已有对象的左值引用
+    return globalValue;
+}
+
+int main() {
+    getValue() = 20; // 相当于给 globalValue 赋值
+}
+</code></pre>
+<span class="heading-anchor" id="2.2 右值"></span><h3 id="22">2.2 右值</h3>
+<p>可以先把右值理解为：</p>
+<blockquote>
+<p>临时产生、通常马上就会被销毁，或者其资源可以被接管的表达式。</p>
+</blockquote>
+<p>常见右值包括：</p>
+<ul>
+<li>数字、布尔等字面量；</li>
+<li>临时对象；</li>
+<li>算术表达式的临时结果；</li>
+<li>按值返回的函数调用。</li>
+</ul>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;vector&gt;
+
+int a = 10;
+int b = 20;
+
+int result = a + b;                    // a + b 是临时结果
+std::string name = std::string("Tom"); // std::string("Tom") 是临时对象
+std::vector&lt;int&gt; values{1, 2, 3};      // 右侧创建了临时初始化数据
+</code></pre>
+<p>按值返回的函数调用通常是右值：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+std::string createName() {
+    return "Tom";
+}
+
+int main() {
+    std::string name = createName(); // createName() 的结果是临时值
+}
+</code></pre>
+<span class="heading-anchor" id="2.3 左值不等于“可修改”"></span><h3 id="23">2.3 左值不等于“可修改”</h3>
+<p><code>const</code> 对象仍然可以是左值，但不能修改：</p>
+<pre><code class="language-cpp">const int number = 10;
+
+// number 是左值，但受 const 限制，不能修改
+// number = 20; // 编译错误
+</code></pre>
+<p>因此，不要把左值简单等同于“可以写在赋值号左边”。更准确的理解是：</p>
+<blockquote>
+<p>左值强调对象具有身份；是否可修改还要看它是否受到 <code>const</code> 等限制。</p>
+</blockquote>
+<span class="heading-anchor" id="2.4 初学阶段的辅助判断"></span><h3 id="24">2.4 初学阶段的辅助判断</h3>
+<p>以下方法可以辅助判断，但不是完整的语言定义：</p>
+<ul>
+<li>有名字、之后还能继续访问：通常是左值；</li>
+<li>临时创建、马上使用：通常是右值；</li>
+<li>普通左值通常可以取地址；</li>
+<li>按值返回的函数结果通常是右值；</li>
+<li>返回引用的函数结果通常是左值。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="3. 左值引用与右值引用"></span><h2 id="3">3. 左值引用与右值引用</h2>
+<span class="heading-anchor" id="3.1 左值引用 T&amp;"></span><h3 id="31-t">3.1 左值引用 <code>T&amp;</code></h3>
+<p>左值引用通常绑定已有对象：</p>
+<pre><code class="language-cpp">int number = 10;
+int&amp; reference = number;
+
+reference = 20; // 通过引用修改原对象
+// 此时 number 也是 20
+</code></pre>
+<p>普通左值引用不能直接绑定临时右值：</p>
+<pre><code class="language-cpp">// int&amp; reference = 10; // 编译错误
+</code></pre>
+<span class="heading-anchor" id="3.2 常量左值引用 const T&amp;"></span><h3 id="32-const-t">3.2 常量左值引用 <code>const T&amp;</code></h3>
+<p>常量左值引用既可以绑定左值，也可以绑定右值：</p>
+<pre><code class="language-cpp">int number = 10;
+
+const int&amp; first = number; // 绑定左值
+const int&amp; second = 20;    // 绑定右值
+</code></pre>
+<p>但不能通过它修改对象：</p>
+<pre><code class="language-cpp">// first = 30;  // 编译错误
+// second = 30; // 编译错误
+</code></pre>
+<p>函数只读取参数、不需要保存参数时，经常使用 <code>const T&amp;</code>：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+
+void printName(const std::string&amp; name) {
+    // 只读取字符串，避免复制
+    std::cout &lt;&lt; name &lt;&lt; '\n';
+}
+
+int main() {
+    std::string name = "Tom";
+
+    printName(name);                // 接收左值
+    printName(std::string("Bob"));  // 接收右值
+    printName("Jerry");             // 可转换为临时 std::string
+}
+</code></pre>
+<span class="heading-anchor" id="3.3 右值引用 T&amp;&amp;"></span><h3 id="33-t">3.3 右值引用 <code>T&amp;&amp;</code></h3>
+<p>普通右值引用主要绑定右值或临时对象：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+std::string&amp;&amp; reference = std::string("Tom");
+</code></pre>
+<p>普通右值引用不能直接绑定左值：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+
+// std::string&amp;&amp; reference = name; // 编译错误
+</code></pre>
+<p>右值引用的重要用途是：</p>
+<blockquote>
+<p>表示这个对象的原值即将不再需要，因此可以接管其内部资源。</p>
+</blockquote>
+<span class="heading-anchor" id="3.4 有名字的右值引用变量仍然是左值表达式"></span><h3 id="34">3.4 有名字的右值引用变量仍然是左值表达式</h3>
+<p>这是非常重要的易错点：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;utility&gt;
+
+void process(const std::string&amp;) {
+    std::cout &lt;&lt; "左值版本\n";
+}
+
+void process(std::string&amp;&amp;) {
+    std::cout &lt;&lt; "右值版本\n";
+}
+
+int main() {
+    std::string&amp;&amp; reference = std::string("Tom");
+
+    process(reference);            // reference 有名字，因此是左值表达式
+    process(std::move(reference)); // 转换成右值形式，调用右值版本
+}
+</code></pre>
+<p>必须区分：</p>
+<ul>
+<li>变量的声明类型可能是 <code>T&amp;&amp;</code>；</li>
+<li>但这个变量一旦有了名字，它作为表达式使用时就是左值。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. 移动语义"></span><h2 id="4">4. 移动语义</h2>
+<span class="heading-anchor" id="4.1 为什么需要移动语义"></span><h3 id="41">4.1 为什么需要移动语义</h3>
+<p>复制对象时，一般需要创建一份独立资源：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+std::string first = "一个较长的字符串";
+std::string second = first; // 复制
+</code></pre>
+<p>复制后，<code>first</code> 和 <code>second</code> 各自拥有一份可独立使用的数据。</p>
+<p>对于 <code>std::string</code>、<code>std::vector</code>、大型自定义对象等，复制可能涉及：</p>
+<ol>
+<li>重新分配内存；</li>
+<li>复制全部元素；</li>
+<li>分别维护两份资源。</li>
+</ol>
+<p>如果源对象马上就要销毁，复制整份资源就可能没有必要。移动语义允许目标对象直接接管源对象内部的资源。</p>
+<span class="heading-anchor" id="4.2 复制与移动的区别"></span><h3 id="42">4.2 复制与移动的区别</h3>
+<pre><code class="language-text">复制：
+源对象继续保留资源
+目标对象获得一份新的资源副本
+
+移动：
+目标对象接管源对象的资源
+源对象不再拥有原来的资源
+</code></pre>
+<p>可以形象地理解为：</p>
+<pre><code class="language-text">复制：重新复制一套房子
+移动：把现有房子的钥匙交给另一个人
+</code></pre>
+<p>对于动态数组、字符串缓冲区等资源，移动往往只需要转移：</p>
+<ul>
+<li>指针；</li>
+<li>长度；</li>
+<li>容量；</li>
+<li>文件句柄等。</li>
+</ul>
+<p>因此移动通常比深复制更高效。</p>
+<hr/>
+<span class="heading-anchor" id="5. std::move"></span><h2 id="5-stdmove">5. <code>std::move</code></h2>
+<span class="heading-anchor" id="5.1 基本用法"></span><h3 id="51">5.1 基本用法</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;utility&gt;
+
+int main() {
+    std::string source = "Tom";
+
+    // 表示 source 的原值后面不再需要，允许 target 接管其资源
+    std::string target = std::move(source);
+
+    std::cout &lt;&lt; target &lt;&lt; '\n';
+}
+</code></pre>
+<p>使用 <code>std::move</code> 需要包含：</p>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+</code></pre>
+<span class="heading-anchor" id="5.2 std::move 本身不会移动资源"></span><h3 id="52-stdmove">5.2 <code>std::move</code> 本身不会移动资源</h3>
+<p>单独调用：</p>
+<pre><code class="language-cpp">std::move(source);
+</code></pre>
+<p>通常不会转移任何资源。<code>std::move</code> 的主要作用是：</p>
+<blockquote>
+<p>把表达式转换成可以匹配右值引用的形式，表示调用者允许移动该对象。</p>
+</blockquote>
+<p>真正的资源转移由以下函数完成：</p>
+<ul>
+<li>移动构造函数；</li>
+<li>移动赋值运算符。</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-cpp">std::string target = std::move(source);
+</code></pre>
+<p>过程可以理解为：</p>
+<ol>
+<li><code>std::move(source)</code> 把 <code>source</code> 转换成可移动的右值形式；</li>
+<li>编译器选择 <code>std::string</code> 的移动构造函数；</li>
+<li>移动构造函数接管 <code>source</code> 的内部资源。</li>
+</ol>
+<span class="heading-anchor" id="5.3 常见使用场景"></span><h3 id="53">5.3 常见使用场景</h3>
+<span class="heading-anchor" id="场景一：明确不再需要原对象的值"></span><h4 id="_2">场景一：明确不再需要原对象的值</h4>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;utility&gt;
+#include &lt;vector&gt;
+
+int main() {
+    std::vector&lt;std::string&gt; names;
+    std::string name = "Tom";
+
+    // 把 name 的资源移入容器，之后不再依赖 name 的原值
+    names.push_back(std::move(name));
+}
+</code></pre>
+<span class="heading-anchor" id="场景二：把按值参数移动到成员变量"></span><h4 id="_3">场景二：把按值参数移动到成员变量</h4>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;utility&gt;
+
+class Student {
+private:
+    std::string name_;
+
+public:
+    explicit Student(std::string name)
+        : name_(std::move(name)) {
+        // 参数 name 后面不再使用，可以把资源移动给成员变量
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="场景三：转移 unique_ptr 所有权"></span><h4 id="unique_ptr">场景三：转移 <code>unique_ptr</code> 所有权</h4>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;utility&gt;
+
+int main() {
+    auto first = std::make_unique&lt;int&gt;(42);
+
+    // unique_ptr 不能复制，只能移动所有权
+    auto second = std::move(first);
+
+    // 移动后 first 不再拥有该 int 对象
+}
+</code></pre>
+<span class="heading-anchor" id="5.4 不要滥用 std::move"></span><h3 id="54-stdmove">5.4 不要滥用 <code>std::move</code></h3>
+<p>如果之后仍需要源对象原来的值，就不要移动：</p>
+<pre><code class="language-cpp">std::string source = "Tom";
+std::string target = std::move(source);
+
+// 不应再假设 source 仍然等于 "Tom"
+</code></pre>
+<p>如果需要两份独立数据，应复制：</p>
+<pre><code class="language-cpp">std::string source = "Tom";
+std::string target = source; // 复制，source 仍保留原值
+</code></pre>
+<span class="heading-anchor" id="5.5 返回局部对象时通常不要手动移动"></span><h3 id="55">5.5 返回局部对象时通常不要手动移动</h3>
+<p>推荐：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+std::string createName() {
+    std::string name = "Tom";
+
+    // 让编译器进行返回值优化或自动选择移动
+    return name;
+}
+</code></pre>
+<p>通常不要习惯性写成：</p>
+<pre><code class="language-cpp">std::string createName() {
+    std::string name = "Tom";
+
+    return std::move(name); // 通常没有必要，还可能影响返回值优化
+}
+</code></pre>
+<span class="heading-anchor" id="5.6 const 对象通常不能真正移动"></span><h3 id="56-const">5.6 <code>const</code> 对象通常不能真正移动</h3>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;utility&gt;
+
+const std::string source = "Tom";
+std::string target = std::move(source);
+</code></pre>
+<p><code>std::move(source)</code> 仍然带有 <code>const</code>。普通移动构造函数通常需要修改源对象，因此无法接受 <code>const</code> 右值，以上代码往往会调用复制构造函数。</p>
+<p>结论：</p>
+<blockquote>
+<p>如果对象后续需要转移资源，通常不应把它声明为 <code>const</code>。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="6. 移动构造与移动赋值"></span><h2 id="6">6. 移动构造与移动赋值</h2>
+<span class="heading-anchor" id="6.1 移动构造函数"></span><h3 id="61">6.1 移动构造函数</h3>
+<p>移动构造函数用于创建新对象：</p>
+<pre><code class="language-cpp">类名(类名&amp;&amp; other);
+</code></pre>
+<p>示例：</p>
+<pre><code class="language-cpp">#include &lt;cstddef&gt;
+#include &lt;utility&gt;
+
+class Buffer {
+private:
+    int* data_{nullptr};
+    std::size_t size_{0};
+
+public:
+    explicit Buffer(std::size_t size)
+        : data_(new int[size]{}), size_(size) {
+        // 创建指定大小的动态数组
+    }
+
+    ~Buffer() {
+        // 释放当前对象拥有的动态数组
+        delete[] data_;
+    }
+
+    Buffer(Buffer&amp;&amp; other) noexcept
+        : data_(other.data_), size_(other.size_) {
+        // 接管 other 的资源后，让 other 放弃所有权
+        other.data_ = nullptr;
+        other.size_ = 0;
+    }
+};
+
+int main() {
+    Buffer first(1000);
+
+    // second 正在被创建，因此调用移动构造函数
+    Buffer second(std::move(first));
+}
+</code></pre>
+<p>移动前：</p>
+<pre><code class="language-text">first.data_  → 动态数组
+</code></pre>
+<p>移动后：</p>
+<pre><code class="language-text">first.data_  = nullptr
+second.data_ → 原来的动态数组
+</code></pre>
+<p>必须让源对象放弃资源，否则两个对象析构时可能重复释放同一块内存。</p>
+<span class="heading-anchor" id="6.2 移动赋值运算符"></span><h3 id="62">6.2 移动赋值运算符</h3>
+<p>移动赋值用于目标对象已经存在的情况：</p>
+<pre><code class="language-cpp">类名&amp; operator=(类名&amp;&amp; other);
+</code></pre>
+<p>示例：</p>
+<pre><code class="language-cpp">#include &lt;cstddef&gt;
+#include &lt;utility&gt;
+
+class Buffer {
+private:
+    int* data_{nullptr};
+    std::size_t size_{0};
+
+public:
+    explicit Buffer(std::size_t size)
+        : data_(new int[size]{}), size_(size) {
+    }
+
+    ~Buffer() {
+        delete[] data_;
+    }
+
+    Buffer(Buffer&amp;&amp; other) noexcept
+        : data_(other.data_), size_(other.size_) {
+        // 转移所有权，清空源对象
+        other.data_ = nullptr;
+        other.size_ = 0;
+    }
+
+    Buffer&amp; operator=(Buffer&amp;&amp; other) noexcept {
+        if (this != &amp;other) {
+            // 先释放当前对象原来拥有的资源
+            delete[] data_;
+
+            // 接管源对象的资源
+            data_ = other.data_;
+            size_ = other.size_;
+
+            // 源对象放弃资源，避免重复释放
+            other.data_ = nullptr;
+            other.size_ = 0;
+        }
+
+        return *this;
+    }
+
+    // 此示例聚焦移动语义，禁止复制，避免浅复制裸指针
+    Buffer(const Buffer&amp;) = delete;
+    Buffer&amp; operator=(const Buffer&amp;) = delete;
+};
+
+int main() {
+    Buffer first(1000);
+    Buffer second(100);
+
+    // second 已经存在，因此调用移动赋值运算符
+    second = std::move(first);
+}
+</code></pre>
+<p>移动赋值一般需要：</p>
+<ol>
+<li>防止自移动赋值；</li>
+<li>释放目标对象原有资源；</li>
+<li>接管源对象资源；</li>
+<li>将源对象置于安全的可析构状态；</li>
+<li>返回 <code>*this</code>。</li>
+</ol>
+<span class="heading-anchor" id="6.3 二者的区别"></span><h3 id="63">6.3 二者的区别</h3>
+<pre><code class="language-cpp">Buffer first(1000);
+
+Buffer second(std::move(first)); // 移动构造：创建新对象
+
+Buffer third(100);
+third = std::move(second);       // 移动赋值：目标对象已经存在
+</code></pre>
+<p>简单记忆：</p>
+<pre><code class="language-text">创建新对象：移动构造
+已有对象重新接收资源：移动赋值
+</code></pre>
+<span class="heading-anchor" id="6.4 为什么移动函数常写 noexcept"></span><h3 id="64-noexcept">6.4 为什么移动函数常写 <code>noexcept</code></h3>
+<pre><code class="language-cpp">Buffer(Buffer&amp;&amp; other) noexcept;
+Buffer&amp; operator=(Buffer&amp;&amp; other) noexcept;
+</code></pre>
+<p>标准容器在扩容或重新分配内存时，为了维持异常安全，通常更愿意使用不会抛异常的移动构造函数。</p>
+<p>如果移动构造函数没有标记 <code>noexcept</code>，并且类型还支持复制，某些标准容器可能选择复制而不是移动。</p>
+<hr/>
+<span class="heading-anchor" id="7. 移动后的对象"></span><h2 id="7">7. 移动后的对象</h2>
+<p>对象移动后通常处于：</p>
+<blockquote>
+<p>有效但未指定的状态。</p>
+</blockquote>
+<p>“有效”表示它仍然可以：</p>
+<ul>
+<li>正常析构；</li>
+<li>被重新赋值；</li>
+<li>执行不依赖原值的合法操作。</li>
+</ul>
+<p>“未指定”表示不能依赖它还保留移动前的具体内容。</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;utility&gt;
+
+int main() {
+    std::string source = "Tom";
+    std::string target = std::move(source);
+
+    // 不要假设 source 一定为空，也不要假设它仍是 "Tom"
+
+    // 可以重新赋值后继续正常使用
+    source = "Jerry";
+}
+</code></pre>
+<p>实践原则：</p>
+<blockquote>
+<p>对象被移动后，不再读取或依赖它原来的值；如果还要继续使用，先重新赋值。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="8. 完美转发"></span><h2 id="8">8. 完美转发</h2>
+<span class="heading-anchor" id="8.1 完美转发要解决的问题"></span><h3 id="81">8.1 完美转发要解决的问题</h3>
+<p>先准备两个重载：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+
+void process(const std::string&amp;) {
+    std::cout &lt;&lt; "处理左值\n";
+}
+
+void process(std::string&amp;&amp;) {
+    std::cout &lt;&lt; "处理右值\n";
+}
+</code></pre>
+<p>直接调用时，可以正确区分左值和右值：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+
+process(name);               // 调用左值版本
+process(std::string("Bob")); // 调用右值版本
+</code></pre>
+<p>现在增加一个包装函数：</p>
+<pre><code class="language-cpp">template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value) {
+    process(value);
+}
+</code></pre>
+<p>即使调用者传入右值，函数体内的 <code>value</code> 也是有名字的变量，因此 <code>value</code> 是左值表达式：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+
+wrapper(name);               // process(value) 按左值调用
+wrapper(std::string("Bob")); // process(value) 仍按左值调用
+</code></pre>
+<p>这就丢失了调用者传入参数时的左值/右值属性。</p>
+<span class="heading-anchor" id="8.2 使用 std::forward"></span><h3 id="82-stdforward">8.2 使用 <code>std::forward</code></h3>
+<p>正确写法：</p>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+
+template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value) {
+    // 保留调用者传入参数时的左值/右值属性
+    process(std::forward&lt;T&gt;(value));
+}
+</code></pre>
+<p>效果：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+
+wrapper(name);               // 保持左值，调用左值版本
+wrapper(std::string("Bob")); // 保持右值，调用右值版本
+</code></pre>
+<p><code>std::forward</code> 的作用可以概括为：</p>
+<pre><code class="language-text">调用者传入左值 → 继续转发为左值
+调用者传入右值 → 继续转发为右值
+</code></pre>
+<p>这就是完美转发。</p>
+<hr/>
+<span class="heading-anchor" id="9. 转发引用与引用折叠"></span><h2 id="9">9. 转发引用与引用折叠</h2>
+<span class="heading-anchor" id="9.1 什么是转发引用"></span><h3 id="91">9.1 什么是转发引用</h3>
+<p>在下面的特定形式中：</p>
+<pre><code class="language-cpp">template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value);
+</code></pre>
+<p>如果 <code>T</code> 由调用时自动推导，那么 <code>T&amp;&amp;</code> 是转发引用。</p>
+<p>转发引用可以接收左值和右值：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+
+wrapper(name);               // 可以接收左值
+wrapper(std::string("Bob")); // 可以接收右值
+</code></pre>
+<span class="heading-anchor" id="9.2 普通右值引用不是转发引用"></span><h3 id="92">9.2 普通右值引用不是转发引用</h3>
+<pre><code class="language-cpp">void process(std::string&amp;&amp; value);
+</code></pre>
+<p>这里没有模板类型推导，因此是普通右值引用，只能直接接收右值：</p>
+<pre><code class="language-cpp">process(std::string("Tom")); // 正确
+
+std::string name = "Tom";
+// process(name); // 编译错误
+</code></pre>
+<p>所以不能看到 <code>&amp;&amp;</code> 就一律认为它是转发引用。</p>
+<span class="heading-anchor" id="9.3 引用折叠规则"></span><h3 id="93">9.3 引用折叠规则</h3>
+<p>引用折叠规则如下：</p>
+<pre><code class="language-text">T&amp;  + &amp;  → T&amp;
+T&amp;  + &amp;&amp; → T&amp;
+T&amp;&amp; + &amp;  → T&amp;
+T&amp;&amp; + &amp;&amp; → T&amp;&amp;
+</code></pre>
+<p>简单记忆：</p>
+<blockquote>
+<p>只要组合中出现左值引用 <code>&amp;</code>，结果就是左值引用；只有两边都是 <code>&amp;&amp;</code>，结果才是右值引用。</p>
+</blockquote>
+<p>传入左值：</p>
+<pre><code class="language-cpp">std::string name = "Tom";
+wrapper(name);
+</code></pre>
+<p>此时 <code>T</code> 会被推导为：</p>
+<pre><code class="language-cpp">T = std::string&amp;
+</code></pre>
+<p>参数类型 <code>T&amp;&amp;</code> 代入后是：</p>
+<pre><code class="language-cpp">std::string&amp; &amp;&amp;
+</code></pre>
+<p>引用折叠后得到：</p>
+<pre><code class="language-cpp">std::string&amp;
+</code></pre>
+<p>传入右值：</p>
+<pre><code class="language-cpp">wrapper(std::string("Bob"));
+</code></pre>
+<p>此时 <code>T</code> 被推导为：</p>
+<pre><code class="language-cpp">T = std::string
+</code></pre>
+<p>参数类型最终是：</p>
+<pre><code class="language-cpp">std::string&amp;&amp;
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="10. std::move 与 std::forward 的区别"></span><h2 id="10-stdmove-stdforward">10. <code>std::move</code> 与 <code>std::forward</code> 的区别</h2>
+<span class="heading-anchor" id="std::move"></span><h3 id="stdmove"><code>std::move</code></h3>
+<pre><code class="language-cpp">target(std::move(value));
+</code></pre>
+<p>含义：</p>
+<blockquote>
+<p>无论 <code>value</code> 原来如何，现在都允许把它当成右值处理。</p>
+</blockquote>
+<p>适用场景：明确转移资源或所有权。</p>
+<span class="heading-anchor" id="std::forward"></span><h3 id="stdforward"><code>std::forward</code></h3>
+<pre><code class="language-cpp">target(std::forward&lt;T&gt;(value));
+</code></pre>
+<p>含义：</p>
+<blockquote>
+<p>调用者原来传入左值，就继续作为左值；原来传入右值，就继续作为右值。</p>
+</blockquote>
+<p>适用场景：模板包装函数中的完美转发。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>作用</th>
+<th>常见场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>std::move(value)</code></td>
+<td>无条件转换成可移动的右值形式</td>
+<td>转移资源或所有权</td>
+</tr>
+<tr>
+<td><code>std::forward&lt;T&gt;(value)</code></td>
+<td>保留参数原来的值类别</td>
+<td>模板包装与完美转发</td>
+</tr>
+</tbody>
+</table></div>
+<p>速记：</p>
+<pre><code class="language-text">move：我不再需要它的原值，可以移动
+forward：调用者怎么传给我，我就怎么继续传
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="11. 可变参数的完美转发"></span><h2 id="11">11. 可变参数的完美转发</h2>
+<p>工厂函数通常需要接收任意数量、任意类型的构造参数，再把它们传给目标对象：</p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;utility&gt;
+
+template &lt;typename T, typename... Args&gt;
+std::unique_ptr&lt;T&gt; createObject(Args&amp;&amp;... args) {
+    // 将每个参数按照原来的左值/右值属性转发给 T 的构造函数
+    return std::make_unique&lt;T&gt;(
+        std::forward&lt;Args&gt;(args)...
+    );
+}
+</code></pre>
+<p>示例类型：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+#include &lt;utility&gt;
+
+class Student {
+private:
+    std::string name_;
+    int age_{};
+
+public:
+    Student(std::string name, int age)
+        : name_(std::move(name)), age_(age) {
+        // 按值接收 name，再移动到成员变量中
+    }
+};
+</code></pre>
+<p>使用：</p>
+<pre><code class="language-cpp">auto student = createObject&lt;Student&gt;("Tom", 18);
+</code></pre>
+<p>其中：</p>
+<pre><code class="language-cpp">Args&amp;&amp;... args
+</code></pre>
+<p>表示接收任意数量的转发引用参数。</p>
+<pre><code class="language-cpp">std::forward&lt;Args&gt;(args)...
+</code></pre>
+<p>表示把参数包中的每个参数按照原来的值类别继续转发。</p>
+<p>实际项目中，<code>std::make_unique</code> 已经提供了这一能力，一般可以直接写：</p>
+<pre><code class="language-cpp">auto student = std::make_unique&lt;Student&gt;("Tom", 18);
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="12. 常见错误"></span><h2 id="12">12. 常见错误</h2>
+<span class="heading-anchor" id="12.1 误以为 std::move 会自动移动"></span><h3 id="121-stdmove">12.1 误以为 <code>std::move</code> 会自动移动</h3>
+<pre><code class="language-cpp">std::move(value); // 单独调用通常不会转移任何资源
+</code></pre>
+<p>正确理解：它只是提供匹配移动操作的右值形式。</p>
+<span class="heading-anchor" id="12.2 移动后继续依赖源对象原值"></span><h3 id="122">12.2 移动后继续依赖源对象原值</h3>
+<pre><code class="language-cpp">std::string source = "Tom";
+std::string target = std::move(source);
+
+// 错误思路：继续假设 source 还是 "Tom"
+</code></pre>
+<p>正确做法：不再依赖源对象的旧值，或者先重新赋值。</p>
+<span class="heading-anchor" id="12.3 把有名字的右值引用变量当成右值"></span><h3 id="123">12.3 把有名字的右值引用变量当成右值</h3>
+<pre><code class="language-cpp">std::string&amp;&amp; value = std::string("Tom");
+
+process(value); // value 有名字，是左值表达式
+</code></pre>
+<p>需要明确按右值处理时：</p>
+<pre><code class="language-cpp">process(std::move(value));
+</code></pre>
+<p>模板中需要保留原值类别时：</p>
+<pre><code class="language-cpp">process(std::forward&lt;T&gt;(value));
+</code></pre>
+<span class="heading-anchor" id="12.4 返回局部变量时习惯性写 std::move"></span><h3 id="124-stdmove">12.4 返回局部变量时习惯性写 <code>std::move</code></h3>
+<pre><code class="language-cpp">return std::move(localObject); // 通常没必要
+</code></pre>
+<p>通常直接写：</p>
+<pre><code class="language-cpp">return localObject;
+</code></pre>
+<span class="heading-anchor" id="12.5 对 const 对象使用 std::move，误以为一定会移动"></span><h3 id="125-const-stdmove">12.5 对 <code>const</code> 对象使用 <code>std::move</code>，误以为一定会移动</h3>
+<pre><code class="language-cpp">const std::string source = "Tom";
+std::string target = std::move(source); // 通常仍会复制
+</code></pre>
+<p>原因是普通移动操作需要修改源对象，而 <code>const</code> 不允许修改。</p>
+<span class="heading-anchor" id="12.6 在非模板函数中使用 std::forward"></span><h3 id="126-stdforward">12.6 在非模板函数中使用 <code>std::forward</code></h3>
+<p><code>std::forward</code> 的主要用途是依据模板推导结果保留参数原值类别。普通业务代码明确放弃源对象时，应使用 <code>std::move</code>，而不是随意使用 <code>std::forward</code>。</p>
+<hr/>
+<span class="heading-anchor" id="13. 面试问答"></span><h2 id="13">13. 面试问答</h2>
+<span class="heading-anchor" id="13.1 什么是左值和右值？"></span><h3 id="131">13.1 什么是左值和右值？</h3>
+<p>左值通常是有明确身份、可被定位并能在之后继续访问的对象表达式；右值通常是临时产生或即将不再使用的值。左值强调对象身份，不代表一定可以修改，例如 <code>const</code> 对象仍然是左值。</p>
+<span class="heading-anchor" id="13.2 std::move 会真正移动对象吗？"></span><h3 id="132-stdmove">13.2 <code>std::move</code> 会真正移动对象吗？</h3>
+<p>不会。<code>std::move</code> 只是把表达式转换成可匹配右值引用的形式，真正的资源转移由移动构造函数或移动赋值运算符完成。</p>
+<span class="heading-anchor" id="13.3 移动后的对象还能使用吗？"></span><h3 id="133">13.3 移动后的对象还能使用吗？</h3>
+<p>可以正常析构和重新赋值，但它的具体值通常处于有效但未指定状态，不能继续依赖移动前的内容。</p>
+<span class="heading-anchor" id="13.4 为什么右值引用变量本身是左值？"></span><h3 id="134">13.4 为什么右值引用变量本身是左值？</h3>
+<p>因为这个变量有名字，可以被重复定位和访问。变量的类型与表达式的值类别是两个不同概念。</p>
+<pre><code class="language-cpp">std::string&amp;&amp; value = std::string("Tom");
+
+process(value);            // value 是左值表达式
+process(std::move(value)); // 转换后按右值处理
+</code></pre>
+<span class="heading-anchor" id="13.5 std::move 和 std::forward 有什么区别？"></span><h3 id="135-stdmove-stdforward">13.5 <code>std::move</code> 和 <code>std::forward</code> 有什么区别？</h3>
+<ul>
+<li><code>std::move</code> 无条件把表达式转换成可移动的右值形式；</li>
+<li><code>std::forward</code> 根据模板推导结果保留实参原来的左值或右值属性。</li>
+</ul>
+<span class="heading-anchor" id="13.6 什么是完美转发？"></span><h3 id="136">13.6 什么是完美转发？</h3>
+<p>完美转发是指模板包装函数继续传递参数时，尽可能保持参数原来的类型、<code>const</code> 属性和值类别。常见写法是：</p>
+<pre><code class="language-cpp">template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value) {
+    target(std::forward&lt;T&gt;(value));
+}
+</code></pre>
+<span class="heading-anchor" id="13.7 什么是转发引用？"></span><h3 id="137">13.7 什么是转发引用？</h3>
+<p>当 <code>T</code> 是由调用自动推导的函数模板参数，且形参形式为 <code>T&amp;&amp;</code> 时，<code>T&amp;&amp;</code> 是转发引用。它可以接收左值和右值，并配合 <code>std::forward</code> 实现完美转发。</p>
+<span class="heading-anchor" id="13.8 为什么移动构造函数经常标记 noexcept？"></span><h3 id="138-noexcept">13.8 为什么移动构造函数经常标记 <code>noexcept</code>？</h3>
+<p>标准容器为了保证异常安全，在重新分配内存时通常优先使用不会抛异常的移动操作。若移动构造函数没有 <code>noexcept</code>，容器在可复制时可能改用复制。</p>
+<hr/>
+<span class="heading-anchor" id="14. 速记总结"></span><h2 id="14">14. 速记总结</h2>
+<span class="heading-anchor" id="引用类型"></span><h3 id="_4">引用类型</h3>
+<pre><code class="language-cpp">T&amp;       // 左值引用，通常绑定已有左值
+const T&amp; // 只读引用，可以绑定左值和右值
+T&amp;&amp;      // 普通场景下是右值引用
+</code></pre>
+<span class="heading-anchor" id="移动"></span><h3 id="_5">移动</h3>
+<pre><code class="language-cpp">std::string target = std::move(source);
+</code></pre>
+<p>表示允许从 <code>source</code> 转移资源，但真正的移动由移动构造或移动赋值完成。</p>
+<span class="heading-anchor" id="完美转发"></span><h3 id="_6">完美转发</h3>
+<pre><code class="language-cpp">template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value) {
+    // 调用者传左值就继续传左值，传右值就继续传右值
+    target(std::forward&lt;T&gt;(value));
+}
+</code></pre>
+<span class="heading-anchor" id="最核心的四句话"></span><h3 id="_7">最核心的四句话</h3>
+<blockquote>
+<p>左值通常是有明确身份、可以继续访问的对象。<br/>
+右值通常是临时值或即将不再使用的值。<br/>
+移动语义通过转移资源避免不必要的复制，<code>std::move</code> 只是提供移动条件。<br/>
+完美转发使用转发引用和 <code>std::forward</code>，把参数按照调用者原来的方式继续传递。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_8">相关笔记</h2>
+<ul>
+<li>秋招求职技术栈</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

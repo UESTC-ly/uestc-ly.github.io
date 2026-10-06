@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>RAII、异常安全与资源生命周期管理 · 李杨的学习笔记</title><meta name="description" content="本笔记整理自本次会话中对 C++ 资源管理主题的讲解。"><meta property="og:title" content="RAII、异常安全与资源生命周期管理 · 李杨的学习笔记"><meta property="og:description" content="本笔记整理自本次会话中对 C++ 资源管理主题的讲解。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-b1a982bc89e8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-b1a982bc89e8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">02-语言 / C++语法 / 专题</p><h1>RAII、异常安全与资源生命周期管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/C%2B%2B%E8%AF%AD%E6%B3%95/%E4%B8%93%E9%A2%98/RAII%E3%80%81%E5%BC%82%E5%B8%B8%E5%AE%89%E5%85%A8%E4%B8%8E%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 核心概念</a></li><li><a href="#11">1.1 什么是资源</a></li><li><a href="#12-raii">1.2 RAII 的含义</a></li><li><a href="#2-new-delete">2. 为什么不推荐裸 new / delete</a></li><li><a href="#21">2.1 忘记释放</a></li><li><a href="#22">2.2 异常导致释放代码无法执行</a></li><li><a href="#23">2.3 重复释放</a></li><li><a href="#24">2.4 使用释放后的指针</a></li><li><a href="#25">2.5 所有权不明确</a></li><li><a href="#3-raii">3. 用 RAII 管理资源</a></li><li><a href="#31-raii">3.1 自定义 RAII 类</a></li><li><a href="#32">3.2 生命周期管理的基本步骤</a></li><li><a href="#4-stdunique_ptr">4. std::unique_ptr：独占所有权</a></li><li><a href="#41">4.1 不能复制，可以移动</a></li><li><a href="#42-unique_ptr">4.2 返回 unique_ptr</a></li><li><a href="#43">4.3 使用建议</a></li><li><a href="#5-stdshared_ptr">5. std::shared_ptr：共享所有权</a></li><li><a href="#51">5.1 使用场景与代价</a></li><li><a href="#6-stdweak_ptr">6. std::weak_ptr：观察但不拥有</a></li><li><a href="#7">7. 循环引用</a></li><li><a href="#8-raii">8. RAII 管理文件</a></li><li><a href="#9-raii">9. RAII 管理互斥锁</a></li><li><a href="#10">10. 异常安全</a></li><li><a href="#101-raii">10.1 RAII 与异常安全</a></li><li><a href="#102">10.2 不抛出保证</a></li><li><a href="#103">10.3 基本保证</a></li><li><a href="#104">10.4 强保证</a></li><li><a href="#11_1">11. 构造函数抛异常时的清理</a></li><li><a href="#12">12. 资源所有权表达</a></li><li><a href="#121">12.1 独占拥有</a></li><li><a href="#122">12.2 共享拥有</a></li><li><a href="#123">12.3 非拥有访问</a></li><li><a href="#13-raii">13. 虚析构函数与 RAII</a></li><li><a href="#14">14. 成员初始化顺序</a></li><li><a href="#15">15. 实践原则</a></li><li><a href="#16">16. 面试速答</a></li><li><a href="#raii_1">什么是 RAII？</a></li><li><a href="#unique_ptrshared_ptrweak_ptr">unique_ptr、shared_ptr、weak_ptr 的区别？</a></li><li><a href="#raii_2">为什么使用 RAII 可以提高异常安全？</a></li><li><a href="#_1">什么是强异常安全保证？</a></li><li><a href="#17">17. 一句话总结</a></li><li><a href="#_2">来源</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本笔记整理自本次会话中对 C++ 资源管理主题的讲解。</p>
+<p>相关技术栈索引：秋招求职技术栈</p>
+</blockquote>
+<span class="heading-anchor" id="1. 核心概念"></span><h2 id="1">1. 核心概念</h2>
+<p>这三个概念的关系可以概括为：</p>
+<pre><code class="language-text">RAII：用对象自动管理资源
+资源生命周期管理：明确资源何时获取、使用、转移和释放
+异常安全：即使发生异常，也不能泄漏资源，并尽量保持对象状态有效
+</code></pre>
+<span class="heading-anchor" id="1.1 什么是资源"></span><h3 id="11">1.1 什么是资源</h3>
+<p>资源不仅包括动态内存，还包括：</p>
+<ul>
+<li>动态分配的内存；</li>
+<li>文件句柄和文件流；</li>
+<li>网络连接、数据库连接；</li>
+<li>互斥锁；</li>
+<li>操作系统文件描述符；</li>
+<li>线程句柄；</li>
+<li>图形界面或其他系统资源。</li>
+</ul>
+<p>资源通常具有以下特点：</p>
+<ol>
+<li>获取资源需要执行某种操作；</li>
+<li>使用完毕后必须释放；</li>
+<li>通常只能由明确的所有者释放一次；</li>
+<li>在异常、提前 <code>return</code> 等情况下也不能忘记释放。</li>
+</ol>
+<span class="heading-anchor" id="1.2 RAII 的含义"></span><h3 id="12-raii">1.2 RAII 的含义</h3>
+<p>RAII 是 <strong>Resource Acquisition Is Initialization</strong> 的缩写，通常逐字母读作“R-A-I-I”，意思是“资源获取即初始化”。</p>
+<p>它的核心做法是：</p>
+<pre><code class="language-text">对象构造时获取资源
+对象存活期间使用资源
+对象析构时释放资源
+</code></pre>
+<p>资源的生命周期绑定到管理对象的生命周期。C++ 局部对象离开作用域时会自动析构，因此正常返回、提前 <code>return</code> 和异常退出都能触发资源释放。</p>
+<span class="heading-anchor" id="2. 为什么不推荐裸 new / delete"></span><h2 id="2-new-delete">2. 为什么不推荐裸 <code>new</code> / <code>delete</code></h2>
+<p>传统写法需要手动管理资源：</p>
+<pre><code class="language-cpp">void process() {
+    int* value = new int(42);
+
+    // 使用动态内存
+    doSomething();
+
+    delete value;
+    value = nullptr;
+}
+</code></pre>
+<p>这种写法容易出现以下问题：</p>
+<span class="heading-anchor" id="2.1 忘记释放"></span><h3 id="21">2.1 忘记释放</h3>
+<pre><code class="language-cpp">void process() {
+    int* value = new int(42);
+
+    // 忘记 delete，造成内存泄漏
+}
+</code></pre>
+<span class="heading-anchor" id="2.2 异常导致释放代码无法执行"></span><h3 id="22">2.2 异常导致释放代码无法执行</h3>
+<pre><code class="language-cpp">void process() {
+    int* value = new int(42);
+
+    doSomething(); // 如果这里抛出异常
+
+    delete value;  // 可能执行不到
+}
+</code></pre>
+<span class="heading-anchor" id="2.3 重复释放"></span><h3 id="23">2.3 重复释放</h3>
+<pre><code class="language-cpp">int* value = new int(42);
+
+delete value;
+delete value; // 错误：重复释放
+</code></pre>
+<span class="heading-anchor" id="2.4 使用释放后的指针"></span><h3 id="24">2.4 使用释放后的指针</h3>
+<pre><code class="language-cpp">int* value = new int(42);
+delete value;
+
+// 错误：value 已经成为悬空指针
+std::cout &lt;&lt; *value;
+</code></pre>
+<span class="heading-anchor" id="2.5 所有权不明确"></span><h3 id="25">2.5 所有权不明确</h3>
+<pre><code class="language-cpp">int* p1 = new int(42);
+int* p2 = p1;
+</code></pre>
+<p>此时 <code>p1</code> 和 <code>p2</code> 指向同一资源，但无法从类型上看出谁负责释放。两个指针都释放会重复释放，谁都不释放则会泄漏。</p>
+<p>因此，资源管理的关键问题是：</p>
+<blockquote>
+<p>谁拥有资源，谁负责释放资源；所有权应当尽量通过类型表达。</p>
+</blockquote>
+<span class="heading-anchor" id="3. 用 RAII 管理资源"></span><h2 id="3-raii">3. 用 RAII 管理资源</h2>
+<span class="heading-anchor" id="3.1 自定义 RAII 类"></span><h3 id="31-raii">3.1 自定义 RAII 类</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+
+class Resource {
+public:
+    Resource() {
+        // 构造时获取资源
+        std::cout &lt;&lt; "获取资源\n";
+    }
+
+    ~Resource() noexcept {
+        // 析构时释放资源
+        std::cout &lt;&lt; "释放资源\n";
+    }
+};
+
+void process() {
+    Resource resource;
+
+    std::cout &lt;&lt; "使用资源\n";
+
+    // 即使这里提前 return，resource 也会自动析构
+}
+</code></pre>
+<p>调用 <code>process()</code> 时，生命周期大致为：</p>
+<pre><code class="language-text">进入函数
+→ 构造 resource，获取资源
+→ 使用资源
+→ 离开作用域
+→ 析构 resource，释放资源
+</code></pre>
+<p>如果函数抛出异常，栈展开同样会销毁已经构造完成的局部对象。</p>
+<span class="heading-anchor" id="3.2 生命周期管理的基本步骤"></span><h3 id="32">3.2 生命周期管理的基本步骤</h3>
+<pre><code class="language-text">获取资源
+    ↓
+确定资源的所有者
+    ↓
+使用资源
+    ↓
+必要时转移所有权
+    ↓
+自动或显式释放资源
+</code></pre>
+<p>现代 C++ 的目标是：资源获取后尽快交给 RAII 类型管理，而不是让裸指针长期承担所有权。</p>
+<span class="heading-anchor" id="4. std::unique_ptr：独占所有权"></span><h2 id="4-stdunique_ptr">4. <code>std::unique_ptr</code>：独占所有权</h2>
+<p>一个资源同一时间只有一个 <code>unique_ptr</code> 拥有：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;memory&gt;
+
+void process() {
+    auto value = std::make_unique&lt;int&gt;(42);
+
+    std::cout &lt;&lt; *value &lt;&lt; '\n';
+
+    // 离开作用域时自动释放 int
+}
+</code></pre>
+<span class="heading-anchor" id="4.1 不能复制，可以移动"></span><h3 id="41">4.1 不能复制，可以移动</h3>
+<pre><code class="language-cpp">auto p1 = std::make_unique&lt;int&gt;(42);
+
+// auto p2 = p1; // 错误：unique_ptr 不能复制
+
+auto p2 = std::move(p1); // 正确：转移所有权
+</code></pre>
+<p>移动后：</p>
+<pre><code class="language-text">p1：不再拥有资源，通常为空
+p2：拥有原来的资源
+</code></pre>
+<span class="heading-anchor" id="4.2 返回 unique_ptr"></span><h3 id="42-unique_ptr">4.2 返回 <code>unique_ptr</code></h3>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+
+std::unique_ptr&lt;int&gt; createValue() {
+    auto value = std::make_unique&lt;int&gt;(42);
+
+    // 返回时转移所有权，调用者接管资源
+    return value;
+}
+
+void useValue() {
+    auto result = createValue();
+
+    // result 离开作用域时自动释放资源
+}
+</code></pre>
+<span class="heading-anchor" id="4.3 使用建议"></span><h3 id="43">4.3 使用建议</h3>
+<p>当资源存在明确的唯一拥有者时，优先使用 <code>unique_ptr</code>。它通常是动态对象所有权管理的默认选择。</p>
+<span class="heading-anchor" id="5. std::shared_ptr：共享所有权"></span><h2 id="5-stdshared_ptr">5. <code>std::shared_ptr</code>：共享所有权</h2>
+<p>多个 <code>shared_ptr</code> 可以共同管理一个对象：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;memory&gt;
+
+void example() {
+    auto p1 = std::make_shared&lt;int&gt;(42);
+    auto p2 = p1;
+
+    // p1 和 p2 共同拥有同一个 int 对象
+    std::cout &lt;&lt; p1.use_count() &lt;&lt; '\n'; // 通常为 2
+}
+</code></pre>
+<p>它通过控制块中的引用计数管理生命周期：</p>
+<ul>
+<li>复制一个 <code>shared_ptr</code>，强引用计数增加；</li>
+<li>销毁一个 <code>shared_ptr</code>，强引用计数减少；</li>
+<li>强引用计数归零时，对象被销毁。</li>
+</ul>
+<pre><code class="language-cpp">{
+    auto p1 = std::make_shared&lt;int&gt;(42);
+
+    {
+        auto p2 = p1;
+        // 此时有两个 shared_ptr 持有对象
+    } // p2 销毁，但对象仍由 p1 持有
+
+} // p1 销毁，最后一个所有者消失，对象被释放
+</code></pre>
+<span class="heading-anchor" id="5.1 使用场景与代价"></span><h3 id="51">5.1 使用场景与代价</h3>
+<p>只有在多个对象确实需要共享生命周期时才使用 <code>shared_ptr</code>。它会带来引用计数、控制块和间接访问等开销，也会让所有权关系更复杂。</p>
+<p>一般原则：</p>
+<pre><code class="language-text">默认使用 unique_ptr
+确实需要共享所有权时使用 shared_ptr
+只观察、不拥有时使用 weak_ptr、引用或非拥有指针
+</code></pre>
+<span class="heading-anchor" id="6. std::weak_ptr：观察但不拥有"></span><h2 id="6-stdweak_ptr">6. <code>std::weak_ptr</code>：观察但不拥有</h2>
+<p><code>weak_ptr</code> 通常从 <code>shared_ptr</code> 创建，但不会增加强引用计数：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;memory&gt;
+
+void observe(const std::weak_ptr&lt;int&gt;&amp; observer) {
+    if (auto value = observer.lock()) {
+        // lock 成功，临时 shared_ptr 保证对象在本次使用期间存在
+        std::cout &lt;&lt; *value &lt;&lt; '\n';
+    } else {
+        // 对象已经销毁
+        std::cout &lt;&lt; "对象已经销毁\n";
+    }
+}
+</code></pre>
+<p>使用 <code>weak_ptr</code> 前必须通过 <code>lock()</code> 获取一个临时的 <code>shared_ptr</code>，不能直接解引用。</p>
+<p>适用场景：</p>
+<ul>
+<li>观察对象但不延长其生命周期；</li>
+<li>缓存；</li>
+<li>父子关系中的非拥有引用；</li>
+<li>打破 <code>shared_ptr</code> 循环引用。</li>
+</ul>
+<span class="heading-anchor" id="7. 循环引用"></span><h2 id="7">7. 循环引用</h2>
+<p>两个对象互相使用 <code>shared_ptr</code> 持有，可能导致引用计数永远无法归零：</p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+
+struct Node {
+    std::shared_ptr&lt;Node&gt; next;
+    std::shared_ptr&lt;Node&gt; previous;
+};
+</code></pre>
+<p>如果 A 持有 B，B 又持有 A：</p>
+<pre><code class="language-text">A --shared_ptr--&gt; B
+A &lt;--shared_ptr-- B
+</code></pre>
+<p>即使外部指针销毁，A 和 B 仍然互相持有，最终造成内存泄漏。</p>
+<p>将不拥有的一侧改为 <code>weak_ptr</code>：</p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+
+struct Parent;
+
+struct Child {
+    std::weak_ptr&lt;Parent&gt; parent; // 只观察父对象，不拥有父对象
+};
+
+struct Parent {
+    std::shared_ptr&lt;Child&gt; child; // 父对象拥有子对象
+};
+</code></pre>
+<span class="heading-anchor" id="8. RAII 管理文件"></span><h2 id="8-raii">8. RAII 管理文件</h2>
+<p>C++ 文件流对象会在析构时自动关闭文件：</p>
+<pre><code class="language-cpp">#include &lt;fstream&gt;
+
+void writeFile() {
+    std::ofstream file("data.txt"); // 构造时打开文件
+
+    file &lt;&lt; "hello\n";               // 使用文件
+
+} // 析构时自动关闭文件
+</code></pre>
+<p>与手动管理 <code>FILE*</code> 相比，<code>std::ofstream</code> 能避免异常或提前返回时忘记 <code>fclose()</code>。</p>
+<span class="heading-anchor" id="9. RAII 管理互斥锁"></span><h2 id="9-raii">9. RAII 管理互斥锁</h2>
+<p>手动加锁和解锁存在异常安全问题：</p>
+<pre><code class="language-cpp">std::mutex mutex;
+
+void update() {
+    mutex.lock();
+
+    doSomething(); // 如果抛出异常，unlock 可能执行不到
+
+    mutex.unlock();
+}
+</code></pre>
+<p>使用 <code>std::lock_guard</code>：</p>
+<pre><code class="language-cpp">#include &lt;mutex&gt;
+
+std::mutex mutex;
+
+void update() {
+    std::lock_guard&lt;std::mutex&gt; lock(mutex); // 构造时加锁
+
+    // 操作共享数据
+
+} // lock 析构时自动解锁
+</code></pre>
+<p>它把互斥锁的生命周期绑定到 <code>lock</code> 对象，因此异常退出也能自动解锁。</p>
+<span class="heading-anchor" id="10. 异常安全"></span><h2 id="10">10. 异常安全</h2>
+<p>异常安全要求：</p>
+<ol>
+<li>发生异常时不泄漏资源；</li>
+<li>对象仍处于有效状态；</li>
+<li>重要操作失败时，尽量让对象状态保持不变。</li>
+</ol>
+<span class="heading-anchor" id="10.1 RAII 与异常安全"></span><h3 id="101-raii">10.1 RAII 与异常安全</h3>
+<pre><code class="language-cpp">void process() {
+    auto memory = std::make_unique&lt;int&gt;(10);
+    std::ofstream file("data.txt");
+    std::lock_guard&lt;std::mutex&gt; lock(mutex);
+
+    doSomething(); // 即使抛出异常，也会按逆序自动清理
+}
+</code></pre>
+<p>退出时的销毁顺序：</p>
+<pre><code class="language-text">先销毁 lock：自动解锁
+再销毁 file：自动关闭文件
+最后销毁 memory：自动释放动态内存
+</code></pre>
+<p>局部对象通常按照构造顺序的反方向析构，即“后构造、先析构”。</p>
+<span class="heading-anchor" id="10.2 不抛出保证"></span><h3 id="102">10.2 不抛出保证</h3>
+<p>函数保证不会抛出异常，通常使用 <code>noexcept</code>：</p>
+<pre><code class="language-cpp">void releaseResource() noexcept {
+    // 释放资源的操作不应抛出异常
+}
+</code></pre>
+<p>析构函数通常也应尽量不抛异常：</p>
+<pre><code class="language-cpp">class Resource {
+public:
+    ~Resource() noexcept {
+        // 释放资源
+    }
+};
+</code></pre>
+<p>析构期间再次抛出异常可能导致程序终止。</p>
+<span class="heading-anchor" id="10.3 基本保证"></span><h3 id="103">10.3 基本保证</h3>
+<p>操作失败并抛出异常时：</p>
+<ul>
+<li>不发生资源泄漏；</li>
+<li>对象仍然有效；</li>
+<li>对象可以继续使用；</li>
+<li>但对象的值可能已经发生改变。</li>
+</ul>
+<span class="heading-anchor" id="10.4 强保证"></span><h3 id="104">10.4 强保证</h3>
+<p>操作失败时对象状态保持不变，就像操作从未发生过。常见实现思路是先修改临时对象，成功后再替换正式数据：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+class Config {
+private:
+    std::string value_;
+
+public:
+    void setValue(const std::string&amp; newValue) {
+        std::string temporary(newValue); // 先准备临时数据
+
+        // 临时对象构造成功后再更新正式数据
+        value_.swap(temporary);
+    }
+};
+</code></pre>
+<p>如果构造 <code>temporary</code> 失败，原来的 <code>value_</code> 不会改变。</p>
+<span class="heading-anchor" id="11. 构造函数抛异常时的清理"></span><h2 id="11_1">11. 构造函数抛异常时的清理</h2>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;fstream&gt;
+#include &lt;stdexcept&gt;
+
+class Manager {
+private:
+    std::unique_ptr&lt;int&gt; memory_;
+    std::ofstream file_;
+
+public:
+    Manager()
+        : memory_(std::make_unique&lt;int&gt;(42)),
+          file_("data.txt") {
+        // 如果这里抛出异常，已构造完成的成员会自动析构
+        throw std::runtime_error("初始化失败");
+    }
+};
+</code></pre>
+<p>如果构造函数抛异常：</p>
+<ul>
+<li><code>Manager</code> 对象本身没有构造完成；</li>
+<li><code>Manager</code> 的析构函数不会调用；</li>
+<li>但已经成功构造的成员会自动析构；</li>
+<li><code>memory_</code> 会自动释放；</li>
+<li><code>file_</code> 会自动关闭。</li>
+</ul>
+<p>因此，资源应尽量作为 RAII 成员保存，而不是在构造函数中使用裸句柄并手动清理。</p>
+<span class="heading-anchor" id="12. 资源所有权表达"></span><h2 id="12">12. 资源所有权表达</h2>
+<span class="heading-anchor" id="12.1 独占拥有"></span><h3 id="121">12.1 独占拥有</h3>
+<pre><code class="language-cpp">std::unique_ptr&lt;Resource&gt; resource;
+</code></pre>
+<p>表示当前对象负责资源生命周期，所有权不能复制。</p>
+<span class="heading-anchor" id="12.2 共享拥有"></span><h3 id="122">12.2 共享拥有</h3>
+<pre><code class="language-cpp">std::shared_ptr&lt;Resource&gt; resource;
+</code></pre>
+<p>表示多个对象共同延长资源生命周期。</p>
+<span class="heading-anchor" id="12.3 非拥有访问"></span><h3 id="123">12.3 非拥有访问</h3>
+<pre><code class="language-cpp">void useResource(const Resource&amp; resource) {
+    // 只使用资源，不负责释放
+}
+</code></pre>
+<p>也可以用非拥有裸指针表示“可能为空”：</p>
+<pre><code class="language-cpp">void printResource(const Resource* resource) {
+    if (resource != nullptr) {
+        // 只使用资源，不执行 delete
+    }
+}
+</code></pre>
+<p>关键是要保证资源在使用期间仍然存在。</p>
+<span class="heading-anchor" id="13. 虚析构函数与 RAII"></span><h2 id="13-raii">13. 虚析构函数与 RAII</h2>
+<p>如果通过基类指针删除派生类对象，基类析构函数应当是虚函数：</p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+
+class Base {
+public:
+    virtual ~Base() = default;
+};
+
+class Derived : public Base {
+private:
+    std::unique_ptr&lt;int&gt; data_;
+
+public:
+    Derived()
+        : data_(std::make_unique&lt;int&gt;(42)) {}
+};
+
+void useObject() {
+    std::unique_ptr&lt;Base&gt; object = std::make_unique&lt;Derived&gt;();
+
+    // 销毁时正确调用 Derived 和 Base 的析构函数
+}
+</code></pre>
+<span class="heading-anchor" id="14. 成员初始化顺序"></span><h2 id="14">14. 成员初始化顺序</h2>
+<p>类成员按照声明顺序初始化，而不是按照初始化列表中的书写顺序：</p>
+<pre><code class="language-cpp">class Example {
+private:
+    int first_;
+    int second_;
+
+public:
+    Example()
+        : second_(2), first_(1) {}
+};
+</code></pre>
+<p>实际顺序仍然是：</p>
+<pre><code class="language-text">先初始化 first_
+再初始化 second_
+</code></pre>
+<p>建议让初始化列表与成员声明顺序保持一致：</p>
+<pre><code class="language-cpp">Example()
+    : first_(1), second_(2) {}
+</code></pre>
+<p>局部对象则按照构造顺序的反方向销毁。</p>
+<span class="heading-anchor" id="15. 实践原则"></span><h2 id="15">15. 实践原则</h2>
+<ol>
+<li>能使用栈对象，就不要手动 <code>new</code>；</li>
+<li>动态对象默认优先使用 <code>std::unique_ptr</code>；</li>
+<li>只有确实需要共享生命周期时才使用 <code>std::shared_ptr</code>；</li>
+<li>非拥有关系使用引用、非拥有指针或 <code>std::weak_ptr</code>；</li>
+<li>资源获取后应尽快交给 RAII 对象管理；</li>
+<li>释放资源的析构函数通常应保证不抛异常；</li>
+<li>明确谁拥有资源、谁负责释放、所有权是否转移；</li>
+<li>通过基类指针管理派生类对象时，基类析构函数应为 <code>virtual</code>；</li>
+<li>避免让异常穿过资源释放逻辑；</li>
+<li>多线程共享的静态资源需要额外考虑同步。</li>
+</ol>
+<span class="heading-anchor" id="16. 面试速答"></span><h2 id="16">16. 面试速答</h2>
+<span class="heading-anchor" id="什么是 RAII？"></span><h3 id="raii_1">什么是 RAII？</h3>
+<p>RAII 是 C++ 的资源管理思想，将资源获取绑定到对象初始化，将资源释放绑定到对象析构。对象离开作用域时自动释放资源，因此能处理提前 <code>return</code> 和异常退出。</p>
+<span class="heading-anchor" id="unique_ptr、shared_ptr、weak_ptr 的区别？"></span><h3 id="unique_ptrshared_ptrweak_ptr"><code>unique_ptr</code>、<code>shared_ptr</code>、<code>weak_ptr</code> 的区别？</h3>
+<ul>
+<li><code>unique_ptr</code>：独占所有权，不能复制，只能移动；</li>
+<li><code>shared_ptr</code>：共享所有权，通过引用计数管理生命周期；</li>
+<li><code>weak_ptr</code>：不拥有对象，通常用于观察对象和打破循环引用。</li>
+</ul>
+<span class="heading-anchor" id="为什么使用 RAII 可以提高异常安全？"></span><h3 id="raii_2">为什么使用 RAII 可以提高异常安全？</h3>
+<p>因为资源由局部对象管理。异常导致作用域退出时，局部对象会自动析构，析构函数负责释放资源，从而避免内存泄漏、文件未关闭和锁未释放。</p>
+<span class="heading-anchor" id="什么是强异常安全保证？"></span><h3 id="_1">什么是强异常安全保证？</h3>
+<p>操作失败时对象状态保持不变，就像操作从未发生过。常见做法是先在临时对象中完成修改，成功后再一次性替换原状态。</p>
+<span class="heading-anchor" id="17. 一句话总结"></span><h2 id="17">17. 一句话总结</h2>
+<blockquote>
+<p>RAII 让资源的释放跟随对象析构；现代 C++ 应通过智能指针、文件流和锁管理器表达资源所有权和生命周期，默认优先独占所有权，确实需要时再共享，并确保异常发生时资源仍能被自动清理。</p>
+</blockquote>
+<span class="heading-anchor" id="来源"></span><h2 id="_2">来源</h2>
+<ul>
+<li>本次会话中关于 RAII、异常安全、智能指针、文件和互斥锁资源管理的讲解；</li>
+<li>项目技术栈索引：秋招求职技术栈.md。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

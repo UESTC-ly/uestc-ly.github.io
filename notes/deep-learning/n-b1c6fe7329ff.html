@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 06 课：神经网络、损失函数、梯度下降与反向传播 · 李杨的学习笔记</title><meta name="description" content="理解神经网络如何通过“预测—计算损失—计算梯度—更新参数”的循环从数据中学习，并掌握以下概念："><meta property="og:title" content="第 06 课：神经网络、损失函数、梯度下降与反向传播 · 李杨的学习笔记"><meta property="og:description" content="理解神经网络如何通过“预测—计算损失—计算梯度—更新参数”的循环从数据中学习，并掌握以下概念："><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-b1c6fe7329ff.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-b1c6fe7329ff.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 01-机器学习与深度学习基础</p><h1>第 06 课：神经网络、损失函数、梯度下降与反向传播</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/01-%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/06-%E7%A5%9E%E7%BB%8F%E7%BD%91%E7%BB%9C%E3%80%81%E6%8D%9F%E5%A4%B1%E5%87%BD%E6%95%B0%E3%80%81%E6%A2%AF%E5%BA%A6%E4%B8%8B%E9%99%8D%E4%B8%8E%E5%8F%8D%E5%90%91%E4%BC%A0%E6%92%AD.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 学习目标</a></li><li><a href="#2">2. 神经网络的基本计算</a></li><li><a href="#3">3. 网络结构与激活函数</a></li><li><a href="#31">3.1 网络层</a></li><li><a href="#32">3.2 为什么需要激活函数</a></li><li><a href="#33">3.3 常见激活函数</a></li><li><a href="#4">4. 损失函数</a></li><li><a href="#41">4.1 回归损失</a></li><li><a href="#42">4.2 分类损失</a></li><li><a href="#5">5. 梯度与梯度下降</a></li><li><a href="#51">5.1 学习率的影响</a></li><li><a href="#52">5.2 简单例子</a></li><li><a href="#6">6. 反向传播</a></li><li><a href="#7">7. 一次训练迭代的完整流程</a></li><li><a href="#8-batchiteration-epoch">8. Batch、Iteration 与 Epoch</a></li><li><a href="#9">9. 训练伪代码</a></li><li><a href="#10">10. 训练监控与泛化</a></li><li><a href="#11">11. 核心关系与易混淆点</a></li><li><a href="#_1">来源</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 学习目标"></span><h2 id="1">1. 学习目标</h2>
+<p>理解神经网络如何通过“预测—计算损失—计算梯度—更新参数”的循环从数据中学习，并掌握以下概念：</p>
+<ul>
+<li>神经元、权重、偏置与激活函数；</li>
+<li>常见网络层和输出形式；</li>
+<li>回归与分类任务中的常见损失函数；</li>
+<li>梯度、梯度下降与学习率；</li>
+<li>反向传播与链式法则；</li>
+<li>Batch、Iteration、Epoch 以及训练集/验证集监控。</li>
+</ul>
+<span class="heading-anchor" id="2. 神经网络的基本计算"></span><h2 id="2">2. 神经网络的基本计算</h2>
+<p>一个神经元先进行加权求和，再通过激活函数得到输出：</p>
+<div class="arithmatex">\[
+z=\sum_{i=1}^{n}w_ix_i+b
+\]</div>
+<div class="arithmatex">\[
+a=f(z)=f\left(\sum_{i=1}^{n}w_ix_i+b\right)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(x_i\)</span>：输入特征；</li>
+<li><span class="arithmatex">\(w_i\)</span>：对应权重，表示特征的重要程度；</li>
+<li><span class="arithmatex">\(b\)</span>：偏置，用于调整基础输出；</li>
+<li><span class="arithmatex">\(f\)</span>：激活函数；</li>
+<li><span class="arithmatex">\(a\)</span>：神经元输出。</li>
+</ul>
+<p>一层网络通常表示为：</p>
+<div class="arithmatex">\[
+z=Wx+b,\qquad a=f(z)
+\]</div>
+<p>多层网络则将上一层输出作为下一层输入，例如：</p>
+<div class="arithmatex">\[
+a^{(1)}=f(W^{(1)}x+b^{(1)})\]</div>
+<div class="arithmatex">\[
+a^{(2)}=f(W^{(2)}a^{(1)}+b^{(2)})\]</div>
+<div class="arithmatex">\[
+\hat{y}=g(W^{(3)}a^{(2)}+b^{(3)})
+\]</div>
+<span class="heading-anchor" id="3. 网络结构与激活函数"></span><h2 id="3">3. 网络结构与激活函数</h2>
+<span class="heading-anchor" id="3.1 网络层"></span><h3 id="31">3.1 网络层</h3>
+<p>典型神经网络包含：</p>
+<ol>
+<li><strong>输入层</strong>：接收特征向量；</li>
+<li><strong>隐藏层</strong>：逐步组合和提取特征；</li>
+<li><strong>输出层</strong>：根据任务类型产生预测结果。</li>
+</ol>
+<p>常见输出形式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>输出形式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>回归</td>
+<td>一个或多个连续数值</td>
+</tr>
+<tr>
+<td>二分类</td>
+<td>一个正类概率</td>
+</tr>
+<tr>
+<td>多分类</td>
+<td>各类别概率，通常总和为 1</td>
+</tr>
+<tr>
+<td>多标签分类</td>
+<td>每个标签独立输出一个概率</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3.2 为什么需要激活函数"></span><h3 id="32">3.2 为什么需要激活函数</h3>
+<p>如果每层都只有线性变换，即 <span class="arithmatex">\(z=Wx+b\)</span>，多层线性变换仍可合并成一个线性函数，无法有效表达复杂的非线性关系。激活函数使网络获得非线性表达能力。</p>
+<span class="heading-anchor" id="3.3 常见激活函数"></span><h3 id="33">3.3 常见激活函数</h3>
+<p><strong>ReLU</strong> 常用于隐藏层：</p>
+<div class="arithmatex">\[
+\operatorname{ReLU}(z)=\max(0,z)
+\]</div>
+<p>它计算简单，正数区域梯度较稳定，但负数区域输出为 0。</p>
+<p><strong>Sigmoid</strong> 将输出压缩到 <span class="arithmatex">\((0,1)\)</span>，常用于二分类输出：</p>
+<div class="arithmatex">\[
+\sigma(z)=\frac{1}{1+e^{-z}}
+\]</div>
+<p>深层隐藏层中使用 Sigmoid 可能产生梯度变小问题。</p>
+<p><strong>Softmax</strong> 常用于多分类输出：</p>
+<div class="arithmatex">\[
+\operatorname{softmax}(z_i)=\frac{e^{z_i}}{\sum_{j=1}^{K}e^{z_j}}
+\]</div>
+<p>它将多个得分转换为总和为 1 的类别概率。</p>
+<span class="heading-anchor" id="4. 损失函数"></span><h2 id="4">4. 损失函数</h2>
+<p>损失函数衡量真实值 <span class="arithmatex">\(y\)</span> 与预测值 <span class="arithmatex">\(\hat{y}\)</span> 之间的差异：</p>
+<div class="arithmatex">\[
+L=L(y,\hat{y})
+\]</div>
+<p>损失是训练过程中的优化目标，但不一定等同于最终业务指标。例如，分类模型可以用交叉熵训练，同时用 Precision、Recall 或 F1 评估业务效果。</p>
+<span class="heading-anchor" id="4.1 回归损失"></span><h3 id="41">4.1 回归损失</h3>
+<p><strong>均方误差（MSE）</strong>：</p>
+<div class="arithmatex">\[
+\operatorname{MSE}=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y}_i)^2
+\]</div>
+<p>平方会放大较大的误差，因此 MSE 通常对异常值更敏感。</p>
+<p><strong>平均绝对误差（MAE）</strong>：</p>
+<div class="arithmatex">\[
+\operatorname{MAE}=\frac{1}{n}\sum_{i=1}^{n}|y_i-\hat{y}_i|
+\]</div>
+<p>MAE 相比 MSE 通常更不容易受到异常值的强烈影响。</p>
+<span class="heading-anchor" id="4.2 分类损失"></span><h3 id="42">4.2 分类损失</h3>
+<p><strong>二元交叉熵</strong>：</p>
+<div class="arithmatex">\[
+L=-\left[y\log(\hat{y})+(1-y)\log(1-\hat{y})\right]
+\]</div>
+<p>真实标签为 1 时，预测概率越接近 1，损失越小；若模型对错误类别非常自信，损失会很大。</p>
+<p><strong>多分类交叉熵</strong>：</p>
+<p>若真实类别为第 <span class="arithmatex">\(k\)</span> 类，可写为：</p>
+<div class="arithmatex">\[
+L=-\log(p_k)
+\]</div>
+<p>其中 <span class="arithmatex">\(p_k\)</span> 是模型给真实类别分配的概率。</p>
+<span class="heading-anchor" id="5. 梯度与梯度下降"></span><h2 id="5">5. 梯度与梯度下降</h2>
+<p>对于损失函数 <span class="arithmatex">\(L(w)\)</span>，梯度表示损失相对于参数的变化率。单个参数的梯度是：</p>
+<div class="arithmatex">\[
+\frac{\partial L}{\partial w}
+\]</div>
+<p>多个参数的梯度写作：</p>
+<div class="arithmatex">\[
+\nabla L=\left[\frac{\partial L}{\partial w_1},\frac{\partial L}{\partial w_2},\ldots\right]
+\]</div>
+<p>梯度指向损失上升最快的方向，因此要让损失下降，应沿梯度反方向更新参数：</p>
+<div class="arithmatex">\[
+w_{\text{new}}=w_{\text{old}}-\eta\frac{\partial L}{\partial w}
+\]</div>
+<p>所有参数统一表示为：</p>
+<div class="arithmatex">\[
+\theta_{\text{new}}=\theta_{\text{old}}-\eta\nabla_{\theta}L
+\]</div>
+<p>其中 <span class="arithmatex">\(\eta\)</span> 是学习率。</p>
+<span class="heading-anchor" id="5.1 学习率的影响"></span><h3 id="51">5.1 学习率的影响</h3>
+<ul>
+<li><strong>过大</strong>：可能越过低损失区域，导致震荡、训练不稳定或出现 NaN；</li>
+<li><strong>过小</strong>：训练速度慢，可能长时间无法收敛；</li>
+<li><strong>合适</strong>：以稳定步伐向低损失区域移动。</li>
+</ul>
+<span class="heading-anchor" id="5.2 简单例子"></span><h3 id="52">5.2 简单例子</h3>
+<p>设：</p>
+<div class="arithmatex">\[
+L(w)=(w-3)^2,\qquad \frac{dL}{dw}=2(w-3)
+\]</div>
+<p>初始 <span class="arithmatex">\(w=0\)</span>、学习率 <span class="arithmatex">\(\eta=0.1\)</span> 时，梯度为 <span class="arithmatex">\(-6\)</span>，更新后：</p>
+<div class="arithmatex">\[
+w_{\text{new}}=0-0.1\times(-6)=0.6
+\]</div>
+<p>重复更新后，参数会逐渐接近使损失最小的 <span class="arithmatex">\(w=3\)</span>。</p>
+<span class="heading-anchor" id="6. 反向传播"></span><h2 id="6">6. 反向传播</h2>
+<p>反向传播从输出层开始，利用链式法则逐层计算损失对每个参数的梯度。例如，若计算路径为：</p>
+<pre><code class="language-text">x → z₁ → a₁ → z₂ → ŷ → L
+</code></pre>
+<p>则早期参数的梯度需要经过各环节：</p>
+<div class="arithmatex">\[
+\frac{\partial L}{\partial w}
+=
+\frac{\partial L}{\partial \hat{y}}
+\cdot
+\frac{\partial \hat{y}}{\partial z_2}
+\cdot
+\frac{\partial z_2}{\partial a_1}
+\cdot
+\frac{\partial a_1}{\partial z_1}
+\cdot
+\frac{\partial z_1}{\partial w}
+\]</div>
+<p>需要区分：</p>
+<ul>
+<li><strong>反向传播</strong>：计算各参数的梯度；</li>
+<li><strong>优化器/梯度下降</strong>：使用梯度更新参数。</li>
+</ul>
+<span class="heading-anchor" id="7. 一次训练迭代的完整流程"></span><h2 id="7">7. 一次训练迭代的完整流程</h2>
+<ol>
+<li><strong>初始化参数</strong>：设置权重 <span class="arithmatex">\(W\)</span> 和偏置 <span class="arithmatex">\(b\)</span>；</li>
+<li><strong>前向传播</strong>：计算预测值 <span class="arithmatex">\(\hat{y}=f(x;W,b)\)</span>；</li>
+<li><strong>计算损失</strong>：计算 <span class="arithmatex">\(L(y,\hat{y})\)</span>；</li>
+<li><strong>反向传播</strong>：计算 <span class="arithmatex">\(\partial L/\partial W\)</span> 和 <span class="arithmatex">\(\partial L/\partial b\)</span>；</li>
+<li><strong>更新参数</strong>：使用学习率和梯度修改 <span class="arithmatex">\(W,b\)</span>；</li>
+<li><strong>重复训练</strong>：直到满足收敛、早停或最大轮数等停止条件。</li>
+</ol>
+<p>可记忆为：</p>
+<pre><code class="language-text">前向传播 → 计算损失 → 反向传播 → 优化器更新
+</code></pre>
+<span class="heading-anchor" id="8. Batch、Iteration 与 Epoch"></span><h2 id="8-batchiteration-epoch">8. Batch、Iteration 与 Epoch</h2>
+<ul>
+<li><strong>Batch</strong>：一次送入模型并用于计算梯度的一批样本；</li>
+<li><strong>Iteration</strong>：通常指一次参数更新；</li>
+<li><strong>Epoch</strong>：模型完整遍历一次训练集。</li>
+</ul>
+<p>若训练集有 10,000 个样本、batch size 为 32，则每个 epoch 约有：</p>
+<div class="arithmatex">\[
+\frac{10000}{32}\approx313
+\]</div>
+<p>次迭代。</p>
+<span class="heading-anchor" id="9. 训练伪代码"></span><h2 id="9">9. 训练伪代码</h2>
+<pre><code class="language-python"># 初始化模型参数
+
+for epoch in range(num_epochs):
+    for batch_x, batch_y in train_loader:
+        # 1. 前向传播
+        prediction = model(batch_x)
+
+        # 2. 计算损失
+        loss = loss_function(prediction, batch_y)
+
+        # 3. 清空旧梯度
+        optimizer.zero_grad()
+
+        # 4. 反向传播
+        loss.backward()
+
+        # 5. 更新参数
+        optimizer.step()
+
+    # 在验证集上评估，监控泛化能力
+    evaluate(model, validation_data)
+</code></pre>
+<p>关键 API 的职责：</p>
+<ul>
+<li><code>model(batch_x)</code>：前向传播；</li>
+<li><code>loss_function(...)</code>：计算损失；</li>
+<li><code>loss.backward()</code>：反向传播；</li>
+<li><code>optimizer.step()</code>：更新参数；</li>
+<li><code>optimizer.zero_grad()</code>：清空旧梯度，避免梯度累积。</li>
+</ul>
+<span class="heading-anchor" id="10. 训练监控与泛化"></span><h2 id="10">10. 训练监控与泛化</h2>
+<p>不能只看训练损失。典型过拟合现象是：</p>
+<pre><code class="language-text">训练损失持续下降，但验证损失先下降后上升
+</code></pre>
+<p>训练时应同时关注训练集和验证集上的损失及任务指标，例如 Accuracy、Precision、Recall、F1 或具体业务指标。可结合以下方法改善泛化：</p>
+<ul>
+<li>Early Stopping；</li>
+<li>Dropout；</li>
+<li>L1/L2 正则化；</li>
+<li>减小模型规模；</li>
+<li>增加训练数据；</li>
+<li>数据增强。</li>
+</ul>
+<span class="heading-anchor" id="11. 核心关系与易混淆点"></span><h2 id="11">11. 核心关系与易混淆点</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>神经网络</td>
+<td>用参数化函数完成预测</td>
+</tr>
+<tr>
+<td>损失函数</td>
+<td>衡量预测与真实值的差异</td>
+</tr>
+<tr>
+<td>反向传播</td>
+<td>计算损失对参数的梯度</td>
+</tr>
+<tr>
+<td>梯度下降</td>
+<td>根据梯度更新参数</td>
+</tr>
+</tbody>
+</table></div>
+<p>一句话记忆：</p>
+<blockquote>
+<p>神经网络通过前向传播做预测，通过损失函数衡量错误，通过反向传播计算梯度，再用梯度下降更新参数。</p>
+</blockquote>
+<span class="heading-anchor" id="来源"></span><h2 id="_1">来源</h2>
+<ul>
+<li>本笔记依据本次会话新增的第 06 课讲解内容整理。</li>
+<li>相关前置概念：本项目 <code>notes/06-Python-AI应用开发/01-机器学习与深度学习基础/</code> 下已存在的监督学习、数据集划分、过拟合与评估指标笔记。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

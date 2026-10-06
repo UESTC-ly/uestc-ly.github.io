@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>对象存储与大文件管理 · 李杨的学习笔记</title><meta name="description" content="对象存储以 object 为最小管理单位。一个对象通常由 key、内容、系统元数据、用户元数据、版本、校验信息、存储类型和访问策略组成。所谓目录大多是 key 前缀展示，不等价于文件系统 inode 目录。"><meta property="og:title" content="对象存储与大文件管理 · 李杨的学习笔记"><meta property="og:description" content="对象存储以 object 为最小管理单位。一个对象通常由 key、内容、系统元数据、用户元数据、版本、校验信息、存储类型和访问策略组成。所谓目录大多是 key 前缀展示，不等价于文件系统 inode 目录。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-c2b613442a1a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-c2b613442a1a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 05-搜索与存储</p><h1>对象存储与大文件管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/05-%E6%90%9C%E7%B4%A2%E4%B8%8E%E5%AD%98%E5%82%A8/04-%E5%AF%B9%E8%B1%A1%E5%AD%98%E5%82%A8%E4%B8%8E%E5%A4%A7%E6%96%87%E4%BB%B6%E7%AE%A1%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#objectnamespace-metadata">Object、Namespace 与 Metadata</a></li><li><a href="#_4">版本、删除与生命周期</a></li><li><a href="#multipart-upload">Multipart Upload 与断点续传</a></li><li><a href="#checksum-etag">Checksum 与 ETag 边界</a></li><li><a href="#url">预签名 URL 与大文件安全</a></li><li><a href="#_5">工程实践/示例</a></li><li><a href="#key">Key 设计</a></li><li><a href="#_6">元数据表</a></li><li><a href="#_7">监控指标</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解对象存储的 bucket、namespace、object key、metadata、版本、权限和生命周期。</li>
+<li>掌握 multipart upload、checksum、断点续传、预签名 URL 和大文件下载的工程边界。</li>
+<li>能设计搜索、AI、日志、备份场景中的对象路径、元数据表、清理和安全策略。</li>
+<li>能区分对象存储自身保证、业务数据库状态和 CDN/跨地域复制带来的可见性差异。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="Object、Namespace 与 Metadata"></span><h3 id="objectnamespace-metadata">Object、Namespace 与 Metadata</h3>
+<p>对象存储以 object 为最小管理单位。一个对象通常由 key、内容、系统元数据、用户元数据、版本、校验信息、存储类型和访问策略组成。所谓目录大多是 key 前缀展示，不等价于文件系统 inode 目录。</p>
+<pre class="mermaid">flowchart TD
+  Client --&gt; API["业务 API"]
+  API --&gt; Auth["鉴权/STS/预签名 URL"]
+  Client --&gt; OBJ[(Object Storage)]
+  API --&gt; DB[(Metadata DB)]
+  OBJ --&gt; LC["Lifecycle"]
+  OBJ --&gt; CDN["CDN/Cache"]
+</pre>
+<p>对象 key 是命名空间设计的核心。好的 key 应支持租户隔离、权限判断、生命周期清理、批量列举和冷热分层；不要把所有业务含义都塞进 key，权威状态仍应在数据库中。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>元数据</th>
+<th>推荐位置</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>owner/tenant</td>
+<td>DB + key 前缀</td>
+<td>权限和列举都需要</td>
+</tr>
+<tr>
+<td>content_type/size/checksum</td>
+<td>DB + object metadata</td>
+<td>下载、校验和展示</td>
+</tr>
+<tr>
+<td>status/version/ref_count</td>
+<td>DB</td>
+<td>业务状态机和清理依据</td>
+</tr>
+<tr>
+<td>临时/归档标记</td>
+<td>DB + lifecycle tag</td>
+<td>自动清理和降本</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="版本、删除与生命周期"></span><h3 id="_4">版本、删除与生命周期</h3>
+<p>版本化开启后，同一个 key 可以有多个 version。删除可能只是写入 delete marker，旧版本仍存在；未开启版本化时，覆盖和删除语义更接近“最新对象替换”。生命周期规则可清理临时文件、未完成 multipart、过期版本，或转入低频/归档存储。</p>
+<p>删除时序建议：</p>
+<pre><code class="language-text">业务请求删除
+  -&gt; DB 记录 deleted/deleting 和目标 version
+  -&gt; 搜索索引/缓存失效
+  -&gt; 异步删除对象或写 delete marker
+  -&gt; 对账任务确认对象、DB、索引一致
+</code></pre>
+<p>一致性保证要以具体供应商和功能文档为准。即使对象存储对单对象读写提供较强可见性，<code>LIST</code>、CDN、跨地域复制、客户端缓存和异步索引仍可能看到旧状态。</p>
+<span class="heading-anchor" id="Multipart Upload 与断点续传"></span><h3 id="multipart-upload">Multipart Upload 与断点续传</h3>
+<p>multipart 把大文件拆成多个 part 上传，最后 complete 合并成对象。它降低单次失败成本，支持并行上传和断点续传。</p>
+<pre class="mermaid">sequenceDiagram
+  participant C as Client
+  participant A as API
+  participant S as Storage
+  C-&gt;&gt;A: init upload(file metadata)
+  A-&gt;&gt;S: CreateMultipartUpload
+  A--&gt;&gt;C: upload_id + part URLs
+  loop parts
+    C-&gt;&gt;S: UploadPart(part_number, checksum)
+    S--&gt;&gt;C: etag/checksum
+  end
+  C-&gt;&gt;A: complete(parts)
+  A-&gt;&gt;S: CompleteMultipartUpload
+  A-&gt;&gt;A: persist object status
+</pre>
+<p>服务端要保存 <code>upload_id</code>、part number、part size、etag/checksum、过期时间、owner、目标 key 和状态。客户端重试某个 part 时必须覆盖同一 part number 或生成清晰的新状态，避免 complete 时混入旧分片。</p>
+<span class="heading-anchor" id="Checksum 与 ETag 边界"></span><h3 id="checksum-etag">Checksum 与 ETag 边界</h3>
+<p>Checksum 是内容完整性验证；ETag 是对象标识或实体标签，具体语义会受 multipart、服务端加密、供应商实现影响，不能无条件当作 MD5。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单 part 小文件</td>
+<td>记录服务端返回 checksum，必要时本地预计算</td>
+</tr>
+<tr>
+<td>multipart 大文件</td>
+<td>每个 part 校验 + 完整对象校验</td>
+</tr>
+<tr>
+<td>断点续传</td>
+<td>对已上传 part 做服务端列表和 checksum 对账</td>
+</tr>
+<tr>
+<td>下载校验</td>
+<td>比较完整 checksum，失败重试或重新下载</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="预签名 URL 与大文件安全"></span><h3 id="url">预签名 URL 与大文件安全</h3>
+<p>预签名 URL 允许客户端直传/直下，避免业务服务中转大流量。安全边界包括过期时间、HTTP 方法、object key、content type、size、checksum、租户权限和回调确认。</p>
+<p>决策表：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>风险</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>服务端中转</td>
+<td>鉴权集中，逻辑简单</td>
+<td>带宽和内存压力大</td>
+<td>小文件、敏感转换</td>
+</tr>
+<tr>
+<td>预签名 URL</td>
+<td>低成本直传</td>
+<td>URL 泄漏、过期控制</td>
+<td>Web/移动端大文件</td>
+</tr>
+<tr>
+<td>STS 临时凭证</td>
+<td>支持复杂 SDK 上传</td>
+<td>权限策略更复杂</td>
+<td>多文件、断点续传</td>
+</tr>
+<tr>
+<td>后端异步拉取</td>
+<td>控制输入来源</td>
+<td>下载失败和超时</td>
+<td>第三方 URL 导入</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_5">工程实践/示例</h2>
+<span class="heading-anchor" id="Key 设计"></span><h3 id="key">Key 设计</h3>
+<pre><code class="language-text">s3://app-prod/tenant/{tenant_id}/jobs/{job_id}/input/{file_id}.json
+s3://app-prod/tenant/{tenant_id}/jobs/{job_id}/output/{artifact_id}.json
+s3://app-prod/search/raw/{yyyy}/{mm}/{doc_id}/source.pdf
+s3://app-prod/tmp/uploads/{tenant_id}/{upload_id}/{part_no}
+</code></pre>
+<p>避免把用户原始文件名直接作为 key 的唯一组成部分。原始文件名可以存在 metadata 中，key 使用不可猜测 ID 或业务 ID，降低冲突、遍历和注入风险。</p>
+<span class="heading-anchor" id="元数据表"></span><h3 id="_6">元数据表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>object_id</code></td>
+<td>业务对象 ID</td>
+</tr>
+<tr>
+<td><code>tenant_id/owner_id</code></td>
+<td>权限边界</td>
+</tr>
+<tr>
+<td><code>bucket/key/version_id</code></td>
+<td>定位存储对象</td>
+</tr>
+<tr>
+<td><code>size/content_type/checksum</code></td>
+<td>展示和完整性校验</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>uploading、available、deleting、deleted、failed</td>
+</tr>
+<tr>
+<td><code>ref_count</code></td>
+<td>是否仍被任务、索引或结果引用</td>
+</tr>
+<tr>
+<td><code>expires_at</code></td>
+<td>临时对象清理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="监控指标"></span><h3 id="_7">监控指标</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上传成功率/失败率</td>
+<td>网络、权限、大小限制问题</td>
+</tr>
+<tr>
+<td>multipart 未完成数量</td>
+<td>泄漏和成本风险</td>
+</tr>
+<tr>
+<td>checksum mismatch</td>
+<td>数据完整性风险</td>
+</tr>
+<tr>
+<td>预签名 URL 过期失败</td>
+<td>客户端耗时和过期策略</td>
+</tr>
+<tr>
+<td>4xx/5xx by operation</td>
+<td>权限、限流、供应商故障</td>
+</tr>
+<tr>
+<td>存储量和生命周期迁移量</td>
+<td>成本治理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>对象存储目录是真目录</td>
+<td>多数情况下目录是 key 前缀展示</td>
+</tr>
+<tr>
+<td>ETag 总是文件 MD5</td>
+<td>multipart 和加密等场景下不能简单等同</td>
+</tr>
+<tr>
+<td>上传成功就不用记录 DB</td>
+<td>业务查询、权限、状态和清理都需要元数据</td>
+</tr>
+<tr>
+<td>大文件应经过业务服务中转</td>
+<td>通常应使用预签名 URL 或临时凭证直传</td>
+</tr>
+<tr>
+<td>删除对象就完成业务删除</td>
+<td>还要处理 DB、索引、缓存、版本和对账</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>multipart upload 失败后为什么要清理未完成分片？</li>
+<li>对象元数据为什么不能只依赖 object key？</li>
+<li>生命周期规则适合清理哪些文件？</li>
+<li>为什么 ETag 不能被无条件当作内容 MD5？</li>
+<li>预签名 URL 的过期时间过长和过短分别有什么风险？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<ul>
+<li>为 AI 任务输入输出设计对象 key、元数据表和生命周期规则。</li>
+<li>写一个断点续传伪代码，要求支持 part 校验、续传列表、最终合并和失败清理。</li>
+<li>设计一个“删除文件但允许 7 天恢复”的版本化和生命周期方案。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>Amazon S3 multipart upload：https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html</li>
+<li>Amazon S3 checksums：https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html</li>
+<li>Amazon S3 lifecycle：https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html</li>
+<li>OpenSearch snapshots：https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/snapshots/index/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

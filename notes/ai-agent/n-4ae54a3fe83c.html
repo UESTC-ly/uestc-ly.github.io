@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>上下文压缩、去重与引用溯源 · 李杨的学习笔记</title><meta name="description" content="上一节： 05-Query-Rewrite、意图识别与Rerank ｜导航： 00-RAG学习路线 ｜下一节： 07-文档权限与多租户隔离"><meta property="og:title" content="上下文压缩、去重与引用溯源 · 李杨的学习笔记"><meta property="og:description" content="上一节： 05-Query-Rewrite、意图识别与Rerank ｜导航： 00-RAG学习路线 ｜下一节： 07-文档权限与多租户隔离"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-4ae54a3fe83c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-4ae54a3fe83c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>上下文压缩、去重与引用溯源</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/06-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%8E%8B%E7%BC%A9%E3%80%81%E5%8E%BB%E9%87%8D%E4%B8%8E%E5%BC%95%E7%94%A8%E6%BA%AF%E6%BA%90.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 本节定位</a></li><li><a href="#2">2. 先区分几个概念</a></li><li><a href="#21">2.1 候选文档、证据片段和上下文</a></li><li><a href="#22">2.2 检索相关性不等于证据充分性</a></li><li><a href="#23">2.3 溯源、引用和可验证性</a></li><li><a href="#3">3. 上下文压缩</a></li><li><a href="#31">3.1 为什么需要压缩</a></li><li><a href="#32">3.2 压缩的几个层次</a></li><li><a href="#33">3.3 抽取式压缩与抽象式压缩</a></li><li><a href="#34">3.4 压缩时不能删除的内容</a></li><li><a href="#35-token">3.5 Token 预算分配</a></li><li><a href="#4">4. 去重与多样性控制</a></li><li><a href="#41">4.1 重复内容的来源</a></li><li><a href="#42">4.2 精确去重</a></li><li><a href="#43">4.3 近似去重</a></li><li><a href="#44-mmr">4.4 基于 MMR 的相关性与多样性平衡</a></li><li><a href="#45">4.5 去重不能破坏证据覆盖</a></li><li><a href="#5">5. 证据组织与上下文组装</a></li><li><a href="#51">5.1 不要只按检索分数拼接</a></li><li><a href="#52">5.2 推荐的上下文单元</a></li><li><a href="#53">5.3 对多跳问题按子问题分组</a></li><li><a href="#54">5.4 相邻片段的合并</a></li><li><a href="#55">5.5 上下文顺序</a></li><li><a href="#6">6. 引用溯源设计</a></li><li><a href="#61">6.1 需要保存哪些元数据</a></li><li><a href="#62-chunk-id">6.2 Chunk ID 必须稳定</a></li><li><a href="#63">6.3 引用的三种粒度</a></li><li><a href="#64">6.4 生成阶段的引用约束</a></li><li><a href="#65">6.5 引用链接的安全性</a></li><li><a href="#7">7. 冲突、版本和时间有效性</a></li><li><a href="#71">7.1 冲突不是重复</a></li><li><a href="#72">7.2 处理冲突的优先规则</a></li><li><a href="#73">7.3 面向时间的问题</a></li><li><a href="#8">8. 从证据到答案：支持关系检查</a></li><li><a href="#81">8.1 三个层次的质量判断</a></li><li><a href="#82">8.2 原子化主张</a></li><li><a href="#83">8.3 证据不足时的回答策略</a></li><li><a href="#9">9. 一个可落地的处理流程</a></li><li><a href="#10">10. 参数与延迟的权衡</a></li><li><a href="#11">11. 常见失败模式</a></li><li><a href="#111">11.1 只保留分数最高的片段</a></li><li><a href="#11_1">11. 过度压缩</a></li><li><a href="#11_2">11. 把相似内容全部合并</a></li><li><a href="#11_3">11. 只在答案末尾列出一串来源</a></li><li><a href="#11_4">11. 允许模型自由生成引用编号</a></li><li><a href="#11_5">11. 忽略删除和版本变化</a></li><li><a href="#11_6">11. 先生成摘要，再丢弃原文</a></li><li><a href="#12">12. 评测指标</a></li><li><a href="#121">12.1 检索和上下文指标</a></li><li><a href="#122">12.2 引用和生成指标</a></li><li><a href="#123">12.3 人工评测问题</a></li><li><a href="#13">13. 实践检查清单</a></li><li><a href="#_7">上下文压缩</a></li><li><a href="#_8">去重与组织</a></li><li><a href="#_9">引用溯源</a></li><li><a href="#14">14. 小结</a></li><li><a href="#_10">相关笔记</a></li><li><a href="#_11">来源与说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>上一节：<a href="n-eb5cc2caf849.html">05-Query-Rewrite、意图识别与Rerank</a>｜导航：<a href="n-1984c9335328.html">00-RAG学习路线</a>｜下一节：<a href="n-758dc45c7b99.html">07-文档权限与多租户隔离</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 本节定位"></span><h2 id="1">1. 本节定位</h2>
+<p>RAG 的初步召回结果不能直接等同于“可以交给大模型的上下文”。候选片段可能存在以下问题：</p>
+<ul>
+<li>片段之间重复，浪费上下文窗口；</li>
+<li>片段过长，真正有用的信息只占其中一小部分；</li>
+<li>片段缺少标题、来源或页码，模型即使答对也无法给出可核验引用；</li>
+<li>不同文档或不同版本之间存在冲突；</li>
+<li>检索分数很高，但候选内容并不能直接支持答案。</li>
+</ul>
+<p>因此，一个完整的 RAG 检索链路通常还需要经过：</p>
+<pre><code class="language-text">初步召回
+  ↓
+候选过滤与排序
+  ↓
+上下文压缩
+  ↓
+重复内容处理
+  ↓
+证据分组与上下文组装
+  ↓
+答案生成与引用
+  ↓
+引用及答案质量评估
+</code></pre>
+<p>本节重点回答四个问题：</p>
+<ol>
+<li>如何在有限 Token 预算内保留最有价值的证据？</li>
+<li>如何识别并处理重复、近似重复和互相冲突的内容？</li>
+<li>如何让生成答案中的每个关键结论都能追溯到原始资料？</li>
+<li>如何区分“检索到了证据”“引用了证据”和“答案确实被证据支持”？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="2. 先区分几个概念"></span><h2 id="2">2. 先区分几个概念</h2>
+<span class="heading-anchor" id="2.1 候选文档、证据片段和上下文"></span><h3 id="21">2.1 候选文档、证据片段和上下文</h3>
+<p>这三个概念经常被混用，但在系统中最好分开：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>候选文档</td>
+<td>初步检索返回的文档或 Chunk</td>
+<td>供后续筛选</td>
+</tr>
+<tr>
+<td>证据片段</td>
+<td>能够支持某个问题或子问题的最小文本单元</td>
+<td>排序、压缩、引用</td>
+</tr>
+<tr>
+<td>上下文</td>
+<td>最终拼接并发送给生成模型的内容</td>
+<td>生成答案</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如，一篇 20 页的技术文档可以是一个候选文档；其中关于“异常处理”的两段文字是证据片段；将这两段文字连同标题、来源信息拼接后的内容才是最终上下文。</p>
+<span class="heading-anchor" id="2.2 检索相关性不等于证据充分性"></span><h3 id="22">2.2 检索相关性不等于证据充分性</h3>
+<p>检索模型判断的是“这段文本与查询是否相关”，而答案生成需要判断的是“这段文本是否足以支持某个具体结论”。</p>
+<p>例如，查询是“系统是否支持增量更新？”：</p>
+<ul>
+<li>“系统包含索引管理功能”可能具有相关性；</li>
+<li>“系统支持按文档版本增量更新索引，并在更新完成后切换别名”才更接近可直接引用的证据。</li>
+</ul>
+<p>因此，压缩和引用阶段需要关注支持关系，而不只是相似度。</p>
+<span class="heading-anchor" id="2.3 溯源、引用和可验证性"></span><h3 id="23">2.3 溯源、引用和可验证性</h3>
+<ul>
+<li><strong>溯源（provenance）</strong>：记录一条内容来自哪个文档、哪个版本、哪个 Chunk 或页码。</li>
+<li><strong>引用（citation）</strong>：在答案中把结论与来源标识关联起来。</li>
+<li><strong>可验证性（verifiability）</strong>：用户能够依据引用定位到原始内容，并判断引用是否真的支持该结论。</li>
+</ul>
+<p>只有保存了完整的溯源信息，才有可能生成可靠的引用；只有引用位置准确，引用才具有验证价值。</p>
+<hr/>
+<span class="heading-anchor" id="3. 上下文压缩"></span><h2 id="3">3. 上下文压缩</h2>
+<span class="heading-anchor" id="3.1 为什么需要压缩"></span><h3 id="31">3.1 为什么需要压缩</h3>
+<p>上下文窗口并不是越满越好。候选片段过多会造成：</p>
+<ul>
+<li>Token 成本增加，响应延迟变高；</li>
+<li>关键证据被大量无关内容稀释；</li>
+<li>生成模型更容易受到位置、顺序和噪声影响；</li>
+<li>不同片段之间的重复或冲突更难识别；</li>
+<li>超出上下文窗口后，系统可能被迫截断重要内容。</li>
+</ul>
+<p>压缩的目标不是简单地“删得越多越好”，而是在预算约束下最大化证据价值：</p>
+<div class="arithmatex">\[
+\max_{C \subseteq D} \; \operatorname{EvidenceValue}(C) - \lambda \operatorname{TokenCost}(C)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(D\)</span>：候选证据集合；</li>
+<li><span class="arithmatex">\(C\)</span>：最终保留的上下文；</li>
+<li><span class="arithmatex">\(\operatorname{EvidenceValue}(C)\)</span>：上下文对回答问题的支持价值；</li>
+<li><span class="arithmatex">\(\operatorname{TokenCost}(C)\)</span>：上下文的 Token 成本；</li>
+<li><span class="arithmatex">\(\lambda\)</span>：成本与证据价值之间的权衡系数。</li>
+</ul>
+<span class="heading-anchor" id="3.2 压缩的几个层次"></span><h3 id="32">3.2 压缩的几个层次</h3>
+<span class="heading-anchor" id="层次一：文档级筛选"></span><h4 id="_2">层次一：文档级筛选</h4>
+<p>先决定哪些文档值得保留，例如：</p>
+<ul>
+<li>根据权限、租户、文档状态和版本进行过滤；</li>
+<li>过滤已删除、已过期或不适用于当前用户的文档；</li>
+<li>对同一文档的多个 Chunk 进行聚合；</li>
+<li>保留与查询最相关的若干文档。</li>
+</ul>
+<p>文档级筛选适合在早期执行，因为它可以减少后续重排序和压缩的工作量。</p>
+<span class="heading-anchor" id="层次二：Chunk 级筛选"></span><h4 id="chunk">层次二：Chunk 级筛选</h4>
+<p>在文档内部，只保留与查询直接相关的 Chunk。常见做法包括：</p>
+<ul>
+<li>使用初步检索分数和 Rerank 分数排序；</li>
+<li>设置最小相关性阈值；</li>
+<li>对比较题、多跳题按子问题分配候选配额；</li>
+<li>对同一文档保留若干相邻 Chunk，以避免上下文断裂；</li>
+<li>优先选择包含定义、条件、结论、步骤和限制的片段。</li>
+</ul>
+<span class="heading-anchor" id="层次三：句子级筛选"></span><h4 id="_3">层次三：句子级筛选</h4>
+<p>如果 Chunk 较长，可以进一步拆成句子或段落，再保留能够支持当前问题的部分。句子级筛选的优点是节省 Token，缺点是容易丢失上下文。</p>
+<p>需要特别保留的内容包括：</p>
+<ul>
+<li>所属章节标题；</li>
+<li>条件、例外和限定词，例如“仅当”“不包括”“通常”“截至某日期”；</li>
+<li>指代对象，例如“该方案”“上述接口”所指的内容；</li>
+<li>公式、表格列名和列表上下文；</li>
+<li>与结论相邻的解释或定义。</li>
+</ul>
+<span class="heading-anchor" id="层次四：内容级压缩"></span><h4 id="_4">层次四：内容级压缩</h4>
+<p>内容级压缩可以将原始片段转换为更短的证据表示，例如：</p>
+<ul>
+<li>提取与查询相关的原句；</li>
+<li>删除寒暄、重复介绍和无关示例；</li>
+<li>把多个相邻句子合并成简短摘要；</li>
+<li>生成“事实 + 条件 + 来源”的结构化证据；</li>
+<li>使用模型对片段进行查询感知摘要。</li>
+</ul>
+<p>内容级压缩风险最高，因为模型生成的摘要可能出现遗漏、改写错误或无依据推断。对于高风险领域，应优先使用抽取式压缩，或保留原文并把摘要作为辅助字段。</p>
+<span class="heading-anchor" id="3.3 抽取式压缩与抽象式压缩"></span><h3 id="33">3.3 抽取式压缩与抽象式压缩</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>做法</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>抽取式压缩</td>
+<td>从原文中选择句子或连续片段</td>
+<td>可回溯性强，较少引入新事实</td>
+<td>压缩率有限，可能不够流畅</td>
+</tr>
+<tr>
+<td>抽象式压缩</td>
+<td>由模型重新概括候选内容</td>
+<td>压缩率高，适合合并多个片段</td>
+<td>可能遗漏条件或产生幻觉</td>
+</tr>
+<tr>
+<td>结构化压缩</td>
+<td>输出字段、事实、条件、证据 ID</td>
+<td>便于程序消费和审计</td>
+<td>需要设计稳定的数据结构</td>
+</tr>
+<tr>
+<td>查询感知压缩</td>
+<td>只保留与当前问题相关的内容</td>
+<td>节省 Token，降低噪声</td>
+<td>可能误删对多跳推理有用的背景</td>
+</tr>
+</tbody>
+</table></div>
+<p>实用策略通常是：先做规则过滤和抽取式压缩，再视任务风险和 Token 预算决定是否使用抽象式压缩。</p>
+<span class="heading-anchor" id="3.4 压缩时不能删除的内容"></span><h3 id="34">3.4 压缩时不能删除的内容</h3>
+<p>压缩不应只保留“看起来像答案”的句子，还必须保留可能改变结论的限定信息：</p>
+<pre><code class="language-text">结论 = 主张 + 适用条件 + 例外情况 + 时间/版本范围
+</code></pre>
+<p>例如，以下两句话的含义并不相同：</p>
+<ul>
+<li>“系统支持自动重试。”</li>
+<li>“系统仅在网络错误且请求幂等时支持自动重试。”</li>
+</ul>
+<p>如果压缩时删除“仅在网络错误且请求幂等时”，就会把有条件的事实错误地扩展为无条件事实。</p>
+<span class="heading-anchor" id="3.5 Token 预算分配"></span><h3 id="35-token">3.5 Token 预算分配</h3>
+<p>上下文预算可以按任务类型分配，而不是对所有问题使用同一个固定的 Top-K：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>任务类型</th>
+<th>预算策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单事实问答</td>
+<td>少量高置信度片段，优先抽取相关句</td>
+</tr>
+<tr>
+<td>比较题</td>
+<td>为每个比较对象保留相对均衡的证据</td>
+</tr>
+<tr>
+<td>多跳问题</td>
+<td>为每个子问题预留候选和推理所需背景</td>
+</tr>
+<tr>
+<td>总结题</td>
+<td>允许更多片段，但仍需去重和按主题分组</td>
+</tr>
+<tr>
+<td>高风险问答</td>
+<td>保留原文、版本和限定条件，宁可减少回答范围</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以把预算分成三部分：</p>
+<ol>
+<li><strong>指令预算</strong>：系统提示词和任务说明；</li>
+<li><strong>证据预算</strong>：真正用于回答的检索内容；</li>
+<li><strong>输出预算</strong>：模型生成答案和引用所需的空间。</li>
+</ol>
+<p>不要把全部上下文窗口都分配给证据，否则答案可能因输出空间不足而被截断。</p>
+<hr/>
+<span class="heading-anchor" id="4. 去重与多样性控制"></span><h2 id="4">4. 去重与多样性控制</h2>
+<span class="heading-anchor" id="4.1 重复内容的来源"></span><h3 id="41">4.1 重复内容的来源</h3>
+<p>RAG 中的重复通常来自以下几类情况：</p>
+<ul>
+<li>Chunk 切分时存在重叠窗口；</li>
+<li>同一段内容出现在正文、摘要、FAQ 和附录中；</li>
+<li>多个检索器返回同一个 Chunk；</li>
+<li>同一文档存在多个版本；</li>
+<li>不同网页复制了相同的模板或公告；</li>
+<li>查询改写生成了多个相似查询。</li>
+</ul>
+<p>重复内容不一定完全无用。重复可能表明某个事实在多个来源中得到确认，但直接把所有副本放入上下文会浪费预算，并可能让模型误以为同一来源是多个独立证据。</p>
+<span class="heading-anchor" id="4.2 精确去重"></span><h3 id="42">4.2 精确去重</h3>
+<p>精确去重适合处理完全相同或经过简单规范化后相同的文本。常见步骤：</p>
+<ol>
+<li>去除首尾空白；</li>
+<li>统一换行、空格和标点形式；</li>
+<li>视场景决定是否统一大小写；</li>
+<li>对规范化后的文本计算 Hash；</li>
+<li>使用稳定的 <code>chunk_id</code> 或内容 Hash 保留唯一副本。</li>
+</ol>
+<p>伪代码：</p>
+<pre><code class="language-python">seen = set()
+unique_chunks = []
+
+for chunk in ranked_chunks:
+    key = normalize(chunk.text)
+    if key in seen:
+        continue
+    seen.add(key)
+    unique_chunks.append(chunk)
+</code></pre>
+<p>实际系统中，去重键最好同时考虑文档身份和版本。例如，同一段文字在两个不同版本中出现时，不应简单地把版本信息抹掉。</p>
+<span class="heading-anchor" id="4.3 近似去重"></span><h3 id="43">4.3 近似去重</h3>
+<p>近似重复的文本在字面上可能略有不同，但表达相同事实。可以使用：</p>
+<ul>
+<li>字符级或词级编辑距离；</li>
+<li>MinHash、SimHash 等指纹；</li>
+<li>TF-IDF 或 BM25 相似度；</li>
+<li>Embedding 余弦相似度；</li>
+<li>专门的句子级重复检测模型。</li>
+</ul>
+<p>需要设置相似度阈值，并根据文本类型调节：</p>
+<ul>
+<li>API 文档、法律条款和配置项对细微差异敏感，阈值不宜过于激进；</li>
+<li>新闻、公告和模板化页面可以更积极地合并；</li>
+<li>含有数字、日期、版本号和条件的内容，不能仅凭整体相似度去重。</li>
+</ul>
+<span class="heading-anchor" id="4.4 基于 MMR 的相关性与多样性平衡"></span><h3 id="44-mmr">4.4 基于 MMR 的相关性与多样性平衡</h3>
+<p>最大边际相关性（MMR）可以在相关性和新颖性之间取得平衡：</p>
+<div class="arithmatex">\[
+\operatorname{MMR}(d)=\lambda \operatorname{Rel}(q,d)-(1-\lambda)\max_{d'\in S}\operatorname{Sim}(d,d')
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(q\)</span>：用户查询；</li>
+<li><span class="arithmatex">\(d\)</span>：待选择的候选片段；</li>
+<li><span class="arithmatex">\(S\)</span>：已经选择的片段集合；</li>
+<li><span class="arithmatex">\(\operatorname{Rel}(q,d)\)</span>：片段与查询的相关性；</li>
+<li><span class="arithmatex">\(\operatorname{Sim}(d,d')\)</span>：候选片段与已选片段的相似度；</li>
+<li><span class="arithmatex">\(\lambda\)</span>：相关性与多样性的权重。</li>
+</ul>
+<p>当候选片段高度重复时，降低 <span class="arithmatex">\(\lambda\)</span> 可以鼓励选择更多不同内容；当问题只需要一个精确事实时，可以提高 <span class="arithmatex">\(\lambda\)</span>。</p>
+<span class="heading-anchor" id="4.5 去重不能破坏证据覆盖"></span><h3 id="45">4.5 去重不能破坏证据覆盖</h3>
+<p>去重前需要判断两个片段是否真的支持同一个主张。以下情况不应简单合并：</p>
+<ul>
+<li>一个片段说明“支持”，另一个片段说明“存在限制”；</li>
+<li>两个片段来自不同时间或不同版本；</li>
+<li>一个片段是一般规则，另一个片段是特殊例外；</li>
+<li>两个片段分别回答多跳问题的不同子问题；</li>
+<li>文本相似，但实体、数字、单位或适用范围不同。</li>
+</ul>
+<p>安全的做法是：</p>
+<ol>
+<li>先识别候选片段的主张或主题；</li>
+<li>仅对主张相同且版本、时间和权限范围一致的片段合并；</li>
+<li>为合并结果保留全部来源 ID；</li>
+<li>对存在差异的片段保留并标记差异，而不是静默删除。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="5. 证据组织与上下文组装"></span><h2 id="5">5. 证据组织与上下文组装</h2>
+<span class="heading-anchor" id="5.1 不要只按检索分数拼接"></span><h3 id="51">5.1 不要只按检索分数拼接</h3>
+<p>简单地将 Top-K 片段按分数拼接，可能导致：</p>
+<ul>
+<li>同一文档的片段占满上下文；</li>
+<li>比较题只覆盖其中一个对象；</li>
+<li>多跳问题缺少某个中间步骤；</li>
+<li>相邻片段顺序混乱；</li>
+<li>低分但必要的限定条件被丢弃。</li>
+</ul>
+<p>上下文组装应同时考虑：</p>
+<ul>
+<li>相关性；</li>
+<li>证据覆盖；</li>
+<li>内容多样性；</li>
+<li>文档和版本一致性；</li>
+<li>时间有效性；</li>
+<li>权限范围；</li>
+<li>片段之间的逻辑顺序；</li>
+<li>Token 成本。</li>
+</ul>
+<span class="heading-anchor" id="5.2 推荐的上下文单元"></span><h3 id="52">5.2 推荐的上下文单元</h3>
+<p>每个送入模型的证据单元至少可以包含：</p>
+<pre><code class="language-text">[证据 ID]
+标题：...
+来源：...
+文档版本：...
+位置：页码/章节/段落/字符区间
+内容：...
+</code></pre>
+<p>示例：</p>
+<pre><code class="language-text">[证据 E03]
+标题：索引增量更新
+来源：search-guide.md
+文档版本：v2.1
+位置：第 4 节
+内容：系统会先写入新索引，待构建完成后再切换查询别名，以避免读取到不完整索引。
+</code></pre>
+<p>证据 ID 应稳定、简短且不依赖模型自行猜测。答案只需要引用 <code>[E03]</code>，系统再把它映射到用户可访问的来源链接。</p>
+<span class="heading-anchor" id="5.3 对多跳问题按子问题分组"></span><h3 id="53">5.3 对多跳问题按子问题分组</h3>
+<p>对于“先比较 A 和 B，再说明哪一种更适合 C”的问题，可以按以下方式组装：</p>
+<pre><code class="language-text">问题拆分：
+- 子问题 1：A 的特征和限制
+- 子问题 2：B 的特征和限制
+- 子问题 3：C 的约束条件
+
+证据分组：
+- 组 A：E01, E02
+- 组 B：E03, E04
+- 组 C：E05
+</code></pre>
+<p>这样可以防止某一组证据因分数较高而挤占其他子问题的预算。生成阶段还应要求模型在证据不足时明确指出缺口，而不是用其他组的内容补全。</p>
+<span class="heading-anchor" id="5.4 相邻片段的合并"></span><h3 id="54">5.4 相邻片段的合并</h3>
+<p>Chunk 重叠或相邻时，可以在上下文组装阶段合并，但要注意：</p>
+<ul>
+<li>合并前按原文位置排序；</li>
+<li>去除重叠区域的重复句子；</li>
+<li>保留章节标题和结构层级；</li>
+<li>记录合并后包含的所有原始 Chunk ID；</li>
+<li>不跨越过大的章节边界；</li>
+<li>不把不同版本的内容合成一个无版本标识的片段。</li>
+</ul>
+<span class="heading-anchor" id="5.5 上下文顺序"></span><h3 id="55">5.5 上下文顺序</h3>
+<p>常见的排序方式包括：</p>
+<ul>
+<li>按相关性从高到低；</li>
+<li>按文档结构和原文顺序；</li>
+<li>先给结论性证据，再给背景证据；</li>
+<li>按子问题分组；</li>
+<li>将高置信度证据放在开头和结尾，减少长上下文中的位置影响。</li>
+</ul>
+<p>不存在适用于所有任务的唯一顺序。应通过评测比较不同排序策略，而不是凭直觉确定。</p>
+<hr/>
+<span class="heading-anchor" id="6. 引用溯源设计"></span><h2 id="6">6. 引用溯源设计</h2>
+<span class="heading-anchor" id="6.1 需要保存哪些元数据"></span><h3 id="61">6.1 需要保存哪些元数据</h3>
+<p>一个可审计的证据对象可以包含以下字段：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>evidence_id</code></td>
+<td>本次回答中使用的短引用 ID</td>
+</tr>
+<tr>
+<td><code>chunk_id</code></td>
+<td>稳定的原始 Chunk 标识</td>
+</tr>
+<tr>
+<td><code>document_id</code></td>
+<td>文档标识</td>
+</tr>
+<tr>
+<td><code>document_title</code></td>
+<td>展示给用户的文档名称</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td>文档或索引版本</td>
+</tr>
+<tr>
+<td><code>source_uri</code></td>
+<td>原始来源或项目内链接</td>
+</tr>
+<tr>
+<td><code>location</code></td>
+<td>页码、章节、段落或字符区间</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>实际送入模型的文本</td>
+</tr>
+<tr>
+<td><code>original_text</code></td>
+<td>必要时用于核验的原始文本</td>
+</tr>
+<tr>
+<td><code>retrieval_method</code></td>
+<td>向量、BM25、混合检索等</td>
+</tr>
+<tr>
+<td><code>retrieval_score</code></td>
+<td>初步召回分数</td>
+</tr>
+<tr>
+<td><code>rerank_score</code></td>
+<td>重排序分数</td>
+</tr>
+<tr>
+<td><code>content_hash</code></td>
+<td>用于检测内容变化</td>
+</tr>
+<tr>
+<td><code>access_scope</code></td>
+<td>用户、租户或权限范围</td>
+</tr>
+<tr>
+<td><code>ingested_at</code></td>
+<td>进入索引的时间</td>
+</tr>
+<tr>
+<td><code>valid_from</code> / <code>valid_to</code></td>
+<td>内容的有效时间范围</td>
+</tr>
+</tbody>
+</table></div>
+<p>并不是所有字段都必须直接展示给用户，但系统应保留足够信息来回答：</p>
+<ul>
+<li>这条证据来自哪里？</li>
+<li>当时使用的是哪个版本？</li>
+<li>模型实际看到了哪段文本？</li>
+<li>这段文本是否在回答时对当前用户可见？</li>
+</ul>
+<span class="heading-anchor" id="6.2 Chunk ID 必须稳定"></span><h3 id="62-chunk-id">6.2 Chunk ID 必须稳定</h3>
+<p>如果每次重建索引都会生成新的随机 ID，就很难：</p>
+<ul>
+<li>对比索引更新前后的内容；</li>
+<li>追踪引用是否失效；</li>
+<li>排查重复召回；</li>
+<li>重放历史回答；</li>
+<li>对引用进行缓存。</li>
+</ul>
+<p>稳定 ID 可以由文档 ID、版本、章节位置和内容 Hash 等信息组合生成。若文档内容发生变化，应明确决定是沿用 ID 还是生成新版本 ID，并在系统中保持一致。</p>
+<span class="heading-anchor" id="6.3 引用的三种粒度"></span><h3 id="63">6.3 引用的三种粒度</h3>
+<span class="heading-anchor" id="文档级引用"></span><h4 id="_5">文档级引用</h4>
+<p>只标注文档名称或 URL。实现简单，但用户很难快速定位具体依据。</p>
+<span class="heading-anchor" id="Chunk 级引用"></span><h4 id="chunk_1">Chunk 级引用</h4>
+<p>引用具体 Chunk 或段落。粒度和实现成本较为平衡，适合大多数 RAG 应用。</p>
+<span class="heading-anchor" id="句子级引用"></span><h4 id="_6">句子级引用</h4>
+<p>把每个关键结论关联到具体句子或字符区间。可验证性最好，但需要更精细的证据抽取和引用对齐。</p>
+<p>推荐根据风险选择粒度：普通问答可以使用 Chunk 级引用；法律、医疗、财务、运维变更等场景应尽量提供句子、页码、版本或时间范围。</p>
+<span class="heading-anchor" id="6.4 生成阶段的引用约束"></span><h3 id="64">6.4 生成阶段的引用约束</h3>
+<p>可以在生成提示词中明确要求：</p>
+<pre><code class="language-text">回答要求：
+1. 只使用提供的证据回答；
+2. 每个重要事实后附一个或多个证据 ID；
+3. 如果证据不能支持结论，明确说明信息不足；
+4. 不要编造不存在的证据 ID；
+5. 如果证据之间冲突，分别说明来源、版本和差异；
+6. 引用应紧跟被支持的句子，而不是只在答案末尾列出来源。
+</code></pre>
+<p>需要注意：提示词只能约束模型，不能自动保证引用正确。生产系统仍应对引用 ID 做格式校验，并检查引用内容是否与答案存在基本的语义支持关系。</p>
+<span class="heading-anchor" id="6.5 引用链接的安全性"></span><h3 id="65">6.5 引用链接的安全性</h3>
+<p>引用链接也属于数据访问链路的一部分，必须：</p>
+<ul>
+<li>在生成引用前或展示引用时再次校验访问权限；</li>
+<li>避免把其他租户的内部路径暴露给当前用户；</li>
+<li>对临时签名 URL 设置合理过期时间；</li>
+<li>防止引用跳转到已删除或已过期的内容；</li>
+<li>记录引用展示和访问日志；</li>
+<li>区分用户可见的来源信息与系统内部调试字段。</li>
+</ul>
+<p>权限过滤的完整设计将在下一节 <a href="n-758dc45c7b99.html">07-文档权限与多租户隔离</a> 中讨论。</p>
+<hr/>
+<span class="heading-anchor" id="7. 冲突、版本和时间有效性"></span><h2 id="7">7. 冲突、版本和时间有效性</h2>
+<span class="heading-anchor" id="7.1 冲突不是重复"></span><h3 id="71">7.1 冲突不是重复</h3>
+<p>两个片段讨论同一主题，但结论不同，不能简单按照相似度去重。例如：</p>
+<ul>
+<li>旧版本说明接口 A 可用，新版本说明接口 A 已废弃；</li>
+<li>一般配置允许某个操作，特殊环境禁止该操作；</li>
+<li>不同租户或不同部署环境有不同限制；</li>
+<li>两份资料的统计数字对应不同时间区间。</li>
+</ul>
+<p>系统应把它们识别为“同一主题下的不同主张”，并保留冲突关系。</p>
+<span class="heading-anchor" id="7.2 处理冲突的优先规则"></span><h3 id="72">7.2 处理冲突的优先规则</h3>
+<p>具体规则要由业务定义，但通常可以按以下因素排序：</p>
+<ol>
+<li>当前用户是否有权访问该来源；</li>
+<li>文档是否处于有效状态；</li>
+<li>版本是否更新；</li>
+<li>来源是否具有更高权威性；</li>
+<li>内容是否适用于当前环境、租户或产品版本；</li>
+<li>资料是否明确给出发布时间或生效时间。</li>
+</ol>
+<p>不能把“发布时间较晚”机械地当成“内容一定正确”。在生成答案时，应把决定依据和剩余不确定性说明出来。</p>
+<span class="heading-anchor" id="7.3 面向时间的问题"></span><h3 id="73">7.3 面向时间的问题</h3>
+<p>对于“目前”“截至某日期”“历史上”等查询，检索和压缩阶段都需要携带时间条件：</p>
+<ul>
+<li>在检索过滤中加入生效时间；</li>
+<li>将时间范围放入证据元数据；</li>
+<li>在答案中明确使用的时间点；</li>
+<li>不要把不同时间点的数据直接合并成一个结论；</li>
+<li>对当前状态和历史状态分别组织证据。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. 从证据到答案：支持关系检查"></span><h2 id="8">8. 从证据到答案：支持关系检查</h2>
+<span class="heading-anchor" id="8.1 三个层次的质量判断"></span><h3 id="81">8.1 三个层次的质量判断</h3>
+<p>可以把 RAG 回答质量拆成三个层次：</p>
+<ol>
+<li><strong>证据召回</strong>：相关证据是否被检索到？</li>
+<li><strong>证据使用</strong>：模型是否实际使用了这些证据？</li>
+<li><strong>结论支持</strong>：引用的证据是否真的支持对应结论？</li>
+</ol>
+<p>只检查第一层会高估系统质量。例如，候选列表中包含正确资料，但模型最终引用了无关片段，答案仍然是不可靠的。</p>
+<span class="heading-anchor" id="8.2 原子化主张"></span><h3 id="82">8.2 原子化主张</h3>
+<p>为了检查引用是否准确，可以先把答案拆成原子化主张：</p>
+<pre><code class="language-text">答案：系统支持增量更新，但不会直接覆盖在线索引。
+
+主张 1：系统支持增量更新。
+主张 2：系统不会直接覆盖在线索引。
+</code></pre>
+<p>然后为每个主张建立映射：</p>
+<pre><code class="language-text">主张 1 → E03
+主张 2 → E03, E04
+</code></pre>
+<p>检查时分别判断：</p>
+<ul>
+<li>引用是否存在；</li>
+<li>引用内容是否包含相关证据；</li>
+<li>是否遗漏了适用条件；</li>
+<li>是否有主张超出了证据范围；</li>
+<li>是否需要多个来源共同支持。</li>
+</ul>
+<span class="heading-anchor" id="8.3 证据不足时的回答策略"></span><h3 id="83">8.3 证据不足时的回答策略</h3>
+<p>当证据不足时，可靠系统应降低回答范围，而不是强行补全。可以使用以下表达：</p>
+<ul>
+<li>“提供的资料只能确认……，无法确认……”；</li>
+<li>“资料中没有说明……；如果需要确定该点，需要查阅……”；</li>
+<li>“当前证据存在版本差异，分别是……”；</li>
+<li>“以下是基于 E01 的推断，不是资料中的直接结论。”</li>
+</ul>
+<p>如果系统允许推理，也应把“原文事实”和“基于事实的推断”分开表示。</p>
+<hr/>
+<span class="heading-anchor" id="9. 一个可落地的处理流程"></span><h2 id="9">9. 一个可落地的处理流程</h2>
+<pre><code class="language-text">1. 接收初步召回结果
+2. 执行权限、租户、状态和时间过滤
+3. 根据文档版本和来源规则处理候选
+4. 对精确重复内容去重
+5. 对近似重复内容计算相似度
+6. 使用 Rerank、MMR 或配额策略选择证据
+7. 对长 Chunk 做句子级或结构化压缩
+8. 保留标题、条件、例外、版本和位置
+9. 为每个证据生成本次回答内稳定的 evidence_id
+10. 按子问题、文档结构或相关性组装上下文
+11. 生成带引用的答案
+12. 校验引用 ID、权限和引用-主张对应关系
+13. 记录检索、压缩、生成和引用日志
+</code></pre>
+<p>一个简化的数据结构示例：</p>
+<pre><code class="language-python">from dataclasses import dataclass
+
+
+@dataclass
+class Evidence:
+    evidence_id: str
+    chunk_id: str
+    document_id: str
+    title: str
+    text: str
+    source_uri: str
+    location: str | None = None
+    version: str | None = None
+    retrieval_score: float | None = None
+    rerank_score: float | None = None
+    content_hash: str | None = None
+</code></pre>
+<p>上下文组装时，建议同时返回两份结果：</p>
+<pre><code class="language-text">context_text：发送给生成模型的文本
+provenance_map：evidence_id 到原始来源元数据的映射
+</code></pre>
+<p>这样可以避免把所有内部字段暴露给模型，也方便在答案生成后渲染用户可见引用。</p>
+<hr/>
+<span class="heading-anchor" id="10. 参数与延迟的权衡"></span><h2 id="10">10. 参数与延迟的权衡</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>调大参数</th>
+<th>可能收益</th>
+<th>可能代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>初步召回数量</td>
+<td>提高召回覆盖率</td>
+<td>后续重排、压缩和去重成本增加</td>
+</tr>
+<tr>
+<td>Rerank 候选数量</td>
+<td>更有机会找到高质量证据</td>
+<td>模型调用延迟和费用增加</td>
+</tr>
+<tr>
+<td>最终片段数量</td>
+<td>降低漏掉关键证据的概率</td>
+<td>噪声、重复和上下文成本增加</td>
+</tr>
+<tr>
+<td>句子保留比例</td>
+<td>保留更多背景信息</td>
+<td>压缩效果变差</td>
+</tr>
+<tr>
+<td>近似去重阈值</td>
+<td>更积极地减少重复</td>
+<td>可能误删细微但重要的差异</td>
+</tr>
+<tr>
+<td>每个子问题的配额</td>
+<td>提高多跳题覆盖率</td>
+<td>单个子问题可用的预算减少</td>
+</tr>
+<tr>
+<td>引用校验强度</td>
+<td>提高可审计性</td>
+<td>增加额外模型或规则处理</td>
+</tr>
+</tbody>
+</table></div>
+<p>调参时不要只看最终答案是否“读起来不错”，还应同时观察：</p>
+<ul>
+<li>Token 使用量；</li>
+<li>检索和生成延迟；</li>
+<li>重复率；</li>
+<li>证据覆盖率；</li>
+<li>引用准确率；</li>
+<li>无证据主张比例；</li>
+<li>用户点击引用后的可验证性。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="11. 常见失败模式"></span><h2 id="11">11. 常见失败模式</h2>
+<span class="heading-anchor" id="11.1 只保留分数最高的片段"></span><h3 id="111">11.1 只保留分数最高的片段</h3>
+<p><strong>问题</strong>：高分片段可能来自同一文档，或只覆盖问题的一部分。</p>
+<p><strong>改进</strong>：加入文档多样性、子问题配额、MMR 和证据覆盖约束。</p>
+<span class="heading-anchor" id="11. 过度压缩"></span><h3 id="11_1">11. 过度压缩</h3>
+<p><strong>问题</strong>：删除了条件、例外、时间和版本，导致答案范围被错误扩大。</p>
+<p><strong>改进</strong>：保留限定词和上下文；高风险场景优先抽取原文，不只保留模型摘要。</p>
+<span class="heading-anchor" id="11. 把相似内容全部合并"></span><h3 id="11_2">11. 把相似内容全部合并</h3>
+<p><strong>问题</strong>：不同版本、不同环境或相反结论被错误合并。</p>
+<p><strong>改进</strong>：去重前比较来源、版本、时间和主张；对冲突内容显式标记。</p>
+<span class="heading-anchor" id="11. 只在答案末尾列出一串来源"></span><h3 id="11_3">11. 只在答案末尾列出一串来源</h3>
+<p><strong>问题</strong>：用户不知道哪个来源支持哪个结论，无法快速核验。</p>
+<p><strong>改进</strong>：让引用紧跟原子化主张，并保留精确位置。</p>
+<span class="heading-anchor" id="11. 允许模型自由生成引用编号"></span><h3 id="11_4">11. 允许模型自由生成引用编号</h3>
+<p><strong>问题</strong>：可能产生不存在的 ID，或把正确 ID 放在错误结论后面。</p>
+<p><strong>改进</strong>：只允许模型从给定证据 ID 中选择；生成后进行格式、存在性和语义支持检查。</p>
+<span class="heading-anchor" id="11. 忽略删除和版本变化"></span><h3 id="11_5">11. 忽略删除和版本变化</h3>
+<p><strong>问题</strong>：引用指向已失效的内容，或新旧版本混杂。</p>
+<p><strong>改进</strong>：在元数据中记录版本、状态和内容 Hash，并设计引用失效处理策略。</p>
+<span class="heading-anchor" id="11. 先生成摘要，再丢弃原文"></span><h3 id="11_6">11. 先生成摘要，再丢弃原文</h3>
+<p><strong>问题</strong>：摘要无法证明没有遗漏或改写错误。</p>
+<p><strong>改进</strong>：保存原始证据与压缩结果的映射；需要审计时能够回到原文。</p>
+<hr/>
+<span class="heading-anchor" id="12. 评测指标"></span><h2 id="12">12. 评测指标</h2>
+<span class="heading-anchor" id="12.1 检索和上下文指标"></span><h3 id="121">12.1 检索和上下文指标</h3>
+<ul>
+<li><strong>Context Recall</strong>：回答所需的证据是否被召回；</li>
+<li><strong>Context Precision</strong>：召回内容中有多少与问题相关；</li>
+<li><strong>Evidence Coverage</strong>：各个子问题是否都有证据覆盖；</li>
+<li><strong>Redundancy Rate</strong>：最终上下文中重复内容的比例；</li>
+<li><strong>Compression Ratio</strong>：压缩前后的 Token 或字符比例；</li>
+<li><strong>Lost-in-Context Rate</strong>：关键证据被压缩或组装过程丢失的比例。</li>
+</ul>
+<span class="heading-anchor" id="12.2 引用和生成指标"></span><h3 id="122">12.2 引用和生成指标</h3>
+<ul>
+<li><strong>Citation Precision</strong>：引用的来源是否确实支持对应主张；</li>
+<li><strong>Citation Recall</strong>：重要主张是否都附有必要引用；</li>
+<li><strong>Citation Completeness</strong>：答案中的可验证事实有多少被引用覆盖；</li>
+<li><strong>Faithfulness</strong>：答案是否忠实于提供的证据；</li>
+<li><strong>Answer Correctness</strong>：最终答案是否回答了问题；</li>
+<li><strong>Abstention Quality</strong>：证据不足时是否正确拒答或限定回答范围。</li>
+</ul>
+<p>评测集应包含：</p>
+<ul>
+<li>单事实问题；</li>
+<li>需要比较多个来源的问题；</li>
+<li>多跳问题；</li>
+<li>带时间和版本条件的问题；</li>
+<li>证据冲突的问题；</li>
+<li>检索不到答案的问题；</li>
+<li>容易受到重复内容干扰的问题。</li>
+</ul>
+<span class="heading-anchor" id="12.3 人工评测问题"></span><h3 id="123">12.3 人工评测问题</h3>
+<p>可以让评审者逐项回答：</p>
+<ol>
+<li>答案中的每个关键结论是否有引用？</li>
+<li>引用是否真的支持该结论？</li>
+<li>是否遗漏了重要条件或例外？</li>
+<li>引用是否能定位到原始内容？</li>
+<li>证据之间是否存在未说明的冲突？</li>
+<li>如果没有足够证据，系统是否诚实说明了不确定性？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="13. 实践检查清单"></span><h2 id="13">13. 实践检查清单</h2>
+<span class="heading-anchor" id="上下文压缩"></span><h3 id="_7">上下文压缩</h3>
+<ul>
+<li>[ ] 是否有明确的 Token 预算？</li>
+<li>[ ] 是否根据问题类型动态分配预算？</li>
+<li>[ ] 是否保留标题、条件、例外和版本信息？</li>
+<li>[ ] 抽象式摘要是否能回溯到原文？</li>
+<li>[ ] 是否评估了压缩导致的证据丢失？</li>
+</ul>
+<span class="heading-anchor" id="去重与组织"></span><h3 id="_8">去重与组织</h3>
+<ul>
+<li>[ ] 是否使用稳定的 <code>chunk_id</code> 或内容 Hash？</li>
+<li>[ ] 是否同时处理精确重复和近似重复？</li>
+<li>[ ] 是否避免误删不同版本、时间或环境的内容？</li>
+<li>[ ] 是否为比较题和多跳题保留多样化证据？</li>
+<li>[ ] 相邻 Chunk 合并后是否仍能定位到原文？</li>
+</ul>
+<span class="heading-anchor" id="引用溯源"></span><h3 id="_9">引用溯源</h3>
+<ul>
+<li>[ ] 每个证据是否保存文档、版本和位置？</li>
+<li>[ ] 生成模型是否只能使用给定的证据 ID？</li>
+<li>[ ] 重要主张是否都有就近引用？</li>
+<li>[ ] 是否检查了引用存在性和引用-主张支持关系？</li>
+<li>[ ] 引用链接是否经过权限和有效性校验？</li>
+<li>[ ] 是否能够重放当时的检索和生成过程？</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="14. 小结"></span><h2 id="14">14. 小结</h2>
+<p>上下文压缩、去重和引用溯源不是 RAG 的附属功能，而是把“检索结果”转化为“可用证据”的关键环节：</p>
+<ol>
+<li>先过滤无权访问、失效或不适用的候选内容；</li>
+<li>再通过相关性、多样性和子问题覆盖选择证据；</li>
+<li>对重复内容进行安全去重，但保留版本和冲突信息；</li>
+<li>在压缩时保留条件、例外、时间和结构上下文；</li>
+<li>为证据保存稳定 ID、原文位置和版本信息；</li>
+<li>让答案中的原子化主张与证据建立明确映射；</li>
+<li>对引用的存在性、权限和支持关系进行后处理校验；</li>
+<li>通过上下文、引用和答案三层指标评估整个链路。</li>
+</ol>
+<p>最重要的原则是：<strong>上下文不是越多越好，引用也不是越多越可靠；真正重要的是，每个关键结论都能由少量、相关、完整且可定位的证据支持。</strong></p>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_10">相关笔记</h2>
+<ul>
+<li><a href="n-eb5cc2caf849.html">上一节：Query Rewrite、意图识别与 Rerank</a></li>
+<li><a href="n-758dc45c7b99.html">下一节：文档权限与多租户隔离</a></li>
+<li><a href="n-1984c9335328.html">课程导航：RAG 学习路线</a></li>
+</ul>
+<span class="heading-anchor" id="来源与说明"></span><h2 id="_11">来源与说明</h2>
+<ul>
+<li>本笔记的章节定位、前后导航和学习目标依据项目中的 RAG 学习路线及相邻笔记整理。</li>
+<li>上下文压缩、去重、证据组织、引用溯源、冲突处理和评测指标的具体解释，属于基于 RAG 通用方法的学习整理；当前项目检索结果未提供这些主题的完整原始正文。</li>
+<li>文中的公式、伪代码和参数表用于说明设计思路，不代表项目中已经采用了某个特定实现。 </li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>过期、淘汰与缓存故障 · 李杨的学习笔记</title><meta name="description" content="过期是 key 到达 TTL 后的生命周期管理；淘汰是实例内存达到 maxmemory 限制后的空间腾挪。二者不是一回事：没有 TTL 的 key 不会因过期被删除，但在 allkeys-* 淘汰策略下仍可能因内存压力被淘汰。"><meta property="og:title" content="过期、淘汰与缓存故障 · 李杨的学习笔记"><meta property="og:description" content="过期是 key 到达 TTL 后的生命周期管理；淘汰是实例内存达到 maxmemory 限制后的空间腾挪。二者不是一回事：没有 TTL 的 key 不会因过期被删除，但在 allkeys-* 淘汰策略下仍可能因内存压力被淘汰。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5aab2fe06365.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5aab2fe06365.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>过期、淘汰与缓存故障</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/03-%E8%BF%87%E6%9C%9F%E6%B7%98%E6%B1%B0%E4%B8%8E%E7%BC%93%E5%AD%98%E6%95%85%E9%9A%9C.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">过期字典与删除流程</a></li><li><a href="#maxmemory">maxmemory 淘汰</a></li><li><a href="#_5">穿透、击穿、雪崩的故障时序</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#_7">互斥回源 + 空值缓存</a></li><li><a href="#_8">逻辑过期</a></li><li><a href="#_9">观测指标</a></li><li><a href="#_10">容量估算</a></li><li><a href="#_11">常见误区</a></li><li><a href="#_12">自测题</a></li><li><a href="#_13">实践任务</a></li><li><a href="#_14">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解 TTL、过期字典、惰性删除、主动过期和内存淘汰策略的区别。</li>
+<li>掌握缓存穿透、击穿、雪崩的故障时序、工程处理手段和监控指标。</li>
+<li>能设计带随机 TTL、空值缓存、互斥回源、逻辑过期、限流和降级保护的缓存方案。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>过期是 key 到达 TTL 后的生命周期管理；淘汰是实例内存达到 <code>maxmemory</code> 限制后的空间腾挪。二者不是一回事：没有 TTL 的 key 不会因过期被删除，但在 <code>allkeys-*</code> 淘汰策略下仍可能因内存压力被淘汰。</p>
+<span class="heading-anchor" id="过期字典与删除流程"></span><h3 id="_4">过期字典与删除流程</h3>
+<p>Redis 为设置过期时间的 key 维护过期元数据，可以直观理解为“主字典保存 key-value，过期字典保存 key-expireAt”。key 到期后不保证立刻消失，删除通常来自两条路径：</p>
+<ul>
+<li>惰性删除：访问 key 时发现过期，先删除再返回不存在。</li>
+<li>主动过期：后台周期抽样检查过期 key，避免大量冷 key 永久占用内存。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  SETEX["SET key value EX ttl"] --&gt; Main["主字典 key-value"]
+  SETEX --&gt; Expire["过期字典 key-expireAt"]
+  GET["GET key"] --&gt; Check{expireAt &lt;= now?}
+  Check --&gt;|是| Del["删除 key 并返回 nil"]
+  Check --&gt;|否| Return["返回 value"]
+  Timer["后台主动过期"] --&gt; Sample["抽样过期字典"]
+  Sample --&gt; Del
+</pre>
+<span class="heading-anchor" id="maxmemory 淘汰"></span><h3 id="maxmemory">maxmemory 淘汰</h3>
+<p>当写入导致内存超过 <code>maxmemory</code>，Redis 会按 <code>maxmemory-policy</code> 淘汰 key 或返回错误。官方策略包括 <code>noeviction</code>、<code>allkeys-lru</code>、<code>allkeys-lfu</code>、<code>allkeys-random</code>、<code>volatile-lru</code>、<code>volatile-lfu</code>、<code>volatile-random</code>、<code>volatile-ttl</code> 等；不同 Redis 版本还可能增加策略，生产文档应以当前官方配置说明为准。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略家族</th>
+<th>候选 key</th>
+<th>适用场景</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>noeviction</code></td>
+<td>不淘汰</td>
+<td>Redis 存半持久状态，宁愿写失败</td>
+<td>写请求报错，业务要处理</td>
+</tr>
+<tr>
+<td><code>allkeys-*</code></td>
+<td>所有 key</td>
+<td>纯缓存</td>
+<td>没 TTL 的 key 也会被淘汰</td>
+</tr>
+<tr>
+<td><code>volatile-*</code></td>
+<td>只淘汰带 TTL 的 key</td>
+<td>混合缓存和少量常驻状态</td>
+<td>没足够 TTL key 时可能写失败</td>
+</tr>
+</tbody>
+</table></div>
+<p>淘汰不是精准 LRU/LFU 全量排序，工程上应把它当近似策略。更重要的是为 key 设置合理 TTL、拆分大 key、控制写入峰值，并监控内存水位。</p>
+<span class="heading-anchor" id="穿透、击穿、雪崩的故障时序"></span><h3 id="_5">穿透、击穿、雪崩的故障时序</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>成因</th>
+<th>典型时序</th>
+<th>常用措施</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>缓存穿透</td>
+<td>查询不存在数据，每次打到数据库</td>
+<td>请求无效 ID -&gt; Redis miss -&gt; DB miss -&gt; 下次仍 miss</td>
+<td>参数校验、空值缓存、布隆过滤器</td>
+</tr>
+<tr>
+<td>缓存击穿</td>
+<td>单个热点 key 过期，大量请求同时回源</td>
+<td>热 key 到期 -&gt; 并发 miss -&gt; DB 被同一查询打满</td>
+<td>互斥锁、逻辑过期、后台刷新</td>
+</tr>
+<tr>
+<td>缓存雪崩</td>
+<td>大量 key 同时失效或 Redis 不可用</td>
+<td>批量 TTL 到点/集群故障 -&gt; 大量 miss -&gt; DB/下游崩溃</td>
+<td>TTL 抖动、多级缓存、限流降级</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">sequenceDiagram
+  participant Req as Many Requests
+  participant R as Redis
+  participant DB
+  Req-&gt;&gt;R: GET hot:sku:42
+  R--&gt;&gt;Req: miss after TTL expired
+  par concurrent fallback
+    Req-&gt;&gt;DB: SELECT sku=42
+    Req-&gt;&gt;DB: SELECT sku=42
+    Req-&gt;&gt;DB: SELECT sku=42
+  end
+  DB--&gt;&gt;Req: slow / timeout
+</pre>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<span class="heading-anchor" id="互斥回源 + 空值缓存"></span><h3 id="_7">互斥回源 + 空值缓存</h3>
+<pre><code class="language-pseudo">value = redis.get(key)
+if value == EMPTY:
+    return not_found
+if value exists:
+    return deserialize(value)
+
+if redis.set(lock_key, request_id, nx=true, ex=3s):
+    try:
+        data = db.query(id)
+        if data is null:
+            redis.set(key, EMPTY, ex=random(30s, 60s))
+        else:
+            redis.set(key, serialize(data), ex=random(5m, 10m))
+        return data
+    finally:
+        release_lock_by_lua(lock_key, request_id)
+
+sleep(20ms)
+return redis.get(key) or degraded_response()
+</code></pre>
+<p>空值缓存要短 TTL，并区分“真实空对象”和“缓存占位”。布隆过滤器适合挡掉明显不存在的 ID，但有误判率，并且新增数据时要维护过滤器同步。</p>
+<span class="heading-anchor" id="逻辑过期"></span><h3 id="_8">逻辑过期</h3>
+<p>热点 key 可以让物理 TTL 更长，在 value 内保存 <code>logical_expire_at</code>。请求读到逻辑过期值时，先返回旧值，再由单个后台刷新者异步重建缓存。它牺牲短时间新鲜度，换取热点稳定性。</p>
+<pre><code class="language-json">{
+  "logical_expire_at": "2026-08-31T10:05:00Z",
+  "payload": {"sku_id": 42, "price": 19900}
+}
+</code></pre>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_9">观测指标</h3>
+<ul>
+<li><code>keyspace_hits</code>、<code>keyspace_misses</code>：命中率突降是雪崩或穿透信号。</li>
+<li><code>expired_keys</code>、<code>evicted_keys</code>：过期删除和内存淘汰速率。</li>
+<li><code>used_memory</code>、<code>maxmemory</code>、<code>mem_fragmentation_ratio</code>：内存水位和碎片。</li>
+<li>DB QPS、慢查询、连接池等待：判断 miss 是否已经压垮回源。</li>
+<li>按业务 key 维度的 miss TopN：定位击穿和穿透来源。</li>
+</ul>
+<span class="heading-anchor" id="容量估算"></span><h3 id="_10">容量估算</h3>
+<pre><code class="language-text">miss_qps = total_qps * (1 - hit_rate)
+db_query_cost = miss_qps * avg_db_latency
+雪崩回源峰值 ~= 同批过期 key 数 * 单 key 并发请求数
+</code></pre>
+<p>当 miss_qps 超过 DB 可承受吞吐时，增加 Redis 节点通常不是第一手段；先做 TTL 抖动、互斥回源、限流和降级。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_11">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设置 TTL 后内存会准时释放</td>
+<td>过期删除不是实时强保证</td>
+</tr>
+<tr>
+<td>空值缓存会污染缓存</td>
+<td>空值缓存要配短 TTL，并区分真实空对象和缓存占位</td>
+</tr>
+<tr>
+<td>布隆过滤器能彻底防穿透</td>
+<td>布隆过滤器有误判率，且需要处理数据新增同步</td>
+</tr>
+<tr>
+<td>雪崩只靠加机器解决</td>
+<td>回源风暴会压垮数据库，必须有降级和限流</td>
+</tr>
+<tr>
+<td>淘汰策略能替代容量设计</td>
+<td>淘汰是最后防线，不能代替 key 规模上限和热点治理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_12">自测题</h2>
+<ol>
+<li>缓存击穿和缓存穿透的根因有什么不同？</li>
+<li>为什么逻辑过期适合热点 Key？</li>
+<li>Redis 内存淘汰和 Key TTL 过期有什么区别？</li>
+<li><code>volatile-lru</code> 在大量 key 没有 TTL 时有什么风险？</li>
+<li>命中率下降时如何区分穿透、击穿和雪崩？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_13">实践任务</h2>
+<ul>
+<li>为一个秒杀商品缓存设计互斥回源、逻辑过期和降级响应。</li>
+<li>写出空值缓存的数据格式，要求能避免和真实业务空值混淆。</li>
+<li>设计一组 Grafana 面板：命中率、过期速率、淘汰速率、DB 回源 QPS、回源锁竞争。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_14">延伸阅读</h2>
+<ul>
+<li>Redis key expiration：https://redis.io/docs/latest/develop/using-commands/keyspace/</li>
+<li>Redis <code>EXPIRE</code> command：https://redis.io/docs/latest/commands/expire/</li>
+<li>Redis eviction：https://redis.io/docs/latest/develop/reference/eviction/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

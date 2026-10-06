@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01-03 JSON、HTTP 与 API · 李杨的学习笔记</title><meta name="description" content="在餐厅里，顾客不会直接进入厨房操作设备，而是按菜单提交订单。菜单说明可选项目、
+填写方式和价格；服务员把订单交给厨房，再带回结果或错误说明。"><meta property="og:title" content="01-03 JSON、HTTP 与 API · 李杨的学习笔记"><meta property="og:description" content="在餐厅里，顾客不会直接进入厨房操作设备，而是按菜单提交订单。菜单说明可选项目、
+填写方式和价格；服务员把订单交给厨房，再带回结果或错误说明。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-32a54b4950dd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-32a54b4950dd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 01-foundations</p><h1>01-03 JSON、HTTP 与 API</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/01-foundations/03-json-http-and-apis.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#api">从“点餐单”理解 API</a></li><li><a href="#json">JSON 是常见的数据表示</a></li><li><a href="#http">一次 HTTP 请求包含什么</a></li><li><a href="#_1">响应不只有正文</a></li><li><a href="#_2">为什么不能见错就重试</a></li><li><a href="#_3">鉴权信息不是普通字段</a></li><li><a href="#_4">调试时按层检查</a></li><li><a href="#_5">自测与实践</a></li><li><a href="#_6">本章小结</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>01-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>35 分钟</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>能区分输入、处理和输出；建议先读 01-02</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不需要联网，不调用真实服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>阅读静态请求与响应示例，并用文本编辑器修改 JSON</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>读懂由对象、数组、字符串、数字、布尔值和 <code>null</code> 组成的 JSON；</li>
+<li>指出 HTTP 请求和响应中的方法、地址、头、正文与状态码；</li>
+<li>把 API 理解为双方约定的接口，而不是某个特定网站或模型；</li>
+<li>识别超时、限流、鉴权失败和服务端错误，并避免盲目重试。</li>
+</ul>
+<span class="heading-anchor" id="从“点餐单”理解 API"></span><h2 id="api">从“点餐单”理解 API</h2>
+<p>在餐厅里，顾客不会直接进入厨房操作设备，而是按菜单提交订单。菜单说明可选项目、
+填写方式和价格；服务员把订单交给厨房，再带回结果或错误说明。</p>
+<p>应用程序接口（Application Programming Interface，API）也提供类似约定：调用方按
+规定格式提交请求，服务方返回规定格式的响应。双方不必知道对方内部每一步怎样实现，
+但必须对字段、类型、错误和权限有共同理解。</p>
+<span class="heading-anchor" id="JSON 是常见的数据表示"></span><h2 id="json">JSON 是常见的数据表示</h2>
+<p>JSON（JavaScript Object Notation）是一种文本数据格式。下面是一份问答请求：</p>
+<pre><code class="language-json">{
+  "question": "怎样重置密码？",
+  "top_k": 3,
+  "include_sources": true,
+  "filters": {
+    "language": "zh-CN"
+  }
+}
+</code></pre>
+<p>这里包含：</p>
+<ul>
+<li>对象：最外层以及 <code>filters</code>，使用花括号；</li>
+<li>字符串：<code>question</code> 和 <code>language</code> 的值；</li>
+<li>数字：<code>top_k</code> 的值；</li>
+<li>布尔值：<code>include_sources</code> 的值；</li>
+<li>键值对：例如 <code>"top_k": 3</code>。</li>
+</ul>
+<p>JSON 的键和字符串使用双引号。末尾多余逗号、单引号或 Python 专用的 <code>True</code> 都不是
+标准 JSON 写法。</p>
+<span class="heading-anchor" id="一次 HTTP 请求包含什么"></span><h2 id="http">一次 HTTP 请求包含什么</h2>
+<p>HTTP 是客户端与服务端交换请求和响应的常见协议。一次请求至少要关注：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>作用</th>
+<th>示例问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>方法</td>
+<td>表示希望执行的动作</td>
+<td>是读取 <code>GET</code>，还是提交 <code>POST</code>？</td>
+</tr>
+<tr>
+<td>地址</td>
+<td>指向服务与资源</td>
+<td>请求发到哪个主机和路径？</td>
+</tr>
+<tr>
+<td>头</td>
+<td>携带内容类型、鉴权等元信息</td>
+<td>正文是不是 JSON？令牌放在哪里？</td>
+</tr>
+<tr>
+<td>正文</td>
+<td>携带问题、参数等数据</td>
+<td>字段名和类型是否符合契约？</td>
+</tr>
+<tr>
+<td>超时</td>
+<td>限制等待时间</td>
+<td>服务没有响应时多久停止？</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如，调用方可能向 <code>/answers</code> 发送 <code>POST</code> 请求，正文使用前面的 JSON。这个路径只是
+教学示例，不对应仓库中已经运行的服务。</p>
+<span class="heading-anchor" id="响应不只有正文"></span><h2 id="_1">响应不只有正文</h2>
+<p>服务端会返回状态码、响应头和正文。成功响应可能是：</p>
+<pre><code class="language-json">{
+  "answer": "请在登录页选择“忘记密码”。",
+  "sources": ["handbook-7"]
+}
+</code></pre>
+<p>但调用方不能只检查有没有 <code>answer</code> 字段，还要先处理 HTTP 状态：</p>
+<ul>
+<li><code>2xx</code>：请求通常已被服务接受并处理，但仍要校验响应结构；</li>
+<li><code>4xx</code>：请求、权限或调用频率存在问题，例如参数错误、未授权或限流；</li>
+<li><code>5xx</code>：服务端处理失败；是否重试要结合请求性质和退避策略；</li>
+<li>超时或网络错误：没有获得完整响应，不能当作空答案或成功。</li>
+</ul>
+<p>状态码只提供一层信号。具体错误字段和是否可重试应以目标 API 契约为准。</p>
+<span class="heading-anchor" id="为什么不能见错就重试"></span><h2 id="_2">为什么不能见错就重试</h2>
+<p>读取请求重复一次通常风险较低，但创建订单、扣款或发送消息可能产生重复副作用。安全的
+重试需要考虑：</p>
+<ul>
+<li>请求是否幂等，也就是重复执行是否仍保持同一结果；</li>
+<li>服务是否支持幂等键；</li>
+<li>错误是否短暂，例如服务繁忙，而不是永久参数错误；</li>
+<li>是否采用有限次数和逐步等待，而不是无限快速重试；</li>
+<li>是否记录请求编号，便于追踪重复与失败。</li>
+</ul>
+<p>对 <code>401</code> 未授权或明显的 <code>400</code> 参数错误反复重试，通常不会解决问题，还可能触发更多
+限制。</p>
+<span class="heading-anchor" id="鉴权信息不是普通字段"></span><h2 id="_3">鉴权信息不是普通字段</h2>
+<p>很多 API 使用密钥或访问令牌确认调用身份。密钥不应写入教程正文、提交到 Git 或混入
+用户问题。应用应从受控配置中读取，并避免在日志和错误信息中完整打印。</p>
+<p>拥有令牌也不等于拥有所有数据权限。服务端仍需根据身份、资源和操作执行授权检查。</p>
+<span class="heading-anchor" id="调试时按层检查"></span><h2 id="_4">调试时按层检查</h2>
+<p>遇到失败时，可以按下面顺序缩小范围：</p>
+<ol>
+<li>地址和网络是否可达；</li>
+<li>方法、头和内容类型是否正确；</li>
+<li>JSON 是否能解析，字段名与类型是否符合契约；</li>
+<li>鉴权是否存在、有效且未泄露；</li>
+<li>状态码和错误正文说明了什么；</li>
+<li>是否超时、限流或发生服务端故障；</li>
+<li>当前请求是否适合重试。</li>
+</ol>
+<p>这种分层检查比只看最后一行错误更容易定位问题。</p>
+<span class="heading-anchor" id="自测与实践"></span><h2 id="_5">自测与实践</h2>
+<ol>
+<li>在第一个 JSON 中，把 <code>top_k</code> 改成 5，并增加字符串字段 <code>user_id</code>。</li>
+<li>解释 <code>POST</code>、请求头、正文和状态码分别解决什么问题。</li>
+<li>为什么超时不能直接解释为“知识库没有答案”？</li>
+<li>给出一个不适合盲目重试的请求，并说明可能的副作用。</li>
+<li>找出这段无效 JSON 的两个问题：<code>{'ok': True,}</code>。</li>
+</ol>
+<span class="heading-anchor" id="本章小结"></span><h2 id="_6">本章小结</h2>
+<p>JSON 是常见的数据表示，HTTP 负责传输请求与响应，API 则是调用双方的接口契约。可靠
+调用不仅要处理成功正文，还要处理状态码、超时、限流、鉴权、授权和重试副作用。</p>
+<p>摘要：<a href="n-9f11b3c2dd04.html">01-03 章节摘要</a></p>
+<ul>
+<li>上一站：<a href="n-1e3dd4fea220.html">01-02 Token、上下文窗口与提示词</a></li>
+<li>下一站：<a href="n-57fed78e6ca1.html">01-04 Python、虚拟环境、命令行与 Git</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05. 异常处理、日志、模块与包 · 李杨的学习笔记</title><meta name="description" content="目标读者：准备把一次性的 Python 脚本演进为可运行、可观测、可测试的 AI Agent 服务的学习者。"><meta property="og:title" content="05. 异常处理、日志、模块与包 · 李杨的学习笔记"><meta property="og:description" content="目标读者：准备把一次性的 Python 脚本演进为可运行、可观测、可测试的 AI Agent 服务的学习者。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-cc130f5dcf19.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-cc130f5dcf19.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python_ai_agent</p><h1>05. 异常处理、日志、模块与包</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python_ai_agent/05_%E5%BC%82%E5%B8%B8%E6%97%A5%E5%BF%97%E6%A8%A1%E5%9D%97%E4%B8%8E%E5%8C%85.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#0">0. 运行本章示例</a></li><li><a href="#1">1. 异常模型与异常层级</a></li><li><a href="#11">1.1 异常是什么</a></li><li><a href="#12">1.2 捕获具体异常</a></li><li><a href="#13-tryexceptelsefinally">1.3 try/except/else/finally 的执行顺序</a></li><li><a href="#14-raiseraise-from">1.4 raise、raise from 与异常链</a></li><li><a href="#15">1.5 自定义异常与异常边界</a></li><li><a href="#16-python-311">1.6 Python 3.11 的异常组（了解）</a></li><li><a href="#17">1.7 匹配顺序、异常上下文和控制流细节</a></li><li><a href="#18-python-311">1.8 异常组和取消语义（Python 3.11+）</a></li><li><a href="#19">1.9 异常边界的决策模板</a></li><li><a href="#2-agent">2. 日志：让 Agent 任务可追踪</a></li><li><a href="#21-logging">2.1 logging 的组成</a></li><li><a href="#22">2.2 最小可运行日志配置</a></li><li><a href="#23">2.3 上下文与结构化日志</a></li><li><a href="#24">2.4 日志安全与可观测性清单</a></li><li><a href="#25-logger">2.5 logger 层级、级别和传播的计算方式</a></li><li><a href="#26-handlerfilter-formatter">2.6 handler、filter 和 formatter 的职责分离</a></li><li><a href="#27-contextvar">2.7 ContextVar 与异步请求上下文</a></li><li><a href="#28">2.8 结构化日志和脱敏策略</a></li><li><a href="#3">3. 模块、包与导入机制</a></li><li><a href="#31">3.1 模块和包的概念</a></li><li><a href="#32-__init__py__main__py-__name__">3.2 __init__.py、__main__.py 与 __name__</a></li><li><a href="#33">3.3 绝对导入与相对导入</a></li><li><a href="#34">3.4 导入发生了什么</a></li><li><a href="#35-pyprojecttoml">3.5 pyproject.toml 中的项目布局</a></li><li><a href="#36">3.6 模块缓存、查找顺序和导入副作用</a></li><li><a href="#37-__all__-api">3.7 __all__、包 API 和重导出</a></li><li><a href="#38">3.8 循环导入的识别与修复</a></li><li><a href="#39-python-m">3.9 python -m、入口点与启动目录</a></li><li><a href="#4">4. 上下文管理器：自动管理资源</a></li><li><a href="#41">4.1 内置上下文管理器</a></li><li><a href="#42">4.2 自定义上下文管理器</a></li><li><a href="#5">5. 一个可运行的异常与日志示例</a></li><li><a href="#6">6. 常见坑与排查清单</a></li><li><a href="#7">7. 练习题</a></li><li><a href="#71">7.1 练习提示与验收标准</a></li><li><a href="#_2">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标读者：准备把一次性的 Python 脚本演进为可运行、可观测、可测试的 AI Agent 服务的学习者。</p>
+<p>本章示例按 Python 3.11+ 编写。命令默认在项目根目录执行；涉及路径时会明确指出当前目录。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本章后，你应当能够：</p>
+<ol>
+<li>看懂 Python 异常层级，正确使用 <code>try/except/else/finally</code>、<code>raise</code> 和 <code>raise from</code>。</li>
+<li>定义有意义的自定义异常，在不同层级设置异常边界，并保留原始错误上下文。</li>
+<li>使用 <code>logging</code> 的 logger、handler、formatter、级别和上下文，避免泄露 Agent 的敏感信息。</li>
+<li>理解模块、包、<code>__init__.py</code>、<code>__main__.py</code>、绝对/相对导入和 <code>python -m</code> 的关系。</li>
+<li>组织 <code>src/</code> 布局的项目，降低循环导入、导入副作用和“在某目录能运行、换目录就失败”的风险。</li>
+</ol>
+<span class="heading-anchor" id="0. 运行本章示例"></span><h2 id="0">0. 运行本章示例</h2>
+<p>异常和日志示例只使用 Python 标准库，可以直接保存并运行：</p>
+<pre><code class="language-bash">mkdir -p examples
+# 将对应代码块保存为 examples/error_logging_demo.py
+python examples/error_logging_demo.py
+</code></pre>
+<p>上面的 <code>mkdir -p</code> 适用于 macOS/Linux；Windows PowerShell 可使用 <code>New-Item -ItemType Directory -Force examples</code>，也可以手动创建目录。</p>
+<p>模块与包的示例使用下面的目录结构：</p>
+<pre><code class="language-text">project-root/
+├── pyproject.toml
+├── src/
+│   └── agent_app/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── errors.py
+│       └── cli.py
+└── tests/
+</code></pre>
+<p>从 <code>project-root/</code> 执行 <code>python -m agent_app</code> 前，先让项目进入当前环境：开发阶段可执行 <code>python -m pip install -e .</code>；如果还未配置项目元数据，也可以临时设置 <code>PYTHONPATH=src</code>（Windows PowerShell 为 <code>$env:PYTHONPATH = "src"</code>）。</p>
+<span class="heading-anchor" id="1. 异常模型与异常层级"></span><h2 id="1">1. 异常模型与异常层级</h2>
+<span class="heading-anchor" id="1.1 异常是什么"></span><h3 id="11">1.1 异常是什么</h3>
+<p>异常是函数无法按约定完成操作时传递给调用者的控制流。它携带异常类型、消息和 traceback（调用栈信息）。正常情况下，业务函数应返回正常结果；无法满足前置条件、外部系统失败或程序存在 bug 时，才进入异常路径。</p>
+<p>Python 的主要层级可以简化为：</p>
+<pre><code class="language-text">BaseException
+├── SystemExit       # sys.exit()，通常不要捕获
+├── KeyboardInterrupt # Ctrl-C，通常不要吞掉
+├── GeneratorExit
+└── Exception        # 应用层通常捕获这一支
+    ├── ValueError
+    ├── TypeError
+    ├── LookupError
+    │   ├── KeyError
+    │   └── IndexError
+    ├── OSError
+    │   ├── FileNotFoundError
+    │   └── TimeoutError
+    └── RuntimeError
+</code></pre>
+<p>一般写 <code>except Exception</code>，而不是 <code>except BaseException</code>。捕获 <code>BaseException</code> 很容易把 Ctrl-C 或进程退出信号吞掉，让服务无法正常停止。除非确实要在最外层做清理和重新抛出，否则不要捕获 <code>SystemExit</code>/<code>KeyboardInterrupt</code>。</p>
+<p>常见判断：</p>
+<ul>
+<li><code>ValueError</code>：类型正确，但值不符合要求，例如 <code>int("abc")</code>。</li>
+<li><code>TypeError</code>：操作或参数类型不对，例如把字符串当函数调用。</li>
+<li><code>KeyError</code>/<code>IndexError</code>：字典键或序列下标不存在。</li>
+<li><code>FileNotFoundError</code>、<code>ConnectionError</code>、<code>TimeoutError</code>：外部 I/O 失败。</li>
+<li><code>AssertionError</code>：<code>assert</code> 条件不成立；不要用 <code>assert</code> 做用户输入校验，因为 Python 优化模式可能移除断言。</li>
+</ul>
+<span class="heading-anchor" id="1.2 捕获具体异常"></span><h3 id="12">1.2 捕获具体异常</h3>
+<pre><code class="language-python">def parse_top_k(raw: str) -&gt; int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"top_k 必须是整数，收到：{raw!r}") from exc
+
+    if not 1 &lt;= value &lt;= 20:
+        raise ValueError("top_k 必须在 1 到 20 之间")
+    return value
+
+print(parse_top_k("5"))
+</code></pre>
+<p>捕获异常时要保留足够窄的范围。下面这种写法会把函数内部的 bug 也包装成“输入错误”，从而掩盖问题：</p>
+<pre><code class="language-python"># 不推荐：范围太大，无法区分 int 转换失败和后续代码 bug
+def unsafe_parse(raw: str) -&gt; int:
+    try:
+        value = int(raw)
+        result = 100 // value
+    except Exception:
+        return 0
+    return result
+</code></pre>
+<span class="heading-anchor" id="1.3 try/except/else/finally 的执行顺序"></span><h3 id="13-tryexceptelsefinally">1.3 <code>try/except/else/finally</code> 的执行顺序</h3>
+<pre><code class="language-python">def read_first_line(path: str) -&gt; str | None:
+    file = None
+    try:
+        file = open(path, encoding="utf-8")
+        line = file.readline().strip()
+    except FileNotFoundError:
+        print(f"文件不存在：{path}")
+        return None
+    else:
+        # 只有 try 没有异常时执行；不要把正常逻辑塞进 try 的大区块
+        return line or None
+    finally:
+        # 无论成功、异常还是 return，都会执行
+        if file is not None:
+            file.close()
+</code></pre>
+<ul>
+<li><code>try</code>：放可能抛出目标异常的最小代码区间。</li>
+<li><code>except</code>：匹配异常并处理、转换或重新抛出。</li>
+<li><code>else</code>：<code>try</code> 成功时执行；可避免把 <code>else</code> 代码自身的异常误认为被捕获的异常。</li>
+<li><code>finally</code>：无论是否异常都会执行，适合释放资源。若 <code>finally</code> 中再次 <code>return</code> 或抛异常，会覆盖原来的返回值/异常，应避免。</li>
+</ul>
+<p>涉及文件、锁、网络响应等资源时，优先使用上下文管理器（见第 4 节），而不是手写 <code>finally</code>。</p>
+<span class="heading-anchor" id="1.4 raise、raise from 与异常链"></span><h3 id="14-raiseraise-from">1.4 <code>raise</code>、<code>raise from</code> 与异常链</h3>
+<pre><code class="language-python">class ToolInputError(ValueError):
+    """工具参数无法满足格式或业务约束。"""
+
+def load_top_k(raw: str) -&gt; int:
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        # 让上层看到领域异常，同时保留底层转换错误
+        raise ToolInputError("top_k 不是合法整数") from exc
+
+def retry_once(operation):
+    try:
+        return operation()
+    except TimeoutError:
+        # 裸 raise 保留当前 traceback；不要写成 raise exc
+        raise
+</code></pre>
+<p><code>raise NewError(...) from exc</code> 明确表示“新异常由原异常导致”，traceback 会出现 <code>The above exception was the direct cause...</code>。这对于 Agent 服务将底层 SDK 异常映射到领域异常非常有用。若底层错误含有敏感信息且不应暴露给用户，可使用 <code>raise PublicError("...") from None</code>，同时在日志中记录内部 traceback。</p>
+<span class="heading-anchor" id="1.5 自定义异常与异常边界"></span><h3 id="15">1.5 自定义异常与异常边界</h3>
+<p>异常类应表达调用者可以处理的分类，而不是每一种内部实现细节：</p>
+<pre><code class="language-python">class AgentError(Exception):
+    """Agent 应用可预期错误的基类。"""
+
+class ToolError(AgentError):
+    """工具执行相关错误。"""
+
+class ToolInputError(ToolError):
+    """工具参数格式或业务约束错误。"""
+
+class ToolPermissionError(ToolError):
+    """工具调用未被授权。"""
+
+class ModelProviderError(AgentError):
+    """模型供应商或网关错误。"""
+
+class TransientModelError(ModelProviderError):
+    """短暂失败，可能适合重试。"""
+</code></pre>
+<p>可按层设置异常边界：</p>
+<pre><code class="language-text">外部输入/HTTP 层 ── 把校验错误转成 4xx，隐藏内部细节
+       │
+应用服务层 ─────── 决定是否重试、降级、结束任务
+       │
+领域层 ────────── 抛出 AgentError 的稳定子类
+       │
+基础设施层 ────── 把 SDK/数据库/网络异常转换成领域异常
+</code></pre>
+<p>边界的原则：</p>
+<ol>
+<li>越靠近底层，越了解具体异常；在边界处转换为上层稳定的异常类型。</li>
+<li>只在能采取不同动作时捕获异常。不能处理时让它继续向上冒泡。</li>
+<li>最外层任务入口应记录 traceback，并将用户可见消息与内部诊断分离。</li>
+<li>对 <code>TimeoutError</code>、限流、临时网络错误和永久参数错误区别处理；不能对所有异常无限重试。</li>
+</ol>
+<span class="heading-anchor" id="1.6 Python 3.11 的异常组（了解）"></span><h3 id="16-python-311">1.6 Python 3.11 的异常组（了解）</h3>
+<p>并发执行多个任务时可能同时失败，可以用 <code>ExceptionGroup</code> 与 <code>except*</code> 分别处理：</p>
+<pre><code class="language-python">def validate_batch() -&gt; None:
+    raise ExceptionGroup(
+        "批量工具参数错误",
+        [ValueError("query 为空"), TimeoutError("检索超时")],
+    )
+
+try:
+    validate_batch()
+except* ValueError as group:
+    print("处理参数错误：", group.exceptions)
+except* TimeoutError as group:
+    print("处理超时：", group.exceptions)
+</code></pre>
+<p>实际业务中要避免异常组层层嵌套；先为批处理定义清晰的结果协议，只有需要保留多项失败信息时才使用它。</p>
+<span class="heading-anchor" id="1.7 匹配顺序、异常上下文和控制流细节"></span><h3 id="17">1.7 匹配顺序、异常上下文和控制流细节</h3>
+<p><code>except</code> 按源码从上到下尝试匹配；匹配的是异常类的继承关系，而不是异常消息：</p>
+<pre><code class="language-python">def read_config(path: str) -&gt; str:
+    try:
+        with open(path, encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        return "{}"
+    except PermissionError as exc:
+        raise ToolError("配置文件不可读取") from exc
+    except OSError as exc:
+        raise ToolError("文件系统暂时不可用") from exc
+</code></pre>
+<p><code>FileNotFoundError</code> 和 <code>PermissionError</code> 都是 <code>OSError</code> 的子类，所以具体异常必须写在 <code>OSError</code> 前面；否则后面的分支永远不会执行。多个同级异常可以写成元组：<code>except (TimeoutError, ConnectionError) as exc:</code>。不要根据 <code>str(exc)</code> 判断异常类别，消息可能随操作系统、库版本和语言环境变化。</p>
+<p><code>try</code> 中的 <code>return</code> 会先计算返回值，再执行 <code>finally</code>；<code>finally</code> 中的 <code>return</code> 会覆盖它：</p>
+<pre><code class="language-python">def bad_return() -&gt; int:
+    try:
+        return 1
+    finally:
+        return 2  # 不推荐：覆盖 try 的返回值，也会吞掉 try 中的异常
+
+print(bad_return())  # 2
+</code></pre>
+<p><code>finally</code> 应只做不会改变控制流的清理。若清理也可能失败，应该记录清理异常，并根据资源的重要性决定是否让它覆盖原始异常；不要为了“看起来完整”在 <code>finally</code> 中无条件捕获并忽略所有错误。</p>
+<p>异常对象的 <code>__context__</code>、<code>__cause__</code> 和 <code>__suppress_context__</code> 形成异常链。裸 <code>raise</code> 保留当前 traceback；<code>raise exc</code> 虽然仍会抛出同一异常，但通常会增加一个重新抛出的栈位置，降低诊断清晰度。转换底层异常时优先：</p>
+<pre><code class="language-python">def call_provider(client) -&gt; str:
+    try:
+        return client.complete()
+    except TimeoutError as exc:
+        raise TransientModelError("模型供应商超时") from exc
+</code></pre>
+<p>如果调用方可以处理，应保留结构化属性而不把信息全部编码进字符串：</p>
+<pre><code class="language-python">class RetryableToolError(ToolError):
+    def __init__(self, message: str, *, retry_after_s: float | None = None) -&gt; None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
+
+error = RetryableToolError("上游限流", retry_after_s=2.0)
+print(error.retry_after_s)
+</code></pre>
+<span class="heading-anchor" id="1.8 异常组和取消语义（Python 3.11+）"></span><h3 id="18-python-311">1.8 异常组和取消语义（Python 3.11+）</h3>
+<p><code>ExceptionGroup</code> 用于一次携带多个独立异常，<code>except*</code> 会从异常组中提取匹配部分；每个 <code>except*</code> 分支可能被执行，因此不要把它当成普通 <code>except</code> 的“只进一个分支”：</p>
+<pre><code class="language-python">def run_batch() -&gt; None:
+    errors = [ValueError("参数错误"), TimeoutError("超时")]
+    raise ExceptionGroup("batch failed", errors)
+
+try:
+    run_batch()
+except* ValueError as group:
+    print("参数错误数量：", len(group.exceptions))
+except* TimeoutError as group:
+    print("超时数量：", len(group.exceptions))
+</code></pre>
+<p>批处理 API 若需要同时报告成功和失败，返回带有 <code>ok/error</code> 字段的结果列表通常比把所有情况都塞入 <code>ExceptionGroup</code> 更易使用。异常组适合并行任务在同一边界集中报告多个失败。</p>
+<p>异步 Agent 还要留意 <code>asyncio.CancelledError</code> 的取消语义：它属于 <code>BaseException</code> 分支，不能依靠 <code>except Exception</code> 处理，也不应被无意吞掉。清理可以放在 <code>finally</code>，完成后重新抛出取消，让上层知道任务确实被取消；只有最外层任务协调器明确决定转换状态时才捕获它。</p>
+<span class="heading-anchor" id="1.9 异常边界的决策模板"></span><h3 id="19">1.9 异常边界的决策模板</h3>
+<p>可按“谁知道怎么处理”设计边界：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>了解的信息</th>
+<th>应做的事</th>
+<th>不应做的事</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基础设施（HTTP/SDK/数据库）</td>
+<td>连接、协议、供应商异常</td>
+<td>转换为少量稳定的领域异常，附原异常</td>
+<td>向用户返回 SDK 原始消息</td>
+</tr>
+<tr>
+<td>领域/工具层</td>
+<td>参数、不变量、权限和业务状态</td>
+<td>抛 <code>ToolInputError</code>、<code>ToolPermissionError</code> 等</td>
+<td>自己决定 HTTP 状态码</td>
+</tr>
+<tr>
+<td>应用编排层</td>
+<td>是否可重试、是否降级、步数/预算</td>
+<td>有界重试、记录运行状态、选择降级</td>
+<td>无限重试或吞掉取消</td>
+</tr>
+<tr>
+<td>API/CLI 边界</td>
+<td>用户协议和公开错误格式</td>
+<td>映射状态码/退出码，返回安全消息</td>
+<td>暴露 traceback、密钥和内部路径</td>
+</tr>
+<tr>
+<td>任务入口</td>
+<td>整个 run 的最终结果</td>
+<td>记录未处理异常和关联 ID，保证资源关闭</td>
+<td>继续运行未知的损坏状态</td>
+</tr>
+</tbody>
+</table></div>
+<p>一个异常分类至少要回答：调用者能否重试？是否应提示用户修改输入？是否需要报警？是否可公开原始细节？如果这些问题答案相同，就不必继续拆更多异常类。</p>
+<span class="heading-anchor" id="2. 日志：让 Agent 任务可追踪"></span><h2 id="2-agent">2. 日志：让 Agent 任务可追踪</h2>
+<span class="heading-anchor" id="2.1 logging 的组成"></span><h3 id="21-logging">2.1 <code>logging</code> 的组成</h3>
+<p>Python 日志系统可以理解为：</p>
+<pre><code class="language-text">代码调用 logger.info/error(...)
+          │
+logger（按名称分层，向父 logger 传播）
+          │
+handler（输出到控制台、文件、日志服务）
+          │
+formatter（把 LogRecord 格式化为文本或 JSON）
+</code></pre>
+<p>级别从低到高通常是：<code>DEBUG</code>、<code>INFO</code>、<code>WARNING</code>、<code>ERROR</code>、<code>CRITICAL</code>。记录一条消息前会检查 logger 与 handler 的有效级别。库代码不应擅自配置 root logger；应用入口统一配置。</p>
+<span class="heading-anchor" id="2.2 最小可运行日志配置"></span><h3 id="22">2.2 最小可运行日志配置</h3>
+<pre><code class="language-python">import logging
+import logging.config
+
+
+class RequestContextFilter(logging.Filter):
+    """保证没有 LoggerAdapter 的普通日志也拥有默认 request_id。"""
+
+    def filter(self, record: logging.LogRecord) -&gt; bool:
+        if not hasattr(record, "request_id"):
+            record.request_id = "-"
+        return True
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)s %(name)s "
+                      "request_id=%(request_id)s %(message)s",
+        },
+    },
+    "filters": {
+        "request_context": {
+            "()": RequestContextFilter,
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "standard",
+            "filters": ["request_context"],
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        "agent_app": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+    },
+}
+
+logging.config.dictConfig(LOGGING)
+logger = logging.getLogger("agent_app.tool")
+adapter = logging.LoggerAdapter(logger, {"request_id": "req-001"})
+
+adapter.info("开始调用工具 %s", "search")
+try:
+    raise TimeoutError("demo")
+except TimeoutError:
+    adapter.exception("工具调用失败")  # 自动包含 traceback
+</code></pre>
+<p>要点：</p>
+<ul>
+<li>每个模块使用 <code>logger = logging.getLogger(__name__)</code>，不要每次调用 <code>basicConfig()</code>。</li>
+<li>使用懒格式化 <code>logger.info("count=%d", count)</code>，而不是 <code>logger.info(f"count={count}")</code>；禁用该级别时可避免不必要的格式化。</li>
+<li><code>logger.exception()</code> 应在异常处理上下文中使用：普通 <code>except</code> 块里会自动记录当前异常堆栈；如果异常对象来自框架异常处理器而不在当前 <code>except</code> 上下文中，应显式传入 <code>exc_info=exc</code>。普通业务错误日志使用 <code>logger.error()</code>。</li>
+<li><code>propagate=False</code> 可以防止同一记录被 root logger 重复输出；是否关闭要根据应用整体配置决定。</li>
+</ul>
+<span class="heading-anchor" id="2.3 上下文与结构化日志"></span><h3 id="23">2.3 上下文与结构化日志</h3>
+<p>Agent 调试通常需要 <code>request_id</code>、<code>run_id</code>、<code>user_id</code>、<code>tool_name</code>、<code>step</code> 等字段。可以使用 <code>LoggerAdapter</code>：</p>
+<pre><code class="language-python">import logging
+
+logger = logging.getLogger(__name__)
+log = logging.LoggerAdapter(
+    logger,
+    {"request_id": "req-001", "run_id": "run-007", "tool_name": "search"},
+)
+log.info("开始执行，第 %d 步", 1)
+</code></pre>
+<p>在异步任务或跨层调用中，<code>contextvars.ContextVar</code> 比全局变量更合适：每个任务有自己的上下文。也可以在日志过滤器中从 <code>ContextVar</code> 注入字段，或使用项目选定的 JSON 日志库输出 <code>{"level":"INFO", ...}</code>。无论文本还是 JSON，都要保证字段稳定，便于检索和聚合。</p>
+<p>自定义结构化 formatter（只使用标准库）的示例：</p>
+<pre><code class="language-python">import json
+import logging
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -&gt; str:
+        payload = {
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for key in ("request_id", "run_id", "tool_name"):
+            value = getattr(record, key, None)
+            if value is not None:
+                payload[key] = value
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+</code></pre>
+<p>实际生产环境可直接使用日志平台或团队已选的结构化日志方案；不要为了“JSON”而重复造一套不兼容的协议。</p>
+<span class="heading-anchor" id="2.4 日志安全与可观测性清单"></span><h3 id="24">2.4 日志安全与可观测性清单</h3>
+<ol>
+<li><strong>绝不记录</strong> API key、Authorization header、密码、完整 Cookie、个人隐私和未脱敏的用户输入。</li>
+<li>记录模型调用时，通常只记录供应商、模型别名、token 统计、延迟、状态和截断后的安全摘要；不要默认记录完整 prompt/response。</li>
+<li>URL、文件路径和工具参数可能包含秘密；在 formatter 前做脱敏或只记录白名单字段。</li>
+<li>让 <code>ERROR</code> 表示需要关注的失败；可预期的用户输入错误可用 <code>INFO</code>/<code>WARNING</code>，不要把正常分支刷成错误。</li>
+<li>结构化字段保持低基数；不要把完整自由文本作为 label/tag 发送到指标系统。</li>
+<li>生产环境通常输出到 stdout，由运行平台收集；需要文件轮转时选择合适的 handler，避免无限增长。</li>
+</ol>
+<span class="heading-anchor" id="2.5 logger 层级、级别和传播的计算方式"></span><h3 id="25-logger">2.5 logger 层级、级别和传播的计算方式</h3>
+<p>logger 通过点号形成层级：<code>agent_app</code> 是 <code>agent_app.tool</code> 的父 logger，<code>agent_app.tool.search</code> 又是它的子 logger。记录一条日志时可以按以下顺序理解：</p>
+<ol>
+<li>调用 <code>logger.debug/info/...</code>，logger 的有效级别先决定是否创建/处理该级别记录。</li>
+<li>记录交给当前 logger 的 handler；handler 还有自己的级别，可能再次过滤。</li>
+<li>当前 logger 的 handler 处理后，如果 <code>propagate=True</code>，记录向父 logger 传播，父级 handler 继续处理。</li>
+<li>到 root logger 或遇到 <code>propagate=False</code> 为止。</li>
+</ol>
+<p>这意味着“logger 级别开了 DEBUG”不保证 DEBUG 一定输出：handler 仍可能只接受 INFO；反过来，在 logger 上没有 handler 时，记录也可能由父级 handler 输出。重复日志通常来自子 logger 和 root logger 都有 handler，或应用初始化函数被调用多次。</p>
+<pre><code class="language-python">import logging
+
+parent = logging.getLogger("agent_app")
+child = logging.getLogger("agent_app.tool")
+print(child.parent is parent)  # True（已创建相应层级时）
+child.setLevel(logging.DEBUG)
+</code></pre>
+<p>库代码通常只创建命名 logger 并添加 <code>logging.NullHandler()</code>，不修改 root logger；可执行应用在唯一入口配置 handler。这样使用者可以决定输出格式、目的地和级别。</p>
+<span class="heading-anchor" id="2.6 handler、filter 和 formatter 的职责分离"></span><h3 id="26-handlerfilter-formatter">2.6 handler、filter 和 formatter 的职责分离</h3>
+<ul>
+<li><strong>handler</strong> 决定输出去哪里，并可有独立的级别：stdout、stderr、文件、轮转文件或日志收集器。</li>
+<li><strong>filter</strong> 决定某条 <code>LogRecord</code> 是否通过，也可以补充上下文字段；过滤器应快速且无副作用。</li>
+<li><strong>formatter</strong> 把 record 变成文本/JSON；不要在 formatter 中做网络请求或昂贵查询。</li>
+</ul>
+<p><code>extra</code> 会把字段放进单条 <code>LogRecord</code>。如果 formatter 要求 <code>%(request_id)s</code>，某处却直接调用 logger 而没有该字段，格式化可能触发内部 logging 错误。两种稳妥方式是：所有调用都通过 adapter；或用 filter 为缺失字段提供默认值：</p>
+<pre><code class="language-python">import logging
+
+class ContextDefaults(logging.Filter):
+    def filter(self, record: logging.LogRecord) -&gt; bool:
+        if not hasattr(record, "request_id"):
+            record.request_id = "-"
+        if not hasattr(record, "run_id"):
+            record.run_id = "-"
+        return True
+
+handler = logging.StreamHandler()
+handler.addFilter(ContextDefaults())
+handler.setFormatter(
+    logging.Formatter("%(levelname)s request_id=%(request_id)s run_id=%(run_id)s %(message)s")
+)
+logger = logging.getLogger("demo.context")
+logger.handlers.clear()
+logger.addHandler(handler)
+logger.propagate = False
+logger.warning("没有显式上下文也不会格式化失败")
+</code></pre>
+<p>生产项目不要在多个模块中随意 <code>handlers.clear()</code>；这里仅为独立示例避免重复输出。配置应集中、幂等，并在测试中验证日志路由。</p>
+<span class="heading-anchor" id="2.7 ContextVar 与异步请求上下文"></span><h3 id="27-contextvar">2.7 <code>ContextVar</code> 与异步请求上下文</h3>
+<p><code>LoggerAdapter</code> 适合调用链显式传递上下文；异步服务中若不想给每个函数都加参数，可用 <code>ContextVar</code> 保存当前任务上下文：</p>
+<blockquote>
+<p>下面两个代码块属于同一个逐步示例：将它们按顺序放进一个 <code>.py</code> 文件后，在已激活虚拟环境中运行。</p>
+</blockquote>
+<pre><code class="language-python">import asyncio
+import logging
+from contextvars import ContextVar
+
+request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+
+class RequestFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -&gt; bool:
+        record.request_id = request_id_var.get()
+        return True
+
+handler = logging.StreamHandler()
+handler.addFilter(RequestFilter())
+handler.setFormatter(logging.Formatter("%(request_id)s %(message)s"))
+logger = logging.getLogger("agent.contextvar")
+logger.handlers.clear()
+logger.addHandler(handler)
+logger.propagate = False
+
+async def handle(request_id: str) -&gt; None:
+    token = request_id_var.set(request_id)
+    try:
+        logger.info("开始")
+        await asyncio.sleep(0)
+        logger.info("结束")
+    finally:
+        request_id_var.reset(token)
+
+# 不要把 asyncio.gather(...) 直接传给 asyncio.run；下面的 main() 才是可运行入口。
+</code></pre>
+<p><code>asyncio.gather()</code> 返回 awaitable/future，而 <code>asyncio.run()</code> 需要协程入口；可运行的写法是包一层协程：</p>
+<pre><code class="language-python">async def main() -&gt; None:
+    await asyncio.gather(handle("r1"), handle("r2"))
+
+asyncio.run(main())
+</code></pre>
+<p><code>ContextVar</code> 的值会随任务上下文传播，但创建后台任务、线程或进程时要确认上下文是否按预期复制。请求结束一定要 <code>reset(token)</code>，避免在复用执行上下文时串号。</p>
+<span class="heading-anchor" id="2.8 结构化日志和脱敏策略"></span><h3 id="28">2.8 结构化日志和脱敏策略</h3>
+<p>结构化日志的重点不是“把字符串包成 JSON”，而是让字段可检索、可聚合、可脱敏：</p>
+<pre><code class="language-python">from collections.abc import Mapping
+
+SENSITIVE_KEYS = {"api_key", "authorization", "password", "access_token"}
+
+def redact(value: object) -&gt; object:
+    if isinstance(value, Mapping):
+        return {
+            str(key): "***" if str(key).lower() in SENSITIVE_KEYS else redact(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    return value
+
+print(redact({"tool": "search", "api_key": "secret", "args": {"q": "Python"}}))
+</code></pre>
+<p>脱敏应在日志边界完成，且采用“白名单优先”：工具参数只记录需要诊断的字段，用户原文和模型响应默认截断或不记录。仅按键名脱敏并不完备，秘密也可能出现在 URL、异常文本、嵌套字符串或 header 值中；生产系统需要单元测试、日志抽样审查和访问控制。</p>
+<p>日志质量可以用三个维度检查：</p>
+<ol>
+<li><strong>可关联</strong>：有 <code>request_id</code>、<code>run_id</code>、<code>step</code>，能串起模型和工具调用。</li>
+<li><strong>可行动</strong>：错误包含稳定异常类别、供应商/工具、延迟和重试次数，能帮助决定修复动作。</li>
+<li><strong>可安全共享</strong>：没有密钥、完整凭证、未经同意的个人数据和不必要的模型原文。</li>
+</ol>
+<span class="heading-anchor" id="3. 模块、包与导入机制"></span><h2 id="3">3. 模块、包与导入机制</h2>
+<span class="heading-anchor" id="3.1 模块和包的概念"></span><h3 id="31">3.1 模块和包的概念</h3>
+<ul>
+<li><strong>模块（module）</strong>：一个 <code>.py</code> 文件，导入后对应一个模块对象，例如 <code>agent_app.errors</code>。</li>
+<li><strong>包（package）</strong>：组织多个模块的目录。传统包含 <code>__init__.py</code>；现代 Python 也支持 namespace package，但应用项目通常仍保留 <code>__init__.py</code> 以明确边界。</li>
+<li><strong>顶层包</strong>：项目的公共导入名字，例如 <code>agent_app</code>，不应与标准库或第三方包重名。</li>
+</ul>
+<p>推荐使用 <code>src</code> 布局：</p>
+<pre><code class="language-text">project-root/
+├── pyproject.toml
+├── src/
+│   └── agent_app/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py
+│       ├── errors.py
+│       ├── domain/
+│       │   ├── __init__.py
+│       │   └── models.py
+│       └── infrastructure/
+│           ├── __init__.py
+│           └── model_client.py
+└── tests/
+</code></pre>
+<p><code>src</code> 布局能避免测试时不小心直接导入项目根目录中的同名文件，从而更早暴露打包和安装问题。</p>
+<span class="heading-anchor" id="3.2 __init__.py、__main__.py 与 __name__"></span><h3 id="32-__init__py__main__py-__name__">3.2 <code>__init__.py</code>、<code>__main__.py</code> 与 <code>__name__</code></h3>
+<p><code>__init__.py</code> 在包首次导入时执行。它应保持轻量，避免网络请求、读取密钥、初始化连接池等副作用。可以只暴露稳定 API：</p>
+<pre><code class="language-python"># src/agent_app/__init__.py
+__all__ = ["__version__"]
+__version__ = "0.1.0-dev"  # 若项目发布，版本应由构建元数据统一管理
+</code></pre>
+<p><code>__main__.py</code> 让包可以这样运行：</p>
+<pre><code class="language-python"># src/agent_app/__main__.py
+from .cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+</code></pre>
+<pre><code class="language-python"># src/agent_app/cli.py
+def main() -&gt; int:
+    print("agent_app started")
+    return 0
+</code></pre>
+<p>安装项目后，从项目根目录执行：</p>
+<pre><code class="language-bash">python -m agent_app
+</code></pre>
+<p><code>if __name__ == "__main__"</code> 的含义是：仅当文件被直接作为入口执行时运行；被其他模块导入时不运行入口逻辑。优先使用 <code>python -m package.module</code>，它会按包上下文执行，通常比 <code>python src/agent_app/cli.py</code> 更不容易触发相对导入问题。</p>
+<span class="heading-anchor" id="3.3 绝对导入与相对导入"></span><h3 id="33">3.3 绝对导入与相对导入</h3>
+<p>包内推荐：</p>
+<pre><code class="language-python"># src/agent_app/cli.py
+from agent_app.errors import AgentError  # 推荐：绝对导入，意图清晰
+</code></pre>
+<p>也可以二选一写成包内相对导入 <code>from .errors import AgentError</code>。团队应统一风格。大型项目通常使用绝对导入，跨包移动时更直观；包内部的相邻模块也可用单点相对导入表达“同一包”。不要在同一模块同时写两种导入，也不要使用难以判断来源的裸导入，如 <code>from utils import x</code>，因为它可能导入错误的同名顶层模块。</p>
+<p>相对导入只有在模块作为包的一部分加载时才有效，因此直接执行 <code>python src/agent_app/cli.py</code> 可能出现 <code>ImportError: attempted relative import with no known parent package</code>。改用 <code>python -m agent_app</code>，或先安装可编辑项目。</p>
+<span class="heading-anchor" id="3.4 导入发生了什么"></span><h3 id="34">3.4 导入发生了什么</h3>
+<p>执行 <code>import agent_app.errors</code> 时，Python 大致会：</p>
+<ol>
+<li>在 <code>sys.path</code> 中搜索顶层包；<code>sys.path</code> 包括当前运行上下文、环境中的 site-packages 等。</li>
+<li>加载包并执行 <code>agent_app/__init__.py</code>（首次导入）。</li>
+<li>搜索并执行 <code>errors.py</code>，把模块对象放入 <code>sys.modules</code> 缓存。</li>
+<li>后续再次导入通常复用缓存，不会重新执行顶层代码。</li>
+</ol>
+<p>因此，模块顶层代码应尽量是定义（类、函数、常量），避免不可预测的副作用。大型模块间循环导入时，常见改法是：</p>
+<ul>
+<li>提取两边都需要的类型到更底层模块；</li>
+<li>依赖倒置，通过 <code>Protocol</code> 或函数参数注入能力；</li>
+<li>将仅用于类型的导入放进 <code>if TYPE_CHECKING:</code>，必要时使用字符串标注或 <code>from __future__ import annotations</code>；</li>
+<li>最后的局部导入只应作为明确权衡，不要用来掩盖架构循环。</li>
+</ul>
+<span class="heading-anchor" id="3.5 pyproject.toml 中的项目布局"></span><h3 id="35-pyprojecttoml">3.5 <code>pyproject.toml</code> 中的项目布局</h3>
+<p>以下是最小项目元数据示意（构建后端可按团队选择）：</p>
+<pre><code class="language-toml">[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-app"
+version = "0.1.0"
+description = "An educational Python Agent application"
+requires-python = "&gt;=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+agent-app = "agent_app.cli:main"
+</code></pre>
+<p>把项目安装到当前虚拟环境：</p>
+<pre><code class="language-bash">python -m pip install -e .
+agent-app
+</code></pre>
+<p><code>-e</code>（editable）适合开发：修改 <code>src/agent_app</code> 后通常无需重新安装。打包发布前应在干净环境验证普通安装，确保包声明、入口点和依赖完整。</p>
+<span class="heading-anchor" id="3.6 模块缓存、查找顺序和导入副作用"></span><h3 id="36">3.6 模块缓存、查找顺序和导入副作用</h3>
+<p>导入不是“把另一个文件复制到这里”。Python 会先查找模块，再创建模块对象并执行其顶层代码；执行完成后通常放入 <code>sys.modules</code> 缓存：</p>
+<pre><code class="language-python">import sys
+
+import agent_app
+
+print("agent_app" in sys.modules)
+same_object = __import__("agent_app") is agent_app
+print(same_object)
+</code></pre>
+<p>第二次导入通常直接复用缓存，因此修改模块文件后，在同一解释器进程里再次 <code>import</code> 不会自动重新执行。交互式调试时可使用 <code>importlib.reload()</code>，但它不会可靠地更新所有已有引用，也不适合作为应用的热更新方案。</p>
+<p>查找顶层模块时，Python 会使用导入器和 <code>sys.path</code>；<code>sys.path</code> 的第一项受启动方式影响，之后包括标准库、虚拟环境和 site-packages。可以用下面的方式确认实际导入来源：</p>
+<pre><code class="language-python">import logging
+
+print(logging.__file__)
+</code></pre>
+<p>若输出指向项目中的 <code>logging.py</code> 而非标准库路径，说明名称遮蔽已经发生。不要用修改全局 <code>sys.path</code> 的方式长期修复打包问题；应安装项目、修正 <code>pyproject.toml</code> 和导入路径。</p>
+<span class="heading-anchor" id="3.7 __all__、包 API 和重导出"></span><h3 id="37-__all__-api">3.7 <code>__all__</code>、包 API 和重导出</h3>
+<p>包的内部目录结构不一定等于公共 API。可以在 <code>__init__.py</code> 中重导出少量稳定名称：</p>
+<pre><code class="language-python"># src/agent_app/domain/__init__.py
+from .models import RunState
+
+__all__ = ["RunState"]
+</code></pre>
+<p>调用方可以写 <code>from agent_app.domain import RunState</code>，不用知道具体文件；但重导出也会让 <code>__init__.py</code> 产生更多导入和潜在循环。只把稳定、低副作用的名称放入公共 API，内部实现继续使用明确的模块路径。<code>__all__</code> 主要影响 <code>from package import *</code> 和文档工具，不是访问控制机制。</p>
+<span class="heading-anchor" id="3.8 循环导入的识别与修复"></span><h3 id="38">3.8 循环导入的识别与修复</h3>
+<p>循环导入通常表现为“部分初始化的模块没有属性”或导入过程中递归失败：</p>
+<pre><code class="language-text">a.py 导入 b.py
+  b.py 又导入 a.py
+    a.py 尚未执行完，b.py 看不到 a.py 的完整定义
+</code></pre>
+<p>排查步骤：</p>
+<ol>
+<li>阅读 traceback 的导入链，找出回到已出现模块的边。</li>
+<li>将共享的类型、常量或协议提取到更低层模块。</li>
+<li>通过构造函数参数/<code>Protocol</code> 注入依赖，而不是模块顶层创建实例。</li>
+<li>仅用于类型检查的导入放进 <code>if TYPE_CHECKING:</code>，并确认运行时不需要该名称。</li>
+<li>把入口、副作用和注册动作放到 <code>main()</code> 或显式工厂里。</li>
+</ol>
+<pre><code class="language-python">from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_app.domain.models import RunState
+
+def summarize(state: "RunState") -&gt; str:
+    return state.run_id
+</code></pre>
+<p><code>TYPE_CHECKING</code> 在静态工具中为真、正常运行时为假；如果函数执行时确实要访问类型对象，应在局部导入或重新设计依赖，而不是盲目隐藏导入。</p>
+<span class="heading-anchor" id="3.9 python -m、入口点与启动目录"></span><h3 id="39-python-m">3.9 <code>python -m</code>、入口点与启动目录</h3>
+<p><code>python -m package.module</code> 先按包导入规则找到模块，再以 <code>__main__</code> 语义执行，因而能保留包上下文。可执行脚本入口点则由打包工具生成，最终调用 <code>package.module:function</code>：</p>
+<pre><code class="language-bash"># 以下命令均在 project-root 执行，前置条件是已激活虚拟环境并执行 python -m pip install -e .
+python -m agent_app
+agent-app
+python -m agent_app.cli
+</code></pre>
+<p>不要依赖从某个偶然的当前目录执行 <code>python src/agent_app/cli.py</code>；它改变了 <code>sys.path[0]</code> 和包上下文，常导致相对导入在开发机“有时可以、有时失败”。测试和 CI 应从项目根目录或安装后的环境启动。</p>
+<span class="heading-anchor" id="4. 上下文管理器：自动管理资源"></span><h2 id="4">4. 上下文管理器：自动管理资源</h2>
+<span class="heading-anchor" id="4.1 内置上下文管理器"></span><h3 id="41">4.1 内置上下文管理器</h3>
+<p><code>with</code> 会调用对象的 <code>__enter__</code> 和 <code>__exit__</code>，即使代码块抛异常也能执行清理：</p>
+<pre><code class="language-python">from pathlib import Path
+
+path = Path("agent_input.txt")
+path.write_text("query=iterator\n", encoding="utf-8")
+
+with path.open(encoding="utf-8") as file:
+    content = file.read()
+
+print(content)
+</code></pre>
+<p>常见上下文管理器有文件、线程锁、数据库事务、临时目录/环境修改等。若 <code>__exit__</code> 返回真值，它会吞掉异常；除非这是清晰且有文档的行为，否则让异常继续传播。</p>
+<span class="heading-anchor" id="4.2 自定义上下文管理器"></span><h3 id="42">4.2 自定义上下文管理器</h3>
+<p>类写法：</p>
+<pre><code class="language-python">import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+class TimedStep:
+    def __init__(self, name: str) -&gt; None:
+        self.name = name
+
+    def __enter__(self) -&gt; "TimedStep":
+        self.started = time.perf_counter()
+        logger.info("step.start name=%s", self.name)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -&gt; bool:
+        elapsed = time.perf_counter() - self.started
+        logger.info("step.end name=%s elapsed=%.3fs", self.name, elapsed)
+        return False  # 不吞异常
+
+with TimedStep("retrieve"):
+    pass
+</code></pre>
+<p>简单场景可用 <code>contextlib.contextmanager</code>：</p>
+<pre><code class="language-python">from contextlib import contextmanager
+from collections.abc import Iterator
+
+@contextmanager
+def named_step(name: str) -&gt; Iterator[None]:
+    print(f"begin: {name}")
+    try:
+        yield
+    finally:
+        print(f"end: {name}")
+
+with named_step("tool"):
+    print("execute")
+</code></pre>
+<p>异步资源使用 <code>async with</code>，需要实现 <code>__aenter__</code>/<code>__aexit__</code> 或使用 <code>@asynccontextmanager</code>。例如异步 HTTP 客户端、数据库连接和 Agent 的生命周期管理都应确保在取消或异常时关闭。</p>
+<span class="heading-anchor" id="5. 一个可运行的异常与日志示例"></span><h2 id="5">5. 一个可运行的异常与日志示例</h2>
+<p>将以下代码保存为 <code>examples/error_logging_demo.py</code>，在项目根目录执行 <code>python examples/error_logging_demo.py</code>：</p>
+<pre><code class="language-python">import logging
+import logging.config
+from dataclasses import dataclass
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "%(asctime)s %(levelname)s %(name)s "
+                      "request_id=%(request_id)s %(message)s",
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "console",
+            "stream": "ext://sys.stdout",
+        }
+    },
+    "loggers": {
+        "demo": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+        }
+    },
+}
+
+logging.config.dictConfig(LOGGING)
+logger = logging.getLogger("demo")
+
+class ToolError(Exception):
+    """工具执行失败。"""
+
+@dataclass(frozen=True)
+class SearchArgs:
+    query: str
+    top_k: int = 5
+
+def search(args: SearchArgs) -&gt; list[str]:
+    if not args.query.strip():
+        raise ToolError("搜索词不能为空")
+    if not 1 &lt;= args.top_k &lt;= 20:
+        raise ToolError("top_k 超出范围")
+    return [f"result-{i}: {args.query}" for i in range(1, args.top_k + 1)]
+
+def run() -&gt; None:
+    log = logging.LoggerAdapter(logger, {"request_id": "req-demo"})
+    for args in (SearchArgs("iterator", 2), SearchArgs("", 2)):
+        try:
+            results = search(args)
+        except ToolError as exc:
+            log.warning("工具输入不可用：%s", exc)
+        else:
+            log.info("搜索成功，结果数=%d", len(results))
+        finally:
+            log.debug("本次调用结束")
+
+if __name__ == "__main__":
+    run()
+</code></pre>
+<span class="heading-anchor" id="6. 常见坑与排查清单"></span><h2 id="6">6. 常见坑与排查清单</h2>
+<ol>
+<li><strong>捕获过宽。</strong> <code>except Exception: pass</code> 会吞掉 bug、取消和诊断信息；至少记录并重新抛出，或只捕获能处理的异常。</li>
+<li><strong>捕获 <code>BaseException</code>。</strong> 它会拦截 Ctrl-C 和进程退出，服务可能无法优雅停止。</li>
+<li><strong><code>finally</code> 覆盖异常。</strong> 在 <code>finally</code> 中 <code>return</code> 或抛新异常会覆盖原始异常；资源清理函数本身也要谨慎。</li>
+<li><strong>丢失 traceback。</strong> <code>raise SomeError(str(exc))</code> 会丢失因果关系；需要转换时写 <code>raise SomeError(...) from exc</code>。</li>
+<li><strong>用异常控制常规分支。</strong> 对高频可预期状态优先返回结果对象或显式状态；异常应保留给真正的异常路径。</li>
+<li><strong>无限重试。</strong> 只对可恢复的超时/限流做有限次数、带退避和总超时的重试；参数错误、权限错误不要重试。</li>
+<li><strong>日志秘密泄露。</strong> <code>logger.exception</code> 会包含异常文本；异常消息和请求参数都要经过脱敏。</li>
+<li><strong>重复配置日志。</strong> 每个模块调用 <code>basicConfig()</code> 或重复添加 handler，会造成重复输出；应用入口统一配置。</li>
+<li><strong>字符串拼接日志。</strong> 用 <code>logger.info("x=%s", x)</code>，不要用 <code>%</code> 或 f-string 提前构造敏感内容。</li>
+<li><strong>日志没有上下文。</strong> 没有 <code>request_id/run_id</code> 时，很难把一次 Agent 运行的多步日志串起来。</li>
+<li><strong>直接运行包内文件。</strong> <code>python src/agent_app/cli.py</code> 容易导致相对导入失败；使用安装后的 <code>python -m agent_app</code>。</li>
+<li><strong><code>__init__.py</code> 副作用。</strong> 导入包就连接数据库、调用网络或读取密钥，会让测试和工具扫描变得不可预测。</li>
+<li><strong>模块名遮蔽。</strong> 不要命名为 <code>logging.py</code>、<code>typing.py</code>、<code>asyncio.py</code> 或与项目依赖同名；否则可能导入项目文件而非标准库。</li>
+<li><strong>循环导入。</strong> 用分层、依赖注入、协议和共享底层模块解决；局部导入只是有意的最后手段。</li>
+<li><strong>修改了 <code>PYTHONPATH</code> 却没意识到。</strong> “本地能跑”可能依赖临时路径；在干净虚拟环境安装项目并运行测试。</li>
+</ol>
+<span class="heading-anchor" id="7. 练习题"></span><h2 id="7">7. 练习题</h2>
+<ol>
+<li>定义 <code>AgentError</code>、<code>ToolInputError</code>、<code>ToolPermissionError</code> 和 <code>TransientModelError</code>，为每类异常写一个调用方可采取的不同处理动作。</li>
+<li>重写一个包含文件读取的函数，使它只捕获 <code>FileNotFoundError</code>，使用 <code>else</code> 返回内容，并通过 <code>with</code> 自动关闭文件。</li>
+<li>写一个函数把底层 <code>TimeoutError</code> 转换为 <code>TransientModelError</code>，使用 <code>raise from</code> 保留原始异常；再在最外层打印完整 traceback。</li>
+<li>使用 <code>ExceptionGroup</code> 构造一批工具调用的多个失败，并分别处理参数错误和超时；思考什么时候用返回结果列表会更简单。</li>
+<li>配置一个名为 <code>agent_app</code> 的 logger，输出到 stdout，包含时间、级别、logger 名称、<code>request_id</code> 和 <code>run_id</code>；验证不会重复打印。</li>
+<li>编写日志脱敏函数，把 <code>api_key</code>、<code>authorization</code> 和 <code>password</code> 字段替换成 <code>***</code>；测试嵌套字典和普通字符串两种输入。</li>
+<li>创建 <code>src/agent_app</code> 包，加入 <code>__main__.py</code> 和 <code>cli.py</code>，使 <code>python -m agent_app</code> 返回退出码 0；在 <code>tests/</code> 中导入同一入口函数。</li>
+<li>故意创建两个同名模块造成循环导入，记录错误信息，再将共享类型移动到第三个底层模块解决它。</li>
+<li>使用 <code>@contextmanager</code> 写一个计时上下文，在成功和异常时都输出耗时，并验证异常不会被吞掉。</li>
+<li>为 Agent 任务设计异常边界：列出 HTTP 层、应用层、工具层和基础设施层各自应该捕获/转换哪些异常，以及用户最终能看到什么。</li>
+</ol>
+<span class="heading-anchor" id="7.1 练习提示与验收标准"></span><h3 id="71">7.1 练习提示与验收标准</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>练习</th>
+<th>提示</th>
+<th>最低验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>先画异常继承树，再为每类异常写“能否重试/是否告警/公开消息”</td>
+<td>调用方不依赖字符串匹配；至少有一类可重试和一类不可重试错误</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>with</code> 负责文件生命周期，<code>else</code> 只放成功路径</td>
+<td>文件不存在、权限失败和成功读取分别可测试；无资源泄漏</td>
+</tr>
+<tr>
+<td>3</td>
+<td>用 <code>raise NewError(...) from exc</code>，在入口用 <code>logger.exception</code></td>
+<td>公共异常稳定，traceback 仍能追溯底层原因，用户消息不含路径/密钥</td>
+</tr>
+<tr>
+<td>4</td>
+<td>只在多个独立任务同时失败且需要一起报告时用 <code>ExceptionGroup</code></td>
+<td><code>ValueError</code> 与超时分支分别处理；取消不会被吞掉</td>
+</tr>
+<tr>
+<td>5</td>
+<td>先设计日志字段表，再配置 logger/handler/formatter</td>
+<td>有 request/run ID；同一条记录不重复；级别过滤符合预期</td>
+</tr>
+<tr>
+<td>6</td>
+<td>脱敏函数递归处理映射/列表，优先白名单字段</td>
+<td>密钥和 authorization 不出现在捕获日志中；普通字段仍可检索</td>
+</tr>
+<tr>
+<td>7</td>
+<td>先写 <code>__main__.py</code>，再用 <code>python -m</code> 从根目录运行</td>
+<td>包安装后模块入口和 console script 都成功，退出码明确</td>
+</tr>
+<tr>
+<td>8</td>
+<td>用 traceback 找循环边，将共享类型下移或改用 <code>Protocol</code></td>
+<td>修复后导入顺序不依赖局部导入副作用，并有最小测试</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>@contextmanager</code> 的 <code>yield</code> 前后分别获取/释放资源</td>
+<td>成功和异常都执行清理，异常原样传播</td>
+</tr>
+<tr>
+<td>10</td>
+<td>把“处理者”画成层级边界，区分日志、用户消息和重试</td>
+<td>每层的捕获动作有理由；未知异常不会静默继续运行</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="小结"></span><h2 id="_2">小结</h2>
+<ul>
+<li>异常是有分类的控制流；捕获最具体、能处理的异常，避免吞掉 <code>KeyboardInterrupt</code>、traceback 和真正的 bug。</li>
+<li><code>else</code> 用于成功路径，<code>finally</code> 用于清理；跨层转换异常时用 <code>raise ... from ...</code> 保留因果关系。</li>
+<li>Agent 应建立稳定的领域异常层级，在边界处区分参数错误、权限错误、临时失败和永久失败，重试必须有限且有退避。</li>
+<li><code>logging</code> 由 logger、handler、formatter 和级别组成；应用入口集中配置，模块用 <code>getLogger(__name__)</code>，日志应带请求/运行上下文并严格脱敏。</li>
+<li>模块是 <code>.py</code> 文件，包是模块的组织边界；<code>__main__.py</code> 配合 <code>python -m</code> 提供可靠入口，<code>src</code> 布局和低副作用导入有助于测试与发布。</li>
+<li>上下文管理器把资源的获取与释放绑定在一起，是文件、锁、连接和 Agent 生命周期管理的基础工具。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

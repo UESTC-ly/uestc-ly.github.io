@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>综合项目 · 李杨的学习笔记</title><meta name="description" content="综合项目的目标不是堆组件，而是证明你能管理端到端语义：请求进入后在哪里排队、超时如何传递、数据如何保持一致、重复如何处理、服务如何关闭、故障如何发现。"><meta property="og:title" content="综合项目 · 李杨的学习笔记"><meta property="og:description" content="综合项目的目标不是堆组件，而是证明你能管理端到端语义：请求进入后在哪里排队、超时如何传递、数据如何保持一致、重复如何处理、服务如何关闭、故障如何发现。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-59ba86531d98.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-59ba86531d98.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 07-综合项目</p><h1>综合项目</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/07-%E7%BB%BC%E5%90%88%E9%A1%B9%E7%9B%AE/README.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">为什么需要两个项目</a></li><li><a href="#_3">项目选择</a></li><li><a href="#_4">推荐实施顺序</a></li><li><a href="#_5">共同约束</a></li><li><a href="#_6">评审维度</a></li><li><a href="#_7">每阶段交付包</a></li></ul></details><article class="note-content">
+<p>综合项目的目标不是堆组件，而是证明你能管理端到端语义：请求进入后在哪里排队、超时如何传递、数据如何保持一致、重复如何处理、服务如何关闭、故障如何发现。</p>
+<span class="heading-anchor" id="为什么需要两个项目"></span><h2 id="_2">为什么需要两个项目</h2>
+<p><a href="n-ff80b1a75dba.html">高性能 KV 服务</a>把范围限制在单进程/单机，迫使你正面处理 C++ 所有权、fd、Reactor、缓冲、定时器和线程模型。<a href="n-d432c4d7463e.html">AI 文档处理与检索平台</a>则使用成熟组件，把难点转移到跨系统状态、异步任务、幂等、最终一致、检索质量和运维。</p>
+<p>这两个项目分别回答：</p>
+<ul>
+<li><strong>单个服务如何正确而高效地运行？</strong></li>
+<li><strong>多个服务和数据系统如何在部分失败下协作？</strong></li>
+</ul>
+<p>不建议一开始就把 KV 项目分布式化，也不建议在 AI 平台中自己重写消息队列或对象存储。每个项目只在它要训练的边界内“造轮子”。</p>
+<span class="heading-anchor" id="项目选择"></span><h2 id="_3">项目选择</h2>
+<ol>
+<li><a href="n-ff80b1a75dba.html">项目一：高性能 KV 服务</a>：聚焦 C++、Socket、Reactor、协议、并发、生命周期和性能。</li>
+<li><a href="n-d432c4d7463e.html">项目二：AI 文档处理与检索平台</a>：聚焦 HTTP/RPC、数据库、Redis、消息队列、对象存储、混合检索和分布式可靠性。</li>
+<li><a href="n-8a3405757d99.html">工程验收模板</a>：统一设计、测试、压测、故障演练和交付标准。</li>
+</ol>
+<p>建议先不使用完整网络框架实现项目一，以理解底层；项目二使用成熟框架和客户端库，把精力转移到服务边界和正确性。</p>
+<span class="heading-anchor" id="推荐实施顺序"></span><h2 id="_4">推荐实施顺序</h2>
+<pre class="mermaid">flowchart LR
+    A["KV 阻塞基线"] --&gt; B["非阻塞 Reactor"]
+    B --&gt; C["协议 定时器 背压"]
+    C --&gt; D["优雅关闭 压测 剖析"]
+    D --&gt; E["AI API 与数据模型"]
+    E --&gt; F["Outbox 异步流水线"]
+    F --&gt; G["全文 向量 混合检索"]
+    G --&gt; H["故障演练 灰度 容灾"]
+</pre>
+<p>每个里程碑都先提交设计说明和测试，再实现功能。性能优化放在正确性和可观测性之后，否则无法判断优化是否改变语义。</p>
+<span class="heading-anchor" id="共同约束"></span><h2 id="_5">共同约束</h2>
+<ul>
+<li>所有队列、线程池、连接池必须有上限和满载策略。</li>
+<li>所有跨进程调用必须有截止时间；只在可证明安全的位置重试。</li>
+<li>所有异步任务必须定义投递语义、幂等键、状态机和毒消息处理。</li>
+<li>所有服务必须支持 readiness、停止接流量、连接排空和有截止时间的退出。</li>
+<li>至少注入三类故障，并用日志、指标、追踪解释影响。</li>
+<li>性能结论必须附环境、数据集、负载模型、延迟分位数、错误率和资源指标。</li>
+</ul>
+<span class="heading-anchor" id="评审维度"></span><h2 id="_6">评审维度</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>评审问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>所有权</td>
+<td>谁创建、访问、关闭 fd/线程/连接/任务？迟到回调如何处理？</td>
+</tr>
+<tr>
+<td>协议</td>
+<td>边界、版本、大小限制、错误码、幂等和取消语义是否明确？</td>
+</tr>
+<tr>
+<td>容量</td>
+<td>每个队列/池/缓冲的上限是什么？满载时如何退化？</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>权威状态在哪？双写失败和重复怎样发现与修复？</td>
+</tr>
+<tr>
+<td>可靠性</td>
+<td>超时、重试、熔断、排空和恢复是否有明确时序？</td>
+</tr>
+<tr>
+<td>可观测</td>
+<td>用户 SLI 能否拆到队列、依赖、资源和具体业务状态？</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>输入、租户、凭据、日志、对象和管理操作如何隔离？</td>
+</tr>
+<tr>
+<td>验证</td>
+<td>测试与演练能证明什么，哪些结论仍是未验证假设？</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="每阶段交付包"></span><h2 id="_7">每阶段交付包</h2>
+<ol>
+<li>一页目标/非目标和容量假设；</li>
+<li>组件图、线程/状态图和关键时序；</li>
+<li>API/协议与数据模型；</li>
+<li>自动测试和故障注入脚本说明；</li>
+<li>指标、日志字段、trace 和告警设计；</li>
+<li>可复现结果、已知限制和下一阶段决策。</li>
+</ol>
+<p>具体填写项使用<a href="n-8a3405757d99.html">工程验收模板</a>，实验方法参考<a href="n-7911391248f8.html">实验与验证指南</a>。</p></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,1298 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Transformer 架构详解：从底层机制到 LLM · 李杨的学习笔记</title><meta name="description" content="Transformer 的本质是： 把序列中的每个 token 表示成向量，然后让每个位置通过 Attention 从所有允许看到的位置聚合信息，再用前馈网络逐位置加工，层层堆叠后得到上下文化表示或下一个 token 的概率分布。"><meta property="og:title" content="Transformer 架构详解：从底层机制到 LLM · 李杨的学习笔记"><meta property="og:description" content="Transformer 的本质是： 把序列中的每个 token 表示成向量，然后让每个位置通过 Attention 从所有允许看到的位置聚合信息，再用前馈网络逐位置加工，层层堆叠后得到上下文化表示或下一个 token 的概率分布。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-2bce5cfae3d2.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-2bce5cfae3d2.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">LLM / Transformer</p><h1>Transformer 架构详解：从底层机制到 LLM</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/Transformer/Transformer%E6%9E%B6%E6%9E%84%E8%AF%A6%E8%A7%A3.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">阅读路线</a></li><li><a href="#_4">思维导图</a></li><li><a href="#1">1. 架构总览</a></li><li><a href="#2-attention">2. Attention 记忆图</a></li><li><a href="#3-llm">3. LLM 视角</a></li><li><a href="#1-transformer">1. Transformer 解决了什么问题？</a></li><li><a href="#11-rnn">1.1 RNN 的瓶颈</a></li><li><a href="#12-cnn">1.2 CNN 的瓶颈</a></li><li><a href="#13-transformer">1.3 Transformer 的关键改进</a></li><li><a href="#2-transformer">2. 从文本到张量：Transformer 的输入</a></li><li><a href="#21-tokenization">2.1 Tokenization</a></li><li><a href="#22-token-embedding">2.2 Token Embedding</a></li><li><a href="#23">2.3 为什么需要位置编码？</a></li><li><a href="#3">3. 位置编码：让模型知道顺序</a></li><li><a href="#31-transformer">3.1 原始 Transformer 的正弦位置编码</a></li><li><a href="#32">3.2 可学习位置编码</a></li><li><a href="#33-rope">3.3 RoPE：旋转位置编码</a></li><li><a href="#4-self-attentiontransformer">4. Self-Attention：Transformer 的核心</a></li><li><a href="#41">4.1 一句话理解</a></li><li><a href="#42-qkv">4.2 Q、K、V 的直觉</a></li><li><a href="#43">4.3 形状推导</a></li><li><a href="#44-scaled-dot-product-attention">4.4 Scaled Dot-Product Attention 公式</a></li><li><a href="#45-sqrtd_k">4.5 为什么要除以 sqrt(d_k)？</a></li><li><a href="#46-softmax">4.6 Softmax 是按行做的</a></li><li><a href="#5-mask-token">5. Mask：控制 token 能看见什么</a></li><li><a href="#51-padding-mask">5.1 Padding Mask</a></li><li><a href="#52-causal-mask">5.2 Causal Mask</a></li><li><a href="#53-mask">5.3 Mask 的底层实现直觉</a></li><li><a href="#6-multi-head-attention">6. Multi-Head Attention：为什么要多头？</a></li><li><a href="#61">6.1 单头的问题</a></li><li><a href="#62">6.2 多头的做法</a></li><li><a href="#63">6.3 多头的记忆方式</a></li><li><a href="#7-ffn">7. FFN：逐位置的非线性加工厂</a></li><li><a href="#71-ffn">7.1 为什么 FFN 是逐位置的？</a></li><li><a href="#72-ffn">7.2 FFN 维度</a></li><li><a href="#8-layernorm">8. 残差连接与 LayerNorm：让深层网络可训练</a></li><li><a href="#81">8.1 残差连接</a></li><li><a href="#82-layernorm">8.2 LayerNorm</a></li><li><a href="#83-post-ln-pre-ln">8.3 Post-LN 与 Pre-LN</a></li><li><a href="#9-encoderdecoder-transformer">9. Encoder、Decoder 与完整 Transformer</a></li><li><a href="#91-encoder-layer">9.1 Encoder Layer</a></li><li><a href="#92-decoder-layer">9.2 Decoder Layer</a></li><li><a href="#93-cross-attention">9.3 Cross-Attention 是什么？</a></li><li><a href="#94-transformer">9.4 三类常见 Transformer</a></li><li><a href="#10-decoder-only-llm">10. Decoder-only LLM：现代大语言模型的主流形式</a></li><li><a href="#101">10.1 训练样本</a></li><li><a href="#102">10.2 推理生成</a></li><li><a href="#103">10.3 为什么训练可并行，推理仍顺序？</a></li><li><a href="#11-kv-cache">11. KV Cache：让自回归推理更快</a></li><li><a href="#111-kv-cache">11.1 没有 KV Cache 的问题</a></li><li><a href="#112-kv-cache">11.2 KV Cache 的核心思想</a></li><li><a href="#113-kv-cache">11.3 KV Cache 的代价</a></li><li><a href="#12-token">12. 输出层：从隐藏向量到 token 概率</a></li><li><a href="#13-transformer-block">13. 一层 Transformer Block 的完整数据流</a></li><li><a href="#14-attention">14. 底层矩阵计算：一步步看 Attention</a></li><li><a href="#15-attention-on2">15. 为什么 Attention 是 O(n²)？</a></li><li><a href="#151">15.1 参数量与激活显存不是一回事</a></li><li><a href="#152">15.2 常见优化方向</a></li><li><a href="#16">16. 训练过程：模型到底学什么？</a></li><li><a href="#161">16.1 前向传播</a></li><li><a href="#162">16.2 反向传播</a></li><li><a href="#163">16.3 自监督学习</a></li><li><a href="#17-attention">17. Attention 学到的是“解释”吗？</a></li><li><a href="#18-transformer">18. Transformer 中常见概念对照</a></li><li><a href="#19">19. 常见误区</a></li><li><a href="#1transformer">误区 1：Transformer 不需要位置</a></li><li><a href="#2attention">误区 2：Attention 就是全部智能来源</a></li><li><a href="#3decoder-only">误区 3：Decoder-only 训练不能并行</a></li><li><a href="#4">误区 4：上下文长度增加只影响输入大小</a></li><li><a href="#5kv-cache">误区 5：KV Cache 会减少模型参数</a></li><li><a href="#20-transformer">20. 用一个故事记住 Transformer</a></li><li><a href="#21-transformer-llm">21. 从原始 Transformer 到现代 LLM 的变化</a></li><li><a href="#22-decoder-only-transformer">22. 最小伪代码：Decoder-only Transformer</a></li><li><a href="#23_1">23. 学习自检</a></li><li><a href="#24">24. 速记卡片</a></li><li><a href="#241-attention">24.1 Attention 公式卡</a></li><li><a href="#242-block">24.2 Block 结构卡</a></li><li><a href="#243">24.3 模块分工卡</a></li><li><a href="#244">24.4 复杂度卡</a></li><li><a href="#25">25. 总结</a></li><li><a href="#_5">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本文，你应该能回答这些问题：</p>
+<ol>
+<li>Transformer 为什么可以替代 RNN/CNN 成为现代大模型的基础架构？</li>
+<li>一个 token 是如何变成向量、参与注意力计算、再变成下一个 token 概率的？</li>
+<li>Self-Attention 的 <code>Q/K/V</code>、缩放、mask、softmax 分别在解决什么问题？</li>
+<li>Encoder、Decoder、Encoder-Decoder 三种 Transformer 在结构和用途上有什么区别？</li>
+<li>残差连接、LayerNorm、FFN、位置编码、KV Cache 为什么必不可少？</li>
+<li>为什么 Transformer 的计算瓶颈常常出现在注意力矩阵和显存，而不是参数量本身？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>Transformer 的本质是：<strong>把序列中的每个 token 表示成向量，然后让每个位置通过 Attention 从所有允许看到的位置聚合信息，再用前馈网络逐位置加工，层层堆叠后得到上下文化表示或下一个 token 的概率分布。</strong></p>
+<blockquote>
+<p>记忆口诀：<strong>Embedding 定义“词是谁”，Position 定义“在哪儿”，Attention 决定“看谁”，FFN 决定“怎么加工”，Residual/Norm 保证“深层还能训练”，Mask 决定“能看见什么”。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="阅读路线"></span><h2 id="_3">阅读路线</h2>
+<pre class="mermaid">flowchart LR
+  A["输入 token"] --&gt; B["Embedding 与位置编码"]
+  B --&gt; C["Self-Attention"]
+  C --&gt; D["Multi-Head Attention"]
+  D --&gt; E["残差连接与 LayerNorm"]
+  E --&gt; F["FFN 前馈网络"]
+  F --&gt; G["堆叠成 Encoder 或 Decoder"]
+  G --&gt; H["训练与推理"]
+  H --&gt; I["复杂度与工程优化"]
+</pre>
+<hr/>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_4">思维导图</h2>
+<blockquote>
+<p>先用三张小图建立全局框架，避免把所有细节塞进一张巨图。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 架构总览"></span><h3 id="1">1. 架构总览</h3>
+<pre class="mermaid">mindmap
+  root((Transformer))
+    输入层
+      Tokenization
+      Token Embedding
+      Position Encoding
+    核心层
+      Self-Attention
+      Multi-Head
+      FFN
+    稳定训练
+      Residual
+      LayerNorm
+      Dropout
+    结构形态
+      Encoder-only
+      Decoder-only
+      Encoder-Decoder
+    输出层
+      Linear Projection
+      Softmax
+      Next Token Probability
+</pre>
+<span class="heading-anchor" id="2. Attention 记忆图"></span><h3 id="2-attention">2. Attention 记忆图</h3>
+<pre class="mermaid">mindmap
+  root((Attention))
+    Q Query
+      当前 token 想找什么
+    K Key
+      每个 token 提供什么索引
+    V Value
+      真正被汇总的信息
+    Score
+      QK 转置
+      除以 sqrt(dk)
+      加 Mask
+    Weight
+      Softmax 归一化
+    Output
+      权重加权 V
+</pre>
+<span class="heading-anchor" id="3. LLM 视角"></span><h3 id="3-llm">3. LLM 视角</h3>
+<pre class="mermaid">mindmap
+  root((LLM中的Transformer))
+    训练
+      下一个token预测
+      Teacher Forcing
+      Cross Entropy
+    推理
+      自回归生成
+      KV Cache
+      Sampling
+    长上下文
+      RoPE
+      稀疏注意力
+      FlashAttention
+    能力来源
+      大规模数据
+      大参数量
+      深层堆叠
+      指令对齐
+</pre>
+<hr/>
+<span class="heading-anchor" id="1. Transformer 解决了什么问题？"></span><h2 id="1-transformer">1. Transformer 解决了什么问题？</h2>
+<span class="heading-anchor" id="1.1 RNN 的瓶颈"></span><h3 id="11-rnn">1.1 RNN 的瓶颈</h3>
+<p>在 Transformer 之前，序列建模常用 RNN/LSTM/GRU。RNN 的基本思想是从左到右读序列：</p>
+<pre><code class="language-text">h1 -&gt; h2 -&gt; h3 -&gt; ... -&gt; ht
+</code></pre>
+<p>问题是：</p>
+<ul>
+<li><strong>难以并行</strong>：第 <code>t</code> 个状态依赖第 <code>t-1</code> 个状态，训练时很难同时计算所有位置。</li>
+<li><strong>长距离依赖困难</strong>：早期 token 的信息要经过很多步才能影响后面 token，容易衰减或被覆盖。</li>
+<li><strong>路径太长</strong>：第 1 个词影响第 1000 个词，需要经过约 999 次状态传递。</li>
+</ul>
+<span class="heading-anchor" id="1.2 CNN 的瓶颈"></span><h3 id="12-cnn">1.2 CNN 的瓶颈</h3>
+<p>CNN 可以并行，但它依赖局部窗口。想让远距离 token 交互，需要堆叠很多层或扩大卷积核。</p>
+<span class="heading-anchor" id="1.3 Transformer 的关键改进"></span><h3 id="13-transformer">1.3 Transformer 的关键改进</h3>
+<p>Transformer 用 Self-Attention 让任意两个位置可以在一层内直接交互。</p>
+<pre class="mermaid">flowchart TD
+  A["RNN"] --&gt; A1["顺序计算"]
+  A --&gt; A2["长距离路径长"]
+  B["CNN"] --&gt; B1["可并行"]
+  B --&gt; B2["局部感受野"]
+  C["Transformer"] --&gt; C1["训练时序列维度可并行"]
+  C --&gt; C2["任意位置一跳交互"]
+  C --&gt; C3["用 Mask 控制可见范围"]
+</pre>
+<p>Transformer 的核心优势：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>RNN</th>
+<th>CNN</th>
+<th>Transformer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>并行训练</td>
+<td>弱</td>
+<td>强</td>
+<td>强</td>
+</tr>
+<tr>
+<td>长距离依赖</td>
+<td>难</td>
+<td>需多层扩展</td>
+<td>一层内可直接建模</td>
+</tr>
+<tr>
+<td>位置信息</td>
+<td>天然有顺序</td>
+<td>局部顺序明显</td>
+<td>需要显式位置编码</td>
+</tr>
+<tr>
+<td>主要瓶颈</td>
+<td>顺序依赖</td>
+<td>局部窗口</td>
+<td>注意力矩阵 <code>O(n²)</code></td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="2. 从文本到张量：Transformer 的输入"></span><h2 id="2-transformer">2. 从文本到张量：Transformer 的输入</h2>
+<p>Transformer 不直接处理字符串，而是处理 token ID 序列。</p>
+<pre class="mermaid">flowchart LR
+  A["原始文本"] --&gt; B["Tokenizer"]
+  B --&gt; C["token 序列"]
+  C --&gt; D["token id"]
+  D --&gt; E["Embedding 查表"]
+  E --&gt; F["向量序列 X"]
+  F --&gt; G["加位置编码"]
+  G --&gt; H["送入 Transformer 层"]
+</pre>
+<span class="heading-anchor" id="2.1 Tokenization"></span><h3 id="21-tokenization">2.1 Tokenization</h3>
+<p>Tokenizer 把文本切成模型词表中的单位。现代 LLM 常用 BPE、Byte-Pair Encoding、Unigram 或 SentencePiece 一类子词方法。</p>
+<p>例子：</p>
+<pre><code class="language-text">原文：Transformer is powerful
+可能切分：Transform | er | is | powerful
+</code></pre>
+<p>注意：token 不一定等于中文词、英文单词或字符。它只是模型词表中的基本符号。</p>
+<span class="heading-anchor" id="2.2 Token Embedding"></span><h3 id="22-token-embedding">2.2 Token Embedding</h3>
+<p>假设：</p>
+<ul>
+<li>batch size = <code>B</code></li>
+<li>序列长度 = <code>T</code></li>
+<li>词表大小 = <code>V</code></li>
+<li>模型隐藏维度 = <code>d_model</code></li>
+</ul>
+<p>输入 token ids 的形状：</p>
+<pre><code class="language-text">[B, T]
+</code></pre>
+<p>Embedding 矩阵形状：</p>
+<pre><code class="language-text">[V, d_model]
+</code></pre>
+<p>查表后得到：</p>
+<pre><code class="language-text">X = Embedding[token_ids]
+X.shape = [B, T, d_model]
+</code></pre>
+<p>直觉：Embedding 是一个“语义坐标表”。每个 token ID 对应一个可训练向量。</p>
+<span class="heading-anchor" id="2.3 为什么需要位置编码？"></span><h3 id="23">2.3 为什么需要位置编码？</h3>
+<p>Self-Attention 本身对输入顺序不敏感。如果不加入位置信息，下面两个序列在纯注意力看来很可能难以区分：</p>
+<pre><code class="language-text">猫 追 老鼠
+老鼠 追 猫
+</code></pre>
+<p>所以 Transformer 必须显式注入位置。</p>
+<hr/>
+<span class="heading-anchor" id="3. 位置编码：让模型知道顺序"></span><h2 id="3">3. 位置编码：让模型知道顺序</h2>
+<span class="heading-anchor" id="3.1 原始 Transformer 的正弦位置编码"></span><h3 id="31-transformer">3.1 原始 Transformer 的正弦位置编码</h3>
+<p>原始 Transformer 使用固定的 sinusoidal position encoding：</p>
+<div class="arithmatex">\[
+PE(pos, 2i) = \sin\left(\frac{pos}{10000^{2i/d_{model}}}\right)
+\]</div>
+<div class="arithmatex">\[
+PE(pos, 2i+1) = \cos\left(\frac{pos}{10000^{2i/d_{model}}}\right)
+\]</div>
+<p>含义：</p>
+<ul>
+<li><code>pos</code> 是位置编号。</li>
+<li><code>i</code> 是向量维度编号。</li>
+<li>偶数维用 sin，奇数维用 cos。</li>
+<li>不同维度有不同频率，让模型可以通过线性组合感知相对位置。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["位置 pos"] --&gt; B["不同频率"]
+  B --&gt; C1["偶数维 sin"]
+  B --&gt; C2["奇数维 cos"]
+  C1 --&gt; D["位置向量 PE"]
+  C2 --&gt; D
+  D --&gt; E["Token Embedding + PE"]
+</pre>
+<span class="heading-anchor" id="3.2 可学习位置编码"></span><h3 id="32">3.2 可学习位置编码</h3>
+<p>很多模型把位置编码做成可训练参数：</p>
+<pre><code class="language-text">PositionEmbedding.shape = [max_length, d_model]
+</code></pre>
+<p>优点：灵活，能适应训练数据。<br/>
+缺点：对超过训练长度的位置外推能力通常较弱。</p>
+<span class="heading-anchor" id="3.3 RoPE：旋转位置编码"></span><h3 id="33-rope">3.3 RoPE：旋转位置编码</h3>
+<p>现代 LLM 常用 RoPE（Rotary Position Embedding）。它不是简单把位置向量加到 token embedding 上，而是在 Attention 中旋转 <code>Q</code> 和 <code>K</code> 的向量，使点积天然带有相对位置信息。</p>
+<pre class="mermaid">flowchart LR
+  A["Q 向量"] --&gt; B["按位置旋转"]
+  C["K 向量"] --&gt; D["按位置旋转"]
+  B --&gt; E["Q 与 K 点积"]
+  D --&gt; E
+  E --&gt; F["分数包含相对位置信息"]
+</pre>
+<p>记忆：</p>
+<ul>
+<li>绝对位置编码：告诉模型“我在第几个位置”。</li>
+<li>相对位置思想：告诉模型“我和你相隔多远”。</li>
+<li>RoPE：通过旋转让 <code>Q·K</code> 对相对距离敏感。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. Self-Attention：Transformer 的核心"></span><h2 id="4-self-attentiontransformer">4. Self-Attention：Transformer 的核心</h2>
+<span class="heading-anchor" id="4.1 一句话理解"></span><h3 id="41">4.1 一句话理解</h3>
+<p>Self-Attention 让每个 token 根据当前任务，从同一序列中挑选并汇总它需要的信息。</p>
+<p>比如句子：</p>
+<pre><code class="language-text">小明把书放进书包，因为它很重。
+</code></pre>
+<p>“它”可能需要关注“书”，而不是“书包”。Attention 的作用就是学习这种关联。</p>
+<span class="heading-anchor" id="4.2 Q、K、V 的直觉"></span><h3 id="42-qkv">4.2 Q、K、V 的直觉</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>符号</th>
+<th>名称</th>
+<th>直觉</th>
+<th>类比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q</td>
+<td>Query</td>
+<td>当前 token 想查询什么</td>
+<td>搜索问题</td>
+</tr>
+<tr>
+<td>K</td>
+<td>Key</td>
+<td>每个 token 可被匹配的索引</td>
+<td>搜索标签</td>
+</tr>
+<tr>
+<td>V</td>
+<td>Value</td>
+<td>每个 token 真正提供的信息</td>
+<td>搜索结果内容</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  X["输入 X"] --&gt; WQ["乘 WQ 得到 Q"]
+  X --&gt; WK["乘 WK 得到 K"]
+  X --&gt; WV["乘 WV 得到 V"]
+  WQ --&gt; S["Q 与 K 做相似度"]
+  WK --&gt; S
+  S --&gt; M["加 Mask"]
+  M --&gt; P["Softmax 得注意力权重"]
+  P --&gt; O["权重加权 V"]
+  WV --&gt; O
+</pre>
+<span class="heading-anchor" id="4.3 形状推导"></span><h3 id="43">4.3 形状推导</h3>
+<p>输入：</p>
+<pre><code class="language-text">X.shape = [B, T, d_model]
+</code></pre>
+<p>线性投影：</p>
+<pre><code class="language-text">Q = X WQ
+K = X WK
+V = X WV
+</code></pre>
+<p>若单头注意力的维度是 <code>d_k</code>、<code>d_v</code>：</p>
+<pre><code class="language-text">WQ.shape = [d_model, d_k]
+WK.shape = [d_model, d_k]
+WV.shape = [d_model, d_v]
+
+Q.shape = [B, T, d_k]
+K.shape = [B, T, d_k]
+V.shape = [B, T, d_v]
+</code></pre>
+<p>注意力分数：</p>
+<pre><code class="language-text">scores = Q @ K^T
+scores.shape = [B, T, T]
+</code></pre>
+<p>其中 <code>scores[b, i, j]</code> 表示：第 <code>b</code> 个样本里，第 <code>i</code> 个位置对第 <code>j</code> 个位置的关注程度。</p>
+<span class="heading-anchor" id="4.4 Scaled Dot-Product Attention 公式"></span><h3 id="44-scaled-dot-product-attention">4.4 Scaled Dot-Product Attention 公式</h3>
+<div class="arithmatex">\[
+Attention(Q,K,V)=softmax\left(\frac{QK^T}{\sqrt{d_k}} + mask\right)V
+\]</div>
+<p>分解来看：</p>
+<ol>
+<li><code>QK^T</code>：计算每个 query 与所有 key 的相似度。</li>
+<li><code>/ sqrt(d_k)</code>：缩放分数，避免维度大时点积过大导致 softmax 饱和。</li>
+<li><code>+ mask</code>：禁止看某些位置，例如 padding 或未来 token。</li>
+<li><code>softmax</code>：把分数变成每行和为 1 的概率权重。</li>
+<li><code>权重 × V</code>：把相关 token 的 value 加权求和。</li>
+</ol>
+<pre class="mermaid">flowchart LR
+  A["QK 转置"] --&gt; B["除以 sqrt(dk)"]
+  B --&gt; C["加 Mask"]
+  C --&gt; D["Softmax"]
+  D --&gt; E["乘 V"]
+  E --&gt; F["Attention 输出"]
+</pre>
+<span class="heading-anchor" id="4.5 为什么要除以 sqrt(d_k)？"></span><h3 id="45-sqrtd_k">4.5 为什么要除以 <code>sqrt(d_k)</code>？</h3>
+<p>如果 <code>Q</code> 和 <code>K</code> 的各维近似独立，点积的方差会随着 <code>d_k</code> 增大而增大。分数过大时，softmax 会变得非常尖锐：最大值接近 1，其他接近 0，梯度容易变小。</p>
+<p>缩放后：</p>
+<pre><code class="language-text">QK^T / sqrt(d_k)
+</code></pre>
+<p>可以让分数分布更稳定。</p>
+<span class="heading-anchor" id="4.6 Softmax 是按行做的"></span><h3 id="46-softmax">4.6 Softmax 是按行做的</h3>
+<p>对每个 query 位置，softmax 在所有 key 位置上归一化：</p>
+<pre><code class="language-text">第 i 行 = 第 i 个 token 看所有 token 的分布
+</code></pre>
+<p>示意：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Query \ Key</th>
+<th>我</th>
+<th>喜欢</th>
+<th>机器</th>
+<th>学习</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>我</td>
+<td>0.70</td>
+<td>0.10</td>
+<td>0.10</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>喜欢</td>
+<td>0.20</td>
+<td>0.30</td>
+<td>0.20</td>
+<td>0.30</td>
+</tr>
+<tr>
+<td>机器</td>
+<td>0.05</td>
+<td>0.15</td>
+<td>0.30</td>
+<td>0.50</td>
+</tr>
+<tr>
+<td>学习</td>
+<td>0.05</td>
+<td>0.10</td>
+<td>0.55</td>
+<td>0.30</td>
+</tr>
+</tbody>
+</table></div>
+<p>每一行和为 1。</p>
+<hr/>
+<span class="heading-anchor" id="5. Mask：控制 token 能看见什么"></span><h2 id="5-mask-token">5. Mask：控制 token 能看见什么</h2>
+<p>Mask 是 Transformer 正确性的关键。它不改变模型参数，只改变 Attention 分数中哪些位置可见。</p>
+<span class="heading-anchor" id="5.1 Padding Mask"></span><h3 id="51-padding-mask">5.1 Padding Mask</h3>
+<p>不同样本长度不同，通常会 padding 到同一长度。</p>
+<pre><code class="language-text">真实句子：我 喜欢 NLP
+填充后：我 喜欢 NLP &lt;pad&gt; &lt;pad&gt;
+</code></pre>
+<p>模型不应该关注 <code>&lt;pad&gt;</code>，所以要把 padding 位置 mask 掉。</p>
+<pre class="mermaid">flowchart LR
+  A["序列含 pad"] --&gt; B["识别 pad 位置"]
+  B --&gt; C["对应 attention score 加负无穷"]
+  C --&gt; D["Softmax 后权重接近 0"]
+</pre>
+<span class="heading-anchor" id="5.2 Causal Mask"></span><h3 id="52-causal-mask">5.2 Causal Mask</h3>
+<p>Decoder-only LLM 生成下一个 token 时，当前位置不能偷看未来 token。</p>
+<pre><code class="language-text">预测第 4 个 token 时，只能看第 1、2、3 个 token。
+</code></pre>
+<p>Causal mask 是下三角可见矩阵：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Query \ Key</th>
+<th>1</th>
+<th>2</th>
+<th>3</th>
+<th>4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>可见</td>
+<td>禁止</td>
+<td>禁止</td>
+<td>禁止</td>
+</tr>
+<tr>
+<td>2</td>
+<td>可见</td>
+<td>可见</td>
+<td>禁止</td>
+<td>禁止</td>
+</tr>
+<tr>
+<td>3</td>
+<td>可见</td>
+<td>可见</td>
+<td>可见</td>
+<td>禁止</td>
+</tr>
+<tr>
+<td>4</td>
+<td>可见</td>
+<td>可见</td>
+<td>可见</td>
+<td>可见</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["Decoder 输入序列"] --&gt; B["构造下三角 Mask"]
+  B --&gt; C["未来位置分数设为负无穷"]
+  C --&gt; D["Softmax 后未来权重为 0"]
+  D --&gt; E["保证自回归训练和推理一致"]
+</pre>
+<span class="heading-anchor" id="5.3 Mask 的底层实现直觉"></span><h3 id="53-mask">5.3 Mask 的底层实现直觉</h3>
+<p>常见实现不是把权重乘 0，而是在 softmax 前把禁止位置加上一个极小值：</p>
+<pre><code class="language-text">allowed score = 原始分数
+blocked score = -inf 或非常小的负数
+</code></pre>
+<p>这样 softmax 后禁止位置的概率约等于 0。</p>
+<hr/>
+<span class="heading-anchor" id="6. Multi-Head Attention：为什么要多头？"></span><h2 id="6-multi-head-attention">6. Multi-Head Attention：为什么要多头？</h2>
+<span class="heading-anchor" id="6.1 单头的问题"></span><h3 id="61">6.1 单头的问题</h3>
+<p>单头 Attention 只能在一个表示子空间中计算关系。现实语言关系很多：</p>
+<ul>
+<li>主谓关系</li>
+<li>指代关系</li>
+<li>修饰关系</li>
+<li>位置关系</li>
+<li>语义相似</li>
+<li>代码中的括号匹配</li>
+</ul>
+<p>一个注意力头不一定能同时捕捉所有关系。</p>
+<span class="heading-anchor" id="6.2 多头的做法"></span><h3 id="62">6.2 多头的做法</h3>
+<p>Multi-Head Attention 把 <code>d_model</code> 拆成多个头，每个头独立计算 Attention，然后拼接回去。</p>
+<pre class="mermaid">flowchart TD
+  X["输入 X"] --&gt; H1["Head 1"]
+  X --&gt; H2["Head 2"]
+  X --&gt; H3["Head 3"]
+  X --&gt; H4["Head 4"]
+  H1 --&gt; C["Concat"]
+  H2 --&gt; C
+  H3 --&gt; C
+  H4 --&gt; C
+  C --&gt; O["输出投影 WO"]
+</pre>
+<p>典型设定：</p>
+<pre><code class="language-text">d_model = 4096
+num_heads = 32
+head_dim = d_model / num_heads = 128
+</code></pre>
+<p>每个头：</p>
+<pre><code class="language-text">Q_head.shape = [B, num_heads, T, head_dim]
+K_head.shape = [B, num_heads, T, head_dim]
+V_head.shape = [B, num_heads, T, head_dim]
+</code></pre>
+<p>注意力权重：</p>
+<pre><code class="language-text">[B, num_heads, T, T]
+</code></pre>
+<span class="heading-anchor" id="6.3 多头的记忆方式"></span><h3 id="63">6.3 多头的记忆方式</h3>
+<pre class="mermaid">mindmap
+  root((Multi-Head))
+    拆维度
+      d_model 分成多个 head
+    并行看关系
+      语法
+      语义
+      位置
+      指代
+    拼接
+      Concat heads
+    输出投影
+      WO 混合各头信息
+</pre>
+<hr/>
+<span class="heading-anchor" id="7. FFN：逐位置的非线性加工厂"></span><h2 id="7-ffn">7. FFN：逐位置的非线性加工厂</h2>
+<p>Attention 负责“跨 token 混合信息”，FFN 负责“对每个位置的向量做非线性变换”。</p>
+<p>原始 Transformer 的 FFN：</p>
+<div class="arithmatex">\[
+FFN(x)=max(0, xW_1+b_1)W_2+b_2
+\]</div>
+<p>现代 LLM 常用 GELU、SwiGLU 等激活/门控变体。</p>
+<pre class="mermaid">flowchart LR
+  A["每个位置向量 x"] --&gt; B["Linear 升维"]
+  B --&gt; C["Activation"]
+  C --&gt; D["Linear 降维"]
+  D --&gt; E["输出向量"]
+</pre>
+<span class="heading-anchor" id="7.1 为什么 FFN 是逐位置的？"></span><h3 id="71-ffn">7.1 为什么 FFN 是逐位置的？</h3>
+<p>FFN 对每个 token 位置共享同一套参数，不直接混合不同位置：</p>
+<pre><code class="language-text">Attention：位置之间交流
+FFN：每个位置内部加工
+</code></pre>
+<span class="heading-anchor" id="7.2 FFN 维度"></span><h3 id="72-ffn">7.2 FFN 维度</h3>
+<p>常见设置：</p>
+<pre><code class="language-text">d_ff = 4 * d_model
+</code></pre>
+<p>若 <code>d_model = 4096</code>，则 <code>d_ff</code> 可能约为 <code>16384</code>。因此 FFN 往往占据 Transformer 参数量的大头。</p>
+<hr/>
+<span class="heading-anchor" id="8. 残差连接与 LayerNorm：让深层网络可训练"></span><h2 id="8-layernorm">8. 残差连接与 LayerNorm：让深层网络可训练</h2>
+<p>Transformer 通常堆叠很多层。没有稳定机制，深层网络会出现梯度消失、梯度爆炸或训练不稳定。</p>
+<span class="heading-anchor" id="8.1 残差连接"></span><h3 id="81">8.1 残差连接</h3>
+<p>残差连接把子层输出加回输入：</p>
+<pre><code class="language-text">y = x + Sublayer(x)
+</code></pre>
+<p>作用：</p>
+<ul>
+<li>保留原始信息通道。</li>
+<li>让梯度有更短路径回传。</li>
+<li>让每一层学习“增量修改”，而不是从零重建表示。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  X["输入 x"] --&gt; S["Sublayer"]
+  S --&gt; A["加法"]
+  X --&gt; A
+  A --&gt; Y["输出 y"]
+</pre>
+<span class="heading-anchor" id="8.2 LayerNorm"></span><h3 id="82-layernorm">8.2 LayerNorm</h3>
+<p>LayerNorm 对每个 token 的隐藏维度做归一化：</p>
+<pre><code class="language-text">输入形状：[B, T, d_model]
+归一化维度：d_model
+</code></pre>
+<p>它让每个位置的向量分布更稳定。</p>
+<span class="heading-anchor" id="8.3 Post-LN 与 Pre-LN"></span><h3 id="83-post-ln-pre-ln">8.3 Post-LN 与 Pre-LN</h3>
+<p>原始 Transformer 常被描述为 Post-LN：</p>
+<pre class="mermaid">flowchart LR
+  X["输入"] --&gt; S["Sublayer"]
+  S --&gt; D["Dropout"]
+  D --&gt; A["Add 残差"]
+  X --&gt; A
+  A --&gt; N["LayerNorm"]
+  N --&gt; Y["输出"]
+</pre>
+<p>现代大规模 LLM 常用 Pre-LN：</p>
+<pre class="mermaid">flowchart LR
+  X["输入"] --&gt; N["LayerNorm"]
+  N --&gt; S["Sublayer"]
+  S --&gt; D["Dropout 或无 Dropout"]
+  D --&gt; A["Add 残差"]
+  X --&gt; A
+  A --&gt; Y["输出"]
+</pre>
+<p>对比：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>结构</th>
+<th>顺序</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Post-LN</td>
+<td>Sublayer → Add → Norm</td>
+<td>原始论文结构，深层时训练可能更难</td>
+</tr>
+<tr>
+<td>Pre-LN</td>
+<td>Norm → Sublayer → Add</td>
+<td>大模型常用，深层训练更稳定</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="9. Encoder、Decoder 与完整 Transformer"></span><h2 id="9-encoderdecoder-transformer">9. Encoder、Decoder 与完整 Transformer</h2>
+<p>Transformer 最初用于机器翻译，是 Encoder-Decoder 架构。</p>
+<pre class="mermaid">flowchart LR
+  A["源语言 tokens"] --&gt; B["Encoder Stack"]
+  B --&gt; C["Memory 表示"]
+  D["目标语言已生成 tokens"] --&gt; E["Decoder Stack"]
+  C --&gt; E
+  E --&gt; F["Linear + Softmax"]
+  F --&gt; G["下一个目标 token"]
+</pre>
+<span class="heading-anchor" id="9.1 Encoder Layer"></span><h3 id="91-encoder-layer">9.1 Encoder Layer</h3>
+<p>Encoder 每层包含：</p>
+<ol>
+<li>Multi-Head Self-Attention</li>
+<li>FFN</li>
+<li>残差连接与 LayerNorm</li>
+</ol>
+<p>Encoder 的 self-attention 通常可以双向看见整个输入序列，但要屏蔽 padding。</p>
+<pre class="mermaid">flowchart TD
+  X["输入 X"] --&gt; A["Self-Attention"]
+  A --&gt; B["Add &amp; Norm"]
+  B --&gt; C["FFN"]
+  C --&gt; D["Add &amp; Norm"]
+  D --&gt; Y["Encoder Layer 输出"]
+</pre>
+<p>用途：适合理解任务，例如分类、抽取、语义匹配。代表：BERT 类模型。</p>
+<span class="heading-anchor" id="9.2 Decoder Layer"></span><h3 id="92-decoder-layer">9.2 Decoder Layer</h3>
+<p>原始 Decoder 每层包含：</p>
+<ol>
+<li>Masked Self-Attention</li>
+<li>Cross-Attention</li>
+<li>FFN</li>
+<li>残差连接与 LayerNorm</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  X["目标端输入"] --&gt; A["Masked Self-Attention"]
+  A --&gt; B["Add &amp; Norm"]
+  M["Encoder Memory"] --&gt; C["Cross-Attention"]
+  B --&gt; C
+  C --&gt; D["Add &amp; Norm"]
+  D --&gt; E["FFN"]
+  E --&gt; F["Add &amp; Norm"]
+  F --&gt; Y["Decoder Layer 输出"]
+</pre>
+<span class="heading-anchor" id="9.3 Cross-Attention 是什么？"></span><h3 id="93-cross-attention">9.3 Cross-Attention 是什么？</h3>
+<p>在 Cross-Attention 中：</p>
+<ul>
+<li><code>Q</code> 来自 Decoder 当前状态。</li>
+<li><code>K</code>、<code>V</code> 来自 Encoder 输出。</li>
+</ul>
+<p>公式仍然是 Attention，只是来源不同：</p>
+<pre><code class="language-text">Q = Decoder hidden states
+K = Encoder hidden states
+V = Encoder hidden states
+</code></pre>
+<p>直觉：Decoder 一边生成目标语言，一边查询源语言信息。</p>
+<span class="heading-anchor" id="9.4 三类常见 Transformer"></span><h3 id="94-transformer">9.4 三类常见 Transformer</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>注意力可见性</th>
+<th>典型任务</th>
+<th>代表模型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Encoder-only</td>
+<td>双向可见</td>
+<td>理解、分类、检索、抽取</td>
+<td>BERT</td>
+</tr>
+<tr>
+<td>Decoder-only</td>
+<td>只能看过去</td>
+<td>生成、对话、代码补全</td>
+<td>GPT 类、LLaMA 类</td>
+</tr>
+<tr>
+<td>Encoder-Decoder</td>
+<td>Encoder 双向，Decoder 自回归</td>
+<td>翻译、摘要、条件生成</td>
+<td>T5、原始 Transformer</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">mindmap
+  root((Transformer家族))
+    Encoder-only
+      双向理解
+      适合分类检索抽取
+      BERT
+    Decoder-only
+      Causal Mask
+      自回归生成
+      GPT LLaMA
+    Encoder-Decoder
+      编码输入
+      解码输出
+      翻译摘要
+      T5
+</pre>
+<hr/>
+<span class="heading-anchor" id="10. Decoder-only LLM：现代大语言模型的主流形式"></span><h2 id="10-decoder-only-llm">10. Decoder-only LLM：现代大语言模型的主流形式</h2>
+<p>现代聊天模型多采用 Decoder-only Transformer。它的训练目标通常是下一个 token 预测。</p>
+<span class="heading-anchor" id="10.1 训练样本"></span><h3 id="101">10.1 训练样本</h3>
+<p>给定文本：</p>
+<pre><code class="language-text">我 喜欢 机器 学习
+</code></pre>
+<p>模型训练为：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>输入上下文</th>
+<th>目标 token</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>我</td>
+<td>喜欢</td>
+</tr>
+<tr>
+<td>我 喜欢</td>
+<td>机器</td>
+</tr>
+<tr>
+<td>我 喜欢 机器</td>
+<td>学习</td>
+</tr>
+</tbody>
+</table></div>
+<p>在实现中，模型可以一次性并行计算所有位置的预测，但用 causal mask 防止偷看未来。</p>
+<pre class="mermaid">flowchart LR
+  A["完整训练序列"] --&gt; B["Causal Mask"]
+  B --&gt; C["并行计算每个位置 hidden state"]
+  C --&gt; D["预测每个位置的下一个 token"]
+  D --&gt; E["Cross Entropy Loss"]
+</pre>
+<span class="heading-anchor" id="10.2 推理生成"></span><h3 id="102">10.2 推理生成</h3>
+<p>推理时是自回归的：</p>
+<pre class="mermaid">flowchart TD
+  A["输入 Prompt"] --&gt; B["模型输出下一个 token 概率"]
+  B --&gt; C["采样或贪心选择 token"]
+  C --&gt; D["追加到上下文"]
+  D --&gt; E{是否结束}
+  E -- 否 --&gt; B
+  E -- 是 --&gt; F["生成完成"]
+</pre>
+<span class="heading-anchor" id="10.3 为什么训练可并行，推理仍顺序？"></span><h3 id="103">10.3 为什么训练可并行，推理仍顺序？</h3>
+<p>训练时，目标答案已经完整存在。Causal mask 保证每个位置只能看过去，所以可以并行计算所有位置的 loss。</p>
+<p>推理时，未来 token 还不存在，必须生成一个，再把它追加进上下文，再生成下一个。</p>
+<hr/>
+<span class="heading-anchor" id="11. KV Cache：让自回归推理更快"></span><h2 id="11-kv-cache">11. KV Cache：让自回归推理更快</h2>
+<span class="heading-anchor" id="11.1 没有 KV Cache 的问题"></span><h3 id="111-kv-cache">11.1 没有 KV Cache 的问题</h3>
+<p>假设已经生成了 1000 个 token，要生成第 1001 个 token。如果每次都重新计算前 1000 个 token 的 <code>K</code> 和 <code>V</code>，会浪费大量计算。</p>
+<span class="heading-anchor" id="11.2 KV Cache 的核心思想"></span><h3 id="112-kv-cache">11.2 KV Cache 的核心思想</h3>
+<p>过去 token 的 <code>K</code>、<code>V</code> 在当前模型参数固定时不会变化，可以缓存起来。</p>
+<pre class="mermaid">flowchart TD
+  A["生成 token 1"] --&gt; B["缓存 K1 V1"]
+  B --&gt; C["生成 token 2"]
+  C --&gt; D["缓存 K2 V2"]
+  D --&gt; E["生成 token t"]
+  E --&gt; F["只计算新 token 的 Qt Kt Vt"]
+  F --&gt; G["Qt 关注缓存中的 K1..Kt"]
+  G --&gt; H["加权缓存中的 V1..Vt"]
+</pre>
+<span class="heading-anchor" id="11.3 KV Cache 的代价"></span><h3 id="113-kv-cache">11.3 KV Cache 的代价</h3>
+<p>KV Cache 降低重复计算，但会占用显存。缓存大小大致与下面因素成正比：</p>
+<pre><code class="language-text">batch_size × layers × sequence_length × num_heads × head_dim × 2(K和V)
+</code></pre>
+<p>长上下文推理时，KV Cache 可能成为主要显存瓶颈。</p>
+<hr/>
+<span class="heading-anchor" id="12. 输出层：从隐藏向量到 token 概率"></span><h2 id="12-token">12. 输出层：从隐藏向量到 token 概率</h2>
+<p>Decoder 最后一层输出：</p>
+<pre><code class="language-text">H.shape = [B, T, d_model]
+</code></pre>
+<p>通过线性层投影到词表大小：</p>
+<pre><code class="language-text">logits = H @ W_vocab
+logits.shape = [B, T, vocab_size]
+</code></pre>
+<p>然后对词表维度做 softmax：</p>
+<pre><code class="language-text">probabilities = softmax(logits)
+</code></pre>
+<pre class="mermaid">flowchart LR
+  A["最后一层 hidden state"] --&gt; B["Linear 到 vocab_size"]
+  B --&gt; C["Logits"]
+  C --&gt; D["Softmax"]
+  D --&gt; E["下一个 token 概率分布"]
+</pre>
+<p>训练时用交叉熵损失：</p>
+<div class="arithmatex">\[
+Loss = -\log P(\text{正确下一个 token})
+\]</div>
+<p>推理时根据 logits 选择 token：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>含义</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Greedy</td>
+<td>选概率最大 token</td>
+<td>稳定但可能死板</td>
+</tr>
+<tr>
+<td>Temperature</td>
+<td>调整分布尖锐程度</td>
+<td>温度高更随机，低更保守</td>
+</tr>
+<tr>
+<td>Top-k</td>
+<td>只在前 k 个候选中采样</td>
+<td>控制低概率噪声</td>
+</tr>
+<tr>
+<td>Top-p</td>
+<td>在累计概率 p 的候选集合中采样</td>
+<td>候选数量动态变化</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="13. 一层 Transformer Block 的完整数据流"></span><h2 id="13-transformer-block">13. 一层 Transformer Block 的完整数据流</h2>
+<p>以现代 Pre-LN Decoder Block 为例：</p>
+<pre class="mermaid">flowchart TD
+  X["输入 x"] --&gt; LN1["LayerNorm"]
+  LN1 --&gt; MHA["Masked Multi-Head Self-Attention"]
+  MHA --&gt; ADD1["残差相加 x + attn"]
+  X --&gt; ADD1
+  ADD1 --&gt; LN2["LayerNorm"]
+  LN2 --&gt; FFN["FFN or MLP"]
+  FFN --&gt; ADD2["残差相加"]
+  ADD1 --&gt; ADD2
+  ADD2 --&gt; Y["输出到下一层"]
+</pre>
+<p>伪代码：</p>
+<pre><code class="language-python"># Pre-LN Transformer Decoder Block
+x = x + masked_self_attention(layer_norm_1(x), mask=causal_mask)
+x = x + ffn(layer_norm_2(x))
+</code></pre>
+<p>如果是 Encoder Block，则 attention 通常不使用 causal mask，而是使用 padding mask。</p>
+<p>如果是 Encoder-Decoder Decoder Block，则在 masked self-attention 和 FFN 之间增加 cross-attention。</p>
+<hr/>
+<span class="heading-anchor" id="14. 底层矩阵计算：一步步看 Attention"></span><h2 id="14-attention">14. 底层矩阵计算：一步步看 Attention</h2>
+<p>假设一个很小的例子：</p>
+<pre><code class="language-text">B = 1
+T = 3
+d_model = 4
+num_heads = 2
+head_dim = 2
+</code></pre>
+<p>输入张量：</p>
+<pre><code class="language-text">X.shape = [1, 3, 4]
+</code></pre>
+<p>线性投影后：</p>
+<pre><code class="language-text">Q/K/V.shape = [1, 3, 4]
+</code></pre>
+<p>拆成 2 个头：</p>
+<pre><code class="language-text">Q/K/V.shape = [1, 2, 3, 2]
+</code></pre>
+<p>对每个头计算：</p>
+<pre><code class="language-text">scores = Q @ K.transpose(-1, -2)
+scores.shape = [1, 2, 3, 3]
+</code></pre>
+<p>softmax 后：</p>
+<pre><code class="language-text">weights.shape = [1, 2, 3, 3]
+</code></pre>
+<p>乘 V：</p>
+<pre><code class="language-text">context = weights @ V
+context.shape = [1, 2, 3, 2]
+</code></pre>
+<p>拼回：</p>
+<pre><code class="language-text">context.shape = [1, 3, 4]
+</code></pre>
+<p>输出投影：</p>
+<pre><code class="language-text">output = context @ WO
+output.shape = [1, 3, 4]
+</code></pre>
+<pre class="mermaid">flowchart TD
+  A["X: B,T,d_model"] --&gt; B["Linear 得 Q K V"]
+  B --&gt; C["reshape 为 B,H,T,D"]
+  C --&gt; D["QK 转置 得 B,H,T,T"]
+  D --&gt; E["Mask 与 Softmax"]
+  E --&gt; F["乘 V 得 B,H,T,D"]
+  F --&gt; G["Concat heads 得 B,T,d_model"]
+  G --&gt; H["输出投影"]
+</pre>
+<hr/>
+<span class="heading-anchor" id="15. 为什么 Attention 是 O(n²)？"></span><h2 id="15-attention-on2">15. 为什么 Attention 是 <code>O(n²)</code>？</h2>
+<p>设序列长度为 <code>T</code>。每个 query 都要和所有 key 计算相似度，所以注意力分数矩阵大小是：</p>
+<pre><code class="language-text">T × T
+</code></pre>
+<p>当 <code>T = 4096</code>：</p>
+<pre><code class="language-text">T² = 16,777,216
+</code></pre>
+<p>如果还有多个 batch、多个 head、多个 layer，显存和计算压力会迅速增加。</p>
+<pre class="mermaid">flowchart LR
+  A["序列长度 T"] --&gt; B["Attention Matrix T x T"]
+  B --&gt; C["计算量约 O(T² d)"]
+  B --&gt; D["显存约 O(T²)"]
+  C --&gt; E["长上下文变慢"]
+  D --&gt; E
+</pre>
+<span class="heading-anchor" id="15.1 参数量与激活显存不是一回事"></span><h3 id="151">15.1 参数量与激活显存不是一回事</h3>
+<ul>
+<li><strong>参数量</strong>：模型权重大小，主要由线性层、FFN、Embedding 决定。</li>
+<li><strong>激活显存</strong>：训练中保存中间结果用于反向传播，和 batch、序列长度、层数密切相关。</li>
+<li><strong>KV Cache</strong>：推理中保存历史 token 的 K/V，和上下文长度密切相关。</li>
+</ul>
+<p>长上下文场景下，即使参数量不变，计算和显存也会随序列长度显著增长。</p>
+<span class="heading-anchor" id="15.2 常见优化方向"></span><h3 id="152">15.2 常见优化方向</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>优化</th>
+<th>核心思想</th>
+<th>解决问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FlashAttention</td>
+<td>分块计算，减少显存读写和中间矩阵存储</td>
+<td>加速注意力、降低显存</td>
+</tr>
+<tr>
+<td>Sparse Attention</td>
+<td>只看部分 token</td>
+<td>降低 <code>T²</code> 成本</td>
+</tr>
+<tr>
+<td>Sliding Window</td>
+<td>只看局部窗口</td>
+<td>长文本局部建模</td>
+</tr>
+<tr>
+<td>GQA/MQA</td>
+<td>多个 query 头共享 K/V 头</td>
+<td>降低 KV Cache</td>
+</tr>
+<tr>
+<td>Quantization</td>
+<td>降低权重或缓存精度</td>
+<td>降低显存占用</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="16. 训练过程：模型到底学什么？"></span><h2 id="16">16. 训练过程：模型到底学什么？</h2>
+<span class="heading-anchor" id="16.1 前向传播"></span><h3 id="161">16.1 前向传播</h3>
+<pre class="mermaid">flowchart LR
+  A["token ids"] --&gt; B["Embedding"]
+  B --&gt; C["Transformer Blocks"]
+  C --&gt; D["Logits"]
+  D --&gt; E["Loss"]
+</pre>
+<span class="heading-anchor" id="16.2 反向传播"></span><h3 id="162">16.2 反向传播</h3>
+<p>Loss 反向传播，更新：</p>
+<ul>
+<li>Embedding 参数</li>
+<li>Q/K/V/O 投影矩阵</li>
+<li>FFN 权重</li>
+<li>LayerNorm 参数</li>
+<li>输出投影矩阵</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["Loss"] --&gt; B["计算梯度"]
+  B --&gt; C["更新 Attention 参数"]
+  B --&gt; D["更新 FFN 参数"]
+  B --&gt; E["更新 Embedding"]
+  B --&gt; F["更新 LayerNorm"]
+</pre>
+<span class="heading-anchor" id="16.3 自监督学习"></span><h3 id="163">16.3 自监督学习</h3>
+<p>语言模型不需要人工给每个 token 标注类别。文本本身提供监督信号：</p>
+<pre><code class="language-text">输入：前面的 token
+标签：下一个 token
+</code></pre>
+<p>这就是自监督学习的一种形式。</p>
+<hr/>
+<span class="heading-anchor" id="17. Attention 学到的是“解释”吗？"></span><h2 id="17-attention">17. Attention 学到的是“解释”吗？</h2>
+<p>注意力权重很有启发性，但不能简单等同于人类可解释因果关系。</p>
+<p>原因：</p>
+<ol>
+<li>注意力只是模型内部的一种信息混合权重。</li>
+<li>后续 FFN、残差、多层堆叠会继续改变表示。</li>
+<li>多头之间可能分工复杂。</li>
+<li>高 attention 权重不一定意味着该 token 是最终预测的唯一原因。</li>
+</ol>
+<p>正确理解：</p>
+<pre><code class="language-text">Attention 权重可以帮助观察模型在某一层某一头的信息路由倾向，
+但不能直接当成完整解释。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="18. Transformer 中常见概念对照"></span><h2 id="18-transformer">18. Transformer 中常见概念对照</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>解决的问题</th>
+<th>记忆方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token Embedding</td>
+<td>把离散 token 变成连续向量</td>
+<td>词的坐标</td>
+</tr>
+<tr>
+<td>Position Encoding</td>
+<td>注入顺序信息</td>
+<td>位置标签</td>
+</tr>
+<tr>
+<td>Q/K/V</td>
+<td>建立查询、匹配、取值机制</td>
+<td>搜索系统</td>
+</tr>
+<tr>
+<td>Scaled Dot-Product</td>
+<td>计算相关性并稳定 softmax</td>
+<td>相似度打分</td>
+</tr>
+<tr>
+<td>Mask</td>
+<td>控制可见范围</td>
+<td>遮挡未来或 padding</td>
+</tr>
+<tr>
+<td>Multi-Head</td>
+<td>在多个子空间看关系</td>
+<td>多个观察角度</td>
+</tr>
+<tr>
+<td>FFN</td>
+<td>逐位置非线性加工</td>
+<td>token 的加工厂</td>
+</tr>
+<tr>
+<td>Residual</td>
+<td>保留信息和梯度通路</td>
+<td>高速旁路</td>
+</tr>
+<tr>
+<td>LayerNorm</td>
+<td>稳定激活分布</td>
+<td>每个 token 内部标准化</td>
+</tr>
+<tr>
+<td>KV Cache</td>
+<td>复用历史 K/V</td>
+<td>推理备忘录</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="19. 常见误区"></span><h2 id="19">19. 常见误区</h2>
+<span class="heading-anchor" id="误区 1：Transformer 不需要位置"></span><h3 id="1transformer">误区 1：Transformer 不需要位置</h3>
+<p>错误。Self-Attention 本身对顺序不敏感，必须通过位置编码或相对位置机制注入顺序信息。</p>
+<span class="heading-anchor" id="误区 2：Attention 就是全部智能来源"></span><h3 id="2attention">误区 2：Attention 就是全部智能来源</h3>
+<p>错误。Attention 负责信息路由，FFN、深层堆叠、大规模数据、训练目标和对齐过程同样关键。</p>
+<span class="heading-anchor" id="误区 3：Decoder-only 训练不能并行"></span><h3 id="3decoder-only">误区 3：Decoder-only 训练不能并行</h3>
+<p>错误。训练时目标序列已知，可以用 causal mask 并行计算所有位置的 loss。推理时才必须逐 token 生成。</p>
+<span class="heading-anchor" id="误区 4：上下文长度增加只影响输入大小"></span><h3 id="4">误区 4：上下文长度增加只影响输入大小</h3>
+<p>错误。标准全注意力的注意力矩阵是 <code>T × T</code>，长度翻倍，注意力矩阵大小约变为 4 倍。</p>
+<span class="heading-anchor" id="误区 5：KV Cache 会减少模型参数"></span><h3 id="5kv-cache">误区 5：KV Cache 会减少模型参数</h3>
+<p>错误。KV Cache 不改变参数量，它减少重复计算，但增加推理时缓存显存。</p>
+<hr/>
+<span class="heading-anchor" id="20. 用一个故事记住 Transformer"></span><h2 id="20-transformer">20. 用一个故事记住 Transformer</h2>
+<p>把 Transformer 想象成一个大型会议系统：</p>
+<ol>
+<li>每个 token 是一个参会者。</li>
+<li>Embedding 是每个人的身份资料。</li>
+<li>Position Encoding 是座位号。</li>
+<li>Query 是“我现在想问什么”。</li>
+<li>Key 是“我能回答什么问题”。</li>
+<li>Value 是“我的真实回答内容”。</li>
+<li>Attention 是每个人决定听谁讲话、听多少。</li>
+<li>Multi-Head 是每个人同时从语法、语义、位置、指代等多个频道听会。</li>
+<li>FFN 是每个人听完后在自己脑子里加工总结。</li>
+<li>Residual 是保留原始笔记，避免讨论中丢失重要信息。</li>
+<li>LayerNorm 是每轮讨论后统一一下表达尺度。</li>
+<li>多层堆叠就是开很多轮会，理解逐步加深。</li>
+<li>Decoder 的 causal mask 是会议规则：不能偷看未来发言。</li>
+</ol>
+<pre class="mermaid">mindmap
+  root((会议类比))
+    参会者
+      token
+    身份资料
+      embedding
+    座位号
+      position
+    提问
+      query
+    索引
+      key
+    内容
+      value
+    多频道讨论
+      multi-head
+    个人总结
+      FFN
+    会议纪律
+      mask
+</pre>
+<hr/>
+<span class="heading-anchor" id="21. 从原始 Transformer 到现代 LLM 的变化"></span><h2 id="21-transformer-llm">21. 从原始 Transformer 到现代 LLM 的变化</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>原始 Transformer</th>
+<th>现代 LLM 常见变化</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>架构</td>
+<td>Encoder-Decoder</td>
+<td>多为 Decoder-only</td>
+</tr>
+<tr>
+<td>位置编码</td>
+<td>Sinusoidal absolute PE</td>
+<td>RoPE、ALiBi、相对位置等</td>
+</tr>
+<tr>
+<td>Norm 位置</td>
+<td>Post-LN 常见</td>
+<td>Pre-LN 或 RMSNorm 常见</td>
+</tr>
+<tr>
+<td>FFN 激活</td>
+<td>ReLU</td>
+<td>GELU、SwiGLU 等</td>
+</tr>
+<tr>
+<td>Attention</td>
+<td>MHA</td>
+<td>MHA、MQA、GQA、FlashAttention</td>
+</tr>
+<tr>
+<td>训练目标</td>
+<td>翻译序列建模</td>
+<td>大规模 next token prediction</td>
+</tr>
+<tr>
+<td>推理优化</td>
+<td>不强调 KV Cache</td>
+<td>KV Cache 是核心优化</td>
+</tr>
+</tbody>
+</table></div>
+<p>注意：这些变化不是推翻 Transformer，而是在 Transformer Block 的基本范式上做工程和稳定性改进。</p>
+<hr/>
+<span class="heading-anchor" id="22. 最小伪代码：Decoder-only Transformer"></span><h2 id="22-decoder-only-transformer">22. 最小伪代码：Decoder-only Transformer</h2>
+<p>下面是便于理解的伪代码，不等同于高性能框架实现。</p>
+<pre><code class="language-python">class DecoderOnlyTransformer:
+    def forward(self, token_ids):
+        # token_ids: [B, T]
+        x = token_embedding(token_ids)          # [B, T, d_model]
+        x = add_or_apply_position_encoding(x)   # [B, T, d_model]
+
+        mask = causal_mask(T)                   # [T, T]
+
+        for block in blocks:
+            x = block(x, mask)
+
+        x = final_norm(x)
+        logits = x @ vocab_projection           # [B, T, vocab_size]
+        return logits
+
+class DecoderBlock:
+    def forward(self, x, mask):
+        x = x + self_attention(norm1(x), mask)
+        x = x + mlp(norm2(x))
+        return x
+</code></pre>
+<p>Attention 的伪代码：</p>
+<pre><code class="language-python">def attention(x, mask):
+    q = x @ Wq
+    k = x @ Wk
+    v = x @ Wv
+
+    q = split_heads(q)
+    k = split_heads(k)
+    v = split_heads(v)
+
+    scores = q @ transpose_last_two_dims(k)
+    scores = scores / sqrt(head_dim)
+    scores = scores + mask
+
+    weights = softmax(scores, dim=-1)
+    context = weights @ v
+    context = merge_heads(context)
+
+    return context @ Wo
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="23. 学习自检"></span><h2 id="23_1">23. 学习自检</h2>
+<p>如果你能不看笔记回答下面问题，就说明已经掌握主干：</p>
+<ol>
+<li>为什么 Self-Attention 没有位置编码就不知道顺序？</li>
+<li><code>QK^T</code> 的形状为什么是 <code>[B, heads, T, T]</code>？</li>
+<li>为什么要除以 <code>sqrt(d_k)</code>？</li>
+<li>Padding mask 和 causal mask 的区别是什么？</li>
+<li>Multi-Head Attention 为什么不是简单重复同一个头？</li>
+<li>FFN 为什么说是“逐位置”网络？</li>
+<li>Residual 和 LayerNorm 分别解决什么训练问题？</li>
+<li>Encoder-only、Decoder-only、Encoder-Decoder 分别适合什么任务？</li>
+<li>为什么 Decoder-only 模型训练时可以并行、推理时不可以完全并行？</li>
+<li>KV Cache 节省了什么，又消耗了什么？</li>
+<li>为什么标准 Attention 的长上下文成本是二次方？</li>
+<li>现代 LLM 相比原始 Transformer 常见改动有哪些？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="24. 速记卡片"></span><h2 id="24">24. 速记卡片</h2>
+<span class="heading-anchor" id="24.1 Attention 公式卡"></span><h3 id="241-attention">24.1 Attention 公式卡</h3>
+<pre><code class="language-text">Attention(Q,K,V) = softmax((QK^T / sqrt(dk)) + mask) V
+</code></pre>
+<p>记忆顺序：</p>
+<pre><code class="language-text">查相似度 → 缩放 → 遮挡 → 归一化 → 汇总信息
+</code></pre>
+<span class="heading-anchor" id="24.2 Block 结构卡"></span><h3 id="242-block">24.2 Block 结构卡</h3>
+<pre><code class="language-text">Pre-LN Decoder Block:
+x = x + SelfAttention(LN(x))
+x = x + FFN(LN(x))
+</code></pre>
+<span class="heading-anchor" id="24.3 模块分工卡"></span><h3 id="243">24.3 模块分工卡</h3>
+<pre><code class="language-text">Embedding：把 token 变成向量
+Position：告诉模型顺序
+Attention：跨位置交换信息
+FFN：逐位置加工信息
+Residual：保留原信息与梯度通路
+LayerNorm：稳定每层输入输出尺度
+Mask：控制看见范围
+</code></pre>
+<span class="heading-anchor" id="24.4 复杂度卡"></span><h3 id="244">24.4 复杂度卡</h3>
+<pre><code class="language-text">标准全注意力：时间/显存核心压力来自 T × T 注意力矩阵
+上下文长度翻倍，注意力矩阵约变 4 倍
+KV Cache：省重复计算，吃显存
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="25. 总结"></span><h2 id="25">25. 总结</h2>
+<p>Transformer 可以记成一个循环堆叠的表示更新过程：</p>
+<pre class="mermaid">flowchart LR
+  A["Token 向量"] --&gt; B["带位置信息"]
+  B --&gt; C["Attention 跨 token 聚合"]
+  C --&gt; D["FFN 逐 token 加工"]
+  D --&gt; E["Residual 与 Norm 稳定训练"]
+  E --&gt; F{是否还有下一层}
+  F -- 有 --&gt; C
+  F -- 无 --&gt; G["输出 hidden states"]
+  G --&gt; H["任务头或词表概率"]
+</pre>
+<p>最核心的理解不是背模块名称，而是知道每个模块的职责：</p>
+<ul>
+<li><strong>Embedding/Position</strong>：把离散、有顺序的文本变成连续、有位置信息的向量序列。</li>
+<li><strong>Attention</strong>：让 token 之间按需要通信。</li>
+<li><strong>FFN</strong>：对每个位置的表示做非线性加工。</li>
+<li><strong>Residual/Norm</strong>：让深层堆叠可训练。</li>
+<li><strong>Mask</strong>：定义信息流边界。</li>
+<li><strong>Output Head</strong>：把隐藏表示转成具体任务输出，LLM 中通常是下一个 token 概率。</li>
+</ul>
+<p>记住这条主线，再看任何 Transformer 变体，都可以先问六个问题：</p>
+<ol>
+<li>它是 Encoder、Decoder，还是 Encoder-Decoder？</li>
+<li>它的位置编码怎么做？</li>
+<li>它的 Attention 可见范围是什么？</li>
+<li>它的 FFN/MLP 用什么激活或门控？</li>
+<li>它的 Norm 和残差顺序是什么？</li>
+<li>它为训练或推理做了哪些工程优化？</li>
+</ol>
+<p>能回答这六个问题，就能快速拆解大部分 Transformer 架构。</p>
+<span class="heading-anchor" id="参考"></span><h2 id="_5">参考</h2>
+<ul>
+<li>Vaswani et al., 2017, <em>Attention Is All You Need</em>.</li>
+<li>Devlin et al., 2018, <em>BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding</em>.</li>
+<li>Brown et al., 2020, <em>Language Models are Few-Shot Learners</em>.</li>
+<li>Su et al., 2021, <em>RoFormer: Enhanced Transformer with Rotary Position Embedding</em>.</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

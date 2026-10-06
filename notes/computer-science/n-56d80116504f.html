@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>CPU 火焰图 · 李杨的学习笔记</title><meta name="description" content="建议先理解调用栈、符号、线程、CPU 调度与基本统计。完成本章后，你应能设计一次低风险采样，解释火焰图能回答和不能回答的问题，并用基准或硬件计数器验证优化收益，而不是只凭“最宽的框”改代码。"><meta property="og:title" content="CPU 火焰图 · 李杨的学习笔记"><meta property="og:description" content="建议先理解调用栈、符号、线程、CPU 调度与基本统计。完成本章后，你应能设计一次低风险采样，解释火焰图能回答和不能回答的问题，并用基准或硬件计数器验证优化收益，而不是只凭“最宽的框”改代码。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-56d80116504f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-56d80116504f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 05-原生程序工程诊断</p><h1>CPU 火焰图</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/05-%E5%8E%9F%E7%94%9F%E7%A8%8B%E5%BA%8F%E5%B7%A5%E7%A8%8B%E8%AF%8A%E6%96%AD/04-%E5%A4%84%E7%90%86%E5%99%A8%E7%81%AB%E7%84%B0%E5%9B%BE.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">前置知识与完成标准</a></li><li><a href="#1">1. 核心概念：火焰图读法</a></li><li><a href="#11">1.1 采样而非逐条记录</a></li><li><a href="#12">1.2 自身宽度与累计宽度</a></li><li><a href="#2">2. 让调用栈可观测</a></li><li><a href="#3-linux-perf">3. 示例：Linux perf 基本流程</a></li><li><a href="#31">3.1 从零实验：让热点可预测</a></li><li><a href="#32-perf-stat-perf-record">3.2 perf stat 与 perf record 分工</a></li><li><a href="#4">4. 典型工作流：采样设计</a></li><li><a href="#41">4.1 采样前后检查表</a></li><li><a href="#5">5. 从图到假设</a></li><li><a href="#6">6. 差分火焰图与回归</a></li><li><a href="#61-amdahl">6.1 Amdahl 定律给优化收益设上限</a></li><li><a href="#62-cpu">6.2 CPU 高与延迟高的分流</a></li><li><a href="#7">7. 常见坑与排障步骤</a></li><li><a href="#8">8. 练习</a></li><li><a href="#9">9. 检查清单</a></li><li><a href="#10">10. 小结</a></li><li><a href="#11_1">11. 官方与项目延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解采样 profiler 和火焰图表达的含义。</li>
+<li>在 Linux 上安全采集 CPU profile，并保证调用栈可用。</li>
+<li>从宽度、调用关系和差分结果中提出优化假设。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h3 id="_2">前置知识与完成标准</h3>
+<p>建议先理解调用栈、符号、线程、CPU 调度与基本统计。完成本章后，你应能设计一次低风险采样，解释火焰图能回答和不能回答的问题，并用基准或硬件计数器验证优化收益，而不是只凭“最宽的框”改代码。</p>
+<span class="heading-anchor" id="1. 核心概念：火焰图读法"></span><h2 id="1">1. 核心概念：火焰图读法</h2>
+<p>典型 CPU 火焰图中：</p>
+<ul>
+<li>横轴是采样聚合后的占比，不是时间顺序。</li>
+<li>纵轴是调用栈深度，下层调用上层。</li>
+<li>某个框越宽，说明包含该函数的样本越多。</li>
+<li>颜色通常仅用于区分或编码类别，除非生成规则另有定义。</li>
+</ul>
+<p>顶层宽框常表示 on-CPU 热点；底层宽框表示多个热点共享的调用路径。火焰图显示“CPU 时间花在哪里”，不会直接告诉你业务价值、锁等待、I/O 等 off-CPU 时间是否合理。</p>
+<span class="heading-anchor" id="1.1 采样而非逐条记录"></span><h3 id="11">1.1 采样而非逐条记录</h3>
+<p>采样 profiler 周期性查看 CPU 正在执行的指令并回溯调用栈。若一个函数占全部 on-CPU 时间约 30%，在足够多且无系统性偏差的样本中，它也应接近 30%。这是一种统计估计：样本太少会波动，频率过高会增加开销，采样窗口不代表目标负载则结论无效。</p>
+<p>样本权重还受事件影响。采样 CPU 周期、instructions、cache miss 或 tracepoint 回答的是不同问题。报告必须记录事件、频率/周期、call graph 模式和用户态/内核态范围。</p>
+<span class="heading-anchor" id="1.2 自身宽度与累计宽度"></span><h3 id="12">1.2 自身宽度与累计宽度</h3>
+<ul>
+<li><strong>Self/自身</strong>：样本直接落在函数本体，提示函数内部执行成本。</li>
+<li><strong>Children/累计</strong>：函数及其所有下游样本，提示这条调用路径负责多少成本。</li>
+</ul>
+<p>一个调度函数自身很窄但累计很宽，表示成本发生在它调用的工作中；<code>memcpy</code> 自身很宽，则要追问谁传入了这么多数据。火焰图保留父子关系，表格更适合按 self/children 排序，两者应配合使用。</p>
+<span class="heading-anchor" id="2. 让调用栈可观测"></span><h2 id="2">2. 让调用栈可观测</h2>
+<p>生产相近构建建议保留独立调试符号，并评估保留 frame pointer：</p>
+<pre><code class="language-cmake">target_compile_options(service PRIVATE
+  $&lt;$&lt;CONFIG:RelWithDebInfo&gt;:-fno-omit-frame-pointer&gt;
+)
+</code></pre>
+<p>DWARF 栈回溯也可使用，但采样成本和可靠性受工具链、优化和内核支持影响。内联函数会改变栈的呈现；解释前记录编译器、优化、LTO 和符号化条件。</p>
+<p>常见 call graph 方式：</p>
+<ul>
+<li><code>fp</code>：依赖 frame pointer，通常开销低、栈稳定，但二进制必须保留帧指针。</li>
+<li><code>dwarf</code>：从用户栈快照和 unwind 信息回溯，可用于省略帧指针的程序，但数据量和开销更高。</li>
+<li><code>lbr</code>：利用硬件分支记录，深度和平台支持受限。</li>
+</ul>
+<p>不要假定 <code>-g</code> 会自动保留 frame pointer，也不要假定所有函数都有完整 DWARF unwind 信息。先对已知调用链做小采样验证栈完整度。</p>
+<span class="heading-anchor" id="3. 示例：Linux perf 基本流程"></span><h2 id="3-linux-perf">3. 示例：Linux <code>perf</code> 基本流程</h2>
+<p>对已启动进程采样 30 秒：</p>
+<pre><code class="language-bash">PID=12345  # 替换为已确认归属的目标进程 PID
+perf record -F 99 -g -p "$PID" -- sleep 30
+perf report
+</code></pre>
+<p><code>-F 99</code> 表示目标采样频率，实际受权限和系统限制影响；<code>-g</code> 采集调用栈。对生产进程运行 profiler 有额外 CPU、内存和磁盘开销，需限定 PID、时长和频率，先在相似环境验证，并遵守权限与数据治理要求。</p>
+<p>也可对一次命令采样：</p>
+<pre><code class="language-bash">perf record -F 99 -g -- ./benchmark --scenario read-heavy
+perf report --stdio
+</code></pre>
+<p>生成传统火焰图通常需要把 <code>perf script</code> 输出折叠后再生成 SVG：</p>
+<pre><code class="language-bash">perf script &gt; perf.script
+# 使用经过审查并固定版本的 FlameGraph 工具链：
+stackcollapse-perf.pl perf.script &gt; perf.folded
+flamegraph.pl perf.folded &gt; cpu.svg
+</code></pre>
+<p>输出重定向会覆盖同名文件；在专用采集目录中执行并保留原始 <code>perf.data</code>、命令、时间窗和制品 ID。工具脚本需从可信来源获取并固定版本。</p>
+<span class="heading-anchor" id="3.1 从零实验：让热点可预测"></span><h3 id="31">3.1 从零实验：让热点可预测</h3>
+<pre><code class="language-cpp">#include &lt;cstdint&gt;
+
+__attribute__((noinline)) std::uint64_t work(std::uint64_t n) {
+  std::uint64_t sum = 0;
+  for (std::uint64_t i = 0; i &lt; n; ++i) sum += (i * 2654435761ULL) ^ (i &gt;&gt; 3);
+  return sum;
+}
+
+int main() { return static_cast&lt;int&gt;(work(2'000'000'000ULL)); }
+</code></pre>
+<pre><code class="language-bash">c++ -O2 -g -fno-omit-frame-pointer hot.cpp -o hot
+perf stat ./hot
+perf record -F 99 --call-graph fp -- ./hot
+perf report --stdio
+</code></pre>
+<p><code>noinline</code> 只为教学时让函数边界稳定；真实优化构建不应为了图好看而普遍禁止内联。预期大多数用户态样本沿 <code>main -&gt; work</code>，但循环可能被编译器向量化或重写，应结合反汇编确认实际代码。</p>
+<span class="heading-anchor" id="3.2 perf stat 与 perf record 分工"></span><h3 id="32-perf-stat-perf-record">3.2 <code>perf stat</code> 与 <code>perf record</code> 分工</h3>
+<p><code>perf stat</code> 汇总运行时间、cycles、instructions、分支和 cache 等计数，适合确认“CPU 是否真的更多”；<code>perf record</code> 保存带位置/调用栈的样本，适合回答“多在哪里”。先用 stat 量化总量，再用 record 定位，最后用基准验证修改。</p>
+<span class="heading-anchor" id="4. 典型工作流：采样设计"></span><h2 id="4">4. 典型工作流：采样设计</h2>
+<ol>
+<li>明确问题：CPU 饱和、某接口变慢，还是新版本 CPU/请求增加。</li>
+<li>选代表性窗口：包含稳定负载，避开或明确标注启动和流量切换。</li>
+<li>同步记录服务 RPS、请求类型、CPU 限流、延迟和依赖状态。</li>
+<li>保存旧版/新版或空闲/繁忙两个可比较 profile。</li>
+<li>先找宽热点，再回到源码、基准和硬件计数器验证。</li>
+</ol>
+<p>容器环境要确认 PID 命名空间、宿主 <code>perf_event</code> 权限、内核符号、CPU limit/throttling 和实际运行节点。不要为了采样长期授予容器过宽权限。</p>
+<span class="heading-anchor" id="4.1 采样前后检查表"></span><h3 id="41">4.1 采样前后检查表</h3>
+<p>采样前记录目标 PID/容器、版本、负载、CPU 配额和 <code>perf_event_paranoid</code>；先用 5 秒低频采样估计开销和文件大小。采样中观察服务延迟与 CPU，达到停止条件立即结束。采样后保存 <code>perf.data</code>、<code>perf --version</code>、build ID、符号、命令和业务时间窗，并撤销临时权限。</p>
+<p><code>perf</code> 数据可能暴露函数名、地址和工作负载特征。Linux 使用 <code>perf_event_paranoid</code> 与 capabilities 控制范围；不要为了方便永久设置最宽松模式或给容器完整特权。</p>
+<span class="heading-anchor" id="5. 从图到假设"></span><h2 id="5">5. 从图到假设</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>图形/现象</th>
+<th>可能方向</th>
+<th>下一步证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>序列化/解析函数宽</td>
+<td>数据格式或重复转换成本高</td>
+<td>按请求类型拆分，做微基准和分配统计</td>
+</tr>
+<tr>
+<td>allocator/释放函数宽</td>
+<td>小对象频繁分配或争用</td>
+<td>分配 profile、对象生命周期、线程对比</td>
+</tr>
+<tr>
+<td>哈希/比较函数宽</td>
+<td>key 大、碰撞或重复查找</td>
+<td>数据分布、容器大小、硬件计数器</td>
+</tr>
+<tr>
+<td>日志格式化宽</td>
+<td>热路径日志过多</td>
+<td>日志级别、采样策略、关闭日志 A/B</td>
+</tr>
+<tr>
+<td>自旋/锁函数宽</td>
+<td>竞争导致 on-CPU 消耗</td>
+<td>锁 profile、线程拆分、吞吐随并发曲线</td>
+</tr>
+<tr>
+<td>业务函数不宽但延迟高</td>
+<td>主要等待不在 CPU</td>
+<td>off-CPU、Trace、I/O 和调度分析</td>
+</tr>
+</tbody>
+</table></div>
+<p>热点不等于应该优化。优先处理：占比大、属于关键路径、能安全改变、且端到端指标能验证收益的部分。</p>
+<span class="heading-anchor" id="6. 差分火焰图与回归"></span><h2 id="6">6. 差分火焰图与回归</h2>
+<p>对旧版和新版使用相同场景、数据、机器/配额和采样条件。比较前先按“每请求 CPU 时间”或相同完成量归一化，防止仅因新版吞吐更高而样本更多。</p>
+<p>差分图突出样本增加/减少，但结果仍受随机波动、符号变化和栈归并影响。至少重复多轮，并用基准统计和源代码变更验证。</p>
+<span class="heading-anchor" id="6.1 Amdahl 定律给优化收益设上限"></span><h3 id="61-amdahl">6.1 Amdahl 定律给优化收益设上限</h3>
+<p>若热点只占总 CPU 的 20%，即使把它优化到零，理论上总体也最多改善 20%。若只优化两倍，总体改善更小。上线前用“热点占比 × 可实现加速”估算上限，避免为低占比路径付出复杂性；上线后比较每请求 CPU、吞吐和尾延迟，确认收益没有被锁、内存或下游瓶颈抵消。</p>
+<span class="heading-anchor" id="6.2 CPU 高与延迟高的分流"></span><h3 id="62-cpu">6.2 CPU 高与延迟高的分流</h3>
+<pre><code class="language-text">延迟升高
+├─ CPU 使用/限流同步升高：perf stat → on-CPU profile → 火焰图
+├─ CPU 不高、运行队列高：调度/配额/steal time
+├─ CPU 不高、线程阻塞：off-CPU、锁、I/O、Trace
+└─ 只有单接口异常：按路由/请求类型过滤负载后重采
+</code></pre>
+<span class="heading-anchor" id="7. 常见坑与排障步骤"></span><h2 id="7">7. 常见坑与排障步骤</h2>
+<ul>
+<li>大量 <code>[unknown]</code>：缺少符号、JIT 映射、unwind 信息或权限；核对 build ID 和符号路径。</li>
+<li>栈像断裂：frame pointer 被省略且 DWARF 回溯不足；调整采集模式或构建配置。</li>
+<li>CPU 不高却执着于 CPU 图：转向 off-CPU、Trace、锁、磁盘和网络等待。</li>
+<li>一次短采样下结论：增加代表性窗口和重复次数。</li>
+<li>微优化后端到端无变化：热点不在目标请求、Amdahl 定律限制，或瓶颈转移。</li>
+<li>profile 文件过大：降低频率/时长、限制事件和目标；先评估再采生产。</li>
+</ul>
+<p>看到 <code>[unknown]</code> 时先按 build ID 检查符号，再确认栈回溯模式；权限错误先读取当前策略并申请最小范围能力，不要直接用 root 绕过；样本很少则扩大窗口或提高频率，但同时评估开销；内核栈占比高时再采允许的内核符号和相关事件，不能把内核时间归咎于最近看到的业务函数。</p>
+<span class="heading-anchor" id="8. 练习"></span><h2 id="8">8. 练习</h2>
+<ol>
+<li><strong>基础</strong>：完成 <code>work</code> 实验，分别解释 self 与 children。答案要点：横向位置无时间含义，宽度才近似样本占比。</li>
+<li><strong>进阶</strong>：编译保留/省略 frame pointer 两版，分别试 <code>fp</code> 与 <code>dwarf</code>，比较栈完整度、文件大小和开销。</li>
+<li><strong>进阶</strong>：人为加入热路径日志，制作前后 profile，并验证 p99 与 CPU/请求变化。答案要点：图的差异需要端到端指标支持。</li>
+<li><strong>综合</strong>：对同一负载采三轮基线/候选 profile，归一化每请求 CPU，估算 Amdahl 上限并给出是否上线的结论。</li>
+</ol>
+<span class="heading-anchor" id="9. 检查清单"></span><h2 id="9">9. 检查清单</h2>
+<ul>
+<li>[ ] profile 绑定精确制品、符号、配置、负载和时间窗。</li>
+<li>[ ] 采集频率、时长、范围和生产开销经过评估。</li>
+<li>[ ] 火焰图横轴没有被误读为时间线。</li>
+<li>[ ] CPU profile 与 RPS、延迟、限流和请求类型对齐。</li>
+<li>[ ] 基线与候选版本在可比条件下重复采集并归一化。</li>
+<li>[ ] 优化由基准和端到端结果证明，而非只让图“变窄”。</li>
+</ul>
+<span class="heading-anchor" id="10. 小结"></span><h2 id="10">10. 小结</h2>
+<p>火焰图是带调用关系的统计采样聚合，不是执行时间线。可靠结论依赖代表性负载、正确事件、完整栈和匹配符号；优化路径应是“总量确认 → 热点定位 → 代码假设 → 基准验证 → 生产近似复验”，CPU 不高时应及时转向 off-CPU 与 Trace。</p>
+<span class="heading-anchor" id="11. 官方与项目延伸阅读"></span><h2 id="11_1">11. 官方与项目延伸阅读</h2>
+<ul>
+<li><a href="https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html">Linux perf 安全文档</a></li>
+<li><a href="https://man7.org/linux/man-pages/man1/perf-record.1.html">perf-record 手册</a></li>
+<li><a href="https://man7.org/linux/man-pages/man1/perf-stat.1.html">perf-stat 手册</a></li>
+<li><a href="https://github.com/brendangregg/FlameGraph">FlameGraph 项目</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

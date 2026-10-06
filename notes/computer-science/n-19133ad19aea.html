@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01-基本理论：CAP、BASE 与一致性 · 李杨的学习笔记</title><meta name="description" content="CAP 讨论的是分布式数据系统在网络分区存在时，不能同时满足强一致性和每个请求都成功返回。"><meta property="og:title" content="01-基本理论：CAP、BASE 与一致性 · 李杨的学习笔记"><meta property="og:description" content="CAP 讨论的是分布式数据系统在网络分区存在时，不能同时满足强一致性和每个请求都成功返回。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-19133ad19aea.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-19133ad19aea.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>01-基本理论：CAP、BASE 与一致性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/01-%E5%9F%BA%E6%9C%AC%E7%90%86%E8%AE%BA-CAP-BASE%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#cap">CAP 的准确理解</a></li><li><a href="#base">BASE 与最终一致性</a></li><li><a href="#_3">一致性模型对比</a></li><li><a href="#_4">复制与故障模型</a></li><li><a href="#quorum">Quorum 直觉</a></li><li><a href="#sloppy-quorumread-repair">Sloppy Quorum、Read Repair 与反熵</a></li><li><a href="#_5">超时的不确定性</a></li><li><a href="#_6">一致性模型的观测与测试</a></li><li><a href="#_7">设计时的保证分层</a></li><li><a href="#_8">工程实践/案例</a></li><li><a href="#_9">常见误区</a></li><li><a href="#_10">自测题</a></li><li><a href="#_11">实践任务</a></li><li><a href="#_12">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 CAP 不是“三选二口号”，而是网络分区下的一致性与可用性取舍。</li>
+<li>区分线性一致性、顺序一致性、因果一致性、最终一致性。</li>
+<li>建立复制、Quorum、故障模型、超时不确定性的直觉。</li>
+<li>能在系统设计中说明理论保证、工程假设和实现取舍。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="CAP 的准确理解"></span><h3 id="cap">CAP 的准确理解</h3>
+<p>CAP 讨论的是分布式数据系统在网络分区存在时，不能同时满足强一致性和每个请求都成功返回。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>含义</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consistency</td>
+<td>通常指线性一致性：读到最近一次成功写入的效果</td>
+<td>不是数据库 ACID 里的 C</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>每个非故障节点收到请求都必须返回非错误响应</td>
+<td>返回旧值也算响应，但可能破坏一致性</td>
+</tr>
+<tr>
+<td>Partition tolerance</td>
+<td>节点间消息可能丢失、延迟或被隔离</td>
+<td>真实网络中必须假设会发生</td>
+</tr>
+</tbody>
+</table></div>
+<p>理论保证：如果发生分区，系统必须在“拒绝部分请求以保持一致”与“继续响应但可能返回旧数据”之间选择。</p>
+<p>工程假设：分区很少发生不等于可以忽略分区；更常见的是长尾延迟、丢包、单向网络故障、DNS/负载均衡异常。</p>
+<p>实现取舍：订单扣库存可能优先一致性，社交 feed 可能优先可用性和最终一致性。</p>
+<span class="heading-anchor" id="BASE 与最终一致性"></span><h3 id="base">BASE 与最终一致性</h3>
+<p>BASE 是对强一致事务的一种工程替代思路：</p>
+<ul>
+<li>Basically Available：系统在故障时保留核心可用性。</li>
+<li>Soft State：中间状态允许暂时不一致。</li>
+<li>Eventually Consistent：如果没有新的更新，副本最终收敛。</li>
+</ul>
+<p>最终一致性不是“随便不一致”。它要求有可收敛机制，例如重试投递、幂等消费、补偿任务、冲突解决、版本检查。</p>
+<span class="heading-anchor" id="一致性模型对比"></span><h3 id="_3">一致性模型对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>保证</th>
+<th>典型例子</th>
+<th>成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>线性一致性</td>
+<td>操作看起来按真实时间瞬间生效；写完成后新读必须看到</td>
+<td>CP KV、元数据服务、锁服务</td>
+<td>延迟高，分区时可能拒绝服务</td>
+</tr>
+<tr>
+<td>顺序一致性</td>
+<td>所有节点看到同一操作顺序，但不要求符合真实时间</td>
+<td>某些复制状态机抽象</td>
+<td>比线性一致性弱，仍需全局顺序</td>
+</tr>
+<tr>
+<td>因果一致性</td>
+<td>有因果关系的操作保持顺序，无关操作可不同序</td>
+<td>协同编辑、评论回复</td>
+<td>需要版本向量或依赖追踪</td>
+</tr>
+<tr>
+<td>单调读</td>
+<td>同一客户端不会读到比自己之前更旧的数据</td>
+<td>会话一致性缓存</td>
+<td>依赖会话路由或读版本</td>
+</tr>
+<tr>
+<td>最终一致性</td>
+<td>无新写入时副本最终收敛</td>
+<td>DNS、异步复制、缓存刷新</td>
+<td>需要容忍短期旧读和冲突</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="复制与故障模型"></span><h3 id="_4">复制与故障模型</h3>
+<p>复制的目标是提高读吞吐、容错和数据持久性，但复制一定引入一致性问题。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>复制方式</th>
+<th>写入路径</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主从同步复制</td>
+<td>主库等待从库确认</td>
+<td>数据更安全，读更接近最新</td>
+<td>写延迟高，从库慢会拖垮主库</td>
+</tr>
+<tr>
+<td>主从异步复制</td>
+<td>主库提交后异步发送</td>
+<td>写延迟低，吞吐高</td>
+<td>主库故障可能丢最近写入</td>
+</tr>
+<tr>
+<td>多主复制</td>
+<td>多节点可写</td>
+<td>跨地域低延迟写</td>
+<td>冲突解决复杂</td>
+</tr>
+<tr>
+<td>Quorum 复制</td>
+<td>写 W 个副本，读 R 个副本</td>
+<td>可调一致性和可用性</td>
+<td>参数错误会读旧值</td>
+</tr>
+</tbody>
+</table></div>
+<p>故障模型要先讲清楚：</p>
+<ul>
+<li>Crash fault：进程宕机或重启，不作恶。</li>
+<li>Omission fault：消息丢失、请求未处理。</li>
+<li>Timing fault：请求过慢、时钟漂移、调度暂停。</li>
+<li>Byzantine fault：节点可能返回任意错误或恶意结果，普通后端系统通常不按此模型设计。</li>
+</ul>
+<span class="heading-anchor" id="Quorum 直觉"></span><h3 id="quorum">Quorum 直觉</h3>
+<p>在 N 个副本中，如果写入需要 W 个确认，读取需要 R 个响应，当 <code>R + W &gt; N</code> 时，读集合和写集合至少有一个副本重叠，因此有机会读到最新写入。</p>
+<pre class="mermaid">flowchart LR
+  W["写入确认集合 W"] --&gt; X["交集副本"]
+  R["读取返回集合 R"] --&gt; X
+  X --&gt; V["通过版本号选择最新值"]
+</pre>
+<p>关键点是“有机会”而不是自动正确。系统还需要版本号、冲突解决、读修复或强制从多数派读取。</p>
+<span class="heading-anchor" id="Sloppy Quorum、Read Repair 与反熵"></span><h3 id="sloppy-quorumread-repair">Sloppy Quorum、Read Repair 与反熵</h3>
+<p>严格 quorum 要求读写都落在同一组拥有该 key 的副本上。sloppy quorum 在部分目标副本不可用时，允许临时写入其他健康节点，后续再通过 hinted handoff 归还给原副本。它提高可用性，但弱化“读写集合必然相交”的直观推理。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>解决的问题</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sloppy quorum</td>
+<td>目标副本故障时仍接受写入</td>
+<td>读可能暂时读不到临时副本上的新值</td>
+</tr>
+<tr>
+<td>Hinted handoff</td>
+<td>故障副本恢复后补写</td>
+<td>提示丢失或过期仍需反熵修复</td>
+</tr>
+<tr>
+<td>Read repair</td>
+<td>读到多个版本时顺手修复旧副本</td>
+<td>只有被读取的 key 才会修复</td>
+</tr>
+<tr>
+<td>Anti-entropy</td>
+<td>后台比较副本差异并同步</td>
+<td>消耗 IO/网络，收敛不是瞬时</td>
+</tr>
+</tbody>
+</table></div>
+<p>故障时序示例：</p>
+<pre><code class="language-text">T1: key 属于 A/B/C，写 W=2
+T2: C 不可达，系统把副本临时写到 D，返回成功
+T3: 读请求只读 A/C，若 A 未包含最新或 C 仍故障，可能读旧值
+T4: C 恢复，D 通过 hinted handoff 把写入交还给 C
+T5: 后台反熵修复残留差异
+</code></pre>
+<p>因此在面试或设计文档中，不能只写 <code>R + W &gt; N</code>。还要说明副本选择是否固定、版本比较方式、冲突解决规则、是否允许 sloppy quorum、读修复触发条件和最大收敛窗口。</p>
+<span class="heading-anchor" id="超时的不确定性"></span><h3 id="_5">超时的不确定性</h3>
+<p>超时只能说明“调用方在截止时间前没收到结果”，不能说明服务端没执行。</p>
+<p>可能发生的路径：</p>
+<ol>
+<li>请求没到服务端。</li>
+<li>请求到了，服务端没处理。</li>
+<li>服务端处理成功，但响应丢了。</li>
+<li>服务端处理成功，响应太慢。</li>
+<li>服务端处理一半后崩溃，状态未知。</li>
+</ol>
+<p>因此，任何带重试的写操作都需要幂等设计，不能把超时简单等价为失败。</p>
+<span class="heading-anchor" id="一致性模型的观测与测试"></span><h3 id="_6">一致性模型的观测与测试</h3>
+<p>一致性不是靠单个指标证明的，但可以通过事件日志和历史检查降低风险。关键是记录每次读写的 key、value/version、客户端时间、服务端逻辑版本、写入确认副本和读取副本集合。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>目标</th>
+<th>可观测信号</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读己之写</td>
+<td>同一会话写入版本后读到的最低版本</td>
+</tr>
+<tr>
+<td>单调读</td>
+<td>客户端读到版本是否倒退</td>
+</tr>
+<tr>
+<td>最终收敛</td>
+<td>副本版本差距、反熵 backlog、最大落后时间</td>
+</tr>
+<tr>
+<td>Quorum 健康</td>
+<td>成功读写副本数、超时副本、hinted handoff backlog</td>
+</tr>
+<tr>
+<td>冲突率</td>
+<td>多版本返回次数、冲突解决覆盖次数</td>
+</tr>
+</tbody>
+</table></div>
+<p>工程上常用 Jepsen 类历史检查、影子读、对账任务和 chaos 测试验证假设。测试结论也要限定在故障模型内：通过 crash fault 测试不代表系统能抵抗 Byzantine fault；通过低延迟网络测试也不代表跨地域分区下仍满足同样 SLA。</p>
+<span class="heading-anchor" id="设计时的保证分层"></span><h3 id="_7">设计时的保证分层</h3>
+<p>分布式方案要把数学/协议保证、工程假设、具体实现分开写。这样可以避免把“多数派”“锁”“重试”说成绝对正确。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>示例</th>
+<th>应写清楚的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数学/协议保证</td>
+<td>多数派集合相交、Raft 已提交日志不丢</td>
+<td>前提是什么，故障模型是什么</td>
+</tr>
+<tr>
+<td>工程假设</td>
+<td>故障独立、时钟漂移有限、网络最终恢复</td>
+<td>假设失效时如何降级或报警</td>
+</tr>
+<tr>
+<td>具体实现</td>
+<td>超时、重试、读修复、缓存 TTL</td>
+<td>参数如何选，如何观测</td>
+</tr>
+<tr>
+<td>业务语义</td>
+<td>余额不能错、feed 可延迟</td>
+<td>错误后果和用户可见状态</td>
+</tr>
+</tbody>
+</table></div>
+<p>一个可靠的设计回答通常采用这种句式：“在 crash fault、网络最终恢复、至少多数副本存活的前提下，协议保证已提交写入不会被新 leader 丢弃；工程上仍要监控选举频率、复制延迟、磁盘 fsync 和客户端超时，因为这些会影响可用性和尾延迟。”</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_8">工程实践/案例</h2>
+<p>电商下单链路中，“创建订单”通常要求订单号唯一且状态机可恢复；“扣减库存”可使用预占库存或库存流水；“发送短信”可以最终一致。把所有步骤都做成一个强事务，往往牺牲可用性并放大故障影响。</p>
+<p>一个常见取舍：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>子能力</th>
+<th>一致性目标</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>订单状态</td>
+<td>强约束，不允许乱序跳转</td>
+<td>状态机 + 乐观锁</td>
+</tr>
+<tr>
+<td>支付回调</td>
+<td>至少一次，幂等处理</td>
+<td>幂等键 + 唯一索引</td>
+</tr>
+<tr>
+<td>库存展示</td>
+<td>可短暂不准</td>
+<td>缓存 + 异步刷新</td>
+</tr>
+<tr>
+<td>消息通知</td>
+<td>最终送达即可</td>
+<td>消息队列 + 重试 + 死信</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_9">常见误区</h2>
+<ul>
+<li>
+<p>误区：CAP 是 C、A、P 任意三选二。<br/>
+  修正：真实系统必须面对 P；分区发生时才在 C 和 A 之间取舍。</p>
+</li>
+<li>
+<p>误区：最终一致性就是不保证。<br/>
+  修正：最终一致性需要明确收敛条件、重试机制、冲突处理和可观测性。</p>
+</li>
+<li>
+<p>误区：超时就是失败。<br/>
+  修正：超时是未知，重试前必须设计幂等。</p>
+</li>
+<li>
+<p>误区：Quorum 只要 <code>R + W &gt; N</code> 就一定强一致。<br/>
+  修正：还需要版本比较、最新值选择、故障处理和读写协议约束。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_10">自测题</h2>
+<ol>
+<li>为什么 CAP 中的 C 更接近线性一致性，而不是 ACID 的一致性？</li>
+<li><code>N=3, W=1, R=1</code> 有什么风险？<code>W=2, R=2</code> 又牺牲了什么？</li>
+<li>一个 HTTP 写请求超时后，调用方能确认哪些事实？不能确认哪些事实？</li>
+<li>顺序一致性和线性一致性的差别是什么？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_11">实践任务</h2>
+<p>设计一个用户资料服务，包含“修改昵称”“读取资料”“异步更新搜索索引”。写出每个操作需要的一致性级别、失败后的补偿方式、是否允许读取旧值，以及为什么。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_12">延伸阅读</h2>
+<ul>
+<li>Gilbert, Seth; Lynch, Nancy. <a href="https://doi.org/10.1109/MC.2011.389">Perspectives on the CAP Theorem</a>.</li>
+<li>Brewer, Eric. <a href="https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/">CAP Twelve Years Later: How the “Rules” Have Changed</a>.</li>
+<li>Martin Kleppmann, <em>Designing Data-Intensive Applications</em>，复制、一致性与分布式系统章节。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

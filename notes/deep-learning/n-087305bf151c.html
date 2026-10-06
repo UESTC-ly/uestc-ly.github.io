@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 2 章：空域与频域图像增强 · 李杨的学习笔记</title><meta name="description" content="前置阅读： 第 1 章：图像数字化与基础 。后续阅读： 第 3 章：分割、形态学、特征与运动 。"><meta property="og:title" content="第 2 章：空域与频域图像增强 · 李杨的学习笔记"><meta property="og:description" content="前置阅读： 第 1 章：图像数字化与基础 。后续阅读： 第 3 章：分割、形态学、特征与运动 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-087305bf151c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-087305bf151c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>第 2 章：空域与频域图像增强</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/02_%E7%A9%BA%E5%9F%9F%E4%B8%8E%E9%A2%91%E5%9F%9F%E5%9B%BE%E5%83%8F%E5%A2%9E%E5%BC%BA.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#1">1. 图像增强的目标</a></li><li><a href="#2_1">2. 点运算与灰度变换</a></li><li><a href="#3-clahe">3. 直方图均衡化与 CLAHE</a></li><li><a href="#4">4. 卷积与相关</a></li><li><a href="#5">5. 噪声模型与平滑滤波</a></li><li><a href="#6">6. 锐化与二阶增强</a></li><li><a href="#7">7. 一阶梯度与边缘</a></li><li><a href="#8-canny">8. Canny 边缘检测</a></li><li><a href="#9">9. 傅里叶变换直觉</a></li><li><a href="#10">10. 频域滤波</a></li><li><a href="#11">11. 空域和频域如何选择</a></li><li><a href="#12">12. 典型增强流水线</a></li><li><a href="#13">13. 传统方法与深度学习的关系</a></li><li><a href="#14">14. 高频问答与速记</a></li><li><a href="#_2">本章检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握卷积、相关、边界处理和常见噪声模型。</li>
+<li>能根据噪声与目标结构选择均值、高斯、中值、双边、锐化和梯度滤波。</li>
+<li>理解直方图均衡、CLAHE、傅里叶变换、频域滤波和边缘检测的数学直觉。</li>
+<li>能设计稳定的增强流水线，并说明参数变化对结果的影响。</li>
+</ul>
+<p>前置阅读：<a href="n-1f5f2df9b6d2.html">第 1 章：图像数字化与基础</a>。后续阅读：<a href="n-fb54133d36f3.html">第 3 章：分割、形态学、特征与运动</a>。</p>
+<span class="heading-anchor" id="1. 图像增强的目标"></span><h2 id="1">1. 图像增强的目标</h2>
+<p>图像增强不是“让图片更好看”这么简单，而是让后续任务更稳定：让边缘更清楚、目标与背景更可分、噪声更少、动态范围更合适。增强没有唯一正确答案，必须绑定任务指标，例如 OCR 准确率、边缘连通性、检测召回率、测量误差或人工可读性。</p>
+<p>常见增强方向：</p>
+<ul>
+<li>灰度变换：调亮、拉伸对比度、Gamma 校正。</li>
+<li>直方图方法：均衡化、CLAHE、规定化。</li>
+<li>空域滤波：平滑、去噪、锐化、梯度。</li>
+<li>频域滤波：低通、高通、带阻、同态滤波。</li>
+</ul>
+<span class="heading-anchor" id="2. 点运算与灰度变换"></span><h2 id="2_1">2. 点运算与灰度变换</h2>
+<p>点运算只依赖当前像素：</p>
+<div class="arithmatex">\[
+s=T(r)
+\]</div>
+<p>线性拉伸把输入区间 <span class="arithmatex">\([a,b]\)</span> 映射到 <span class="arithmatex">\([c,d]\)</span>：</p>
+<div class="arithmatex">\[
+s=\frac{d-c}{b-a}(r-a)+c
+\]</div>
+<p>Gamma 校正：</p>
+<div class="arithmatex">\[
+s=cr^\gamma
+\]</div>
+<p>当输入 <span class="arithmatex">\(r\)</span> 已归一化到 <span class="arithmatex">\([0,1]\)</span> 时，<span class="arithmatex">\(\gamma&lt;1\)</span> 整体提亮（暗部提升尤其明显），<span class="arithmatex">\(\gamma&gt;1\)</span> 整体压暗。对数变换突出暗区细节，指数/幂律可压缩或扩展动态范围。</p>
+<p>工程陷阱：</p>
+<ul>
+<li>对 <code>uint8</code> 直接运算容易截断，应先转浮点再裁剪和转回。</li>
+<li>增强会放大噪声，尤其是暗部和彩色通道。</li>
+<li>不要只看显示效果，应该检查最小值、最大值、均值、直方图和后续任务指标。</li>
+</ul>
+<span class="heading-anchor" id="3. 直方图均衡化与 CLAHE"></span><h2 id="3-clahe">3. 直方图均衡化与 CLAHE</h2>
+<p>全局直方图均衡使用 CDF 作为映射：</p>
+<div class="arithmatex">\[
+s_k=(L-1)\sum_{j=0}^{k}p(r_j)
+\]</div>
+<p>它会把灰度分布拉得更均匀，提升全局对比度。适合曝光不足但背景较统一的图像；不适合本来就有强噪声、局部光照差异大或需要保持真实颜色的场景。</p>
+<p>CLAHE 把图像分块做自适应均衡，并限制每个灰度 bin 的最大计数。两个关键参数：</p>
+<ul>
+<li><code>tileGridSize</code>：块越小，局部增强越强，但块状伪影越明显。</li>
+<li><code>clipLimit</code>：越大增强越强，也越容易放大噪声。</li>
+</ul>
+<p>彩色图通常转到 Lab 或 YCrCb，只增强亮度通道，再转回原颜色空间。</p>
+<span class="heading-anchor" id="4. 卷积与相关"></span><h2 id="4">4. 卷积与相关</h2>
+<p>二维卷积：</p>
+<div class="arithmatex">\[
+g(x,y)=\sum_i\sum_j h(i,j)f(x-i,y-j)
+\]</div>
+<p>相关：</p>
+<div class="arithmatex">\[
+g(x,y)=\sum_i\sum_j h(i,j)f(x+i,y+j)
+\]</div>
+<p>区别在于卷积会翻转核，相关不翻转。若核中心对称，例如高斯核、均值核，二者结果相同；若核不对称，例如某些方向梯度核，方向符号可能不同。许多图像库中的 <code>filter2D</code> 实际执行相关而不是数学卷积，使用方向核时要留意符号。</p>
+<p>边界处理会影响边缘像素：</p>
+<ul>
+<li>常数填充：简单但可能产生黑边。</li>
+<li>复制边界：适合部分中值/形态操作。</li>
+<li>镜像边界：平滑滤波常用，边缘更自然。</li>
+<li>环绕边界：只适合周期信号，普通图像很少用。</li>
+</ul>
+<span class="heading-anchor" id="5. 噪声模型与平滑滤波"></span><h2 id="5">5. 噪声模型与平滑滤波</h2>
+<p>均值滤波：</p>
+<div class="arithmatex">\[
+g(x,y)=\frac{1}{mn}\sum_{(i,j)\in\Omega}f(x+i,y+j)
+\]</div>
+<p>它能降低零均值随机噪声方差，但会模糊边缘。高斯滤波使用距离中心更近的像素更大权重：</p>
+<div class="arithmatex">\[
+G(x,y)=\frac{1}{2\pi\sigma^2}e^{-\frac{x^2+y^2}{2\sigma^2}}
+\]</div>
+<p>参数影响：</p>
+<ul>
+<li>核越大、<span class="arithmatex">\(\sigma\)</span> 越大：去噪更强，细节损失更大。</li>
+<li>核太小：噪声残留，边缘检测会碎。</li>
+<li>核太大：目标边界被抹掉，小目标消失。</li>
+</ul>
+<p>中值滤波取邻域中位数，对椒盐噪声有效，因为孤立极值不会主导结果。双边滤波同时考虑空间距离和灰度/颜色距离：</p>
+<div class="arithmatex">\[
+g(p)=\frac{1}{W_p}\sum_{q\in\Omega}G_s(\|p-q\|)G_r(|I_p-I_q|)I_q
+\]</div>
+<p>它能保边去噪，但计算慢，且参数过强会产生卡通化效果。</p>
+<span class="heading-anchor" id="6. 锐化与二阶增强"></span><h2 id="6">6. 锐化与二阶增强</h2>
+<p>图像模糊来自高频成分减少，锐化则试图增强高频。经典拉普拉斯锐化：</p>
+<div class="arithmatex">\[
+g=f-\alpha\nabla^2 f
+\]</div>
+<p>其中离散 Laplacian 可用核表示，例如：</p>
+<div class="arithmatex">\[
+\begin{bmatrix}
+0&amp;1&amp;0\\
+1&amp;-4&amp;1\\
+0&amp;1&amp;0
+\end{bmatrix}
+\]</div>
+<p>非锐化掩蔽：</p>
+<div class="arithmatex">\[
+g=f+\alpha(f-G_\sigma*f)
+\]</div>
+<p>先得到模糊图，再把原图与模糊图的差作为高频细节加回去。<span class="arithmatex">\(\alpha\)</span> 越大锐化越强，但噪声、光晕和边缘过冲也越明显。</p>
+<span class="heading-anchor" id="7. 一阶梯度与边缘"></span><h2 id="7">7. 一阶梯度与边缘</h2>
+<p>一阶梯度：</p>
+<div class="arithmatex">\[
+\nabla f=\left[\frac{\partial f}{\partial x},\frac{\partial f}{\partial y}\right]
+\]</div>
+<p>梯度幅值和方向：</p>
+<div class="arithmatex">\[
+|\nabla f|=\sqrt{G_x^2+G_y^2}, \quad \theta=\operatorname{atan2}(G_y,G_x)
+\]</div>
+<p><code>atan2</code> 同时利用 <span class="arithmatex">\(G_x,G_y\)</span> 的符号，能保留梯度方向所在象限，并避免直接计算 <span class="arithmatex">\(G_y/G_x\)</span> 时 <span class="arithmatex">\(G_x=0\)</span> 的问题。</p>
+<p>Roberts、Prewitt、Sobel、Scharr 都是差分梯度算子。Sobel 在差分同时带有平滑，更抗噪；Scharr 在 3x3 情况下方向精度更好。</p>
+<p>注意：</p>
+<ul>
+<li>负梯度不能直接写回 <code>uint8</code>，否则会截断。</li>
+<li>边缘是亮度变化大，不等于物体边界；纹理、阴影和反光也会产生边缘。</li>
+<li>梯度前适度平滑通常比事后清理噪声更稳定。</li>
+</ul>
+<span class="heading-anchor" id="8. Canny 边缘检测"></span><h2 id="8-canny">8. Canny 边缘检测</h2>
+<p>Canny 的流程：</p>
+<ol>
+<li>高斯平滑降噪。</li>
+<li>计算梯度幅值和方向。</li>
+<li>非极大值抑制，把宽边缘压成细边缘。</li>
+<li>双阈值分类强边缘、弱边缘和非边缘。</li>
+<li>滞后连接：弱边缘只有连接强边缘时保留。</li>
+</ol>
+<p>参数影响：</p>
+<ul>
+<li>高阈值越高：保留边缘越少，误检少但漏检多。</li>
+<li>低阈值越低：边缘连接更连续，但噪声也更容易连进来。</li>
+<li>高斯 <span class="arithmatex">\(\sigma\)</span> 越大：抗噪更强，定位更差。</li>
+<li><code>L2gradient=True</code> 更接近欧氏梯度，计算稍慢。</li>
+</ul>
+<p>经验上，先用代表性样本扫描高低阈值，而不是为单张图调参。</p>
+<span class="heading-anchor" id="9. 傅里叶变换直觉"></span><h2 id="9">9. 傅里叶变换直觉</h2>
+<p>傅里叶变换把图像从空间域表示成频率域：</p>
+<div class="arithmatex">\[
+F(u,v)=\sum_{x=0}^{M-1}\sum_{y=0}^{N-1}f(x,y)e^{-j2\pi(\frac{ux}{M}+\frac{vy}{N})}
+\]</div>
+<p>逆变换：</p>
+<div class="arithmatex">\[
+f(x,y)=\frac{1}{MN}\sum_{u=0}^{M-1}\sum_{v=0}^{N-1}F(u,v)e^{j2\pi(\frac{ux}{M}+\frac{vy}{N})}
+\]</div>
+<p>低频描述缓慢变化的亮度和大块结构，高频描述边缘、细纹理和噪声。频谱中心化后，中心附近是低频，远离中心是高频。</p>
+<p>幅度谱表示每个频率有多强，相位谱决定结构位置。只保留幅度通常难以复原原图结构，只保留相位仍能看出主要轮廓，因此相位对图像结构非常关键。</p>
+<span class="heading-anchor" id="10. 频域滤波"></span><h2 id="10">10. 频域滤波</h2>
+<p>频域滤波利用卷积定理：</p>
+<div class="arithmatex">\[
+f*h \leftrightarrow F(u,v)H(u,v)
+\]</div>
+<p>先做 DFT，再乘以频域滤波器，最后逆变换。</p>
+<p>常见滤波器：</p>
+<ul>
+<li>低通：保留低频，抑制噪声和细节，结果更平滑。</li>
+<li>高通：保留高频，突出边缘和纹理，也会放大噪声。</li>
+<li>带阻/陷波：去除周期噪声，例如固定方向条纹。</li>
+<li>同态滤波：把照度和反射近似分离，用于光照不均校正。</li>
+</ul>
+<p>理想低通边界硬，容易产生振铃；Butterworth 过渡平滑，阶数越高越接近理想滤波；高斯低通无明显振铃但过渡宽。</p>
+<p>工程流程：</p>
+<ol>
+<li>转浮点并做必要的 padding。</li>
+<li>DFT 并中心化频谱。</li>
+<li>设计掩膜或滤波器。</li>
+<li>频域相乘。</li>
+<li>逆 DFT，取实部或幅值。</li>
+<li>裁剪、归一化、转回显示或后续计算类型。</li>
+</ol>
+<span class="heading-anchor" id="11. 空域和频域如何选择"></span><h2 id="11">11. 空域和频域如何选择</h2>
+<p>空域方法直接、局部、易实现，适合小核滤波、边缘、形态学和实时处理。频域方法适合大范围卷积、周期噪声、频谱分析和理论解释。</p>
+<p>选择原则：</p>
+<ul>
+<li>小核滤波：空域通常更简单。</li>
+<li>大核卷积：FFT 可能更快，但要考虑 padding 和边界。</li>
+<li>周期条纹：频谱上通常有明显亮点，适合陷波。</li>
+<li>局部光照变化：CLAHE、形态学顶帽、同态滤波都可尝试。</li>
+</ul>
+<span class="heading-anchor" id="12. 典型增强流水线"></span><h2 id="12">12. 典型增强流水线</h2>
+<p>文档/OCR：</p>
+<ol>
+<li>灰度化或亮度通道提取。</li>
+<li>去阴影或 CLAHE。</li>
+<li>轻微高斯/中值滤波。</li>
+<li>自适应阈值或 Otsu。</li>
+<li>形态学闭运算补笔画。</li>
+<li>连通域/轮廓过滤。</li>
+</ol>
+<p>工业表面缺陷：</p>
+<ol>
+<li>光照归一化。</li>
+<li>高通、顶帽或背景差分。</li>
+<li>阈值分割候选区域。</li>
+<li>形态学清理。</li>
+<li>面积、形状、纹理特征筛选。</li>
+</ol>
+<p>边缘测量：</p>
+<ol>
+<li>保留线性灰度，不做过强非线性增强。</li>
+<li>高斯平滑控制噪声。</li>
+<li>Sobel/Canny 得到候选边缘。</li>
+<li>亚像素拟合或直线/圆拟合。</li>
+<li>用标定参数把像素量转成物理量。</li>
+</ol>
+<span class="heading-anchor" id="13. 传统方法与深度学习的关系"></span><h2 id="13">13. 传统方法与深度学习的关系</h2>
+<p>增强在深度学习里仍然重要，但角色不同。训练时，亮度、噪声、模糊、裁剪和颜色扰动可作为数据增强；推理时，过强增强可能造成训练/部署分布不一致。若模型训练时没有 CLAHE，部署时强行加入 CLAHE 可能提升某些样本，也可能破坏整体泛化。</p>
+<p>传统增强适合：</p>
+<ul>
+<li>提升小数据传统分类器的特征稳定性。</li>
+<li>在 DNN 前做几何矫正、ROI 裁剪和质量控制。</li>
+<li>在 DNN 后做边界细化、连通域过滤和规则校验。</li>
+</ul>
+<span class="heading-anchor" id="14. 高频问答与速记"></span><h2 id="14">14. 高频问答与速记</h2>
+<p><strong>Q：卷积和相关的差别是什么？</strong><br/>
+A：卷积翻转核，相关不翻转。对中心对称核没区别，对方向核会影响符号或方向解释。</p>
+<p><strong>Q：为什么 Sobel 输出常用 <code>float32</code> 或 <code>int16</code>？</strong><br/>
+A：梯度有正负，直接用 <code>uint8</code> 会截断负值并丢失强度信息。</p>
+<p><strong>Q：中值滤波为什么适合椒盐噪声？</strong><br/>
+A：孤立极端值不会改变邻域中位数，但会明显影响均值。</p>
+<p><strong>Q：频域低通为什么会模糊？</strong><br/>
+A：边缘和细节主要在高频，低通抑制高频后边界变缓。</p>
+<p><strong>Q：Canny 双阈值怎么调？</strong><br/>
+A：高阈值控制强边缘数量，低阈值控制连接范围。断边多就降低低阈值或减少平滑，噪声多就提高高阈值或增加平滑。</p>
+<p>速记：</p>
+<ul>
+<li>增强要服务后续任务，不是只看主观观感。</li>
+<li>平滑降噪也会损边缘。</li>
+<li>锐化会放大噪声。</li>
+<li>频谱中心是低频，边缘和噪声多在高频。</li>
+<li>相位管结构，幅度管强弱。</li>
+</ul>
+<span class="heading-anchor" id="本章检查清单"></span><h2 id="_2">本章检查清单</h2>
+<ul>
+<li>[ ] 能写出卷积、相关的公式并说明差异。</li>
+<li>[ ] 能按噪声类型选择均值、高斯、中值或双边滤波。</li>
+<li>[ ] 能解释直方图均衡化和 CLAHE 的参数影响。</li>
+<li>[ ] 能说明 Sobel、Scharr、Laplacian、Canny 的使用边界。</li>
+<li>[ ] 能解释傅里叶变换中低频、高频、幅度、相位的含义。</li>
+<li>[ ] 能描述频域低通、高通、带阻和陷波滤波流程。</li>
+<li>[ ] 能设计至少 2 条面向任务的增强流水线。</li>
+<li>[ ] 能指出数据类型、边界处理和训练/部署预处理不一致的风险。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>资源池与性能工程 · 李杨的学习笔记</title><meta name="description" content="资源池不是默认优化，它适合“创建昂贵、可复用、生命周期可控”的资源。"><meta property="og:title" content="资源池与性能工程 · 李杨的学习笔记"><meta property="og:description" content="资源池不是默认优化，它适合“创建昂贵、可复用、生命周期可控”的资源。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-9fc0e4e3f40f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-9fc0e4e3f40f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>资源池与性能工程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/07-%E8%B5%84%E6%BA%90%E6%B1%A0%E4%B8%8E%E6%80%A7%E8%83%BD%E5%B7%A5%E7%A8%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">资源池的适用边界</a></li><li><a href="#_5">池化解决的是容量控制</a></li><li><a href="#_6">性能指标</a></li><li><a href="#_7">指标之间的约束</a></li><li><a href="#_8">基准与压测</a></li><li><a href="#_9">压测方法</a></li><li><a href="#perf">火焰图与 perf</a></li><li><a href="#sanitizer">sanitizer</a></li><li><a href="#perf_1">perf 与火焰图边界</a></li><li><a href="#_10">常见性能陷阱</a></li><li><a href="#_11">工程实践/示例</a></li><li><a href="#_12">压测记录模板</a></li><li><a href="#_13">连接池伪代码</a></li><li><a href="#acquirerelease">acquire/release 错误路径</a></li><li><a href="#_14">性能优化顺序</a></li><li><a href="#_15">故障排查/观测</a></li><li><a href="#_16">定位性能瓶颈</a></li><li><a href="#_17">优化报告要写什么</a></li><li><a href="#_18">推导示例</a></li><li><a href="#_19">判断客户端瓶颈</a></li><li><a href="#_20">连接池大小估算</a></li><li><a href="#_21">如何讲性能优化</a></li><li><a href="#_22">最小验收清单</a></li><li><a href="#_23">常见误区</a></li><li><a href="#_24">自测题</a></li><li><a href="#_25">实践任务</a></li><li><a href="#_26">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解内存池、对象池、连接池的适用边界。</li>
+<li>掌握吞吐、延迟、并发、错误率和资源占用等指标。</li>
+<li>能设计基准测试和压测，避免错误结论。</li>
+<li>会使用 perf、火焰图和 sanitizer 定位常见问题。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="资源池的适用边界"></span><h3 id="_4">资源池的适用边界</h3>
+<p>资源池不是默认优化，它适合“创建昂贵、可复用、生命周期可控”的资源。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>资源池</th>
+<th>适用</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存池</td>
+<td>大量固定大小对象、频繁分配释放</td>
+<td>内存滞留、碎片、越界更难发现</td>
+</tr>
+<tr>
+<td>对象池</td>
+<td>初始化昂贵、状态可重置对象</td>
+<td>脏状态复用、并发安全</td>
+</tr>
+<tr>
+<td>连接池</td>
+<td>数据库/RPC 连接复用</td>
+<td>连接泄漏、队头阻塞、过期连接</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要为了“看起来高性能”过早引入池。现代 allocator、内核和框架已经很强，先测量再优化。</p>
+<span class="heading-anchor" id="池化解决的是容量控制"></span><h3 id="_5">池化解决的是容量控制</h3>
+<p>连接池最重要的作用是限制并发访问下游，而不只是复用连接。池太小会让请求排队，池太大会把数据库或 RPC 服务打满。对象池和内存池也类似：它们减少创建/销毁成本，但会引入重置状态、生命周期归还和容量上限问题。</p>
+<p>池化资源要定义：</p>
+<ul>
+<li>acquire 超时；</li>
+<li>release 时健康检查；</li>
+<li>最大空闲时间和最大生命周期；</li>
+<li>请求取消后如何归还或丢弃；</li>
+<li>池关闭时等待、取消还是强制释放。</li>
+</ul>
+<span class="heading-anchor" id="性能指标"></span><h3 id="_6">性能指标</h3>
+<p>核心指标：</p>
+<ul>
+<li>QPS/TPS：吞吐。</li>
+<li>latency：平均、P50、P95、P99、最大值。</li>
+<li>concurrency：同时在途请求数。</li>
+<li>error rate：超时、连接错误、协议错误、业务错误。</li>
+<li>CPU：user/sys、上下文切换、软中断。</li>
+<li>memory：RSS、分配速率、峰值。</li>
+<li>network：带宽、包量、重传。</li>
+</ul>
+<p>只看平均延迟会掩盖长尾。网络服务更关注 P95/P99。</p>
+<span class="heading-anchor" id="指标之间的约束"></span><h3 id="_7">指标之间的约束</h3>
+<p>吞吐、延迟和并发由 Little's Law 近似关联：在稳定系统里，在途请求数约等于吞吐乘以平均响应时间。压测时如果并发固定，延迟上升会限制可达到吞吐；如果继续加并发，系统可能进入队列积压，P99 和错误率先恶化。</p>
+<p>不要只看 QPS 峰值。一个可上线的结果需要同时给出吞吐、P95/P99、错误率、CPU、内存、连接数和下游负载。</p>
+<span class="heading-anchor" id="基准与压测"></span><h3 id="_8">基准与压测</h3>
+<p>基准测试关注单点能力，压测关注系统在真实流量下的容量和退化方式。</p>
+<p>基本要求：</p>
+<ul>
+<li>明确目标：测吞吐上限、延迟、容量还是稳定性。</li>
+<li>固定环境：CPU、内核参数、编译选项、日志级别。</li>
+<li>预热：避免冷启动影响。</li>
+<li>逐步加压：观察拐点。</li>
+<li>记录错误率：不要只看成功请求。</li>
+<li>区分客户端瓶颈和服务端瓶颈。</li>
+</ul>
+<span class="heading-anchor" id="压测方法"></span><h3 id="_9">压测方法</h3>
+<p>压测前先确认客户端机器是否足够强，网络是否可能成为瓶颈，连接复用模式是否符合线上。压测时逐级加压，记录拐点：延迟明显上升、错误开始出现、CPU 接近满、队列增长或下游饱和。容量结论只对相同代码、配置、机器、内核和流量模型近似成立。</p>
+<span class="heading-anchor" id="火焰图与 perf"></span><h3 id="perf">火焰图与 perf</h3>
+<p><code>perf</code> 可采样 CPU 调用栈，火焰图把热点可视化。典型流程：</p>
+<pre><code class="language-text">perf record -&gt; perf script -&gt; flamegraph -&gt; inspect hot paths
+</code></pre>
+<p>看火焰图时：</p>
+<ul>
+<li>宽度代表采样占比，不代表单次调用耗时。</li>
+<li>先找意外热点，例如日志格式化、锁竞争、内存分配。</li>
+<li>优化前后用同一压测条件对比。</li>
+</ul>
+<h3 id="sanitizer">sanitizer</h3>
+<p>常用 sanitizer：</p>
+<ul>
+<li>AddressSanitizer：越界、use-after-free。</li>
+<li>UndefinedBehaviorSanitizer：未定义行为。</li>
+<li>ThreadSanitizer：数据竞争。</li>
+<li>LeakSanitizer：内存泄漏。</li>
+</ul>
+<p>sanitizer 适合测试和预发，不适合直接代表生产性能。</p>
+<span class="heading-anchor" id="perf 与火焰图边界"></span><h3 id="perf_1">perf 与火焰图边界</h3>
+<p><code>perf</code> 采样看到的是 CPU 上正在运行的栈；如果线程大部分时间在等待网络、磁盘或锁，火焰图可能看不到真正等待原因。此时要结合 off-CPU 分析、线程状态、队列耗时和 trace。优化 CPU 热点前，先确认它位于关键请求路径，而不是压测工具、日志或调试开关制造的热点。</p>
+<span class="heading-anchor" id="常见性能陷阱"></span><h3 id="_10">常见性能陷阱</h3>
+<ul>
+<li>IO 线程做阻塞数据库/RPC 调用。</li>
+<li>日志同步刷盘或高频格式化。</li>
+<li>每个请求创建线程。</li>
+<li>输出缓冲区无限增长。</li>
+<li>小包过多，没有批量发送策略。</li>
+<li>锁粒度过粗，所有连接共享一把锁。</li>
+<li>内存频繁分配，且对象跨线程释放造成缓存抖动。</li>
+<li>压测客户端先达到瓶颈，却误判服务端性能。</li>
+</ul>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_11">工程实践/示例</h2>
+<span class="heading-anchor" id="压测记录模板"></span><h3 id="_12">压测记录模板</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>记录</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>commit/config</td>
+<td>代码版本和配置</td>
+</tr>
+<tr>
+<td>machine</td>
+<td>CPU、内存、网卡</td>
+</tr>
+<tr>
+<td>command</td>
+<td>压测命令</td>
+</tr>
+<tr>
+<td>concurrency</td>
+<td>并发数</td>
+</tr>
+<tr>
+<td>duration</td>
+<td>持续时间</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>成功吞吐</td>
+</tr>
+<tr>
+<td>latency</td>
+<td>P50/P95/P99/max</td>
+</tr>
+<tr>
+<td>errors</td>
+<td>超时、非 2xx、连接失败</td>
+</tr>
+<tr>
+<td>CPU/mem</td>
+<td>资源占用</td>
+</tr>
+<tr>
+<td>notes</td>
+<td>异常现象</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="连接池伪代码"></span><h3 id="_13">连接池伪代码</h3>
+<pre><code class="language-cpp">class ConnectionPool {
+public:
+    PooledConn acquire(Deadline deadline) {
+        while (!deadline.expired()) {
+            if (auto c = tryPopIdle()) return PooledConn(std::move(c), this);
+            if (total_ &lt; max_) return PooledConn(create(), this);
+            waitForReturn(deadline.remaining());
+        }
+        throw Timeout{};
+    }
+
+    void release(Connection c) {
+        if (!c.healthy() || c.expired()) {
+            close(c);
+            --total_;
+            return;
+        }
+        pushIdle(std::move(c));
+    }
+};
+</code></pre>
+<p>关键点：连接池要处理健康检查、过期、最大连接数、等待超时和归还。</p>
+<span class="heading-anchor" id="acquire/release 错误路径"></span><h3 id="acquirerelease">acquire/release 错误路径</h3>
+<p>连接池 <code>acquire</code> 超时应返回明确错误，调用方不能继续假装请求已提交。<code>release</code> 发现连接不健康时应减少总数并关闭连接，而不是放回 idle 队列。池关闭后新 acquire 应失败，已借出的连接归还时直接关闭。</p>
+<p>请求被取消时，如果连接上仍有未读响应或未完成查询，不能简单归还给下一个请求；应先取消底层操作、读到协议边界，或丢弃连接。</p>
+<span class="heading-anchor" id="性能优化顺序"></span><h3 id="_14">性能优化顺序</h3>
+<ol>
+<li>复现瓶颈。</li>
+<li>采集指标和 profile。</li>
+<li>找到最大热点或资源上限。</li>
+<li>做最小改动。</li>
+<li>同条件复测。</li>
+<li>记录结论和副作用。</li>
+</ol>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_15">故障排查/观测</h2>
+<span class="heading-anchor" id="定位性能瓶颈"></span><h3 id="_16">定位性能瓶颈</h3>
+<p>按资源分类看：CPU 满看 perf 和锁竞争；内存涨看分配速率、连接缓冲区和池容量；sys CPU 高看系统调用频率、小包和拷贝；网络差看重传、带宽、窗口和负载均衡；下游慢看连接池等待和 RPC/SQL trace。</p>
+<span class="heading-anchor" id="优化报告要写什么"></span><h3 id="_17">优化报告要写什么</h3>
+<p>每次优化都记录基线、改动、复测命令、指标变化和副作用。比如“QPS +20%”不足以说明问题，还要写 P99 是否变化、错误率是否变化、CPU 是否从 user 转到 sys、内存是否上升、是否牺牲了公平性或一致性。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_18">推导示例</h2>
+<span class="heading-anchor" id="判断客户端瓶颈"></span><h3 id="_19">判断客户端瓶颈</h3>
+<p>如果服务端 CPU 只有 30%，网络未满，但压测 QPS 上不去，先看压测客户端 CPU、连接数、端口耗尽、DNS/日志开销和请求生成逻辑。可以用多台客户端、降低客户端日志、预生成 payload、复用连接来验证。只有确认客户端不是瓶颈，服务端容量结论才可信。</p>
+<span class="heading-anchor" id="连接池大小估算"></span><h3 id="_20">连接池大小估算</h3>
+<p>连接池大小要从下游可承受并发反推。假设数据库允许某业务服务总共 200 个活跃连接，线上有 10 个实例，单实例池上限就不能随意设成 100。还要预留迁移、运维和突发连接，并通过 acquire timeout 防止请求无限等待。</p>
+<span class="heading-anchor" id="如何讲性能优化"></span><h3 id="_21">如何讲性能优化</h3>
+<p>先说基线和瓶颈证据，再说改动和复测。没有 profile 的优化通常只是猜测；只有 QPS 没有 P99、错误率和资源占用，也不能证明优化有效。性能结论必须绑定环境、配置和负载模型。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_22">最小验收清单</h3>
+<ul>
+<li>压测报告含命令、环境和配置。</li>
+<li>指标同时覆盖吞吐、延迟、错误率和资源。</li>
+<li>连接池 acquire/release 都有错误路径。</li>
+<li>优化前后使用同一负载模型复测。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_23">常见误区</h2>
+<ul>
+<li>没有 profile 就凭感觉优化。</li>
+<li>只跑本机 loopback 压测，直接推导线上容量。</li>
+<li>QPS 提高但 P99 和错误率恶化。</li>
+<li>引入内存池后没有 sanitizer 覆盖。</li>
+<li>连接池无上限，故障时把下游打垮。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_24">自测题</h2>
+<ol>
+<li>对象池为什么可能引入脏状态 bug？</li>
+<li>为什么 P99 比平均延迟更能反映用户体验？</li>
+<li>如何判断压测瓶颈在客户端还是服务端？</li>
+<li>火焰图宽度代表什么？</li>
+<li>连接池为什么必须有 acquire timeout？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_25">实践任务</h2>
+<ul>
+<li>给服务加入 QPS、P99、错误率和连接数指标。</li>
+<li>用 <code>perf</code> 采样一次 CPU 热点并生成火焰图。</li>
+<li>开启 ASan/UBSan 跑单元测试。</li>
+<li>实现一个有最大容量和超时的连接池。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_26">延伸阅读</h2>
+<ul>
+<li>perf wiki: https://perf.wiki.kernel.org/</li>
+<li>FlameGraph: https://github.com/brendangregg/FlameGraph</li>
+<li>Google Sanitizers: https://github.com/google/sanitizers</li>
+<li>Google Benchmark: https://github.com/google/benchmark</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

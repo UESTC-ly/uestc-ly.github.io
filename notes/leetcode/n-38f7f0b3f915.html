@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>前缀和与哈希计数：和为 K 的子数组（560） · 李杨的学习笔记</title><meta name="description" content="本笔记整理 LeetCode 560。核心目标是掌握如何使用 前缀和 + 哈希表计数 ，在线性时间内统计“和为目标值的连续子数组数量”。"><meta property="og:title" content="前缀和与哈希计数：和为 K 的子数组（560） · 李杨的学习笔记"><meta property="og:description" content="本笔记整理 LeetCode 560。核心目标是掌握如何使用 前缀和 + 哈希表计数 ，在线性时间内统计“和为目标值的连续子数组数量”。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-38f7f0b3f915.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-38f7f0b3f915.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">前缀和</p><h1>前缀和与哈希计数：和为 K 的子数组（560）</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E5%89%8D%E7%BC%80%E5%92%8C/%E5%89%8D%E7%BC%80%E5%92%8C%E4%B8%8E%E5%93%88%E5%B8%8C%E8%AE%A1%E6%95%B0%EF%BC%88560%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 题意</a></li><li><a href="#2">2. 为什么普通滑动窗口不适用</a></li><li><a href="#3">3. 前缀和公式</a></li><li><a href="#4">4. 哈希表保存什么</a></li><li><a href="#5">5. 关键初始化：空前缀</a></li><li><a href="#6">6. 示例推演</a></li><li><a href="#7">7. 处理顺序</a></li><li><a href="#8-c">8. C++ 代码</a></li><li><a href="#9">9. 复杂度</a></li><li><a href="#10">10. 易错点总结</a></li><li><a href="#_1">易错点一：把“子数组”理解成不连续的子序列</a></li><li><a href="#_2">易错点二：数组有负数却套用普通滑动窗口</a></li><li><a href="#_3">易错点三：哈希表只记录是否出现</a></li><li><a href="#prefixcount0-1">易错点四：忘记初始化 prefixCount[0] = 1</a></li><li><a href="#_4">易错点五：先记录当前前缀和，再统计答案</a></li><li><a href="#_6">来源</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本笔记整理 LeetCode 560。核心目标是掌握如何使用 <strong>前缀和 + 哈希表计数</strong>，在线性时间内统计“和为目标值的连续子数组数量”。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="一、560. 和为 K 的子数组"></span><h1 id="560-k">一、560. 和为 K 的子数组</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1">1. 题意</h2>
+<p>给定整数数组 <code>nums</code> 和整数 <code>k</code>，统计其中有多少个<strong>连续、非空子数组</strong>的元素和等于 <code>k</code>。</p>
+<p>例如：</p>
+<pre><code class="language-text">nums = [1,1,1], k = 2
+</code></pre>
+<p>符合条件的子数组有：</p>
+<pre><code class="language-text">下标 [0,1]：[1,1]
+下标 [1,2]：[1,1]
+</code></pre>
+<p>因此答案为 <code>2</code>。</p>
+<p>需要注意：</p>
+<ul>
+<li>子数组必须连续；</li>
+<li>不同位置上的子数组分别计数；</li>
+<li>数组中可能包含正数、负数和 <code>0</code>。</li>
+</ul>
+<span class="heading-anchor" id="2. 为什么普通滑动窗口不适用"></span><h2 id="2">2. 为什么普通滑动窗口不适用</h2>
+<p>题目允许：</p>
+<pre><code class="language-text">-1000 &lt;= nums[i] &lt;= 1000
+</code></pre>
+<p>因此数组中可能出现负数。普通滑动窗口通常依赖下面的单调关系：</p>
+<pre><code class="language-text">扩大窗口 → 窗口和变大
+缩小窗口 → 窗口和变小
+</code></pre>
+<p>有负数时，这个规律不成立。例如：</p>
+<pre><code class="language-text">nums = [2,-1,2]
+</code></pre>
+<p>加入 <code>-1</code> 后窗口变长，但窗口和反而减小，所以无法只根据“当前和大于还是小于 <code>k</code>”决定移动哪一侧。</p>
+<p>因此，本题的主流基础解法是：</p>
+<blockquote>
+<p><strong>前缀和 + 哈希表计数。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="3. 前缀和公式"></span><h2 id="3">3. 前缀和公式</h2>
+<p>设：</p>
+<pre><code class="language-text">prefix[i] = nums[0] + nums[1] + ... + nums[i]
+</code></pre>
+<p>如果某个连续子数组从下标 <code>j + 1</code> 开始，在下标 <code>i</code> 结束，那么它的区间和为：</p>
+<pre><code class="language-text">prefix[i] - prefix[j]
+</code></pre>
+<p>希望这个区间和等于 <code>k</code>：</p>
+<pre><code class="language-text">prefix[i] - prefix[j] = k
+</code></pre>
+<p>移项得到：</p>
+<pre><code class="language-text">prefix[j] = prefix[i] - k
+</code></pre>
+<p>所以，当当前前缀和为 <code>sum</code> 时，只需查询：</p>
+<pre><code class="language-text">以前出现过多少次 sum - k
+</code></pre>
+<p>它出现了几次，就有几个以当前位置为右端点、元素和为 <code>k</code> 的子数组。</p>
+<span class="heading-anchor" id="4. 哈希表保存什么"></span><h2 id="4">4. 哈希表保存什么</h2>
+<p>定义：</p>
+<pre><code class="language-cpp">unordered_map&lt;long long, int&gt; prefixCount;
+</code></pre>
+<p>含义是：</p>
+<pre><code class="language-text">前缀和 → 该前缀和在当前位置之前出现的次数
+</code></pre>
+<p>不能只用 <code>unordered_set</code>，因为同一个前缀和可能出现多次，而每次出现都可能形成一个不同的合法子数组。</p>
+<p>例如，数组中存在若干个 <code>0</code> 时，同一个前缀和可能被重复得到，必须保留其出现次数。</p>
+<span class="heading-anchor" id="5. 关键初始化：空前缀"></span><h2 id="5">5. 关键初始化：空前缀</h2>
+<p>遍历前必须初始化：</p>
+<pre><code class="language-cpp">prefixCount[0] = 1;
+</code></pre>
+<p>它表示：</p>
+<blockquote>
+<p>还没有读取任何元素时，前缀和为 <code>0</code>，并且出现过一次。</p>
+</blockquote>
+<p>这样才能统计从下标 <code>0</code> 开始、和为 <code>k</code> 的子数组。</p>
+<p>例如：</p>
+<pre><code class="language-text">nums = [1,2,3], k = 3
+</code></pre>
+<p>遍历到 <code>2</code> 时：</p>
+<pre><code class="language-text">sum = 3
+sum - k = 0
+</code></pre>
+<p>查询到预先保存的空前缀 <code>0</code>，于是能够统计子数组 <code>[1,2]</code>。</p>
+<span class="heading-anchor" id="6. 示例推演"></span><h2 id="6">6. 示例推演</h2>
+<p>以：</p>
+<pre><code class="language-text">nums = [1,1,1], k = 2
+</code></pre>
+<p>为例。</p>
+<p>初始状态：</p>
+<pre><code class="language-text">sum = 0
+answer = 0
+prefixCount = {0: 1}
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>当前数字</th>
+<th>当前前缀和 <code>sum</code></th>
+<th>查找 <code>sum - k</code></th>
+<th>以前出现次数</th>
+<th><code>answer</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code></td>
+<td><code>1</code></td>
+<td><code>-1</code></td>
+<td><code>0</code></td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>2</code></td>
+<td><code>0</code></td>
+<td><code>1</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>3</code></td>
+<td><code>1</code></td>
+<td><code>1</code></td>
+<td><code>2</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>最终答案为 <code>2</code>。</p>
+<span class="heading-anchor" id="7. 处理顺序"></span><h2 id="7">7. 处理顺序</h2>
+<p>遍历每个数字时，依次执行：</p>
+<pre><code class="language-text">1. 把当前数字加入前缀和；
+2. 查询以前出现过多少次 sum - k；
+3. 将这些次数加入答案；
+4. 记录当前前缀和 sum。
+</code></pre>
+<p>对应代码：</p>
+<pre><code class="language-cpp">sum += num;
+answer += prefixCount[sum - k];
+prefixCount[sum]++;
+</code></pre>
+<p>必须<strong>先查询、后记录当前前缀和</strong>。</p>
+<p>如果先记录，并且 <code>k == 0</code>，当前前缀和就可能与自己匹配，相当于错误统计一个长度为 <code>0</code> 的空子数组。</p>
+<p>记忆：</p>
+<blockquote>
+<p><strong>只用以前的前缀和匹配当前前缀和，所以先查再存。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="8. C++ 代码"></span><h2 id="8-c">8. C++ 代码</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    int subarraySum(vector&lt;int&gt;&amp; nums, int k) {
+        // prefixCount[x]：前缀和 x 在当前位置之前出现的次数
+        unordered_map&lt;long long, int&gt; prefixCount;
+
+        // 空前缀的和为 0，用来统计从下标 0 开始的合法子数组
+        prefixCount[0] = 1;
+
+        long long sum = 0; // 当前前缀和
+        int answer = 0;    // 和为 k 的连续子数组数量
+
+        for (int num : nums) {
+            // 1. 更新当前前缀和
+            sum += num;
+
+            // 2. 如果以前出现过 sum - k，
+            //    那些位置之后到当前位置的子数组和都等于 k
+            auto it = prefixCount.find(sum - k);
+            if (it != prefixCount.end()) {
+                answer += it-&gt;second;
+            }
+
+            // 3. 当前前缀和供后面的位置使用
+            prefixCount[sum]++;
+        }
+
+        return answer;
+    }
+};
+</code></pre>
+<p>查询部分也可以简写为：</p>
+<pre><code class="language-cpp">answer += prefixCount[sum - k];
+</code></pre>
+<p>当键不存在时，<code>operator[]</code> 会创建该键并将值初始化为 <code>0</code>，因此结果仍然正确。使用 <code>find</code> 则不会为仅用于查询但不存在的前缀和创建新键，语义更明确。</p>
+<span class="heading-anchor" id="9. 复杂度"></span><h2 id="9">9. 复杂度</h2>
+<p>设数组长度为 <code>n</code>：</p>
+<ul>
+<li>时间复杂度：平均 <code>O(n)</code>；</li>
+<li>空间复杂度：<code>O(n)</code>。</li>
+</ul>
+<p>每个元素只遍历一次；哈希表的查询与插入平均为 <code>O(1)</code>。</p>
+<span class="heading-anchor" id="10. 易错点总结"></span><h2 id="10">10. 易错点总结</h2>
+<span class="heading-anchor" id="易错点一：把“子数组”理解成不连续的子序列"></span><h3 id="_1">易错点一：把“子数组”理解成不连续的子序列</h3>
+<p>本题只统计连续区间，不能跳过中间元素。</p>
+<span class="heading-anchor" id="易错点二：数组有负数却套用普通滑动窗口"></span><h3 id="_2">易错点二：数组有负数却套用普通滑动窗口</h3>
+<p>负数会破坏窗口和的单调性，应改用前缀和。</p>
+<span class="heading-anchor" id="易错点三：哈希表只记录是否出现"></span><h3 id="_3">易错点三：哈希表只记录是否出现</h3>
+<p>本题统计的是子数组数量，同一个前缀和可能出现多次，所以必须记录出现次数。</p>
+<span class="heading-anchor" id="易错点四：忘记初始化 prefixCount[0] = 1"></span><h3 id="prefixcount0-1">易错点四：忘记初始化 <code>prefixCount[0] = 1</code></h3>
+<p>这样会漏掉所有从下标 <code>0</code> 开始、和为 <code>k</code> 的子数组。</p>
+<span class="heading-anchor" id="易错点五：先记录当前前缀和，再统计答案"></span><h3 id="_4">易错点五：先记录当前前缀和，再统计答案</h3>
+<p>当 <code>k == 0</code> 时可能把当前前缀和与自己匹配，错误统计空子数组。正确顺序是先查再存。</p>
+<hr/>
+<span class="heading-anchor" id="二、方法归纳"></span><h1 id="_5">二、方法归纳</h1>
+<p>看到下面的题目特征时，可以考虑“前缀和 + 哈希表”：</p>
+<ul>
+<li>研究连续子数组；</li>
+<li>数组中可能包含负数；</li>
+<li>需要统计区间和等于某个目标值的子数组数量。</li>
+</ul>
+<p>核心公式：</p>
+<pre><code class="language-text">区间和 = 当前前缀和 - 以前的前缀和
+</code></pre>
+<p>若区间和需要等于 <code>k</code>：</p>
+<pre><code class="language-text">以前的前缀和 = 当前前缀和 - k
+</code></pre>
+<p>通用模板：</p>
+<pre><code class="language-cpp">unordered_map&lt;long long, int&gt; prefixCount;
+prefixCount[0] = 1;
+
+long long sum = 0;
+int answer = 0;
+
+for (int num : nums) {
+    sum += num;
+    answer += prefixCount[sum - k];
+    prefixCount[sum]++;
+}
+</code></pre>
+<p>复习口诀：</p>
+<pre><code class="language-text">连续区间求目标和，前缀作差找旧和；
+旧和次数全加入，空前缀一先放入；
+当前前缀先查询，随后再存防空集。
+</code></pre>
+<span class="heading-anchor" id="来源"></span><h2 id="_6">来源</h2>
+<ul>
+<li>本次新增会话中用户发送的 LeetCode 560 题目图片；</li>
+<li>本次新增会话中关于普通滑动窗口不适用、前缀和公式、哈希计数、初始化和处理顺序的分析；</li>
+<li>C++ 容器行为与复杂度说明基于通用 C++ 和算法知识整理。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06. 存储层次、Cache 与主存 · 李杨的学习笔记</title><meta name="description" content="存储层次用少量高速存储缓存大量低速存储中的热点数据，以局部性原理弥合 CPU 与主存之间的速度差距。"><meta property="og:title" content="06. 存储层次、Cache 与主存 · 李杨的学习笔记"><meta property="og:description" content="存储层次用少量高速存储缓存大量低速存储中的热点数据，以局部性原理弥合 CPU 与主存之间的速度差距。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8cc2e54dc95d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8cc2e54dc95d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>06. 存储层次、Cache 与主存</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/06-%E5%AD%98%E5%82%A8%E5%B1%82%E6%AC%A1Cache%E4%B8%8E%E4%B8%BB%E5%AD%98.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 存储层次结构</a></li><li><a href="#2">2. 局部性原理</a></li><li><a href="#_4">时间局部性</a></li><li><a href="#_5">空间局部性</a></li><li><a href="#3-cache">3. Cache 基本概念</a></li><li><a href="#4-cache">4. Cache 命中与缺失</a></li><li><a href="#5-cache">5. Cache 映射方式</a></li><li><a href="#_6">直接映射</a></li><li><a href="#_7">全相联</a></li><li><a href="#_8">组相联</a></li><li><a href="#6">6. 替换策略</a></li><li><a href="#7">7. 写策略</a></li><li><a href="#write-through">写直达 Write Through</a></li><li><a href="#write-back">写回 Write Back</a></li><li><a href="#8-cache">8. Cache 缺失类型</a></li><li><a href="#9-dram-sram">9. 主存 DRAM 与 SRAM</a></li><li><a href="#10">10. 程序局部性示例</a></li><li><a href="#11">11. 常见坑</a></li><li><a href="#12">12. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>为什么需要存储层次结构？</li>
+<li>时间局部性和空间局部性是什么？</li>
+<li>Cache 的块、行、组、标记分别是什么？</li>
+<li>直接映射、全相联、组相联有什么区别？</li>
+<li>写直达、写回、替换策略分别解决什么问题？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>存储层次用少量高速存储缓存大量低速存储中的热点数据，以局部性原理弥合 CPU 与主存之间的速度差距。</p>
+<blockquote>
+<p>记忆口诀：<strong>越靠近 CPU 越快越小越贵，越远离 CPU 越慢越大越便宜。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((存储层次))
+    层次
+      寄存器
+      Cache
+      主存
+      SSD
+      磁盘
+    局部性
+      时间局部性
+      空间局部性
+    Cache
+      Block
+      Line
+      Tag
+      Index
+      Offset
+    映射
+      直接映射
+      全相联
+      组相联
+    写策略
+      Write Through
+      Write Back
+      Write Allocate
+</pre>
+<span class="heading-anchor" id="1. 存储层次结构"></span><h2 id="1">1. 存储层次结构</h2>
+<pre class="mermaid">flowchart TD
+  A["寄存器 最快最小"] --&gt; B["L1 Cache"]
+  B --&gt; C["L2 Cache"]
+  C --&gt; D["L3 Cache"]
+  D --&gt; E["主存 DRAM"]
+  E --&gt; F["SSD"]
+  F --&gt; G["磁盘或网络存储 最慢最大"]
+</pre>
+<p>特点：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>速度</th>
+<th>容量</th>
+<th>成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>寄存器</td>
+<td>极快</td>
+<td>极小</td>
+<td>极高</td>
+</tr>
+<tr>
+<td>Cache</td>
+<td>很快</td>
+<td>小</td>
+<td>高</td>
+</tr>
+<tr>
+<td>主存</td>
+<td>中等</td>
+<td>大</td>
+<td>中</td>
+</tr>
+<tr>
+<td>外存</td>
+<td>慢</td>
+<td>很大</td>
+<td>低</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. 局部性原理"></span><h2 id="2">2. 局部性原理</h2>
+<span class="heading-anchor" id="时间局部性"></span><h3 id="_4">时间局部性</h3>
+<p>最近访问过的数据，短时间内可能再次访问。</p>
+<p>例子：循环变量。</p>
+<span class="heading-anchor" id="空间局部性"></span><h3 id="_5">空间局部性</h3>
+<p>访问某个地址后，附近地址很可能被访问。</p>
+<p>例子：数组顺序遍历。</p>
+<pre class="mermaid">flowchart LR
+  A["访问a[i]"] --&gt; B["很快再次访问a[i]"]
+  A --&gt; C["很快访问a[i+1]"]
+  B --&gt; D["时间局部性"]
+  C --&gt; E["空间局部性"]
+</pre>
+<span class="heading-anchor" id="3. Cache 基本概念"></span><h2 id="3-cache">3. Cache 基本概念</h2>
+<p>Cache 不是按单个字节缓存，而是按块 Cache Block 缓存。</p>
+<p>地址通常拆成：</p>
+<pre><code class="language-text">Tag + Index + Block Offset
+</code></pre>
+<pre class="mermaid">flowchart LR
+  A["内存地址"] --&gt; B["Tag"]
+  A --&gt; C["Index"]
+  A --&gt; D["Offset"]
+  C --&gt; E["定位Cache组"]
+  B --&gt; F["比较标记"]
+  D --&gt; G["选择块内字节"]
+</pre>
+<span class="heading-anchor" id="4. Cache 命中与缺失"></span><h2 id="4-cache">4. Cache 命中与缺失</h2>
+<pre class="mermaid">flowchart TD
+  A["CPU访问地址"] --&gt; B["查Cache"]
+  B --&gt; C{Tag匹配且Valid}
+  C -- 是 --&gt; D["Cache Hit"]
+  C -- 否 --&gt; E["Cache Miss"]
+  E --&gt; F["从下层存储取块"]
+  F --&gt; G["填入Cache"]
+</pre>
+<p>平均访问时间：</p>
+<pre><code class="language-text">AMAT = Hit Time + Miss Rate × Miss Penalty
+</code></pre>
+<span class="heading-anchor" id="5. Cache 映射方式"></span><h2 id="5-cache">5. Cache 映射方式</h2>
+<span class="heading-anchor" id="直接映射"></span><h3 id="_6">直接映射</h3>
+<p>每个内存块只能放到一个固定 Cache 行。</p>
+<p>优点：简单快。<br/>
+缺点：冲突缺失多。</p>
+<span class="heading-anchor" id="全相联"></span><h3 id="_7">全相联</h3>
+<p>任意内存块可以放到任意 Cache 行。</p>
+<p>优点：冲突少。<br/>
+缺点：比较复杂，硬件成本高。</p>
+<span class="heading-anchor" id="组相联"></span><h3 id="_8">组相联</h3>
+<p>Cache 分成若干组，每个块映射到固定组，但可放在组内任意行。</p>
+<p>这是常见折中。</p>
+<pre class="mermaid">flowchart TD
+  A["Cache映射"] --&gt; B["直接映射"]
+  A --&gt; C["全相联"]
+  A --&gt; D["组相联"]
+  B --&gt; B1["简单但冲突多"]
+  C --&gt; C1["灵活但成本高"]
+  D --&gt; D1["工程折中"]
+</pre>
+<span class="heading-anchor" id="6. 替换策略"></span><h2 id="6">6. 替换策略</h2>
+<p>当一个组满了，需要决定替换哪一行。</p>
+<p>常见策略：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>思想</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LRU</td>
+<td>替换最久未使用</td>
+</tr>
+<tr>
+<td>FIFO</td>
+<td>替换最早进入</td>
+</tr>
+<tr>
+<td>Random</td>
+<td>随机替换</td>
+</tr>
+<tr>
+<td>LFU</td>
+<td>替换最少使用</td>
+</tr>
+</tbody>
+</table></div>
+<p>硬件中严格 LRU 成本可能较高，常用近似 LRU。</p>
+<span class="heading-anchor" id="7. 写策略"></span><h2 id="7">7. 写策略</h2>
+<span class="heading-anchor" id="写直达 Write Through"></span><h3 id="write-through">写直达 Write Through</h3>
+<p>写 Cache 的同时写下层存储。</p>
+<p>优点：一致性简单。<br/>
+缺点：写流量大。</p>
+<span class="heading-anchor" id="写回 Write Back"></span><h3 id="write-back">写回 Write Back</h3>
+<p>只写 Cache，等块被替换时再写回下层。需要 dirty bit。</p>
+<p>优点：减少写流量。<br/>
+缺点：一致性复杂。</p>
+<pre class="mermaid">flowchart TD
+  A["写操作"] --&gt; B{写策略}
+  B -- 写直达 --&gt; C["Cache和内存同时更新"]
+  B -- 写回 --&gt; D["只更新Cache并置dirty"]
+  D --&gt; E["替换时写回内存"]
+</pre>
+<span class="heading-anchor" id="8. Cache 缺失类型"></span><h2 id="8-cache">8. Cache 缺失类型</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>说明</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>强制缺失</td>
+<td>第一次访问不可避免</td>
+<td>预取</td>
+</tr>
+<tr>
+<td>容量缺失</td>
+<td>Cache 太小放不下工作集</td>
+<td>增大 Cache</td>
+</tr>
+<tr>
+<td>冲突缺失</td>
+<td>多块竞争同一位置</td>
+<td>提高相联度</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9. 主存 DRAM 与 SRAM"></span><h2 id="9-dram-sram">9. 主存 DRAM 与 SRAM</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>特点</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SRAM</td>
+<td>快、贵、不需刷新</td>
+<td>Cache</td>
+</tr>
+<tr>
+<td>DRAM</td>
+<td>慢些、便宜、需刷新</td>
+<td>主存</td>
+</tr>
+</tbody>
+</table></div>
+<p>Cache 通常用 SRAM，主存通常用 DRAM。</p>
+<span class="heading-anchor" id="10. 程序局部性示例"></span><h2 id="10">10. 程序局部性示例</h2>
+<p>数组按行遍历通常比按列遍历更快，因为内存按行连续存储，更符合空间局部性。</p>
+<pre><code class="language-c">for (int i = 0; i &lt; n; ++i)
+  for (int j = 0; j &lt; m; ++j)
+    sum += a[i][j];
+</code></pre>
+<p>比下面更 Cache 友好：</p>
+<pre><code class="language-c">for (int j = 0; j &lt; m; ++j)
+  for (int i = 0; i &lt; n; ++i)
+    sum += a[i][j];
+</code></pre>
+<span class="heading-anchor" id="11. 常见坑"></span><h2 id="11">11. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>以为 Cache 由程序员手动控制</td>
+<td>通常硬件自动管理</td>
+</tr>
+<tr>
+<td>命中率高就一定快</td>
+<td>还要看命中时间和缺失代价</td>
+</tr>
+<tr>
+<td>LRU 总能最优</td>
+<td>LRU 是启发式，不总最优</td>
+</tr>
+<tr>
+<td>写回不写内存</td>
+<td>替换时仍要写回 dirty block</td>
+</tr>
+<tr>
+<td>忽略局部性</td>
+<td>访问模式会显著影响性能</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="12. 学习自检"></span><h2 id="12">12. 学习自检</h2>
+<ol>
+<li>为什么需要 Cache？</li>
+<li>时间局部性和空间局部性分别是什么？</li>
+<li>地址中的 Tag、Index、Offset 分别做什么？</li>
+<li>直接映射和组相联有什么区别？</li>
+<li>写回策略为什么需要 dirty bit？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

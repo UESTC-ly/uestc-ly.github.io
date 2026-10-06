@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>工程验收模板 · 李杨的学习笔记</title><meta name="description" content="复制本模板到项目仓库，所有结论填写证据链接或命令输出。无法验证的项目应明确写“未验证”和风险，不能默认通过。"><meta property="og:title" content="工程验收模板 · 李杨的学习笔记"><meta property="og:description" content="复制本模板到项目仓库，所有结论填写证据链接或命令输出。无法验证的项目应明确写“未验证”和风险，不能默认通过。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8a3405757d99.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8a3405757d99.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 07-综合项目</p><h1>工程验收模板</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/07-%E7%BB%BC%E5%90%88%E9%A1%B9%E7%9B%AE/03-%E5%B7%A5%E7%A8%8B%E9%AA%8C%E6%94%B6%E6%A8%A1%E6%9D%BF.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 目标与边界</a></li><li><a href="#_2">成功判据</a></li><li><a href="#_3">架构决策记录</a></li><li><a href="#2">2. 容量估算</a></li><li><a href="#3-api">3. API 与语义</a></li><li><a href="#4">4. 数据与一致性</a></li><li><a href="#_4">一致性时序</a></li><li><a href="#_5">对账设计</a></li><li><a href="#5">5. 并发与资源生命周期</a></li><li><a href="#_6">资源清单</a></li><li><a href="#6">6. 韧性设计</a></li><li><a href="#_7">失败矩阵</a></li><li><a href="#7">7. 可观测性</a></li><li><a href="#8">8. 测试证据</a></li><li><a href="#9">9. 压测证据</a></li><li><a href="#_8">性能实验对照</a></li><li><a href="#10">10. 发布与回滚</a></li><li><a href="#_9">兼容顺序</a></li><li><a href="#11">11. 安全与配置</a></li><li><a href="#12">12. 完成定义</a></li></ul></details><article class="note-content">
+<p>复制本模板到项目仓库，所有结论填写证据链接或命令输出。无法验证的项目应明确写“未验证”和风险，不能默认通过。</p>
+<span class="heading-anchor" id="1. 目标与边界"></span><h2 id="1">1. 目标与边界</h2>
+<ul>
+<li>业务目标：</li>
+<li>非目标：</li>
+<li>主要用户与流量来源：</li>
+<li>核心 SLO：</li>
+<li>数据正确性要求：</li>
+<li>隐私、安全、合规要求：</li>
+</ul>
+<span class="heading-anchor" id="成功判据"></span><h3 id="_2">成功判据</h3>
+<p>把“高性能”“高可用”“不丢消息”等模糊目标改为可验证陈述：</p>
+<ul>
+<li>在给定硬件、数据分布和并发下，成功请求的 P99、吞吐和错误率达到什么值；</li>
+<li>在依赖超时、实例退出或消息重复时，用户看到什么结果；</li>
+<li>哪些数据允许最终一致，一致窗口和自动修复目标是多少；</li>
+<li>哪类故障必须保持写入，哪类故障可以只读或快速失败；</li>
+<li>发布和灾难恢复的停止条件、RTO 与 RPO 是什么。</li>
+</ul>
+<span class="heading-anchor" id="架构决策记录"></span><h3 id="_3">架构决策记录</h3>
+<p>每个重要选择记录：上下文、候选方案、决定、理由、负面后果和重新评估条件。例如“选择 one-loop-per-thread”的理由不能只有“性能更好”，还应说明连接归属、跨线程响应、负载不均和验证数据。</p>
+<span class="heading-anchor" id="2. 容量估算"></span><h2 id="2">2. 容量估算</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>平均</th>
+<th>峰值</th>
+<th>增长假设</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>请求 QPS</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>并发连接</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>请求/响应大小</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>每日新增数据</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>消息产生速率</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>下游调用量</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>说明瓶颈预算：CPU、内存、fd、带宽、线程、连接池、分区、存储和第三方配额。</p>
+<p>容量估算要同时给出平均与峰值，并注明放大因子：副本、索引、编码、缓存、重试、协议头、分配器和安全余量。检查单实例容量、集群总容量与故障后剩余容量；正常状态刚好够用的系统无法安全滚动发布或承受单区故障。</p>
+<span class="heading-anchor" id="3. API 与语义"></span><h2 id="3-api">3. API 与语义</h2>
+<ul>
+<li>API/协议版本：</li>
+<li>鉴权与授权边界：</li>
+<li>请求和响应大小上限：</li>
+<li>幂等键及有效期：</li>
+<li>顺序保证：</li>
+<li>超时后操作是否可能继续：</li>
+<li>错误码与可重试分类：</li>
+<li>分页和一致性语义：</li>
+</ul>
+<p>补充检查：</p>
+<ul>
+<li>同一个幂等键携带不同请求体如何处理？</li>
+<li>客户端超时后查询操作状态的接口是什么？</li>
+<li>服务端取消是否传播到数据库/RPC，还是后台工作仍继续？</li>
+<li>错误码是否稳定，是否明确可重试、需修改请求或需人工介入？</li>
+<li>新旧协议/客户端共存时，未知字段、未知枚举和字段删除如何兼容？</li>
+<li>最大 header/body/批量条数/压缩后解压大小是否有上限？</li>
+</ul>
+<span class="heading-anchor" id="4. 数据与一致性"></span><h2 id="4">4. 数据与一致性</h2>
+<ul>
+<li>权威数据源：</li>
+<li>缓存模式和失效策略：</li>
+<li>数据库事务边界：</li>
+<li>跨系统双写的失败窗口：</li>
+<li>消息投递与消费语义：</li>
+<li>去重/幂等实现：</li>
+<li>补偿、对账和修复任务：</li>
+<li>Schema/协议兼容与迁移方案：</li>
+</ul>
+<span class="heading-anchor" id="一致性时序"></span><h3 id="_4">一致性时序</h3>
+<p>至少画出三个时序：正常写入、第一次副作用成功但确认失败、旧请求在超时后迟到。逐步标出数据库提交、缓存删除、消息投递、offset 提交和索引可见点。对每一个崩溃位置回答：重启后怎样检测、重试是否重复、谁负责补偿。</p>
+<span class="heading-anchor" id="对账设计"></span><h3 id="_5">对账设计</h3>
+<ul>
+<li>对账的权威数据源和扫描范围：</li>
+<li>增量游标、时间窗口与防漏扫方案：</li>
+<li>差异分类和自动修复规则：</li>
+<li>修复动作的幂等键与速率限制：</li>
+<li>无法自动修复时的告警和人工工具：</li>
+</ul>
+<span class="heading-anchor" id="5. 并发与资源生命周期"></span><h2 id="5">5. 并发与资源生命周期</h2>
+<ul>
+<li>线程/事件循环模型：</li>
+<li>状态由哪个线程或锁保护：</li>
+<li>队列、连接池、缓冲区上限：</li>
+<li>满载策略和背压路径：</li>
+<li>资源创建、转移、销毁顺序：</li>
+<li>启动、readiness、关闭、排空时序：</li>
+</ul>
+<span class="heading-anchor" id="资源清单"></span><h3 id="_6">资源清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>资源</th>
+<th>创建者</th>
+<th>使用线程</th>
+<th>所有者</th>
+<th>关闭触发</th>
+<th>最大数量</th>
+<th>泄漏指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Socket/fd</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>任务/线程</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>定时器/回调</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DB/Redis/MQ 连接</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Buffer/缓存对象</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>重点检查：回调捕获对象的生命周期、fd 复用、定时器取消与执行竞争、线程池关闭后迟到任务、连接归还池前残留事务/会话状态。</p>
+<span class="heading-anchor" id="6. 韧性设计"></span><h2 id="6">6. 韧性设计</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>总超时</th>
+<th>单次超时</th>
+<th>最大重试</th>
+<th>退避</th>
+<th>熔断/降级</th>
+<th>幂等依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>检查：重试层数是否叠加？总体截止时间是否向下游传播？限流是全局、租户还是接口维度？熔断探测如何避免同时恢复造成冲击？</p>
+<span class="heading-anchor" id="失败矩阵"></span><h3 id="_7">失败矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>故障</th>
+<th>检测信号</th>
+<th>用户结果</th>
+<th>自动动作</th>
+<th>数据风险</th>
+<th>人工动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>下游变慢</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>网络断开</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>实例重启</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>队列/池满</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>部分成功</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>配置错误</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>“自动重试”不是完整答案：要写出尝试上限、总 deadline、退避/抖动、幂等依据、重试预算和不可重试错误。</p>
+<span class="heading-anchor" id="7. 可观测性"></span><h2 id="7">7. 可观测性</h2>
+<ul>
+<li>RED：Rate、Errors、Duration。</li>
+<li>USE：Utilization、Saturation、Errors。</li>
+<li>业务指标：成功业务结果和端到端处理时间。</li>
+<li>关联字段：request/trace/user/tenant/job/document 等稳定 ID。</li>
+<li>告警：面向用户症状和 SLO，附 runbook。</li>
+<li>日志：结构化、分级、采样、脱敏和保留周期。</li>
+</ul>
+<p>每个告警都应有：用户影响、触发窗口、避免抖动的方法、关联仪表盘、第一步检查、升级路径和恢复判据。只报告 CPU/内存阈值而无法对应用户影响的告警，通常会造成噪声。</p>
+<p>为同步请求记录排队、业务、各下游和序列化耗时；为异步任务记录产生时间、入队时间、首次处理、完成和最终失败时间。只看处理函数耗时会漏掉池等待和消息积压。</p>
+<span class="heading-anchor" id="8. 测试证据"></span><h2 id="8">8. 测试证据</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>场景</th>
+<th>命令/环境</th>
+<th>结果</th>
+<th>未覆盖风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单元</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>集成</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>端到端</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>并发</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Fuzz</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>故障注入</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>安全</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>最低故障集：下游超时、连接断开、服务重启、消息重复、队列/池耗尽、磁盘或内存压力、配置错误、部分实例异常。</p>
+<p>测试报告需区分“没有复现错误”与“证明性质成立”。并发测试短时间通过不能证明无竞态；可以结合模型/不变量、TSan、长时间随机调度、故障注入和代码审查提高信心。</p>
+<span class="heading-anchor" id="9. 压测证据"></span><h2 id="9">9. 压测证据</h2>
+<ul>
+<li>服务端/客户端机器与网络：</li>
+<li>编译选项和配置：</li>
+<li>数据集大小与分布：</li>
+<li>流量模型（恒定/阶梯/突发/泊松等）：</li>
+<li>预热、持续时间和重复次数：</li>
+<li>QPS、P50/P95/P99/P99.9、错误率：</li>
+<li>CPU、RSS、网络、磁盘、上下文切换、队列和池等待：</li>
+<li>客户端是否饱和：</li>
+<li>基线对比与统计波动：</li>
+</ul>
+<p>性能优化提交要能回答：哪个证据指向瓶颈？修改改变了哪项成本？为什么正确性不受影响？复测是否使用相同条件？</p>
+<span class="heading-anchor" id="性能实验对照"></span><h3 id="_8">性能实验对照</h3>
+<ul>
+<li>一次只改变一个主要变量；如果必须同时改动，说明无法分离的原因。</li>
+<li>至少重复多轮，报告波动而不只挑最好结果。</li>
+<li>预热缓存/JIT/连接，并区分冷启动与稳定阶段。</li>
+<li>观察饱和点前后；低负载下的微小延迟差不代表高负载容量。</li>
+<li>检查吞吐提升是否通过增加内存、批量等待、错误或数据丢失换来。</li>
+</ul>
+<span class="heading-anchor" id="10. 发布与回滚"></span><h2 id="10">10. 发布与回滚</h2>
+<ul>
+<li>配置校验和密钥来源：</li>
+<li>数据库/索引迁移顺序：</li>
+<li>向前/向后兼容窗口：</li>
+<li>金丝雀指标与自动停止条件：</li>
+<li>回滚是否涉及不可逆数据变更：</li>
+<li>RTO/RPO：</li>
+<li>备份恢复最近一次演练证据：</li>
+</ul>
+<span class="heading-anchor" id="兼容顺序"></span><h3 id="_9">兼容顺序</h3>
+<p>数据库和协议演进采用 expand → migrate → contract：先增加兼容字段/结构，让新旧版本都能运行；再回填或切换流量；确认旧版本消失后才删除旧字段。回滚方案必须考虑新版本已经写入的新格式，不能只写“部署旧镜像”。</p>
+<p>滚动发布需要验证 readiness 生效与负载均衡传播时间、长连接/HTTP keep-alive/RPC stream 排空、消费者 rebalance，以及关闭截止时间。发布期间剩余实例还要承受流量和连接迁移。</p>
+<span class="heading-anchor" id="11. 安全与配置"></span><h2 id="11">11. 安全与配置</h2>
+<ul>
+<li>威胁主体、受保护资产与信任边界：</li>
+<li>身份认证、租户授权和管理员操作审计：</li>
+<li>输入大小、解析深度、反序列化与文件上传限制：</li>
+<li>TLS、证书轮换、密钥管理和最小权限：</li>
+<li>日志/trace/指标中的敏感数据分类与脱敏：</li>
+<li>依赖版本、漏洞扫描与供应链来源：</li>
+<li>配置 schema、启动校验、动态更新原子性和回滚：</li>
+</ul>
+<p>配置应区分启动期不可变参数与可动态调整参数。动态更新以完整快照校验后原子替换，避免读取到一半新一半旧；危险参数要有范围、单位和总容量校验。</p>
+<span class="heading-anchor" id="12. 完成定义"></span><h2 id="12">12. 完成定义</h2>
+<ul>
+<li>[ ] 功能和错误语义有测试。</li>
+<li>[ ] 所有容量入口有界且被监控。</li>
+<li>[ ] 超时、重试、幂等和取消边界已说明。</li>
+<li>[ ] 优雅关闭和滚动升级通过验证。</li>
+<li>[ ] 故障注入结果与恢复路径已记录。</li>
+<li>[ ] 压测可复现，结论包含尾延迟和错误率。</li>
+<li>[ ] 没有把凭据、个人信息或正文写入日志。</li>
+<li>[ ] 运维手册、告警和回滚方案可执行。</li>
+<li>[ ] 架构选择记录了候选方案、代价和重新评估条件。</li>
+<li>[ ] 数据迁移、协议兼容和旧版本回滚经过演练。</li>
+<li>[ ] 至少一次备份恢复证明实际 RTO/RPO，而不只是“存在备份”。</li>
+<li>[ ] 关键管理员和修复工具具有审计、鉴权与速率限制。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

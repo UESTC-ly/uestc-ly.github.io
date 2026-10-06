@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>大模型微调（LLM Fine-tuning）技术清单 · 李杨的学习笔记</title><meta name="description" content="这是一份为您系统整理的 大模型微调（LLM Fine-tuning）全图景知识清单 。"><meta property="og:title" content="大模型微调（LLM Fine-tuning）技术清单 · 李杨的学习笔记"><meta property="og:description" content="这是一份为您系统整理的 大模型微调（LLM Fine-tuning）全图景知识清单 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-0b944761cff3.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-0b944761cff3.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>大模型微调（LLM Fine-tuning）技术清单</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BE%AE%E8%B0%83%EF%BC%88LLM%20Fine-tuning%EF%BC%89%E6%8A%80%E6%9C%AF%E6%B8%85%E5%8D%95.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#why-what">模块一：核心概念与动机（Why &amp; What）</a></li><li><a href="#_1">模块二：微调的生命周期（三个核心阶段）</a></li><li><a href="#_2">模块三：参数更新策略（技术流派）</a></li><li><a href="#data-engineering">模块四：数据工程（Data Engineering）</a></li><li><a href="#_3">模块五：主流框架与工具</a></li><li><a href="#pitfalls">模块六：评估与常见坑点（Pitfalls）</a></li></ul></details><article class="note-content"><p>这是一份为您系统整理的<strong>大模型微调（LLM Fine-tuning）全图景知识清单</strong>。</p>
+<p>这份清单从基础概念、技术路线、数据准备到工程落地进行了结构化拆解，不仅涵盖了您前面学到的 SFT 等概念，还补充了目前工业界主流的进阶技术。</p>
+<hr/>
+<span class="heading-anchor" id="模块一：核心概念与动机（Why &amp; What）"></span><h3 id="why-what">模块一：核心概念与动机（Why &amp; What）</h3>
+<ul>
+<li>[ ] <strong>定义：</strong> 在预训练模型（Base Model）的基础上，使用特定领域的数据集进行进一步的训练，通过更新模型内部的权重参数，使其适应特定任务或对齐人类偏好。</li>
+<li>[ ] <strong>微调的动机（解决什么问题）：</strong><ul>
+<li><strong>定制化输出格式：</strong> 让模型严格按照 JSON、代码或特定模版输出。</li>
+<li><strong>语气与角色扮演：</strong> 赋予模型特定的性格、语气（如：傲娇客服、严谨律师）。</li>
+<li><strong>注入领域深层逻辑：</strong> 让模型掌握医疗诊断、法律推理等专业领域的思考方式。</li>
+<li><strong>降低推理成本：</strong> 把复杂的 Prompt（如 Few-shot 示例）内化到模型权重中，从而减少每次调用的 Token 消耗。</li>
+</ul>
+</li>
+<li>[ ] <strong>边界认知（微调 vs RAG）：</strong><ul>
+<li><strong>微调（Fine-tuning）：</strong> 适合教模型<strong>“怎么做”（能力与格式）</strong>。</li>
+<li><strong>检索增强生成（RAG）：</strong> 适合给模型补充<strong>“是什么”（外部实时知识与事实）</strong>。</li>
+<li><em>业界最佳实践：通常是微调 + RAG 结合使用。</em></li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="模块二：微调的生命周期（三个核心阶段）"></span><h3 id="_1">模块二：微调的生命周期（三个核心阶段）</h3>
+<p>大模型的后训练（Post-training）通常包含以下阶段：</p>
+<ul>
+<li>[ ] <strong>1. 增量预训练 (Continual Pre-Training, CPT / DAPT)：</strong><ul>
+<li><strong>目的：</strong> 给模型注入海量垂直领域的专业知识（如大量医学论文、法律条文）。</li>
+<li><strong>数据形式：</strong> 无监督的纯文本（与预训练阶段类似）。</li>
+</ul>
+</li>
+<li>[ ] <strong>2. 监督微调 (Supervised Fine-Tuning, SFT)：</strong><ul>
+<li><strong>目的：</strong> 教会模型听懂人类的指令（Instruction Tuning），把知识转化为一问一答的能力。</li>
+<li><strong>数据形式：</strong> 高质量的“指令-输入-输出”（Prompt-Response）对话对。</li>
+</ul>
+</li>
+<li>[ ] <strong>3. 人类偏好对齐 (Alignment)：</strong><ul>
+<li><strong>目的：</strong> 消除有害输出，让模型的回答更符合人类价值观和偏好（例如：更有礼貌、不拒绝回答安全问题、不产生幻觉）。</li>
+<li><strong>主流技术 1 - RLHF：</strong> 基于人类反馈的强化学习（训练奖励模型 + PPO 算法更新，流程复杂）。</li>
+<li><strong>主流技术 2 - DPO (Direct Preference Optimization)：</strong> 直接偏好优化（目前开源界最火，跳过了奖励模型，直接用“好回答”和“坏回答”的数据对进行训练，成本低且稳定）。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="模块三：参数更新策略（技术流派）"></span><h3 id="_2">模块三：参数更新策略（技术流派）</h3>
+<p>根据“到底要更新多少参数”，微调分为两派：</p>
+<ul>
+<li>[ ] <strong>1. 全参微调 (Full Fine-Tuning, FFT)：</strong><ul>
+<li>更新模型的所有参数（权重）。</li>
+<li><strong>特点：</strong> 效果天花板最高，但极其昂贵，需要庞大的 GPU 算力集群，容易发生“灾难性遗忘”。</li>
+</ul>
+</li>
+<li>[ ] <strong>2. 参数高效微调 (Parameter-Efficient Fine-Tuning, PEFT)：</strong><ul>
+<li>冻结原始模型的大部分参数，只训练极小部分（通常 &lt; 1%）的新增参数。目前个人开发者和中小企业的<strong>绝对主流</strong>。</li>
+<li><strong>LoRA (Low-Rank Adaptation)：</strong> 最核心的 PEFT 技术。通过在模型的线性层旁边增加旁路（降维再升维的矩阵），只训练这个旁路。</li>
+<li><strong>QLoRA：</strong> LoRA 的进阶版，结合了量化技术（Quantization）。把基座模型压缩到 4-bit 精度加载，然后在上面跑 LoRA，单张消费级显卡（如 RTX 4090）就能微调百亿参数模型。</li>
+<li><strong>P-Tuning / Prefix Tuning：</strong> 不改变模型权重，而是在输入的 Prompt 层面增加可训练的连续向量（Soft Prompt）。</li>
+<li><strong>Adapter：</strong> 在 Transformer 的网络层之间插入小型的可训练前馈网络。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="模块四：数据工程（Data Engineering）"></span><h3 id="data-engineering">模块四：数据工程（Data Engineering）</h3>
+<p>在微调中，“Garbage in, garbage out（垃圾进，垃圾出）”是铁律。数据质量比数量重要得多（<em>LIMA 论文证明：1000条极高质量数据胜过几十万条劣质数据</em>）。</p>
+<ul>
+<li>[ ] <strong>数据格式标准：</strong><ul>
+<li><strong>Alpaca 格式：</strong> 包含 <code>instruction</code> (指令), <code>input</code> (上下文补充), <code>output</code> (预期回答)。</li>
+<li><strong>ShareGPT 格式：</strong> 更适合多轮对话的数据格式。</li>
+</ul>
+</li>
+<li>[ ] <strong>数据构建方法：</strong><ul>
+<li><strong>人工标注：</strong> 成本最高，质量最好。</li>
+<li><strong>Self-Instruct (蒸馏)：</strong> 利用 GPT-4 或 Claude 3 等最顶尖的闭源模型，自动生成提问和回答，用来训练自己的小模型（目前开源界广泛采用）。</li>
+</ul>
+</li>
+<li>[ ] <strong>数据清洗：</strong> 去重、去除格式错误、过滤有害内容、控制文本长度分布。</li>
+</ul>
+<span class="heading-anchor" id="模块五：主流框架与工具"></span><h3 id="_3">模块五：主流框架与工具</h3>
+<ul>
+<li>[ ] <strong>核心代码库：</strong><ul>
+<li><strong>Hugging Face 生态：</strong> <code>Transformers</code> (基座), <code>PEFT</code> (LoRA等实现), <code>TRL</code> (SFT/RLHF/DPO算法库), <code>Datasets</code> (数据加载)。</li>
+</ul>
+</li>
+<li>[ ] <strong>分布式训练加速框架（多卡必用）：</strong><ul>
+<li><strong>DeepSpeed (微软)：</strong> 核心是 ZeRO 优化技术，通过显存切分大幅降低多卡训练的显存占用。</li>
+<li><strong>FSDP (PyTorch原生)：</strong> 全称 Fully Sharded Data Parallel，类似 ZeRO3。</li>
+<li><strong>Megatron-LM (Nvidia)：</strong> 适用于千亿参数以上极大规模集群训练。
+<em>[ ] </em><em>低代码/可视化微调工具（新手推荐）：</em>*</li>
+<li><strong>LLaMA-Factory：</strong> 目前国内/GitHub 最火爆的开源项目。提供 Web UI 界面，只需点点鼠标、传个数据集就能完成上述所有复杂流程（支持百种大模型和QLoRA等技术）。</li>
+<li><strong>Swift (ModelScope社区)：</strong> 阿里推出的轻量级微调框架。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="模块六：评估与常见坑点（Pitfalls）"></span><h3 id="pitfalls">模块六：评估与常见坑点（Pitfalls）</h3>
+<ul>
+<li>[ ] <strong>如何评估微调效果？</strong><ul>
+<li><strong>传统 NLP 指标：</strong> BLEU, ROUGE, Perplexity (困惑度) —— <em>目前已逐渐被边缘化，因为无法真实反映大模型对话质量。</em></li>
+<li><strong>客观 Benchmark 跑分：</strong> C-Eval (中文能力), MMLU (英文综合), HumanEval (代码) —— <em>防止模型微调后变成只会干一件事的“傻子”。</em></li>
+<li><strong>LLM-as-a-judge：</strong> 让 GPT-4 作为裁判，给微调模型和基座模型的回答打分盲测。
+<em>[ ] </em><em>必须警惕的坑点：</em>*</li>
+<li><strong>灾难性遗忘 (Catastrophic Forgetting)：</strong> 模型学会了垂直领域知识，却忘记了原本的通用常识（比如变成了写代码高手，但连简单的翻译都不会了）。<em>对策：在微调数据中掺杂一定比例的通用域预训练数据。</em></li>
+<li><strong>过拟合 (Overfitting)：</strong> 训练轮数（Epoch）过多或数据量太少，导致模型死记硬背了训练集，对没见过的问题胡言乱语。</li>
+<li><strong>格式崩溃：</strong> 微调破坏了基座模型原本良好的对话模版（Chat Template）。</li>
+</ul>
+</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

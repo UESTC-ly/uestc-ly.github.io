@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09-IO系统与设备管理 · 李杨的学习笔记</title><meta name="description" content="I/O 是应用和外部世界交互的通道。本章讲设备抽象、阻塞/非阻塞 I/O、epoll、DMA、零拷贝。重点不是背接口，而是理解数据如何从应用到内核、再到设备。"><meta property="og:title" content="09-IO系统与设备管理 · 李杨的学习笔记"><meta property="og:description" content="I/O 是应用和外部世界交互的通道。本章讲设备抽象、阻塞/非阻塞 I/O、epoll、DMA、零拷贝。重点不是背接口，而是理解数据如何从应用到内核、再到设备。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-2c832e7e2110.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-2c832e7e2110.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>09-IO系统与设备管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/09-IO%E7%B3%BB%E7%BB%9F%E4%B8%8E%E8%AE%BE%E5%A4%87%E7%AE%A1%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">设备抽象</a></li><li><a href="#io">一次读文件的 I/O 路径</a></li><li><a href="#io-io">阻塞 I/O 和非阻塞 I/O</a></li><li><a href="#io-io_1">同步 I/O 和异步 I/O</a></li><li><a href="#io_1">I/O 多路复用</a></li><li><a href="#epoll-lt-et">epoll 的 LT 和 ET</a></li><li><a href="#_3">背压</a></li><li><a href="#dma">DMA</a></li><li><a href="#_4">零拷贝</a></li><li><a href="#_5">实践任务</a></li><li><a href="#_6">自测题</a></li><li><a href="#_7">补充深入讲解</a></li><li><a href="#io_2">从零开始理解：I/O 慢通常慢在哪里</a></li><li><a href="#epoll">epoll 不是异步魔法</a></li><li><a href="#_8">为什么需要背压</a></li><li><a href="#_9">零拷贝的适用边界</a></li><li><a href="#_10">进一步案例：为什么异步日志能提升性能</a></li><li><a href="#epoll_1">进一步案例：epoll 事件循环为什么怕阻塞任务</a></li><li><a href="#_11">思维导图</a></li><li><a href="#1">1. 一次读文件路径</a></li><li><a href="#2-io">2. IO 模型区分</a></li><li><a href="#3-epoll">3. epoll 与背压</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>I/O 是应用和外部世界交互的通道。本章讲设备抽象、阻塞/非阻塞 I/O、epoll、DMA、零拷贝。重点不是背接口，而是理解数据如何从应用到内核、再到设备。</p>
+<span class="heading-anchor" id="设备抽象"></span><h2 id="_2">设备抽象</h2>
+<p>Linux 把很多设备抽象为文件：</p>
+<ul>
+<li>字符设备：终端、串口，按字节流访问。</li>
+<li>块设备：磁盘、SSD，按块访问。</li>
+<li>网络设备：通过 socket 和协议栈访问。</li>
+</ul>
+<p>设备驱动负责把内核通用接口翻译成具体硬件操作。</p>
+<span class="heading-anchor" id="一次读文件的 I/O 路径"></span><h2 id="io">一次读文件的 I/O 路径</h2>
+<pre><code class="language-text">应用 read(fd)
+  → 系统调用进入内核
+  → VFS 找到文件对象
+  → 查页缓存
+  → 命中：复制到用户缓冲区
+  → 未命中：构造块 I/O 请求
+  → 块层合并/调度请求
+  → 驱动提交给设备
+  → DMA 把数据读入内存
+  → 中断通知完成
+  → 唤醒等待进程
+</code></pre>
+<p>这条路径中，页缓存命中和未命中性能差距巨大。</p>
+<span class="heading-anchor" id="阻塞 I/O 和非阻塞 I/O"></span><h2 id="io-io">阻塞 I/O 和非阻塞 I/O</h2>
+<p>阻塞 I/O：数据没准备好时，线程睡眠等待。</p>
+<p>非阻塞 I/O：数据没准备好时立即返回错误，例如 <code>EAGAIN</code>。</p>
+<p>非阻塞不等于更快，它只是避免线程被挂住。应用需要事件循环或轮询机制处理“稍后再试”。</p>
+<span class="heading-anchor" id="同步 I/O 和异步 I/O"></span><h2 id="io-io_1">同步 I/O 和异步 I/O</h2>
+<p>同步/异步关注完成方式：</p>
+<ul>
+<li>同步 I/O：应用发起操作，并在某个时刻自己完成读写。</li>
+<li>异步 I/O：应用提交请求，内核或运行时完成后通知。</li>
+</ul>
+<p><code>epoll + nonblocking socket</code> 常是同步非阻塞；io_uring 更接近提交/完成队列式异步模型。</p>
+<span class="heading-anchor" id="I/O 多路复用"></span><h2 id="io_1">I/O 多路复用</h2>
+<p>一个线程如何管理很多连接？不能为每个连接都阻塞等待，所以需要多路复用。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>select</td>
+<td>fd 集合大小有限，每次复制和扫描</td>
+</tr>
+<tr>
+<td>poll</td>
+<td>数组形式，无固定小上限，但仍线性扫描</td>
+</tr>
+<tr>
+<td>epoll</td>
+<td>内核维护兴趣集合，返回就绪事件</td>
+</tr>
+</tbody>
+</table></div>
+<p>epoll 适合大量 socket 且活跃比例低的场景。</p>
+<span class="heading-anchor" id="epoll 的 LT 和 ET"></span><h2 id="epoll-lt-et">epoll 的 LT 和 ET</h2>
+<p>LT 水平触发：只要 fd 仍就绪，就反复通知。简单可靠。</p>
+<p>ET 边缘触发：状态从未就绪变为就绪时通知一次。通知少，但必须读/写到 <code>EAGAIN</code>，否则可能卡住。</p>
+<p>ET 模式要求：</p>
+<ul>
+<li>fd 设置非阻塞。</li>
+<li>循环读取直到 EAGAIN。</li>
+<li>正确维护应用层缓冲区。</li>
+</ul>
+<span class="heading-anchor" id="背压"></span><h2 id="_3">背压</h2>
+<p>非阻塞 I/O 不能解决处理能力不足。如果应用读得太快、处理太慢，内存队列会不断增长。</p>
+<p>背压机制包括：</p>
+<ul>
+<li>限制队列长度。</li>
+<li>暂停读事件。</li>
+<li>限流或拒绝请求。</li>
+<li>根据下游能力调节上游速率。</li>
+</ul>
+<p>没有背压的高并发系统可能把阻塞问题变成内存爆炸和尾延迟问题。</p>
+<span class="heading-anchor" id="DMA"></span><h2 id="dma">DMA</h2>
+<p>DMA 允许设备直接读写内存，减少 CPU 搬运数据。磁盘、网卡都大量依赖 DMA。</p>
+<p>但 DMA 需要 IOMMU 做安全隔离，避免设备访问不该访问的内存。</p>
+<span class="heading-anchor" id="零拷贝"></span><h2 id="_4">零拷贝</h2>
+<p>传统文件发送：</p>
+<pre><code class="language-text">磁盘 → 页缓存 → 用户缓冲区 → socket 缓冲区 → 网卡
+</code></pre>
+<p>零拷贝减少用户态/内核态之间的数据复制。常见技术：</p>
+<ul>
+<li><code>sendfile</code>：文件直接发送到 socket。</li>
+<li><code>mmap</code>：文件映射到用户地址空间。</li>
+<li><code>splice</code>：内核缓冲区之间移动数据。</li>
+<li>DMA scatter-gather。</li>
+</ul>
+<p>大文件下载服务器适合使用 sendfile，但如果要 TLS 加密、动态压缩、内容改写，零拷贝路径会受限制。</p>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_5">实践任务</h2>
+<pre><code class="language-bash">strace -e trace=read,write,openat,close ls &gt;/tmp/ls.out
+ss -lntp
+ulimit -n
+</code></pre>
+<p>观察系统调用和 fd 限制。</p>
+<span class="heading-anchor" id="自测题"></span><h2 id="_6">自测题</h2>
+<ol>
+<li>阻塞和同步有什么区别？</li>
+<li>epoll 解决的到底是什么问题？</li>
+<li>ET 模式为什么必须读到 EAGAIN？</li>
+<li>零拷贝减少了哪些复制？</li>
+<li>为什么非阻塞系统仍然需要背压？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_7">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：I/O 慢通常慢在哪里"></span><h2 id="io_2">从零开始理解：I/O 慢通常慢在哪里</h2>
+<p>I/O 慢可能慢在很多层：应用频繁小读写、系统调用太多、页缓存未命中、块层队列拥塞、设备本身慢、网络缓冲区满、下游不读数据。不要只说“磁盘慢”或“网络慢”。</p>
+<p>一次 read 如果命中页缓存，就是内存拷贝；如果未命中，就可能等待磁盘。两者差距巨大。</p>
+<span class="heading-anchor" id="epoll 不是异步魔法"></span><h2 id="epoll">epoll 不是异步魔法</h2>
+<p>epoll 只告诉你“哪些 fd 现在可能可读/可写”。它不帮你处理业务，也不让磁盘或网络变快。应用仍然要调用 read/write，仍然要处理半包、缓冲区、错误和背压。</p>
+<p>高并发服务真正难的是：事件到来后，如何不让慢请求、慢下游、慢磁盘拖垮整个事件循环。</p>
+<span class="heading-anchor" id="为什么需要背压"></span><h2 id="_8">为什么需要背压</h2>
+<p>如果 socket 可读，你一直读，但业务处理不过来，数据会堆到内存队列里。非阻塞系统不会卡在线程上，但可能卡在内存上。背压就是告诉上游“我处理不过来了”，通过暂停读、限流、拒绝、降级等方式保护系统。</p>
+<span class="heading-anchor" id="零拷贝的适用边界"></span><h2 id="_9">零拷贝的适用边界</h2>
+<p>sendfile 适合静态文件发送，因为数据不需要被应用修改。如果需要压缩、加密、模板渲染，数据必须经过 CPU 处理，零拷贝收益会下降。理解适用边界比背概念更重要。</p>
+<span class="heading-anchor" id="进一步案例：为什么异步日志能提升性能"></span><h2 id="_10">进一步案例：为什么异步日志能提升性能</h2>
+<p>同步写日志时，请求线程可能频繁 write 或 fsync，直接增加请求延迟。异步日志把日志放入内存队列，由后台线程批量写入，减少系统调用和磁盘同步次数。</p>
+<p>风险是队列满时怎么办：阻塞业务、丢弃日志，还是降级？进程崩溃时队列中日志可能丢失。因此关键审计日志和普通访问日志的策略应该不同。</p>
+<span class="heading-anchor" id="进一步案例：epoll 事件循环为什么怕阻塞任务"></span><h2 id="epoll_1">进一步案例：epoll 事件循环为什么怕阻塞任务</h2>
+<p>如果事件循环线程处理一个事件时执行了慢 SQL、同步文件读写或复杂 CPU 计算，它就无法及时处理其他连接。即使 epoll 很高效，事件循环也被业务阻塞了。常见做法是：事件循环只做轻量 I/O，耗时任务交给 worker 池，并配合队列长度和背压。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_11">思维导图</h2>
+<blockquote>
+<p>记忆建议：IO 重点分清“等待方式、完成语义、数据路径”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 一次读文件路径"></span><h3 id="1">1. 一次读文件路径</h3>
+<pre class="mermaid">flowchart LR
+  A["read系统调用"] --&gt; B{"页缓存命中"}
+  B --&gt;|命中| C["复制到用户缓冲区"]
+  B --&gt;|未命中| D["文件系统定位块"]
+  D --&gt; E["块层提交请求"]
+  E --&gt; F["设备DMA到内存"]
+  F --&gt; G["中断或轮询完成"]
+  G --&gt; C
+</pre>
+<span class="heading-anchor" id="2. IO 模型区分"></span><h3 id="2-io">2. IO 模型区分</h3>
+<pre class="mermaid">mindmap
+  root((IO模型))
+    阻塞IO
+      调用线程等待完成
+    非阻塞IO
+      立即返回EAGAIN
+    IO多路复用
+      select poll epoll
+      等待多个fd就绪
+    异步IO
+      提交后由内核通知完成
+</pre>
+<span class="heading-anchor" id="3. epoll 与背压"></span><h3 id="3-epoll">3. epoll 与背压</h3>
+<pre class="mermaid">flowchart TD
+  A["epoll等待fd就绪"] --&gt; B["事件循环处理读写"]
+  B --&gt; C{"处理是否太慢"}
+  C --&gt;|否| D["继续等待下一批事件"]
+  C --&gt;|是| E["缓冲区堆积"]
+  E --&gt; F["接收窗口变小或写返回EAGAIN"]
+  F --&gt; G["背压传递给上游"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

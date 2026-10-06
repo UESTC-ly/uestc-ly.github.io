@@ -1,0 +1,29 @@
+%% D01
+%% 标题：RAG 端到端流程
+%% 教学问题：一个问题怎样经过检索、上下文构造和回答，最终带着引用位置返回？
+%% 阅读顺序：先看“准备知识”，再从“用户查询”沿实线向右，最后检查虚线失败路径。
+%% 验证状态：static-checked；未渲染，当前环境没有 mmdc。
+flowchart LR
+    subgraph Build["准备知识"]
+        corpus["本地语料 Corpus"] --> chunks["文本块 Chunk 与来源位置"]
+        chunks --> doc_vectors["确定性嵌入向量 Embedding"]
+    end
+
+    subgraph Ask["回答问题"]
+        query["用户查询"] --> validate["校验查询"]
+        validate --> query_vector["确定性查询向量"]
+        query_vector --> score["计算相似度"]
+        doc_vectors --> score
+        score --> topk["Top-K 检索"]
+        topk --> context["上下文：不可信数据区"]
+        context --> prompt["Prompt：规则、问题、上下文分隔"]
+        prompt --> answer["生成或无答案"]
+        topk --> citations["引用位置"]
+        answer --> output["回答与引用位置"]
+        citations --> output
+    end
+
+    corpus -. "空语料" .-> no_answer["明确错误或无答案"]
+    validate -. "空查询" .-> no_answer
+    query_vector -. "零向量" .-> no_answer
+    topk -. "K 超过块数量时只返回现有候选" .-> context

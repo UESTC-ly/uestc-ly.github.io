@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-分布式事务与最终一致性 · 李杨的学习笔记</title><meta name="description" content="当一个业务操作跨越多个服务或多个数据库时，本地 ACID 事务无法覆盖全部状态。例如下单同时涉及订单库、库存库、账户库和消息系统。"><meta property="og:title" content="05-分布式事务与最终一致性 · 李杨的学习笔记"><meta property="og:description" content="当一个业务操作跨越多个服务或多个数据库时，本地 ACID 事务无法覆盖全部状态。例如下单同时涉及订单库、库存库、账户库和消息系统。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-66917d2438e8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-66917d2438e8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>05-分布式事务与最终一致性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/05-%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1%E4%B8%8E%E6%9C%80%E7%BB%88%E4%B8%80%E8%87%B4%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">为什么需要分布式事务</a></li><li><a href="#2pc">2PC</a></li><li><a href="#tcc">TCC</a></li><li><a href="#saga">Saga</a></li><li><a href="#outbox">Outbox</a></li><li><a href="#cdc-outbox">CDC、事务消息与 Outbox 取舍</a></li><li><a href="#_4">补偿、对账与用户可见状态</a></li><li><a href="#_5">工程实践/案例</a></li><li><a href="#_6">常见误区</a></li><li><a href="#_7">自测题</a></li><li><a href="#_8">实践任务</a></li><li><a href="#_9">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解本地事务、分布式事务和业务一致性的区别。</li>
+<li>掌握 2PC、TCC、Saga、Outbox 的适用场景和代价。</li>
+<li>能设计最终一致链路中的重试、补偿、幂等和对账。</li>
+<li>能明确理论保证、工程假设和实现取舍。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="为什么需要分布式事务"></span><h3 id="_3">为什么需要分布式事务</h3>
+<p>当一个业务操作跨越多个服务或多个数据库时，本地 ACID 事务无法覆盖全部状态。例如下单同时涉及订单库、库存库、账户库和消息系统。</p>
+<p>核心矛盾是：强一致需要协调，协调会增加延迟、阻塞和故障面；最终一致牺牲中间状态一致性，换取可用性和解耦。</p>
+<span class="heading-anchor" id="2PC"></span><h3 id="2pc">2PC</h3>
+<p>两阶段提交包括 prepare 和 commit/rollback。</p>
+<pre class="mermaid">sequenceDiagram
+  participant C as 协调者
+  participant A as 参与者A
+  participant B as 参与者B
+  C-&gt;&gt;A: prepare
+  C-&gt;&gt;B: prepare
+  A--&gt;&gt;C: yes
+  B--&gt;&gt;C: yes
+  C-&gt;&gt;A: commit
+  C-&gt;&gt;B: commit
+</pre>
+<p>理论保证：在协调者和参与者正确记录日志并最终恢复的前提下，所有参与者最终提交或回滚。</p>
+<p>工程假设：参与者可以长时间锁定资源，协调者可恢复，网络最终恢复。</p>
+<p>实现取舍：强一致较好，但阻塞、锁持有时间长，协调者是关键依赖。</p>
+<p>故障时序：</p>
+<pre><code class="language-text">T1: 协调者发送 prepare，参与者 A/B 写入 prepare 日志并锁资源
+T2: A/B 都返回 yes
+T3: 协调者写 commit 决议后宕机，部分参与者未收到 commit
+T4: 参与者恢复后发现自己处于 prepared，不知道全局决议
+T5: 需要查询协调者日志或等待恢复，否则资源可能长时间阻塞
+</code></pre>
+<p>所以 2PC 的问题不是“没有一致性”，而是在故障时可能阻塞，并把参与者资源锁持有时间暴露给协调者和网络可用性。</p>
+<span class="heading-anchor" id="TCC"></span><h3 id="tcc">TCC</h3>
+<p>TCC 把业务操作拆成 Try、Confirm、Cancel。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>作用</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Try</td>
+<td>预留资源</td>
+<td>冻结余额、预占库存</td>
+</tr>
+<tr>
+<td>Confirm</td>
+<td>确认使用资源</td>
+<td>扣余额、确认库存扣减</td>
+</tr>
+<tr>
+<td>Cancel</td>
+<td>释放预留资源</td>
+<td>解冻余额、释放库存</td>
+</tr>
+</tbody>
+</table></div>
+<p>TCC 的难点在业务建模：Confirm 和 Cancel 必须幂等，Cancel 可能先于 Try 到达，需要处理空回滚；Try 成功后重复 Try 要防悬挂。</p>
+<p>TCC 状态表至少要记录事务 ID、分支 ID、业务 key、Try 资源、当前状态、版本、过期时间和最后错误。Confirm/Cancel 不能只依赖“有没有记录”，还要按状态机转移。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>含义</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空回滚</td>
+<td>Cancel 先于 Try 到达</td>
+<td>记录 cancel 状态，后续 Try 拒绝</td>
+</tr>
+<tr>
+<td>悬挂</td>
+<td>Cancel 后 Try 又成功</td>
+<td>Try 检查全局事务状态</td>
+</tr>
+<tr>
+<td>幂等</td>
+<td>Confirm/Cancel 重复到达</td>
+<td>唯一约束 + 状态机返回已有结果</td>
+</tr>
+<tr>
+<td>资源冻结</td>
+<td>Try 成功后长期不确认</td>
+<td>超时扫描和 Cancel 补偿</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Saga"></span><h3 id="saga">Saga</h3>
+<p>Saga 把长事务拆成一系列本地事务，每步失败时执行补偿动作。</p>
+<pre class="mermaid">flowchart LR
+  A["创建订单"] --&gt; B["扣库存"]
+  B --&gt; C["扣余额"]
+  C --&gt; D["发货"]
+  C -- 失败 --&gt; E["补偿库存"]
+  E --&gt; F["取消订单"]
+</pre>
+<p>理论保证：Saga 不保证隔离性，只保证通过补偿达到业务可接受状态。</p>
+<p>工程假设：补偿动作可执行、可重试、幂等，且业务允许中间态暴露。</p>
+<p>实现取舍：可用性和解耦更好，但需要复杂状态机、补偿和对账。</p>
+<span class="heading-anchor" id="Outbox"></span><h3 id="outbox">Outbox</h3>
+<p>Outbox 解决“数据库更新成功但消息发送失败”的原子性问题。业务数据和待发送消息写入同一个本地事务，异步投递器再读取 outbox 表发送消息。</p>
+<pre class="mermaid">flowchart TD
+  A["本地事务"] --&gt; B["写业务表"]
+  A --&gt; C["写 outbox 表"]
+  C --&gt; D["投递器扫描"]
+  D --&gt; E["发送 MQ"]
+  E --&gt; F["标记 sent"]
+  E -- 失败 --&gt; D
+</pre>
+<p>Outbox 通常提供至少一次投递，因此消费者必须幂等。</p>
+<span class="heading-anchor" id="CDC、事务消息与 Outbox 取舍"></span><h3 id="cdc-outbox">CDC、事务消息与 Outbox 取舍</h3>
+<p>CDC 从数据库变更日志中捕获事件，减少业务代码显式写 outbox 的侵入；事务消息由消息系统提供半消息和确认机制；Outbox 则把业务表和消息表放进同一个本地事务。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Outbox</td>
+<td>语义清晰，业务可控</td>
+<td>需要投递器、清理和去重</td>
+</tr>
+<tr>
+<td>CDC</td>
+<td>对业务代码侵入低</td>
+<td>依赖 binlog/log 配置和消费位点</td>
+</tr>
+<tr>
+<td>事务消息</td>
+<td>对消息投递友好</td>
+<td>依赖特定 MQ 语义，仍需业务幂等</td>
+</tr>
+<tr>
+<td>本地事务 + 直接发 MQ</td>
+<td>简单</td>
+<td>DB 成功 MQ 失败会丢事件</td>
+</tr>
+</tbody>
+</table></div>
+<p>无论哪种方案，消费者都要按业务 key 幂等，事件要有 schema 版本、事件 ID、发生时间、聚合根版本和可重放语义。</p>
+<span class="heading-anchor" id="补偿、对账与用户可见状态"></span><h3 id="_4">补偿、对账与用户可见状态</h3>
+<p>最终一致系统要让用户看到可解释状态，而不是把中间态伪装成成功。例如订单可显示“处理中”“库存确认中”“支付待确认”“已取消退款中”。后台通过重试、死信、补偿和对账推动收敛。</p>
+<p>观测指标：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>outbox backlog/最大年龄</td>
+<td>消息是否积压</td>
+</tr>
+<tr>
+<td>投递成功率/重试次数</td>
+<td>MQ 或消费者健康</td>
+</tr>
+<tr>
+<td>死信数量</td>
+<td>需要人工或自动补偿的事件</td>
+</tr>
+<tr>
+<td>状态机卡住数量</td>
+<td>业务流程收敛风险</td>
+</tr>
+<tr>
+<td>对账差异数</td>
+<td>跨服务数据不一致规模</td>
+</tr>
+<tr>
+<td>补偿成功率</td>
+<td>恢复能力</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_5">工程实践/案例</h2>
+<p>下单链路的一种最终一致设计：</p>
+<ol>
+<li>订单服务本地事务创建订单和 outbox 消息。</li>
+<li>消息投递到库存服务，库存服务按订单号幂等预扣库存。</li>
+<li>库存成功后发送库存确认事件。</li>
+<li>订单服务收到事件后推进状态。</li>
+<li>定时任务扫描超时订单并取消，库存服务释放预扣库存。</li>
+<li>对账任务比较订单、库存流水和支付流水。</li>
+</ol>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>一致性</th>
+<th>可用性</th>
+<th>开发成本</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2PC</td>
+<td>强</td>
+<td>较低</td>
+<td>中高</td>
+<td>内部数据库、短事务</td>
+</tr>
+<tr>
+<td>TCC</td>
+<td>强业务约束</td>
+<td>中</td>
+<td>高</td>
+<td>金融、库存预占</td>
+</tr>
+<tr>
+<td>Saga</td>
+<td>最终一致</td>
+<td>高</td>
+<td>高</td>
+<td>长流程、多服务</td>
+</tr>
+<tr>
+<td>Outbox</td>
+<td>消息最终一致</td>
+<td>高</td>
+<td>中</td>
+<td>事件驱动、异步通知</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_6">常见误区</h2>
+<ul>
+<li>
+<p>误区：分布式事务就是 2PC。<br/>
+  修正：2PC 只是一个方案，业务上更常见的是 TCC、Saga、Outbox 和对账。</p>
+</li>
+<li>
+<p>误区：最终一致性不需要事务。<br/>
+  修正：每一步本地状态变化仍应使用本地事务保证原子性。</p>
+</li>
+<li>
+<p>误区：消息队列能自动保证业务一致。<br/>
+  修正：队列通常只保证投递语义，业务仍需幂等、状态机、补偿和对账。</p>
+</li>
+<li>
+<p>误区：补偿就是反向 SQL。<br/>
+  修正：补偿是业务动作，可能不是严格逆操作，例如退款而不是删除支付记录。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_7">自测题</h2>
+<ol>
+<li>2PC 为什么可能阻塞？协调者崩溃时会发生什么？</li>
+<li>TCC 的空回滚、悬挂、幂等分别是什么意思？</li>
+<li>Saga 为什么不提供隔离性？会带来哪些业务问题？</li>
+<li>Outbox 为什么要求消费者幂等？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_8">实践任务</h2>
+<p>为“下单、扣库存、扣优惠券、发积分”设计最终一致方案。要求写出每个服务的本地事务、消息、幂等键、补偿动作、对账任务和用户可见状态。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_9">延伸阅读</h2>
+<ul>
+<li>Pat Helland, <a href="https://www.cidrdb.org/cidr2007/papers/cidr07p15.pdf">Life beyond Distributed Transactions</a>。</li>
+<li>Microservices.io：<a href="https://microservices.io/patterns/data/saga.html">Saga</a> 与 <a href="https://microservices.io/patterns/data/transactional-outbox.html">Transactional Outbox</a>。</li>
+<li>Martin Fowler：<a href="https://martinfowler.com/articles/patterns-of-distributed-systems/saga.html">Saga</a>。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

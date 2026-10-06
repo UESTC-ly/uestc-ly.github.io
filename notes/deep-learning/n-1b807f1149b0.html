@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04 深度学习视觉基础 · 李杨的学习笔记</title><meta name="description" content="一张彩色图像通常从 H x W x C 的数组开始，例如 224 x 224 x 3 。进入深度学习框架后，常见批量格式是："><meta property="og:title" content="04 深度学习视觉基础 · 李杨的学习笔记"><meta property="og:description" content="一张彩色图像通常从 H x W x C 的数组开始，例如 224 x 224 x 3 。进入深度学习框架后，常见批量格式是："><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-1b807f1149b0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-1b807f1149b0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>04 深度学习视觉基础</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/04_%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E8%A7%86%E8%A7%89%E5%9F%BA%E7%A1%80.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#1">1. 图像张量：模型输入的真实形态</a></li><li><a href="#2">2. 表示学习：从像素到可分特征</a></li><li><a href="#3">3. 卷积：局部连接与权重共享</a></li><li><a href="#4">4. 特征图与感受野</a></li><li><a href="#5">5. 池化、激活与非线性</a></li><li><a href="#6-batchnorm">6. BatchNorm：训练和推理不是一回事</a></li><li><a href="#7">7. 任务头、损失与反向传播</a></li><li><a href="#8">8. 推理与后处理</a></li><li><a href="#9">9. 面试问答与速记</a></li><li><a href="#_2">本章检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>从图像张量的形状、数值范围和归一化开始，理解视觉模型到底在处理什么。</li>
+<li>串起“图像张量 -&gt; 表示学习 -&gt; 特征提取 -&gt; 任务头 -&gt; 损失训练 -&gt; 推理/后处理”的完整链路。</li>
+<li>掌握卷积、池化、激活、BN、反向传播的直觉、公式、尺寸计算和常见工程陷阱。</li>
+<li>从 <a href="n-fb54133d36f3.html">传统分割、形态学与人工特征</a> 过渡到自动表示学习，并为后续 <a href="n-f8e94e3eeaca.html">CNN 到 ResNet 的架构演进</a> 与 <a href="n-cbc6fa0141f0.html">多尺度特征与 YOLO 检测链路</a> 打基础。</li>
+</ul>
+<span class="heading-anchor" id="1. 图像张量：模型输入的真实形态"></span><h2 id="1">1. 图像张量：模型输入的真实形态</h2>
+<p>一张彩色图像通常从 <code>H x W x C</code> 的数组开始，例如 <code>224 x 224 x 3</code>。进入深度学习框架后，常见批量格式是：</p>
+<ul>
+<li>PyTorch: <code>N x C x H x W</code></li>
+<li>TensorFlow/Keras: <code>N x H x W x C</code></li>
+</ul>
+<p>其中 <code>N</code> 是 batch size，<code>C</code> 是通道数，<code>H/W</code> 是高和宽。像素值可能是 <code>uint8</code> 的 <code>[0, 255]</code>，也可能转成 <code>float32</code> 的 <code>[0, 1]</code>。模型权重通常按浮点数训练，所以输入一般会做类型转换和归一化。</p>
+<p>常见预处理链路：</p>
+<pre><code class="language-text">原图 uint8[H,W,3]
+-&gt; resize/crop
+-&gt; float32
+-&gt; /255.0
+-&gt; normalize: (x - mean) / std
+-&gt; permute to [C,H,W]
+-&gt; batch stack [N,C,H,W]
+</code></pre>
+<p>归一化有两层含义：</p>
+<ol>
+<li>输入归一化：让不同通道的数值尺度稳定，例如 ImageNet 常用 <code>mean=(0.485,0.456,0.406)</code>、<code>std=(0.229,0.224,0.225)</code>。</li>
+<li>网络内部归一化：如 BatchNorm，让中间特征分布更稳定，减轻训练难度。</li>
+</ol>
+<p>工程陷阱：</p>
+<ul>
+<li>训练和推理必须使用同一套 resize、颜色通道顺序、均值方差。<code>RGB/BGR</code> 搞反会让模型表现大幅下降。</li>
+<li>标注框随图像缩放、裁剪、letterbox 变化时必须同步变换。</li>
+<li><code>uint8</code> 直接输入模型可能导致数值范围完全不匹配。</li>
+<li>数据增强只应在训练集启用，验证/测试阶段应使用确定性预处理。</li>
+</ul>
+<span class="heading-anchor" id="2. 表示学习：从像素到可分特征"></span><h2 id="2">2. 表示学习：从像素到可分特征</h2>
+<p>传统图像算法常手工设计特征，例如边缘、角点、纹理；深度学习则让网络从数据中学习特征。一个视觉模型可以粗略拆成：</p>
+<pre><code class="language-text">图像张量 -&gt; Backbone 特征提取 -&gt; Neck 特征融合 -&gt; Head 任务预测
+</code></pre>
+<p>在分类任务中，Backbone 学到从低级到高级的层级表示：</p>
+<ul>
+<li>浅层：边缘、方向、颜色突变。</li>
+<li>中层：纹理、局部形状、部件。</li>
+<li>深层：语义概念，例如车轮、眼睛、道路、跑道异物。</li>
+</ul>
+<p>在检测任务中，这些特征还要保留空间位置，因为模型不仅要知道“有什么”，还要知道“在哪里”。这就是为什么目标检测会特别重视特征图尺寸、多尺度融合、感受野和预测头设计。</p>
+<span class="heading-anchor" id="3. 卷积：局部连接与权重共享"></span><h2 id="3">3. 卷积：局部连接与权重共享</h2>
+<p>二维卷积层通常接收 <code>N x C_in x H_in x W_in</code>，输出 <code>N x C_out x H_out x W_out</code>。每个输出通道对应一组卷积核，卷积核形状是 <code>C_in x K_h x K_w</code>。</p>
+<p>输出尺寸公式：</p>
+<pre><code class="language-text">H_out = floor((H_in + 2P_h - D_h * (K_h - 1) - 1) / S_h + 1)
+W_out = floor((W_in + 2P_w - D_w * (K_w - 1) - 1) / S_w + 1)
+</code></pre>
+<p>其中 <code>K</code> 是核大小，<code>S</code> 是步幅，<code>P</code> 是 padding，<code>D</code> 是 dilation。普通卷积里 <code>D=1</code>。</p>
+<p>参数量：</p>
+<pre><code class="language-text">参数量 = C_out * C_in * K_h * K_w + bias项
+</code></pre>
+<p>如果卷积后接 BN，通常 <code>bias=False</code>，因为 BN 的 <code>beta</code> 可以承担平移。</p>
+<p>计算例子：</p>
+<p>输入 <code>1 x 3 x 224 x 224</code>，卷积层 <code>C_out=64, K=7, S=2, P=3</code>：</p>
+<pre><code class="language-text">H_out = floor((224 + 2*3 - 1*(7-1) - 1) / 2 + 1)
+      = floor(223 / 2 + 1)
+      = 112
+W_out = 112
+输出 = 1 x 64 x 112 x 112
+参数量 = 64 * 3 * 7 * 7 = 9408（若无 bias）
+</code></pre>
+<p>卷积的核心直觉是局部模式复用。一个检测边缘的卷积核可以在图像各处滑动，识别相同类型的局部结构，这比全连接层直接连接所有像素更节省参数，也更符合图像的平移结构。</p>
+<span class="heading-anchor" id="4. 特征图与感受野"></span><h2 id="4">4. 特征图与感受野</h2>
+<p>特征图是卷积层输出的空间张量，例如 <code>N x 64 x 112 x 112</code>。每个位置不再是原始像素，而是对原图某个局部区域的响应。</p>
+<p>感受野指某个特征图位置能“看到”的原图区域大小。层数越深、卷积核越大、步幅越大，理论感受野通常越大。</p>
+<p>递推公式：</p>
+<pre><code class="language-text">r_l = r_{l-1} + (k_l - 1) * j_{l-1}
+j_l = j_{l-1} * s_l
+</code></pre>
+<p>其中 <code>r_l</code> 是第 <code>l</code> 层感受野大小，<code>j_l</code> 是相邻特征点在原图上的间隔，<code>k_l</code> 是核大小，<code>s_l</code> 是步幅。初始 <code>r_0=1, j_0=1</code>。</p>
+<p>例子：连续两个 <code>3x3, stride=1</code> 卷积：</p>
+<pre><code class="language-text">第1层: r=1+(3-1)*1=3, j=1
+第2层: r=3+(3-1)*1=5, j=1
+</code></pre>
+<p>所以两个 <code>3x3</code> 卷积的感受野等价于一个 <code>5x5</code>，但参数量更少，还多了一次非线性。</p>
+<p>工程陷阱：</p>
+<ul>
+<li>理论感受野不等于有效感受野。实际贡献通常集中在中心区域。</li>
+<li>小目标检测不能只依赖深层特征，因为深层特征图分辨率低，小目标可能被下采样吞掉。</li>
+<li>stride 的累计值决定特征图一个格点对应原图多大步长，例如 <code>stride=32</code> 的特征图对小目标很粗。</li>
+</ul>
+<span class="heading-anchor" id="5. 池化、激活与非线性"></span><h2 id="5">5. 池化、激活与非线性</h2>
+<p>池化用于降低空间分辨率或汇聚局部响应：</p>
+<ul>
+<li>Max Pooling：保留局部最大响应，强调是否出现某种模式。</li>
+<li>Average Pooling：保留平均统计，更平滑。</li>
+<li>Global Average Pooling：把 <code>H x W</code> 汇聚成 <code>1 x 1</code>，常用于分类头。</li>
+</ul>
+<p>激活函数提供非线性。没有激活函数，多层线性变换仍等价于一个线性变换，表达能力受限。</p>
+<p>常见激活：</p>
+<ul>
+<li>Sigmoid：输出 <code>[0,1]</code>，早期常用，但容易饱和导致梯度小。</li>
+<li>Tanh：输出 <code>[-1,1]</code>，也有饱和问题。</li>
+<li>ReLU：<code>max(0,x)</code>，简单高效，是 CNN 经典选择。</li>
+<li>Leaky ReLU / SiLU / GELU：改善负半轴或平滑性，现代检测模型常见 SiLU。</li>
+</ul>
+<span class="heading-anchor" id="6. BatchNorm：训练和推理不是一回事"></span><h2 id="6-batchnorm">6. BatchNorm：训练和推理不是一回事</h2>
+<p>BatchNorm 对每个通道做归一化：</p>
+<pre><code class="language-text">mean_B = batch内该通道均值
+var_B  = batch内该通道方差
+y = gamma * (x - mean_B) / sqrt(var_B + eps) + beta
+</code></pre>
+<p>训练阶段使用当前 batch 的均值方差，同时更新 <code>running_mean</code> 和 <code>running_var</code>。推理阶段不再使用当前 batch 统计，而使用训练时累计的 running statistics。</p>
+<p>这带来几个重要后果：</p>
+<ul>
+<li>训练后推理前要调用 <code>model.eval()</code>，否则 BN 和 Dropout 行为不对。</li>
+<li>batch size 太小时，BN 统计不稳定，检测任务常用 SyncBN、冻结 BN 或 GroupNorm。</li>
+<li>fine-tune 小数据集时，是否冻结 BN 是重要选择。小 batch 下继续更新 BN 可能破坏预训练统计。</li>
+</ul>
+<span class="heading-anchor" id="7. 任务头、损失与反向传播"></span><h2 id="7">7. 任务头、损失与反向传播</h2>
+<p>Backbone 负责提特征，Head 负责把特征变成任务输出：</p>
+<ul>
+<li>分类：输出 <code>N x num_classes</code> 的 logits。</li>
+<li>分割：最终通常输出或上采样为 <code>N x C x H x W</code> 的像素级预测；网络原始 logits 也可能是低分辨率或带有多尺度辅助输出。</li>
+<li>检测：输出类别、框位置、置信度或 objectness。</li>
+</ul>
+<p>训练时，模型前向得到预测，损失函数衡量预测和标签差距，再通过反向传播更新参数：</p>
+<pre><code class="language-text">输入 x -&gt; 模型 f(x; theta) -&gt; 预测 y_hat
+损失 L(y_hat, y)
+反传 dL/dtheta
+优化器更新 theta
+</code></pre>
+<p>常见损失：</p>
+<ul>
+<li>分类：Cross Entropy、Focal Loss。</li>
+<li>框回归：L1、Smooth L1、IoU/GIoU/DIoU/CIoU。</li>
+<li>分割：Cross Entropy、Dice Loss。</li>
+</ul>
+<p>反向传播的核心是链式法则。如果 <code>L</code> 依赖 <code>z</code>，<code>z</code> 依赖 <code>w</code>：</p>
+<pre><code class="language-text">dL/dw = dL/dz * dz/dw
+</code></pre>
+<p>梯度告诉参数如何变化能降低损失。学习率控制每次更新步长，过大可能发散，过小收敛慢。</p>
+<p>工程陷阱：</p>
+<ul>
+<li>分类头常输出 logits，不要在 <code>CrossEntropyLoss</code> 前手动 softmax。</li>
+<li>检测框坐标格式要统一：<code>xyxy</code>、<code>xywh</code>、归一化坐标和像素坐标不能混用。</li>
+<li>loss 数值正常不代表指标正常，要同时看 mAP、Recall、Precision、混淆矩阵和可视化结果。</li>
+<li>类别不均衡时，普通 CE 可能被大量背景或大类主导。</li>
+</ul>
+<span class="heading-anchor" id="8. 推理与后处理"></span><h2 id="8">8. 推理与后处理</h2>
+<p>推理阶段一般关闭梯度：</p>
+<pre><code class="language-text">model.eval()
+with torch.no_grad():
+    pred = model(image)
+</code></pre>
+<p>分类任务通常取 softmax 后最大概率类别。检测任务更复杂，需要把 Head 输出解码为框、类别分数，并进行阈值过滤和 NMS。完整 YOLO 检测链路会在 <a href="n-cbc6fa0141f0.html">06 多尺度特征与 YOLO 检测链路</a> 进一步展开。</p>
+<span class="heading-anchor" id="9. 面试问答与速记"></span><h2 id="9">9. 面试问答与速记</h2>
+<p>Q：为什么 CNN 比全连接更适合图像？</p>
+<p>A：CNN 利用局部连接和权重共享。图像中的边缘、纹理等局部模式具有空间复用性，卷积能用少量参数在不同位置检测相同模式，同时保留空间结构。</p>
+<p>Q：<code>3x3</code> 卷积为什么常见？</p>
+<p>A：两个 <code>3x3</code> 的感受野是 <code>5x5</code>，三个 <code>3x3</code> 是 <code>7x7</code>，但参数更少，并且中间多了非线性表达。</p>
+<p>Q：BN 训练和推理有什么区别？</p>
+<p>A：训练用当前 batch 的均值方差，并更新 running statistics；推理用累计的 running statistics。忘记 <code>eval()</code> 会导致推理结果不稳定。</p>
+<p>Q：为什么检测模型需要多尺度？</p>
+<p>A：目标大小差异很大。浅层特征分辨率高、适合小目标；深层特征语义强、适合大目标。多尺度融合能兼顾定位和语义。</p>
+<p>速记：</p>
+<pre><code class="language-text">视觉模型主线：
+像素张量 -&gt; 卷积/归一化/激活 -&gt; 层级特征 -&gt; 任务头 -&gt; 损失训练 -&gt; 推理解码/后处理
+</code></pre>
+<span class="heading-anchor" id="本章检查清单"></span><h2 id="_2">本章检查清单</h2>
+<ul>
+<li>[ ] 能说清 <code>N x C x H x W</code> 每一维含义。</li>
+<li>[ ] 能计算卷积输出尺寸和参数量。</li>
+<li>[ ] 能解释特征图、stride、感受野之间的关系。</li>
+<li>[ ] 能区分输入归一化和 BatchNorm。</li>
+<li>[ ] 能说明 BN 在训练和推理阶段的差异。</li>
+<li>[ ] 能串起前向、损失、反传、优化器更新。</li>
+<li>[ ] 能指出检测任务为什么比分类多了解码和 NMS 后处理。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

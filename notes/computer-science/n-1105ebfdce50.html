@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04-并发控制与同步原语 · 李杨的学习笔记</title><meta name="description" content="并发不是“多个线程一起跑”那么简单。只要多个执行流访问共享状态，就可能出现竞态、可见性、有序性问题。本章讲清楚锁、信号量、条件变量、原子操作为什么存在，以及它们各自适合什么场景。"><meta property="og:title" content="04-并发控制与同步原语 · 李杨的学习笔记"><meta property="og:description" content="并发不是“多个线程一起跑”那么简单。只要多个执行流访问共享状态，就可能出现竞态、可见性、有序性问题。本章讲清楚锁、信号量、条件变量、原子操作为什么存在，以及它们各自适合什么场景。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-1105ebfdce50.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-1105ebfdce50.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>04-并发控制与同步原语</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/04-%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6%E4%B8%8E%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">为什么会有并发问题</a></li><li><a href="#_3">并发要解决的三个问题</a></li><li><a href="#1">1. 互斥</a></li><li><a href="#2">2. 可见性</a></li><li><a href="#3">3. 有序性</a></li><li><a href="#_4">临界区</a></li><li><a href="#_5">互斥锁</a></li><li><a href="#_6">自旋锁</a></li><li><a href="#_7">读写锁</a></li><li><a href="#_8">信号量</a></li><li><a href="#_9">条件变量</a></li><li><a href="#c-stdcondition_variable">C++ 示例：使用 std::condition_variable 实现生产者—消费者</a></li><li><a href="#_10">原子操作</a></li><li><a href="#futex">futex：用户态锁和内核的桥梁</a></li><li><a href="#_11">工程建议</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">自测题</a></li><li><a href="#_14">补充深入讲解</a></li><li><a href="#bug">从零开始理解：并发 bug 为什么难复现</a></li><li><a href="#_15">锁到底保护的是什么</a></li><li><a href="#_16">条件变量的核心思想</a></li><li><a href="#_17">原子操作的现实成本</a></li><li><a href="#_18">进一步案例：生产者消费者完整思路</a></li><li><a href="#_19">进一步案例：锁粒度如何选择</a></li><li><a href="#_20">思维导图</a></li><li><a href="#1_1">1. 并发问题三件事</a></li><li><a href="#2_1">2. 同步原语选择</a></li><li><a href="#3_1">3. 生产者消费者记忆图</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>并发不是“多个线程一起跑”那么简单。只要多个执行流访问共享状态，就可能出现竞态、可见性、有序性问题。本章讲清楚锁、信号量、条件变量、原子操作为什么存在，以及它们各自适合什么场景。</p>
+<span class="heading-anchor" id="为什么会有并发问题"></span><h2 id="_2">为什么会有并发问题</h2>
+<p>假设两个线程同时执行：</p>
+<pre><code class="language-c">counter++;
+</code></pre>
+<p>这行代码底层可能是三步：</p>
+<pre><code class="language-text">load counter
+add 1
+store counter
+</code></pre>
+<p>如果两个线程都先读到 0，再分别写回 1，最终结果是 1，而不是 2。这就是竞态条件。</p>
+<span class="heading-anchor" id="并发要解决的三个问题"></span><h2 id="_3">并发要解决的三个问题</h2>
+<span class="heading-anchor" id="1. 互斥"></span><h3 id="1">1. 互斥</h3>
+<p>同一时刻只能一个线程进入临界区，避免共享数据被同时修改。</p>
+<span class="heading-anchor" id="2. 可见性"></span><h3 id="2">2. 可见性</h3>
+<p>线程 A 修改的值，线程 B 必须能看到。CPU 缓存、编译器优化、寄存器缓存都可能导致“看不到最新值”。</p>
+<span class="heading-anchor" id="3. 有序性"></span><h3 id="3">3. 有序性</h3>
+<p>编译器和 CPU 可能为了优化进行指令重排。单线程看不出问题，但多线程下可能破坏逻辑顺序。</p>
+<span class="heading-anchor" id="临界区"></span><h2 id="_4">临界区</h2>
+<p>临界区是访问共享资源、必须受保护的代码区域。例如：</p>
+<pre><code class="language-text">lock(m)
+  修改共享队列
+unlock(m)
+</code></pre>
+<p>临界区要尽量短，不要在持锁期间做慢 I/O、远程调用或复杂计算。</p>
+<span class="heading-anchor" id="互斥锁"></span><h2 id="_5">互斥锁</h2>
+<p>互斥锁适合普通临界区。获取不到锁时，线程通常睡眠，让出 CPU。</p>
+<p>优点：</p>
+<ul>
+<li>易用。</li>
+<li>不浪费 CPU 空转。</li>
+<li>适合等待时间不确定的临界区。</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>可能上下文切换。</li>
+<li>可能死锁。</li>
+<li>高竞争时性能下降。</li>
+</ul>
+<span class="heading-anchor" id="自旋锁"></span><h2 id="_6">自旋锁</h2>
+<p>自旋锁获取失败时不会睡眠，而是循环等待。</p>
+<p>适合：</p>
+<ul>
+<li>临界区极短。</li>
+<li>不能睡眠的内核上下文。</li>
+<li>等待时间小于睡眠/唤醒成本。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>用户态长临界区。</li>
+<li>持锁期间可能阻塞。</li>
+<li>单核或持锁线程可能被抢占的场景。</li>
+</ul>
+<span class="heading-anchor" id="读写锁"></span><h2 id="_7">读写锁</h2>
+<p>读写锁允许多个读者并发，写者独占。适合读多写少的数据结构。</p>
+<p>但读写锁不是万能优化：</p>
+<ul>
+<li>写频繁时退化严重。</li>
+<li>读者太多可能让写者饥饿。</li>
+<li>锁实现本身比互斥锁复杂。</li>
+</ul>
+<span class="heading-anchor" id="信号量"></span><h2 id="_8">信号量</h2>
+<p>信号量是计数器，表示可用资源数量。</p>
+<p>例子：数据库连接池最多 10 个连接：</p>
+<pre><code class="language-text">信号量初始值 = 10
+获取连接：P 操作，计数减 1
+归还连接：V 操作，计数加 1
+</code></pre>
+<p>信号量更适合“限制并发数量”，而不是保护复杂共享状态。</p>
+<span class="heading-anchor" id="条件变量"></span><h2 id="_9">条件变量</h2>
+<p>条件变量用于“等待某个条件成立”。它必须配合互斥锁使用。</p>
+<p>经典模式：</p>
+<pre><code class="language-c">pthread_mutex_lock(&amp;m);
+while (queue_empty()) {
+必须用 `while`，因为唤醒不代表条件一定满足。可能虚假唤醒，也可能被其他线程先消费。
+</code></pre>
+<span class="heading-anchor" id="C++ 示例：使用 std::condition_variable 实现生产者—消费者"></span><h3 id="c-stdcondition_variable">C++ 示例：使用 <code>std::condition_variable</code> 实现生产者—消费者</h3>
+<p>下面的消费者在队列为空且生产者尚未结束时等待；<code>wait</code> 会在等待时释放互斥锁，被唤醒后重新加锁并检查谓词。</p>
+<pre><code class="language-cpp">#include &lt;condition_variable&gt;
+#include &lt;iostream&gt;
+#include &lt;mutex&gt;
+#include &lt;queue&gt;
+#include &lt;thread&gt;
+
+int main() {
+    std::queue&lt;int&gt; queue;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+
+    std::thread consumer([&amp;] {
+        while (true) {
+            std::unique_lock&lt;std::mutex&gt; lock(mutex);
+            cv.wait(lock, [&amp;] {
+                return !queue.empty() || done;
+            });
+
+            if (queue.empty() &amp;&amp; done) {
+                break;
+            }
+
+            int item = queue.front();
+            queue.pop();
+            lock.unlock();  // 耗时处理不要占着锁
+
+            std::cout &lt;&lt; "consume: " &lt;&lt; item &lt;&lt; '\\n';
+        }
+    });
+
+    std::thread producer([&amp;] {
+        for (int i = 1; i &lt;= 5; ++i) {
+            {
+                std::lock_guard&lt;std::mutex&gt; lock(mutex);
+                queue.push(i);
+            }
+            cv.notify_one();
+        }
+
+        {
+            std::lock_guard&lt;std::mutex&gt; lock(mutex);
+            done = true;
+        }
+        cv.notify_one();
+    });
+
+    producer.join();
+    consumer.join();
+}
+</code></pre>
+<p>关键点：</p>
+<ul>
+<li><code>std::condition_variable::wait</code> 必须使用 <code>std::unique_lock</code>，因为等待期间需要临时释放并在唤醒后重新获取互斥锁。</li>
+<li>使用谓词 <code>!queue.empty() || done</code>，等价于用 <code>while</code> 反复检查条件，可处理虚假唤醒和“被其他线程先消费”的情况。</li>
+<li>生产者修改队列和 <code>done</code> 后再通知；消费者发现队列已空且 <code>done == true</code> 时退出。
+}
+item = pop(queue);
+pthread_mutex_unlock(&amp;m);</li>
+</ul>
+<p>必须用 <code>while</code>，因为唤醒不代表条件一定满足。可能虚假唤醒，也可能被其他线程先消费。</p>
+<span class="heading-anchor" id="原子操作"></span><h2 id="_10">原子操作</h2>
+<p>原子操作适合简单共享变量，例如计数器、状态位、引用计数。</p>
+<p>但原子操作不能完全替代锁：</p>
+<ul>
+<li>多变量一致性难保证。</li>
+<li>内存序复杂。</li>
+<li>CAS 高竞争下会反复失败。</li>
+<li>容易出现 ABA 问题。</li>
+</ul>
+<p>无锁不等于无成本。很多时候锁更清晰、更可靠。</p>
+<span class="heading-anchor" id="futex：用户态锁和内核的桥梁"></span><h2 id="futex">futex：用户态锁和内核的桥梁</h2>
+<p>Linux 中很多用户态锁底层依赖 futex。无竞争时，锁完全在用户态完成；有竞争时，才通过 futex 系统调用让线程睡眠或唤醒。</p>
+<p>这是一种重要优化：<strong>快路径在用户态，慢路径进内核</strong>。</p>
+<span class="heading-anchor" id="工程建议"></span><h2 id="_11">工程建议</h2>
+<ol>
+<li>共享状态越少越好。</li>
+<li>能用不可变数据就不用锁。</li>
+<li>临界区尽量短。</li>
+<li>持锁时不要调用外部不可控逻辑。</li>
+<li>高并发计数器尽量分片。</li>
+<li>队列要有容量上限和背压。</li>
+<li>不要轻易写复杂无锁结构。</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<p>写一个多线程计数器，分别实现：</p>
+<ol>
+<li>无锁版本。</li>
+<li>mutex 版本。</li>
+<li>atomic 版本。</li>
+<li>分片 atomic 版本。</li>
+</ol>
+<p>比较正确性和性能。你会发现“正确”和“快”是两个不同问题。</p>
+<span class="heading-anchor" id="自测题"></span><h2 id="_13">自测题</h2>
+<ol>
+<li>为什么 <code>counter++</code> 不是线程安全？</li>
+<li>条件变量为什么要配合互斥锁？</li>
+<li>自旋锁为什么不能随便用？</li>
+<li>atomic 为什么不一定比锁快？</li>
+<li>futex 的优化思想是什么？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_14">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：并发 bug 为什么难复现"></span><h2 id="bug">从零开始理解：并发 bug 为什么难复现</h2>
+<p>并发 bug 的可怕之处在于它依赖时序。两个线程谁先执行、执行到哪一步被抢占、什么时候被唤醒，都可能改变结果。同一段代码在测试环境正常，在生产高并发下才出错，就是因为调度时序变了。</p>
+<p>例如两个线程同时转账，如果都先读余额再写回，就可能覆盖对方修改。这个 bug 不是每次发生，而是在特定交错顺序下发生。</p>
+<span class="heading-anchor" id="锁到底保护的是什么"></span><h2 id="_15">锁到底保护的是什么</h2>
+<p>锁不是保护代码，锁保护的是“共享状态的不变量”。例如队列的不变量是：头尾指针一致、size 正确、元素没有丢失。所有修改这些状态的代码都必须在同一把锁下执行。只给一部分代码加锁没有意义，因为其他路径仍可能破坏不变量。</p>
+<span class="heading-anchor" id="条件变量的核心思想"></span><h2 id="_16">条件变量的核心思想</h2>
+<p>条件变量不是“发消息”，而是“状态变了，你醒来重新检查”。真正的条件必须存储在共享变量中，例如队列是否为空。条件变量只负责睡眠和唤醒。</p>
+<p>因此正确模式永远是：</p>
+<pre><code class="language-text">加锁
+while 条件不满足:
+    等待条件变量
+操作共享状态
+解锁
+</code></pre>
+<span class="heading-anchor" id="原子操作的现实成本"></span><h2 id="_17">原子操作的现实成本</h2>
+<p>原子自增看起来很轻，但在多核下会让缓存行在核心间反复迁移。如果 64 个线程都更新同一个 atomic 计数器，性能可能很差。更好的设计是分片计数，每个线程更新本地计数，定期汇总。</p>
+<p>这说明并发优化不是“把锁换成 atomic”这么简单，而是减少共享和竞争。</p>
+<span class="heading-anchor" id="进一步案例：生产者消费者完整思路"></span><h2 id="_18">进一步案例：生产者消费者完整思路</h2>
+<p>生产者消费者是理解并发原语的最好例子。共享队列有两个条件：队列非空，消费者才能取；队列非满，生产者才能放。队列本身需要互斥锁保护，因为 push/pop 会修改头尾指针和 size。</p>
+<p>伪代码：</p>
+<pre><code class="language-text">生产者：
+  lock
+  while 队列满: wait(not_full)
+  push(item)
+  signal(not_empty)
+  unlock
+
+消费者：
+  lock
+  while 队列空: wait(not_empty)
+  item = pop()
+  signal(not_full)
+  unlock
+</code></pre>
+<p>这个例子同时说明：锁保护状态，条件变量负责等待状态变化，while 负责重新检查条件。</p>
+<span class="heading-anchor" id="进一步案例：锁粒度如何选择"></span><h2 id="_19">进一步案例：锁粒度如何选择</h2>
+<p>一把大锁简单可靠，但并发度低；很多小锁并发高，但复杂度和死锁风险增加。工程上通常先用简单锁保证正确，再通过 profiling 找热点。如果锁不是瓶颈，不要提前拆得太细。优化锁时要有证据，例如 futex 等待高、锁等待时间长、临界区耗时明显。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_20">思维导图</h2>
+<blockquote>
+<p>记忆建议：并发问题只问三件事：是否互斥、是否可见、顺序是否可靠。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 并发问题三件事"></span><h3 id="1_1">1. 并发问题三件事</h3>
+<pre class="mermaid">mindmap
+  root((并发正确性))
+    互斥
+      临界区
+      锁保护共享状态
+    可见性
+      缓存
+      编译器优化
+      内存屏障
+    有序性
+      指令重排
+      happens-before
+      while检查条件
+</pre>
+<span class="heading-anchor" id="2. 同步原语选择"></span><h3 id="2_1">2. 同步原语选择</h3>
+<pre class="mermaid">flowchart TD
+  A["需要保护共享状态吗"] --&gt;|是| B{"等待时间长吗"}
+  B --&gt;|长或不确定| C["互斥锁\n睡眠等待"]
+  B --&gt;|很短且不能睡眠| D["自旋锁\n忙等"]
+  A --&gt;|需要限制资源数量| E["信号量"]
+  A --&gt;|需要等待条件变化| F["条件变量\n锁 + while"]
+  A --&gt;|单变量轻量更新| G["原子操作\n仍有缓存一致性成本"]
+</pre>
+<span class="heading-anchor" id="3. 生产者消费者记忆图"></span><h3 id="3_1">3. 生产者消费者记忆图</h3>
+<pre class="mermaid">flowchart LR
+  P["生产者"] --&gt; L1["加锁"]
+  L1 --&gt; Q["修改队列"]
+  Q --&gt; N["notify 条件变量"]
+  N --&gt; U1["解锁"]
+  C["消费者"] --&gt; L2["加锁"]
+  L2 --&gt; W{"队列为空"}
+  W --&gt;|是| V["while + wait\n释放锁并睡眠"]
+  V --&gt; L2
+  W --&gt;|否| T["取出任务"]
+  T --&gt; U2["解锁"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

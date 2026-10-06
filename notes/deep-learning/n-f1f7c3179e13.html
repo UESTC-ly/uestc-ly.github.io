@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>10 推理部署与工业视觉 · 李杨的学习笔记</title><meta name="description" content="视觉部署不是只把模型导出。实际目标是在指定硬件、输入分布、延迟预算和业务阈值下，稳定地产生可解释、可监控、可回滚的结果。"><meta property="og:title" content="10 推理部署与工业视觉 · 李杨的学习笔记"><meta property="og:description" content="视觉部署不是只把模型导出。实际目标是在指定硬件、输入分布、延迟预算和业务阈值下，稳定地产生可解释、可监控、可回滚的结果。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-f1f7c3179e13.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-f1f7c3179e13.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>10 推理部署与工业视觉</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/10_%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E4%B8%8E%E5%B7%A5%E4%B8%9A%E8%A7%86%E8%A7%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">部署目标</a></li><li><a href="#fp32fp16int8">数值精度：FP32、FP16、INT8</a></li><li><a href="#ptq-qat">PTQ 与 QAT</a></li><li><a href="#_3">剪枝与蒸馏</a></li><li><a href="#onnx-tensorrt">ONNX 与 TensorRT</a></li><li><a href="#latencythroughput-memory">Latency、Throughput 与 Memory</a></li><li><a href="#_4">工业视觉流水线</a></li><li><a href="#_5">异常检测</a></li><li><a href="#_6">上线故障排查顺序</a></li><li><a href="#_7">部署验收清单</a></li><li><a href="#_8">关联阅读</a></li><li><a href="#_9">检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 FP32、FP16、INT8、PTQ、QAT、剪枝、蒸馏、ONNX、TensorRT 的工程含义。</li>
+<li>能用 latency、throughput、memory、精度变化共同评估部署方案。</li>
+<li>掌握工业视觉流水线、异常检测思路和线上故障排查顺序。</li>
+<li>与模型、训练、指标联动：见 <a href="n-c270eefed507.html">07_视觉任务与典型模型.md</a>、<a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a>、<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a>。</li>
+</ul>
+<span class="heading-anchor" id="部署目标"></span><h2 id="_2">部署目标</h2>
+<p>视觉部署不是只把模型导出。实际目标是在指定硬件、输入分布、延迟预算和业务阈值下，稳定地产生可解释、可监控、可回滚的结果。</p>
+<p>上线前要同时确认：</p>
+<ul>
+<li>精度：离线测试集、场景切片、线上抽样。</li>
+<li>延迟：平均、P95、P99，包含预处理和后处理。</li>
+<li>吞吐：单位时间处理帧数或图片数。</li>
+<li>内存：显存、内存峰值、batch 变化。</li>
+<li>稳定性：长时间运行、异常输入、空图、坏图、超大图。</li>
+<li>可运维：日志、版本、监控、回滚、告警。</li>
+</ul>
+<span class="heading-anchor" id="数值精度：FP32、FP16、INT8"></span><h2 id="fp32fp16int8">数值精度：FP32、FP16、INT8</h2>
+<p>FP32 是训练和基准推理常用精度，数值范围和稳定性好，但速度和显存成本高。</p>
+<p>FP16 使用半精度浮点，通常在 GPU 上显著提升吞吐并降低显存。多数 CNN/Transformer 推理可用 FP16，但要注意 softmax、归一化、后处理和极小数值。</p>
+<p>INT8 使用 8 位整数表示权重和激活，通常能降低模型存储和内存带宽，并可能显著加速，但真实收益取决于硬件、算子覆盖、运行时、shape 与数据搬运；不支持的算子回退后甚至可能抵消收益。它需要量化尺度，对分布变化、异常值和逐层敏感性更敏感，可能造成小目标、边界、低置信类别精度下降。</p>
+<p>经验顺序：</p>
+<ol>
+<li>先建立 FP32 离线基线。</li>
+<li>尝试 FP16，验证精度和速度。</li>
+<li>再做 INT8，重点看切片精度和失败案例。</li>
+</ol>
+<span class="heading-anchor" id="PTQ 与 QAT"></span><h2 id="ptq-qat">PTQ 与 QAT</h2>
+<p>PTQ 是训练后量化，不重新训练或只用少量校准数据估计量化参数。优点是成本低、流程快；缺点是精度下降不可控，尤其对检测、分割、小目标和分布偏移敏感。</p>
+<p>QAT 是量化感知训练，在训练中模拟量化误差，让模型适应 INT8。优点是精度更稳；缺点是训练流程复杂，需要训练数据和更多调参。</p>
+<p>PTQ 校准数据要求：</p>
+<ul>
+<li>覆盖真实输入分布。</li>
+<li>包含不同光照、尺寸、类别、相机和典型难例。</li>
+<li>不要只用训练集头部类别或干净样本。</li>
+</ul>
+<p>量化验证不能只看总 mAP，要看小目标、低对比、边界、置信度分布和阈值是否需要重调。</p>
+<span class="heading-anchor" id="剪枝与蒸馏"></span><h2 id="_3">剪枝与蒸馏</h2>
+<p>剪枝通过删除不重要的通道、卷积核、层或注意力头降低计算。非结构化剪枝理论压缩率高，但普通硬件上不一定加速；结构化剪枝更容易获得真实部署收益。</p>
+<p>蒸馏用大模型 teacher 指导小模型 student。常见蒸馏信号：</p>
+<ul>
+<li>logits 蒸馏：学习类别软分布。</li>
+<li>feature 蒸馏：学习中间特征。</li>
+<li>relation 蒸馏：学习样本或空间关系。</li>
+<li>task head 蒸馏：检测框、mask、heatmap、OCR 序列。</li>
+</ul>
+<p>蒸馏适合在不改变部署硬件的情况下提升轻量模型精度。要用同一测试集验证 student 是否真的优于直接训练的小模型。</p>
+<span class="heading-anchor" id="ONNX 与 TensorRT"></span><h2 id="onnx-tensorrt">ONNX 与 TensorRT</h2>
+<p>ONNX 是模型交换格式，常用于从 PyTorch、TensorFlow 等框架导出到推理引擎。它描述计算图和算子，但不等于自动高性能。</p>
+<p>TensorRT 是 NVIDIA GPU 上的高性能推理优化器，可做 layer fusion、kernel selection、precision calibration、dynamic shape optimization 等。</p>
+<p>导出常见问题：</p>
+<ul>
+<li>动态 shape 没配置，线上不同分辨率失败。</li>
+<li>非标准算子不被 ONNX/TensorRT 支持。</li>
+<li>NMS、RoIAlign、grid_sample、deformable attention 等算子需要插件或替代实现。</li>
+<li>训练预处理与部署预处理不一致。</li>
+<li>FP16/INT8 后置信度分布变化，原阈值失效。</li>
+</ul>
+<p>建议保存端到端对齐用例：同一张图在 PyTorch、ONNX Runtime、TensorRT 上输出差异应在可接受范围内。</p>
+<span class="heading-anchor" id="Latency、Throughput 与 Memory"></span><h2 id="latencythroughput-memory">Latency、Throughput 与 Memory</h2>
+<p>Latency 是单个请求从输入到输出的耗时。工业检测常看单帧端到端延迟，包括采图、解码、预处理、模型、后处理、通信和落库。</p>
+<p>Throughput 是单位时间处理量，常通过 batch、流水线并行和异步队列提升。高吞吐不代表低延迟，大 batch 可能提升 FPS 但增加单张等待时间。</p>
+<p>Memory 包括模型权重、激活、输入输出 buffer、后处理临时张量、队列缓存。显存不足会导致降 batch、OOM、频繁拷贝或吞吐抖动。</p>
+<p>优化顺序：</p>
+<ol>
+<li>先测端到端耗时，分解预处理、推理、后处理。</li>
+<li>找最大瓶颈，不要凭感觉优化。</li>
+<li>减少 CPU/GPU 数据拷贝。</li>
+<li>固定输入尺寸或使用合理 dynamic shape profile。</li>
+<li>尝试 FP16、TensorRT、batch、异步流水线。</li>
+<li>必要时再做模型压缩、剪枝、蒸馏、INT8。</li>
+</ol>
+<span class="heading-anchor" id="工业视觉流水线"></span><h2 id="_4">工业视觉流水线</h2>
+<p>典型工业视觉系统：</p>
+<ol>
+<li>触发采图：PLC、光电传感器、相机硬触发。</li>
+<li>图像获取：曝光、增益、白平衡、光源控制。</li>
+<li>预处理：裁剪 ROI、畸变校正、归一化、增强对齐。</li>
+<li>推理：分类、检测、分割、OCR 或异常检测。</li>
+<li>后处理：阈值、NMS、连通域、几何规则、尺寸测量。</li>
+<li>业务判定：OK/NG、缺陷等级、报警策略。</li>
+<li>通信执行：PLC、MES、机械臂、剔除机构。</li>
+<li>记录追溯：原图、结果图、模型版本、设备号、时间戳。</li>
+<li>监控迭代：抽检、漂移检测、失败样本回流。</li>
+</ol>
+<p>工业项目要重视光源、镜头、相机安装和工艺节拍。很多问题不是模型结构能解决的，而是成像质量和数据闭环问题。</p>
+<span class="heading-anchor" id="异常检测"></span><h2 id="_5">异常检测</h2>
+<p>工业异常检测常用于缺陷少、异常类型未知或标注成本高的场景。核心思路是只学习正常样本分布，推理时找偏离正常模式的区域。</p>
+<p>PatchCore 思想：</p>
+<ul>
+<li>用预训练 CNN 提取 patch 特征。</li>
+<li>建立正常样本特征库，并用 coreset 降低存储。</li>
+<li>测试时计算 patch 到正常特征库的最近邻距离。</li>
+<li>距离大表示异常，可生成 anomaly map。</li>
+</ul>
+<p>PaDiM 思想：</p>
+<ul>
+<li>对每个空间位置建模正常特征的多元高斯分布。</li>
+<li>测试时用 Mahalanobis distance 衡量偏离程度。</li>
+<li>优点是位置相关，适合固定视角工业图像。</li>
+</ul>
+<p>EfficientAD 思想：</p>
+<ul>
+<li>使用 teacher-student 或 autoencoder 异常响应。</li>
+<li>通过高效网络获得较快推理。</li>
+<li>同时关注局部结构异常和全局重构差异。</li>
+</ul>
+<p>异常检测局限：</p>
+<ul>
+<li>对位置、光照、背景、产品姿态变化敏感。</li>
+<li>正常样本覆盖不足会导致误报。</li>
+<li>与监督检测相比，异常类别语义解释弱。</li>
+<li>阈值通常需要按产线和产品型号单独校准。</li>
+</ul>
+<span class="heading-anchor" id="上线故障排查顺序"></span><h2 id="_6">上线故障排查顺序</h2>
+<ol>
+<li>输入是否正确：图像是否为空、通道顺序、分辨率、颜色空间、压缩格式。</li>
+<li>预处理是否一致：resize、padding、归一化、mean/std、BGR/RGB。</li>
+<li>模型版本是否一致：checkpoint、导出文件、类别表、配置。</li>
+<li>输出解析是否正确：维度、坐标缩放、mask resize、OCR 字典。</li>
+<li>后处理是否一致：阈值、NMS、连通域、业务规则。</li>
+<li>数值精度是否影响：FP32、FP16、INT8 输出差异。</li>
+<li>性能瓶颈在哪里：采图、CPU 预处理、GPU 推理、后处理、通信。</li>
+<li>数据分布是否漂移：新产品、光照、相机位置、污染、磨损。</li>
+<li>监控和日志是否足够复现：保存原图、结果、版本、耗时和异常栈。</li>
+<li>回滚或降级策略是否可用：旧模型、人工复核、规则兜底。</li>
+</ol>
+<span class="heading-anchor" id="部署验收清单"></span><h2 id="_7">部署验收清单</h2>
+<p>上线前应产出：</p>
+<ul>
+<li>模型文件和版本号。</li>
+<li>类别表、输入尺寸、预处理参数、后处理参数。</li>
+<li>离线测试报告和切片评估。</li>
+<li>与训练框架输出对齐的导出验证。</li>
+<li>压测报告：平均、P95、P99、吞吐、内存。</li>
+<li>异常输入测试。</li>
+<li>回滚方案和监控字段。</li>
+</ul>
+<span class="heading-anchor" id="关联阅读"></span><h2 id="_8">关联阅读</h2>
+<ul>
+<li>视觉任务与模型：<a href="n-c270eefed507.html">07_视觉任务与典型模型.md</a></li>
+<li>训练与数据诊断：<a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a></li>
+<li>指标与误差分析：<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a></li>
+<li>面试题：<a href="n-6c112411680d.html">11_视觉工程师面试题.md</a></li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_9">检查清单</h2>
+<ul>
+<li>[ ] 能说明 FP32、FP16、INT8 的速度、显存和精度取舍。</li>
+<li>[ ] 能区分 PTQ 和 QAT，并知道校准数据为什么重要。</li>
+<li>[ ] 能解释 ONNX 与 TensorRT 的角色和常见导出问题。</li>
+<li>[ ] 能用 latency、throughput、memory 分析部署瓶颈。</li>
+<li>[ ] 能描述工业视觉流水线、异常检测思路和线上故障排查顺序。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

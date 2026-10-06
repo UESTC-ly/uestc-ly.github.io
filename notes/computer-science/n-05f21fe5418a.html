@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>顺序、积压、延迟、重试与死信 · 李杨的学习笔记</title><meta name="description" content="顺序通常以分区、队列或业务键为边界。要求更强顺序会牺牲并行度。积压说明生产速度长期高于消费速度，或消费者处理异常。重试和死信是失败隔离机制，不能替代告警和人工补偿。"><meta property="og:title" content="顺序、积压、延迟、重试与死信 · 李杨的学习笔记"><meta property="og:description" content="顺序通常以分区、队列或业务键为边界。要求更强顺序会牺牲并行度。积压说明生产速度长期高于消费速度，或消费者处理异常。重试和死信是失败隔离机制，不能替代告警和人工补偿。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-05f21fe5418a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-05f21fe5418a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 04-消息队列</p><h1>顺序、积压、延迟、重试与死信</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/04-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97/04-%E9%A1%BA%E5%BA%8F%E7%A7%AF%E5%8E%8B%E5%BB%B6%E8%BF%9F%E9%87%8D%E8%AF%95%E6%AD%BB%E4%BF%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">工程实践/示例</a></li><li><a href="#_5">顺序边界</a></li><li><a href="#_6">积压容量估算</a></li><li><a href="#_7">延迟、重试和死信</a></li><li><a href="#_8">毒消息处理</a></li><li><a href="#rabbitmqrocketmqkafka">RabbitMQ/RocketMQ/Kafka 对照</a></li><li><a href="#_9">观测指标</a></li><li><a href="#_10">常见误区</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解顺序消息的边界和代价。</li>
+<li>掌握积压、延迟、重试、死信的监控与处理。</li>
+<li>能设计不阻塞主消费链路的失败处理方案。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>顺序通常以分区、队列或业务键为边界。要求更强顺序会牺牲并行度。积压说明生产速度长期高于消费速度，或消费者处理异常。重试和死信是失败隔离机制，不能替代告警和人工补偿。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>指标</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>顺序</td>
+<td>key、partition、offset</td>
+<td>按业务键分区，单键串行</td>
+</tr>
+<tr>
+<td>积压</td>
+<td>consumer lag、消费耗时</td>
+<td>扩容、优化处理、拆分慢任务</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>端到端耗时、排队时长</td>
+<td>批量、优先级、降级</td>
+</tr>
+<tr>
+<td>重试</td>
+<td>retry count、失败原因</td>
+<td>指数退避、分类重试</td>
+</tr>
+<tr>
+<td>死信</td>
+<td>DLQ 数量、年龄</td>
+<td>告警、排查、回放工具</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_4">工程实践/示例</h2>
+<p>失败分类：</p>
+<pre><code class="language-pseudo">if error is transient:
+    retry_with_backoff()
+elif error is data_invalid:
+    send_to_dlq(reason)
+else:
+    alert_and_pause_if_needed()
+</code></pre>
+<p>积压处理流程：</p>
+<pre class="mermaid">flowchart TD
+  Lag["发现 Lag 升高"] --&gt; Cause{原因}
+  Cause --&gt;|生产突增| Scale["扩消费者/增加分区规划"]
+  Cause --&gt;|下游慢| Degrade["限流/降级/批处理"]
+  Cause --&gt;|毒消息| DLQ["隔离到死信"]
+  Cause --&gt;|再均衡频繁| Tune["调整心跳与处理时长"]
+</pre>
+<span class="heading-anchor" id="顺序边界"></span><h3 id="_5">顺序边界</h3>
+<p>顺序通常只在同一 partition、同一 queue 或同一 message group 内成立。要让同一订单事件有序，就必须让它们使用同一个分区键；不同订单之间不应追求全局顺序，否则会牺牲并行度。</p>
+<pre><code class="language-pseudo">key = order_id
+send("order-events", key=key, value=event)
+</code></pre>
+<p>顺序消费的代价是“前一个没处理完，后一个不能越过”。如果某个 key 形成热点，单分区或单队列会变成瓶颈。常见优化是缩小顺序范围，例如从“全站订单有序”降为“同一订单有序”。</p>
+<span class="heading-anchor" id="积压容量估算"></span><h3 id="_6">积压容量估算</h3>
+<pre><code class="language-text">lag_messages = log_end_offset - committed_offset
+lag_seconds ~= lag_messages / current_consume_rate
+drain_time ~= lag_messages / max(consume_rate - produce_rate, 1)
+required_consumers ~= produce_qps * avg_process_ms / 1000 / target_utilization
+</code></pre>
+<p>排查顺序：</p>
+<ol>
+<li>生产是否突增：消息 QPS、字节、单 key/partition 倾斜。</li>
+<li>消费是否变慢：处理耗时、DB/API 依赖、锁等待、GC、线程池。</li>
+<li>是否 rebalance：poll 间隔过长、实例频繁上下线。</li>
+<li>是否毒消息：同一 offset 反复失败，后续消息被阻塞。</li>
+<li>是否 broker 瓶颈：磁盘、网络、ISR、请求队列。</li>
+</ol>
+<span class="heading-anchor" id="延迟、重试和死信"></span><h3 id="_7">延迟、重试和死信</h3>
+<p>延迟来自排队时间、拉取间隔、处理耗时、重试退避和下游限流。重试必须分类：瞬时错误可退避重试，数据非法应尽快进死信，未知系统性错误应告警并限速。</p>
+<pre class="mermaid">stateDiagram-v2
+  [*] --&gt; Ready
+  Ready --&gt; Inflight: poll/deliver
+  Inflight --&gt; Acked: success
+  Inflight --&gt; WaitingRetry: transient failure
+  WaitingRetry --&gt; Ready: backoff elapsed
+  Inflight --&gt; DLQ: non-retryable or max retries
+  DLQ --&gt; Replay: human/tool fix
+  Replay --&gt; Ready
+</pre>
+<p>死信队列不是垃圾桶，而是“自动链路无法安全处理”的待修复数据。DLQ 消息至少要保留原 topic、partition、offset、失败原因、异常栈摘要、重试次数、首次失败时间和 trace_id。</p>
+<span class="heading-anchor" id="毒消息处理"></span><h3 id="_8">毒消息处理</h3>
+<p>毒消息是每次消费都会失败的消息，常见原因是 schema 不兼容、业务状态不存在、依赖数据损坏、代码 bug。处理策略：</p>
+<ul>
+<li>单条消息失败不应无限阻塞整个分区；达到阈值后隔离到 DLQ。</li>
+<li>修复后回放要保持幂等，不能直接跳过业务状态校验。</li>
+<li>对顺序强依赖场景，跳过毒消息可能破坏后续事件语义，需要人工决策。</li>
+</ul>
+<span class="heading-anchor" id="RabbitMQ/RocketMQ/Kafka 对照"></span><h3 id="rabbitmqrocketmqkafka">RabbitMQ/RocketMQ/Kafka 对照</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>Kafka</th>
+<th>RabbitMQ</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>顺序边界</td>
+<td>partition</td>
+<td>queue / single active consumer 等模式</td>
+<td>message group / queue</td>
+</tr>
+<tr>
+<td>重试</td>
+<td>通常业务建 retry topic</td>
+<td>ack/nack、TTL、DLX 组合</td>
+<td>内建消费重试和 DLQ</td>
+</tr>
+<tr>
+<td>死信</td>
+<td>常用独立 DLQ topic</td>
+<td>DLX/DLQ 原生常用</td>
+<td>DLQ 原生常用</td>
+</tr>
+<tr>
+<td>积压观察</td>
+<td>consumer lag</td>
+<td>queue depth、ready/unacked</td>
+<td>topic/group lag、重试状态</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_9">观测指标</h3>
+<ul>
+<li>lag messages、lag seconds、drain time。</li>
+<li>每 partition 生产/消费速率和最大 lag。</li>
+<li>处理耗时分位数、外部依赖耗时、线程池队列。</li>
+<li>retry topic 堆积、DLQ 新增速率、最老 DLQ 年龄。</li>
+<li>同一 message_id 或 offset 的失败次数。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_10">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全局顺序是默认能力</td>
+<td>大多数 MQ 只提供局部顺序</td>
+</tr>
+<tr>
+<td>积压只要扩容消费者</td>
+<td>分区数、下游瓶颈、锁竞争都可能限制扩容效果</td>
+</tr>
+<tr>
+<td>无限重试最可靠</td>
+<td>毒消息会阻塞队列并放大故障</td>
+</tr>
+<tr>
+<td>死信队列可以不管</td>
+<td>DLQ 是待处理故障，不是垃圾桶</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li>为什么同一分区内慢消息会影响后续消息？</li>
+<li>consumer lag 升高可能有哪些根因？</li>
+<li>什么错误适合重试，什么错误应进入死信？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<ul>
+<li>为支付通知消费者设计 3 次退避重试和死信回放流程。</li>
+<li>写出一次“消费积压 30 分钟”的排障检查清单。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_13">延伸阅读</h2>
+<ul>
+<li>Kafka consumer configuration：https://kafka.apache.org/43/configuration/consumer-configs/</li>
+<li>RabbitMQ dead lettering：https://www.rabbitmq.com/docs/dlx</li>
+<li>RocketMQ retry and DLQ：https://rocketmq.apache.org/docs/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

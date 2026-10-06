@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02-01 什么是 RAG · 李杨的学习笔记</title><meta name="description" content="假设你要回答“示例系统怎样重置访问密码”。回答程序本身没有这家系统的最新说明，
+但本地知识库里有一段经过批准的操作文档。"><meta property="og:title" content="02-01 什么是 RAG · 李杨的学习笔记"><meta property="og:description" content="假设你要回答“示例系统怎样重置访问密码”。回答程序本身没有这家系统的最新说明，
+但本地知识库里有一段经过批准的操作文档。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-f59f055ad453.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-f59f055ad453.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 02-rag-principles</p><h1>02-01 什么是 RAG</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/02-rag-principles/01-what-is-rag.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">先从一个具体问题开始</a></li><li><a href="#rag">RAG 的定义</a></li><li><a href="#_2">一条最小链路里有哪些东西</a></li><li><a href="#_3">第一步：准备可检索的知识</a></li><li><a href="#_4">第二步：查询、检索与回答</a></li><li><a href="#_5">为什么要把检索文本当作不可信数据</a></li><li><a href="#_6">回答为什么还要带引用位置</a></li><li><a href="#_7">五条必须明确的失败边界</a></li><li><a href="#_8">第一次离线试跑</a></li><li><a href="#_9">常见误解</a></li><li><a href="#_10">自测</a></li><li><a href="#_11">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>02-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>25 分钟阅读，加 10 分钟离线试跑</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>能打开文件、阅读简单 Python 输出；不要求机器学习或向量数学基础</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>本章配套示例本身就是确定性离线实现</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>用自己的话解释“先检索，再基于检索结果回答”；</li>
+<li>指出语料、Chunk、Embedding、相似度、Top-K、上下文、Prompt、回答与引用位置；</li>
+<li>解释为什么 RAG 可能降低无依据回答的风险，但不能消除幻觉；</li>
+<li>识别空语料、空查询、Top-K 越界、零向量和证据不足的处理边界。</li>
+</ul>
+<span class="heading-anchor" id="先从一个具体问题开始"></span><h2 id="_1">先从一个具体问题开始</h2>
+<p>假设你要回答“示例系统怎样重置访问密码”。回答程序本身没有这家系统的最新说明，
+但本地知识库里有一段经过批准的操作文档。</p>
+<p>一种做法是让程序只凭训练时记住的内容回答。它可能不知道这份新文档，也可能把别的
+系统的步骤混进来。另一种做法是先在本地知识库中找到与问题最相关的文本，再要求回答
+步骤只使用这些文本作为证据。</p>
+<p>第二种做法就是本章要建立的直觉：<strong>先找证据，再组织答案</strong>。</p>
+<span class="heading-anchor" id="RAG 的定义"></span><h2 id="rag">RAG 的定义</h2>
+<p>检索增强生成（Retrieval-Augmented Generation，RAG）是一组先从外部知识源检索
+相关内容，再把选定上下文交给生成步骤回答的方法。</p>
+<p>这里有两个不能混淆的动作：</p>
+<ol>
+<li><strong>检索（retrieval）</strong>负责从候选知识中找出可能有用的内容。</li>
+<li><strong>生成（generation）</strong>负责根据回答规则、用户问题和检索上下文组织结果。</li>
+</ol>
+<p>“生成”不一定要求在线大语言模型。本章的离线试点使用确定性回答器，让同一输入得到
+同一输出。这样可以先观察 RAG 的数据流，而不把 API、费用、网络波动或模型随机性混入
+第一个实验。</p>
+<p>RAG 使用的外部知识可以更新和核对，但这不代表结果自动正确。检索可能漏掉关键内容，
+找回的内容可能过期或互相冲突，回答步骤也可能错误理解证据。因此，RAG 只能帮助降低
+部分无依据回答风险，不能消除幻觉。</p>
+<span class="heading-anchor" id="一条最小链路里有哪些东西"></span><h2 id="_2">一条最小链路里有哪些东西</h2>
+<p>先认识本章会用到的九个位置。你暂时不需要推导公式，只要知道每一步接收什么、产出
+什么。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>直觉解释</th>
+<th>在离线试点中观察什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>语料（corpus）</td>
+<td>程序允许查找的本地知识集合</td>
+<td>固定、可阅读的输入文档</td>
+</tr>
+<tr>
+<td>文本块（Chunk）</td>
+<td>从文档切出的检索单位</td>
+<td>每块内容及其来源位置</td>
+</tr>
+<tr>
+<td>嵌入向量（Embedding）</td>
+<td>把文本变成可比较的数值表示</td>
+<td>确定、可重复的向量</td>
+</tr>
+<tr>
+<td>相似度（similarity）</td>
+<td>衡量查询与文本块在该表示下有多接近</td>
+<td>每个候选的分数</td>
+</tr>
+<tr>
+<td>Top-K</td>
+<td>只保留得分最高的 K 个候选</td>
+<td>排序后的有限候选列表</td>
+</tr>
+<tr>
+<td>上下文（context）</td>
+<td>最终交给回答步骤的检索内容</td>
+<td>被选中的文本和来源位置</td>
+</tr>
+<tr>
+<td>提示词（Prompt）</td>
+<td>回答规则、问题和上下文的组合</td>
+<td>指令区与知识区保持分隔</td>
+</tr>
+<tr>
+<td>回答（answer）</td>
+<td>回答步骤产生的用户可读结果</td>
+<td>有证据时回答，证据不足时说明无答案</td>
+</tr>
+<tr>
+<td>引用位置（citation positions）</td>
+<td>指向答案实际使用的文本块</td>
+<td>可回查的块编号或位置</td>
+</tr>
+</tbody>
+</table></div>
+<p>完整流程见 <a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/assets/diagrams/rag-end-to-end.mmd">D01：RAG 端到端流程</a>。</p>
+<span class="heading-anchor" id="第一步：准备可检索的知识"></span><h2 id="_3">第一步：准备可检索的知识</h2>
+<p>程序先接收一组本地文档。文档中的内容不会直接全部塞进回答步骤，而是被切成更小的
+文本块。文本块是实际参与检索的单位，所以每一块都需要保留来源位置。</p>
+<p>接着，程序为每个文本块生成嵌入向量。你可以暂时把向量理解为“用于比较文本的一串
+数字”。离线试点采用确定性算法，不声称具有生产 Embedding 模型的语义能力；它只需
+保证规则透明、输出可重复，并让相似度排序可以被测试。</p>
+<p>这部分通常叫准备或索引阶段。最小试点把数据放在内存中，没有引入向量数据库。</p>
+<span class="heading-anchor" id="第二步：查询、检索与回答"></span><h2 id="_4">第二步：查询、检索与回答</h2>
+<p>用户提交问题后，程序依次执行：</p>
+<ol>
+<li>校验查询不是空字符串。</li>
+<li>用同一套确定性规则生成查询向量。</li>
+<li>计算查询与各文本块的相似度。</li>
+<li>按分数排序，并选择 Top-K 个候选。</li>
+<li>把候选文本与来源位置组成上下文。</li>
+<li>明确分隔回答规则、用户问题和不可信的知识库上下文，形成 Prompt。</li>
+<li>生成回答，并返回实际使用的引用位置。</li>
+</ol>
+<p>Top-K 中的 K 是上限，不是“必须凑够”的数量。如果只存在两个文本块，即使请求
+<code>top_k=5</code>，程序也只能返回最多两个真实候选，不能复制内容或制造不存在的结果。</p>
+<span class="heading-anchor" id="为什么要把检索文本当作不可信数据"></span><h2 id="_5">为什么要把检索文本当作不可信数据</h2>
+<p>知识库内容可能包含错误信息，也可能出现“忽略之前规则”之类的句子。那句话属于被
+检索的数据，不应该自动升级为系统指令。</p>
+<p>因此，Prompt 需要清楚分隔：</p>
+<ul>
+<li>回答规则告诉程序允许做什么；</li>
+<li>用户问题说明要回答什么；</li>
+<li>检索上下文只提供待核对的证据。</li>
+</ul>
+<p>这种分隔是必要的安全默认值，但不是绝对防护。它不能单独解决投毒、越权读取或所有
+Prompt Injection 问题。</p>
+<span class="heading-anchor" id="回答为什么还要带引用位置"></span><h2 id="_6">回答为什么还要带引用位置</h2>
+<p>只输出一句自然语言答案，读者无法知道它来自哪个文本块。返回引用位置后，可以回到
+具体 Chunk 检查：</p>
+<ul>
+<li>引用是否真的包含答案所述事实；</li>
+<li>是否漏掉了冲突或更新的来源；</li>
+<li>回答是否超出了证据能够支持的范围。</li>
+</ul>
+<p>引用位置提高可核对性，但“有引用”不等于“引用支持结论”。判断支持关系仍然需要测试
+或人工审查。</p>
+<span class="heading-anchor" id="五条必须明确的失败边界"></span><h2 id="_7">五条必须明确的失败边界</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>最小试点应怎样处理</th>
+<th>为什么不能假装成功</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空语料</td>
+<td>明确报错或返回无答案状态</td>
+<td>没有候选知识可检索</td>
+</tr>
+<tr>
+<td>空查询</td>
+<td>拒绝继续并给出具体错误</td>
+<td>无法定义用户真正要找什么</td>
+</tr>
+<tr>
+<td>Top-K 超过块数量</td>
+<td>只返回现有候选</td>
+<td>不能制造或重复候选来凑数</td>
+</tr>
+<tr>
+<td>查询形成零向量</td>
+<td>返回无答案或零匹配状态</td>
+<td>相似度排序没有可靠区分信息</td>
+</tr>
+<tr>
+<td>证据不足</td>
+<td>明确说明无法从语料回答</td>
+<td>猜测会把不确定性伪装成事实</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些边界的可执行证据位于
+<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/tests/unit/test_minimal_rag.py">单元测试</a>和
+<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/tests/smoke/test_minimal_rag_cli.py">命令行冒烟测试</a>。</p>
+<span class="heading-anchor" id="第一次离线试跑"></span><h2 id="_8">第一次离线试跑</h2>
+<p>进入 <a href="n-739ac11e006b.html">minimal-rag 项目 README</a>，按其中唯一维护的
+启动命令运行示例。运行时按顺序寻找：</p>
+<ol>
+<li>固定语料和切分后的 Chunk；</li>
+<li>查询与确定性向量表示；</li>
+<li>相似度分数和 Top-K 排序；</li>
+<li>被选中的上下文；</li>
+<li>分隔后的 Prompt；</li>
+<li>回答和引用位置；</li>
+<li>无答案边界的可观察结果。</li>
+</ol>
+<p>本章不复制项目 README 的命令和预期输出，因为可执行入口应只有一个维护位置。</p>
+<span class="heading-anchor" id="常见误解"></span><h2 id="_9">常见误解</h2>
+<p><strong>误解一：用了 RAG，模型就不会幻觉。</strong></p>
+<p>不成立。RAG 增加了外部证据路径，但检索、数据、上下文构造和回答任何一段都可能失败。</p>
+<p><strong>误解二：相似度最高的文本一定正确。</strong></p>
+<p>不成立。分数只表示在当前表示与算法下更接近，不代表事实正确、最新或有权限使用。</p>
+<p><strong>误解三：Top-K 越大越好。</strong></p>
+<p>不成立。更多候选可能带来噪声、冲突和更高处理成本。K 需要结合语料与任务评估。</p>
+<p><strong>误解四：这个最小实现代表所有 RAG 技术。</strong></p>
+<p>不成立。生产系统还可能涉及复杂 Chunking、稀疏或混合检索、索引、重排、权限、评估、
+监控和安全治理。本试点只建立最小主链路。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_10">自测</h2>
+<p>不看上文，尝试回答：</p>
+<ol>
+<li>检索和生成各自负责什么？</li>
+<li>为什么 Chunk 必须保留来源位置？</li>
+<li>当查询得到零向量时，为什么不应该随便返回第一个文档？</li>
+<li>为什么知识库中的句子不能直接当作系统指令？</li>
+<li>为什么“有引用”仍然需要检查证据是否支持答案？</li>
+</ol>
+<p>如果你能解释这些问题，并在示例输出或代码中指出九个位置，就完成了本章的可观察学习
+目标。</p>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_11">本章状态与导航</h2>
+<ul>
+<li>章节状态：<code>static-checked</code>；独立技术、初学者与编辑审查由后续团队门禁记录。</li>
+<li>D01 状态：<code>static-checked</code>、未渲染；当前环境没有 <code>mmdc</code>。</li>
+<li>
+<p>代码状态：以 <a href="n-739ac11e006b.html">minimal-rag 项目 README</a>和最终测试
+  证据为准，本章不替代码声称通过。</p>
+</li>
+<li>
+<p>上一站：<a href="n-12aa8105c5e5.html">02 RAG 原理索引</a></p>
+</li>
+<li>下一站：<a href="n-739ac11e006b.html">运行离线 minimal-rag</a></li>
+<li>返回：<a href="n-cf7d5431540b.html">文档总索引</a>｜<a href="n-1800f38420d2.html">仓库入口</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

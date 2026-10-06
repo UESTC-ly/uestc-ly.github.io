@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>向量存储选型 · 李杨的学习笔记</title><meta name="description" content="上一节： 增量更新、删除与索引一致性 ｜导航： RAG 学习路线 ｜下一节： RAG 端到端实践"><meta property="og:title" content="向量存储选型 · 李杨的学习笔记"><meta property="og:description" content="上一节： 增量更新、删除与索引一致性 ｜导航： RAG 学习路线 ｜下一节： RAG 端到端实践"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-6e7610736812.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-6e7610736812.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>向量存储选型</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/10-%E5%90%91%E9%87%8F%E5%AD%98%E5%82%A8%E9%80%89%E5%9E%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 本节定位</a></li><li><a href="#2">2. 学习目标</a></li><li><a href="#3-rag">3. 先明确：向量存储在 RAG 中负责什么</a></li><li><a href="#4">4. 选型前先写清楚约束</a></li><li><a href="#41">4.1 数据规模</a></li><li><a href="#42">4.2 查询模式</a></li><li><a href="#43">4.3 性能目标</a></li><li><a href="#44">4.4 一致性与更新模式</a></li><li><a href="#5">5. 主要方案类别</a></li><li><a href="#51">5.1 关系数据库 + 向量扩展</a></li><li><a href="#52">5.2 搜索引擎 + 向量检索</a></li><li><a href="#53">5.3 专用向量数据库</a></li><li><a href="#54">5.4 本地索引库或内存索引</a></li><li><a href="#55">5.5 托管向量服务</a></li><li><a href="#6">6. 索引结构：不要只比较产品默认参数</a></li><li><a href="#61-hnsw">6.1 HNSW</a></li><li><a href="#62-ivf">6.2 IVF 及其变体</a></li><li><a href="#63">6.3 精确检索与近似检索</a></li><li><a href="#7">7. 元数据与过滤设计</a></li><li><a href="#71">7.1 把高频过滤字段结构化</a></li><li><a href="#72">7.2 过滤必须在可信边界执行</a></li><li><a href="#73-ann">7.3 过滤与 ANN 的组合是重点测试项</a></li><li><a href="#8">8. 数据模型建议</a></li><li><a href="#81">8.1 文档事实表</a></li><li><a href="#82">8.2 文档版本表</a></li><li><a href="#83-chunk">8.3 Chunk 记录</a></li><li><a href="#84">8.4 向量索引记录</a></li><li><a href="#9">9. 选型决策矩阵</a></li><li><a href="#10">10. 一个可重复的基准测试方案</a></li><li><a href="#101">10.1 准备固定数据集</a></li><li><a href="#102">10.2 准备查询集和相关性标注</a></li><li><a href="#103">10.3 固定变量</a></li><li><a href="#104">10.4 记录指标</a></li><li><a href="#105">10.5 用门槛而不是单一排名决策</a></li><li><a href="#11">11. 推荐的最小落地架构</a></li><li><a href="#12">12. 常见误区</a></li><li><a href="#_2">误区一：只按向量数量选择产品</a></li><li><a href="#_3">误区二：只看官方无过滤吞吐</a></li><li><a href="#_4">误区三：把相似度分数当成统一标准</a></li><li><a href="#_5">误区四：把向量库当成唯一事实来源</a></li><li><a href="#_6">误区五：忽略删除和旧版本残留</a></li><li><a href="#_7">误区六：只测试平均延迟</a></li><li><a href="#_8">误区七：把“支持多租户”理解成天然安全</a></li><li><a href="#_9">误区八：过早追求复杂架构</a></li><li><a href="#13">13. 选型检查清单</a></li><li><a href="#_10">数据与模型</a></li><li><a href="#_11">检索与过滤</a></li><li><a href="#_12">更新与可靠性</a></li><li><a href="#_13">成本与运维</a></li><li><a href="#14">14. 核心结论</a></li><li><a href="#15">15. 与前后章节的关系</a></li><li><a href="#_14">来源说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>上一节：<a href="n-3a9f79208663.html">增量更新、删除与索引一致性</a>｜导航：<a href="n-1984c9335328.html">RAG 学习路线</a>｜下一节：<a href="n-88dce774ecdb.html">RAG 端到端实践</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 本节定位"></span><h2 id="1">1. 本节定位</h2>
+<p>向量存储选型不是简单地比较“谁的向量检索速度更快”。一个可用的 RAG 系统还需要同时处理：</p>
+<ul>
+<li>向量保存与近似最近邻检索；</li>
+<li>文档、Chunk、版本和来源元数据；</li>
+<li>租户、权限、时间范围和业务标签过滤；</li>
+<li>关键词检索与向量检索的混合；</li>
+<li>新增、修改、删除和索引重建；</li>
+<li>查询延迟、并发、可用性、备份与恢复；</li>
+<li>成本、团队熟悉度和长期迁移风险。</li>
+</ul>
+<p>因此，本节关注的是“怎样根据业务约束选择存储和检索方案”，而不是罗列产品特性。</p>
+<span class="heading-anchor" id="2. 学习目标"></span><h2 id="2">2. 学习目标</h2>
+<p>完成本节后，应能够：</p>
+<ol>
+<li>区分向量数据库、关系数据库扩展、搜索引擎和本地向量索引；</li>
+<li>根据数据规模、过滤复杂度、更新频率和运维能力缩小候选范围；</li>
+<li>理解 HNSW、IVF 等索引结构对召回率、延迟和资源消耗的影响；</li>
+<li>设计向量、Chunk、版本和权限元数据的存储边界；</li>
+<li>用统一数据集和统一指标完成可重复的选型实验；</li>
+<li>认识到选型结果必须与 RAG 的增量更新、权限隔离和评测方案一起验证。</li>
+</ol>
+<span class="heading-anchor" id="3. 先明确：向量存储在 RAG 中负责什么"></span><h2 id="3-rag">3. 先明确：向量存储在 RAG 中负责什么</h2>
+<p>一个 RAG 系统通常包含以下几类数据：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据</th>
+<th>典型内容</th>
+<th>主要访问方式</th>
+<th>是否适合只放在向量索引中</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原始文档</td>
+<td>PDF、网页、Office 文件、业务记录</td>
+<td>按文档 ID、版本和权限读取</td>
+<td>不适合</td>
+</tr>
+<tr>
+<td>解析结果</td>
+<td>清洗后的正文、标题层级、页码</td>
+<td>按文档版本读取</td>
+<td>通常不适合</td>
+</tr>
+<tr>
+<td>Chunk</td>
+<td>可检索的文本片段及其来源</td>
+<td>按 Chunk ID、文档 ID、过滤条件读取</td>
+<td>可与向量索引关联</td>
+</tr>
+<tr>
+<td>Embedding</td>
+<td>每个 Chunk 的向量</td>
+<td>Top-k 相似度检索</td>
+<td>适合</td>
+</tr>
+<tr>
+<td>关键词索引</td>
+<td>词项、倒排信息、BM25 字段</td>
+<td>关键词检索</td>
+<td>由搜索引擎负责</td>
+</tr>
+<tr>
+<td>权限元数据</td>
+<td>tenant、用户组、资源范围、可见状态</td>
+<td>检索前过滤</td>
+<td>必须由可信服务控制</td>
+</tr>
+<tr>
+<td>处理状态</td>
+<td>解析、Embedding、索引发布状态</td>
+<td>任务查询和重试</td>
+<td>不应只依赖向量库</td>
+</tr>
+</tbody>
+</table></div>
+<p>推荐把“事实来源”和“派生索引”分开考虑：</p>
+<pre><code class="language-text">原始文档 / 业务数据库
+        │
+        ├── 解析、清洗、切分
+        │
+        ├── Chunk 与元数据事实表
+        │       ├── 关键词索引
+        │       └── 向量索引
+        │
+        └── 发布状态、版本指针、审计记录
+</code></pre>
+<p>向量存储通常是检索链路中的派生系统。它可以保存检索所需的文本和元数据副本，但不应成为唯一的事实来源。这样做有几个好处：</p>
+<ul>
+<li>索引损坏或重建时，能够从事实来源恢复；</li>
+<li>修改 Embedding 模型时，可以重新生成向量；</li>
+<li>权限和版本发生变化时，可以重新发布索引；</li>
+<li>不把业务事务、审计和复杂数据关系强行塞入向量数据库。</li>
+</ul>
+<span class="heading-anchor" id="4. 选型前先写清楚约束"></span><h2 id="4">4. 选型前先写清楚约束</h2>
+<span class="heading-anchor" id="4.1 数据规模"></span><h3 id="41">4.1 数据规模</h3>
+<p>至少记录以下数量，而不是只估计“文档数”：</p>
+<ul>
+<li>文档数量；</li>
+<li>平均和最大 Chunk 数；</li>
+<li>Chunk 总数；</li>
+<li>向量维度；</li>
+<li>向量数据类型，例如 <code>float32</code>、<code>float16</code> 或量化格式；</li>
+<li>元数据大小和全文字段大小；</li>
+<li>每日新增、修改和删除量；</li>
+<li>预计一到三年后的增长量。</li>
+</ul>
+<p>向量本体的粗略空间可以按下面的方式估算：</p>
+<div class="arithmatex">\[
+S_{vector} \approx N \times d \times b \times (1 + r)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(N\)</span> 是向量数量；</li>
+<li><span class="arithmatex">\(d\)</span> 是向量维度；</li>
+<li><span class="arithmatex">\(b\)</span> 是每个分量占用的字节数，<code>float32</code> 通常为 4；</li>
+<li><span class="arithmatex">\(r\)</span> 是索引结构、对齐和副本带来的额外开销。</li>
+</ul>
+<p>实际容量还要加上文本、元数据、倒排索引、日志、备份和副本。不能只用“向量数量 × 维度 × 4”作为机器规格。</p>
+<span class="heading-anchor" id="4.2 查询模式"></span><h3 id="42">4.2 查询模式</h3>
+<p>需要明确查询是以下哪一种，或哪几种的组合：</p>
+<ul>
+<li>纯语义相似度检索；</li>
+<li>带 <code>tenant_id</code>、部门、产品、语言、时间范围等过滤；</li>
+<li>关键词检索；</li>
+<li>向量与 BM25 的混合检索；</li>
+<li>按文档、章节、版本聚合或去重；</li>
+<li>相似度检索后还要排序、聚合或高亮；</li>
+<li>多路召回后统一合并和重排。</li>
+</ul>
+<p>如果业务问题包含大量精确条件，例如订单号、版本号、权限范围和时间窗口，单纯依赖向量相似度通常不是好方案。存储系统必须能够在召回阶段高效执行结构化过滤，或与关系数据库、搜索引擎协作完成过滤。</p>
+<span class="heading-anchor" id="4.3 性能目标"></span><h3 id="43">4.3 性能目标</h3>
+<p>不要只写“要快”，应明确：</p>
+<ul>
+<li>目标并发和峰值并发；</li>
+<li><code>top_k</code> 的范围；</li>
+<li>p50、p95、p99 延迟目标；</li>
+<li>是否允许异步查询；</li>
+<li>写入延迟和可见性延迟；</li>
+<li>索引构建、扩容和恢复期间是否需要继续服务；</li>
+<li>单租户大查询是否会影响其他租户。</li>
+</ul>
+<p>RAG 的端到端延迟还包括 Query Rewrite、Embedding、检索、Rerank、Prompt 组装和大模型生成。向量检索从 30 毫秒降到 10 毫秒，并不一定能改善整体体验；反之，过滤错误造成的低召回也不能用更快的延迟弥补。</p>
+<span class="heading-anchor" id="4.4 一致性与更新模式"></span><h3 id="44">4.4 一致性与更新模式</h3>
+<p>确认以下问题：</p>
+<ul>
+<li>新写入的 Chunk 多久后必须可检索；</li>
+<li>文档修改是否要求旧版本立即不可见；</li>
+<li>删除是否必须立即生效；</li>
+<li>是否允许短时间读到旧版本；</li>
+<li>索引更新失败后如何重试；</li>
+<li>如何发现事实来源和索引之间的不一致；</li>
+<li>是否需要双写、消息队列或批量发布。</li>
+</ul>
+<p>这些问题与上一节的增量更新设计直接相关。存储产品的写入 API 并不能自动解决业务上的版本发布和删除语义。</p>
+<span class="heading-anchor" id="5. 主要方案类别"></span><h2 id="5">5. 主要方案类别</h2>
+<span class="heading-anchor" id="5.1 关系数据库 + 向量扩展"></span><h3 id="51">5.1 关系数据库 + 向量扩展</h3>
+<p>典型思路是在已有关系数据库中保存 Chunk、元数据和向量，并使用向量扩展完成相似度检索。</p>
+<p><strong>适合：</strong></p>
+<ul>
+<li>数据规模中小到中等；</li>
+<li>已经使用关系数据库，团队熟悉 SQL；</li>
+<li>过滤条件和事务关系比较重要；</li>
+<li>希望减少基础设施数量；</li>
+<li>向量检索不是唯一或最大的业务负载。</li>
+</ul>
+<p><strong>优点：</strong></p>
+<ul>
+<li>文档、Chunk、权限和版本可以放在同一套数据模型中；</li>
+<li>SQL 过滤、连接和事务能力成熟；</li>
+<li>备份、权限、迁移和监控可以复用现有体系；</li>
+<li>对原型和业务系统集成比较直接。</li>
+</ul>
+<p><strong>风险与边界：</strong></p>
+<ul>
+<li>大规模高并发向量检索可能与在线事务互相影响；</li>
+<li>向量索引构建、更新和 vacuum 等维护会消耗资源；</li>
+<li>复杂混合检索和全文搜索能力可能不如专用搜索引擎；</li>
+<li>扩展到多节点时，需要确认分片、路由和高可用方案。</li>
+</ul>
+<p>这类方案的关键不是“数据库能不能存向量”，而是验证在真实过滤条件和真实并发下，在线事务与向量查询是否能够稳定共存。</p>
+<span class="heading-anchor" id="5.2 搜索引擎 + 向量检索"></span><h3 id="52">5.2 搜索引擎 + 向量检索</h3>
+<p>搜索引擎通常同时提供倒排索引、BM25、结构化过滤、聚合和向量检索，适合搜索体验较强的应用。</p>
+<p><strong>适合：</strong></p>
+<ul>
+<li>关键词和语义检索都很重要；</li>
+<li>需要高亮、聚合、字段过滤或复杂查询；</li>
+<li>用户经常输入专有名词、编号、版本和短关键词；</li>
+<li>已有搜索引擎集群和运维经验。</li>
+</ul>
+<p><strong>优点：</strong></p>
+<ul>
+<li>关键词、过滤和向量检索可以在一套查询体系中组合；</li>
+<li>适合实现混合检索、字段权重和搜索分析；</li>
+<li>搜索结果的解释和调试工具通常较丰富。</li>
+</ul>
+<p><strong>风险与边界：</strong></p>
+<ul>
+<li>向量字段、索引和副本可能显著增加内存与存储成本；</li>
+<li>混合检索的分数融合需要实验，不能直接把不同分数相加；</li>
+<li>分片、刷新和段合并会影响写入可见性与查询延迟；</li>
+<li>对强事务和复杂业务关系的支持通常不如关系数据库。</li>
+</ul>
+<span class="heading-anchor" id="5.3 专用向量数据库"></span><h3 id="53">5.3 专用向量数据库</h3>
+<p>专用向量数据库将近似最近邻索引、向量存储、过滤、分片和副本作为核心能力，常见于大规模语义检索服务。</p>
+<p><strong>适合：</strong></p>
+<ul>
+<li>向量检索是系统的主要负载；</li>
+<li>向量数量较大，未来还会持续增长；</li>
+<li>需要独立扩展查询和写入资源；</li>
+<li>团队能够接受新的运维模型或使用托管服务。</li>
+</ul>
+<p><strong>优点：</strong></p>
+<ul>
+<li>向量索引和检索能力通常比较完整；</li>
+<li>可以围绕检索负载进行容量规划和水平扩展；</li>
+<li>常提供 payload 过滤、分区、批量写入和索引参数调节。</li>
+</ul>
+<p><strong>风险与边界：</strong></p>
+<ul>
+<li>文档事实、复杂事务和审计通常仍需外部系统保存；</li>
+<li>产品之间的过滤语义、更新语义和一致性保证可能不同；</li>
+<li>迁移成本取决于查询语法、索引参数和数据模型；</li>
+<li>“专用”不等于不需要调参、监控、备份和故障演练。</li>
+</ul>
+<p>使用专用向量数据库时，建议把它当作“检索索引服务”，不要把所有业务状态都迁入其中。</p>
+<span class="heading-anchor" id="5.4 本地索引库或内存索引"></span><h3 id="54">5.4 本地索引库或内存索引</h3>
+<p>本地索引库适合在单机、离线任务、实验或小规模应用中使用。常见做法是生成索引文件，加载到进程内或独立服务中。</p>
+<p><strong>适合：</strong></p>
+<ul>
+<li>离线评测和算法实验；</li>
+<li>数据量较小且更新不频繁；</li>
+<li>对高可用、在线删除和多租户隔离没有严格要求；</li>
+<li>需要快速验证 Embedding、召回和索引参数。</li>
+</ul>
+<p><strong>不适合直接承担：</strong></p>
+<ul>
+<li>多副本在线服务；</li>
+<li>频繁增删改；</li>
+<li>严格权限过滤；</li>
+<li>跨节点故障恢复；</li>
+<li>复杂的租户级资源隔离。</li>
+</ul>
+<p>本地索引可以是很好的实验基线，但不要因为离线测试结果好，就直接推断它适合生产系统。</p>
+<span class="heading-anchor" id="5.5 托管向量服务"></span><h3 id="55">5.5 托管向量服务</h3>
+<p>托管服务可以减少集群运维、升级和扩容工作，适合希望快速上线、但不想自建检索基础设施的团队。</p>
+<p>选择时重点确认：</p>
+<ul>
+<li>计费单位是存储、向量数量、读写次数还是节点规格；</li>
+<li>过滤、批量写入、删除和版本发布是否满足需求；</li>
+<li>数据所在区域、备份、保留和合规能力；</li>
+<li>是否支持导出全量数据与增量变更；</li>
+<li>发生服务故障或供应商迁移时的退出方案；</li>
+<li>端到端网络延迟以及跨区域访问成本。</li>
+</ul>
+<p>托管服务降低的是基础设施运维成本，不会自动降低数据建模、权限设计和检索评测成本。</p>
+<span class="heading-anchor" id="6. 索引结构：不要只比较产品默认参数"></span><h2 id="6">6. 索引结构：不要只比较产品默认参数</h2>
+<span class="heading-anchor" id="6.1 HNSW"></span><h3 id="61-hnsw">6.1 HNSW</h3>
+<p>HNSW 通过多层图结构在高维空间中快速寻找近邻，常用于需要较低查询延迟和较高召回率的在线检索。</p>
+<p>通常需要关注：</p>
+<ul>
+<li>构建阶段的连接参数；</li>
+<li>查询阶段访问的候选数量；</li>
+<li>索引构建时间和内存占用；</li>
+<li>增量写入后索引质量是否稳定；</li>
+<li>删除、更新和重建的具体语义。</li>
+</ul>
+<p>增大查询候选数量通常可能提高召回率，但会增加延迟；增大图连接度可能改善检索质量，却会增加构建时间和内存。最终参数应由基准测试确定。</p>
+<span class="heading-anchor" id="6.2 IVF 及其变体"></span><h3 id="62-ivf">6.2 IVF 及其变体</h3>
+<p>IVF 先把向量划分到多个簇，查询时只搜索部分簇，以减少需要比较的候选数量。</p>
+<p>需要关注：</p>
+<ul>
+<li>簇数量是否与数据规模匹配；</li>
+<li>查询时探测多少个簇；</li>
+<li>索引训练是否使用了有代表性的样本；</li>
+<li>数据分布变化后是否需要重新训练；</li>
+<li>小数据集上是否反而增加了复杂度。</li>
+</ul>
+<p>IVF 的效果与数据分布和参数关联较强。不能把某个数据集上的默认参数直接复制到另一种语言、领域或 Embedding 模型上。</p>
+<span class="heading-anchor" id="6.3 精确检索与近似检索"></span><h3 id="63">6.3 精确检索与近似检索</h3>
+<p>精确最近邻检索可以作为质量基线，尤其适合小数据集和离线评测。生产环境通常使用近似索引换取延迟和吞吐，但必须用精确结果计算召回损失。</p>
+<p>推荐保留一个小规模的精确检索基线：</p>
+<ol>
+<li>对同一批查询执行精确检索；</li>
+<li>对不同索引参数执行近似检索；</li>
+<li>计算 <code>Recall@k</code>、延迟和资源占用；</li>
+<li>找到满足质量门槛的最低资源配置。</li>
+</ol>
+<span class="heading-anchor" id="7. 元数据与过滤设计"></span><h2 id="7">7. 元数据与过滤设计</h2>
+<span class="heading-anchor" id="7.1 把高频过滤字段结构化"></span><h3 id="71">7.1 把高频过滤字段结构化</h3>
+<p>常见的结构化字段包括：</p>
+<pre><code class="language-json">{
+  "tenant_id": "tenant-a",
+  "document_id": "doc-123",
+  "document_version": 7,
+  "chunk_id": "doc-123-v7-c004",
+  "visibility": "published",
+  "source_type": "manual",
+  "language": "zh-CN",
+  "department_id": "dept-01",
+  "updated_at": "2025-01-01T00:00:00Z",
+  "page": 12,
+  "embedding_model": "embedding-model-v1"
+}
+</code></pre>
+<p>字段设计原则：</p>
+<ul>
+<li>高频过滤字段使用明确的数据类型，不要全部编码成字符串；</li>
+<li>时间、版本和状态字段要有稳定语义；</li>
+<li><code>document_id</code>、<code>document_version</code>、<code>chunk_id</code> 之间保持可追溯关系；</li>
+<li>过滤字段与展示字段分开，避免把无关大字段复制到每个 Chunk；</li>
+<li>需要聚合、排序或范围过滤的字段，应确认底层存储是否对其建立了合适的索引。</li>
+</ul>
+<span class="heading-anchor" id="7.2 过滤必须在可信边界执行"></span><h3 id="72">7.2 过滤必须在可信边界执行</h3>
+<p>权限过滤不能由模型决定，也不能只在生成答案后再过滤。推荐流程是：</p>
+<pre><code class="language-text">认证用户
+  → 授权服务计算可访问范围
+  → 应用服务生成服务端过滤条件
+  → 向量 / 关键词检索
+  → 只把已授权结果交给 Rerank 和生成模型
+</code></pre>
+<p>用户输入中的 <code>tenant_id</code>、部门或权限条件不能直接作为可信过滤条件。检索服务应尽量只接受应用服务生成的过滤表达式，并记录实际使用的授权范围用于审计。</p>
+<span class="heading-anchor" id="7.3 过滤与 ANN 的组合是重点测试项"></span><h3 id="73-ann">7.3 过滤与 ANN 的组合是重点测试项</h3>
+<p>同一个向量索引，在无过滤、低选择性过滤和高选择性过滤下，性能可能完全不同。至少测试：</p>
+<ul>
+<li>不带过滤的查询；</li>
+<li>过滤后仍有大量候选的查询；</li>
+<li>过滤后只剩很少候选的查询；</li>
+<li>多个字段组合过滤；</li>
+<li>过滤字段分布严重倾斜的租户；</li>
+<li>不存在匹配结果的查询。</li>
+</ul>
+<p>有些系统先做 ANN 再过滤，可能导致过滤后结果不足；有些系统支持过滤感知的检索，但会有额外执行开销。必须根据实际执行计划和召回结果判断，不能只看接口文档中的“支持过滤”。</p>
+<span class="heading-anchor" id="8. 数据模型建议"></span><h2 id="8">8. 数据模型建议</h2>
+<p>可以将逻辑模型拆成四层：</p>
+<span class="heading-anchor" id="8.1 文档事实表"></span><h3 id="81">8.1 文档事实表</h3>
+<p>保存文档身份、来源、当前版本、业务状态和权限事实。它通常位于关系数据库或业务系统中。</p>
+<span class="heading-anchor" id="8.2 文档版本表"></span><h3 id="82">8.2 文档版本表</h3>
+<p>保存每次发布的内容版本、内容哈希、解析器版本、切分策略和 Embedding 模型版本。例如：</p>
+<pre><code class="language-text">document_id
+version
+content_hash
+parser_version
+chunking_version
+embedding_model
+status
+created_at
+published_at
+</code></pre>
+<span class="heading-anchor" id="8.3 Chunk 记录"></span><h3 id="83-chunk">8.3 Chunk 记录</h3>
+<p>保存 Chunk 文本、标题路径、页码、字符区间、父文档和版本关系。向量库可以保存其中用于检索和展示的副本，但应保留通过 ID 回查事实来源的能力。</p>
+<span class="heading-anchor" id="8.4 向量索引记录"></span><h3 id="84">8.4 向量索引记录</h3>
+<p>至少能够定位：</p>
+<pre><code class="language-text">vector_id → chunk_id → document_id + version
+</code></pre>
+<p>同时记录索引批次、发布时间、可见状态和 Embedding 模型。这样才能回答“这个答案来自哪个文档版本、由哪个模型生成、何时发布”。</p>
+<span class="heading-anchor" id="9. 选型决策矩阵"></span><h2 id="9">9. 选型决策矩阵</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>条件</th>
+<th>优先考虑</th>
+<th>需要重点验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>已有关系数据库，规模适中</td>
+<td>关系数据库 + 向量扩展</td>
+<td>ANN 与在线事务的资源隔离</td>
+</tr>
+<tr>
+<td>关键词、过滤、聚合很重要</td>
+<td>搜索引擎 + 向量检索</td>
+<td>混合检索分数融合和刷新延迟</td>
+</tr>
+<tr>
+<td>向量规模大、检索是核心负载</td>
+<td>专用向量数据库</td>
+<td>分片、扩容、备份、过滤和更新语义</td>
+</tr>
+<tr>
+<td>快速原型或离线评测</td>
+<td>本地索引库</td>
+<td>与生产数据模型和权限能力的差距</td>
+</tr>
+<tr>
+<td>团队希望少运维</td>
+<td>托管服务</td>
+<td>成本、数据导出和供应商退出方案</td>
+</tr>
+<tr>
+<td>强事务、复杂业务关联为主</td>
+<td>关系数据库保存事实，外接检索索引</td>
+<td>双系统一致性与重建流程</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表只能帮助缩小范围，不能替代基准测试。同一类别中的不同实现，也可能在过滤、写入可见性和故障恢复方面有明显差异。</p>
+<span class="heading-anchor" id="10. 一个可重复的基准测试方案"></span><h2 id="10">10. 一个可重复的基准测试方案</h2>
+<span class="heading-anchor" id="10.1 准备固定数据集"></span><h3 id="101">10.1 准备固定数据集</h3>
+<p>数据集应包含生产中真实存在的差异：</p>
+<ul>
+<li>长文档和短文档；</li>
+<li>表格、代码、标题层级和多语言文本；</li>
+<li>重复内容与近似内容；</li>
+<li>不同租户和不同权限范围；</li>
+<li>新版本与旧版本；</li>
+<li>高热度文档和长尾文档。</li>
+</ul>
+<p>不要只用随机向量测试。随机向量能测出接口吞吐，却不能验证 Embedding 分布、过滤选择性和实际召回质量。</p>
+<span class="heading-anchor" id="10.2 准备查询集和相关性标注"></span><h3 id="102">10.2 准备查询集和相关性标注</h3>
+<p>查询集至少覆盖：</p>
+<ul>
+<li>直接问法；</li>
+<li>同义改写；</li>
+<li>包含产品名、版本号和编号的问法；</li>
+<li>需要时间或状态约束的问法；</li>
+<li>无答案问题；</li>
+<li>跨文档、多跳问题；</li>
+<li>权限不同但文本相似的问题。</li>
+</ul>
+<p>为每个查询准备人工标注的相关 Chunk 或相关文档，作为检索质量的参考答案。标注数据应区分“主题相关”和“足以支持回答”，后者更接近 RAG 的实际目标。</p>
+<span class="heading-anchor" id="10.3 固定变量"></span><h3 id="103">10.3 固定变量</h3>
+<p>比较候选方案时，尽量固定：</p>
+<ul>
+<li>同一个 Embedding 模型和向量版本；</li>
+<li>同一个 Chunk 数据集；</li>
+<li>同一个查询集；</li>
+<li>同一个 <code>top_k</code> 和过滤条件；</li>
+<li>同一个硬件级别或成本预算；</li>
+<li>相同的预热、并发和超时策略。</li>
+</ul>
+<p>否则测到的可能是模型或硬件差异，而不是存储方案差异。</p>
+<span class="heading-anchor" id="10.4 记录指标"></span><h3 id="104">10.4 记录指标</h3>
+<p><strong>检索质量：</strong></p>
+<ul>
+<li><code>Recall@k</code>：相关结果是否进入候选集合；</li>
+<li><code>Precision@k</code>：返回结果中相关结果的比例；</li>
+<li><code>MRR</code> 或 <code>nDCG</code>：相关结果的排序质量；</li>
+<li>过滤正确率：是否返回了不应可见的数据；</li>
+<li>版本正确率：是否混入已失效版本；</li>
+<li>空结果和无答案问题的误召回率。</li>
+</ul>
+<p><strong>性能与资源：</strong></p>
+<ul>
+<li>p50、p95、p99 查询延迟；</li>
+<li>吞吐和并发下的错误率；</li>
+<li>批量写入吞吐；</li>
+<li>从写入到可检索的延迟；</li>
+<li>删除或版本切换到生效的延迟；</li>
+<li>CPU、内存、磁盘、网络和副本开销；</li>
+<li>重启、扩容、重建和恢复时间。</li>
+</ul>
+<p><strong>运维与成本：</strong></p>
+<ul>
+<li>日常操作复杂度；</li>
+<li>监控指标和告警完整性；</li>
+<li>备份恢复是否经过演练；</li>
+<li>版本升级与回滚方式；</li>
+<li>单位查询成本和单位向量存储成本；</li>
+<li>数据导出和迁移所需时间。</li>
+</ul>
+<span class="heading-anchor" id="10.5 用门槛而不是单一排名决策"></span><h3 id="105">10.5 用门槛而不是单一排名决策</h3>
+<p>可以先设定硬性门槛，再在满足门槛的方案中比较成本和便利性。例如：</p>
+<pre><code class="language-text">过滤正确率 = 100%
+Recall@20 ≥ 目标值
+p95 查询延迟 ≤ 目标值
+删除生效延迟 ≤ 目标值
+故障恢复时间 ≤ 目标值
+月度成本 ≤ 预算
+</code></pre>
+<p>任何违反权限隔离或版本可见性要求的方案，都不应因为延迟更低而被选中。</p>
+<span class="heading-anchor" id="11. 推荐的最小落地架构"></span><h2 id="11">11. 推荐的最小落地架构</h2>
+<p>对于多数中小规模 RAG 项目，可以先采用以下边界：</p>
+<pre><code class="language-text">关系数据库：
+  文档事实、版本、权限事实、任务状态、审计记录
+
+对象存储：
+  原始文件、解析中间产物、索引构建快照
+
+检索存储：
+  Chunk 的检索文本、Embedding、必要的过滤元数据
+
+应用检索服务：
+  生成授权过滤条件、执行混合召回、记录引用和版本
+
+评测系统：
+  固定查询集、相关性标注、离线指标和线上监控
+</code></pre>
+<p>在数据规模尚未证明需要拆分时，可以先使用关系数据库的向量扩展或已有搜索引擎；当向量查询成为明显瓶颈，再独立部署专用向量存储。迁移前应确保 <code>chunk_id</code>、文档版本和元数据模型已经稳定。</p>
+<span class="heading-anchor" id="12. 常见误区"></span><h2 id="12">12. 常见误区</h2>
+<span class="heading-anchor" id="误区一：只按向量数量选择产品"></span><h3 id="_2">误区一：只按向量数量选择产品</h3>
+<p>真实压力还取决于向量维度、过滤字段、查询并发、<code>top_k</code>、副本、更新频率和元数据大小。</p>
+<span class="heading-anchor" id="误区二：只看官方无过滤吞吐"></span><h3 id="_3">误区二：只看官方无过滤吞吐</h3>
+<p>RAG 往往必须携带租户、权限、版本和业务条件。无过滤基准不能代表真实查询。</p>
+<span class="heading-anchor" id="误区三：把相似度分数当成统一标准"></span><h3 id="_4">误区三：把相似度分数当成统一标准</h3>
+<p>不同模型、距离函数和归一化方式产生的分数不能直接横向比较。混合检索需要进行分数校准、排名融合或使用 Rerank。</p>
+<span class="heading-anchor" id="误区四：把向量库当成唯一事实来源"></span><h3 id="_5">误区四：把向量库当成唯一事实来源</h3>
+<p>索引重建、Embedding 迁移、权限修复和数据对账都会要求可恢复的事实数据。</p>
+<span class="heading-anchor" id="误区五：忽略删除和旧版本残留"></span><h3 id="_6">误区五：忽略删除和旧版本残留</h3>
+<p>向量删除成功不代表缓存、关键词索引、引用记录和其他副本都已同步。必须定义可见性和对账机制。</p>
+<span class="heading-anchor" id="误区六：只测试平均延迟"></span><h3 id="_7">误区六：只测试平均延迟</h3>
+<p>长尾延迟通常由高并发、分片倾斜、过滤选择性、缓存未命中和索引维护造成。至少观察 p95 和 p99。</p>
+<span class="heading-anchor" id="误区七：把“支持多租户”理解成天然安全"></span><h3 id="_8">误区七：把“支持多租户”理解成天然安全</h3>
+<p>多租户能力可能只是提供一个字段，并不等于自动完成权限过滤、资源隔离、配额限制和审计。授权逻辑必须由可信应用服务强制执行。</p>
+<span class="heading-anchor" id="误区八：过早追求复杂架构"></span><h3 id="_9">误区八：过早追求复杂架构</h3>
+<p>在没有数据规模和负载证据之前，拆分多个数据库会增加一致性、监控、备份和排障成本。先建立可重建的数据管道和评测基线，再根据瓶颈演进。</p>
+<span class="heading-anchor" id="13. 选型检查清单"></span><h2 id="13">13. 选型检查清单</h2>
+<span class="heading-anchor" id="数据与模型"></span><h3 id="_10">数据与模型</h3>
+<ul>
+<li>[ ] 已统计 Chunk 总数、向量维度、元数据大小和增长量；</li>
+<li>[ ] 已固定 Embedding 模型、距离函数和向量版本；</li>
+<li>[ ] 已明确全文、Chunk 和原始文件的存放位置；</li>
+<li>[ ] 已设计 <code>document_id</code>、版本和 <code>chunk_id</code> 的关系。</li>
+</ul>
+<span class="heading-anchor" id="检索与过滤"></span><h3 id="_11">检索与过滤</h3>
+<ul>
+<li>[ ] 已列出真实查询模式和过滤条件；</li>
+<li>[ ] 已验证租户、权限、状态和版本过滤；</li>
+<li>[ ] 已测试无过滤、低选择性和高选择性过滤；</li>
+<li>[ ] 已确认是否需要 BM25、混合检索、聚合或高亮；</li>
+<li>[ ] 已保留精确检索或其他质量基线。</li>
+</ul>
+<span class="heading-anchor" id="更新与可靠性"></span><h3 id="_12">更新与可靠性</h3>
+<ul>
+<li>[ ] 已定义新增、修改、删除和重试语义；</li>
+<li>[ ] 已定义“写入成功”和“可检索”的区别；</li>
+<li>[ ] 已验证旧版本不可见和删除生效时间；</li>
+<li>[ ] 已测试备份、恢复、重建和故障切换；</li>
+<li>[ ] 已有事实来源与索引之间的对账机制。</li>
+</ul>
+<span class="heading-anchor" id="成本与运维"></span><h3 id="_13">成本与运维</h3>
+<ul>
+<li>[ ] 已测试 p50、p95、p99，而不只是平均延迟；</li>
+<li>[ ] 已测量不同索引参数下的召回率和资源占用；</li>
+<li>[ ] 已估算副本、备份、网络和扩容成本；</li>
+<li>[ ] 已确认监控、告警、升级和回滚方式；</li>
+<li>[ ] 已制定数据导出和迁移方案。</li>
+</ul>
+<span class="heading-anchor" id="14. 核心结论"></span><h2 id="14">14. 核心结论</h2>
+<ol>
+<li>向量存储选型是 RAG 整体架构决策，不是孤立的数据库采购。</li>
+<li>数据规模、过滤复杂度、更新语义和团队运维能力，通常比产品名称更重要。</li>
+<li>关系数据库适合以业务数据和事务为中心的中小规模场景；搜索引擎适合关键词、过滤和混合检索；专用向量数据库适合以大规模向量检索为核心的场景；本地索引适合实验和离线任务。</li>
+<li>必须使用真实数据、真实过滤条件和固定评测集，联合比较召回率、延迟、更新生效、恢复能力和成本。</li>
+<li>权限、版本和删除语义必须由可信服务和数据管道保证，不能交给模型或向量数据库的默认行为。</li>
+<li>无论采用哪种存储，都应保留可重建的事实来源、稳定的 Chunk 身份和明确的索引发布流程。</li>
+</ol>
+<span class="heading-anchor" id="15. 与前后章节的关系"></span><h2 id="15">15. 与前后章节的关系</h2>
+<ul>
+<li>上一节<a href="n-3a9f79208663.html">增量更新、删除与索引一致性</a>解决索引如何跟随事实来源变化；</li>
+<li>本节解决在不同业务约束下选择何种检索存储；</li>
+<li>下一节<a href="n-88dce774ecdb.html">RAG 端到端实践</a>将这些组件串成可运行的完整链路。</li>
+</ul>
+<span class="heading-anchor" id="来源说明"></span><h2 id="_14">来源说明</h2>
+<p>本节根据当前项目中的 RAG 学习路线、文档权限与多租户隔离、增量更新与索引一致性等相关笔记，并结合通用的向量检索工程知识整理。具体产品的版本、性能和功能边界应以对应版本的官方文档及本项目的实际基准测试为准。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

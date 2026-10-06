@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03 请求体与 Pydantic 校验 · 李杨的学习笔记</title><meta name="description" content="记忆句： 模型画形状，Field 定边界；是否能省略看默认值，是否能为空看类型。"><meta property="og:title" content="03 请求体与 Pydantic 校验 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 模型画形状，Field 定边界；是否能省略看默认值，是否能为空看类型。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-a4ded1c035a9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-a4ded1c035a9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>03 请求体与 Pydantic 校验</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/03_%E8%AF%B7%E6%B1%82%E4%BD%93%E4%B8%8EPydantic%E6%A0%A1%E9%AA%8C.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 为什么还需要请求体</a></li><li><a href="#2">2. 数据模型是一份可执行的约定</a></li><li><a href="#3-null">3. 最容易混淆的是缺失和 null</a></li><li><a href="#4">4. 哪些规则适合放进模型</a></li><li><a href="#5-demo">5. 最小 demo：标题必填，优先级有默认值</a></li><li><a href="#6-json">6. 模型、字典和 JSON 是三种东西</a></li><li><a href="#7">7. 合上笔记，检查三条边界</a></li><li><a href="#8">8. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>模型画形状，Field 定边界；是否能省略看默认值，是否能为空看类型。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 为什么还需要请求体"></span><h2 id="1">1. 为什么还需要请求体</h2>
+<p>上一章把编号和查询条件放在 URL 里。但创建一个任务时，客户端可能要提交标题、优先级和标签列表。把这些内容全部塞进查询字符串，读起来不方便，表达嵌套结构也不自然。请求体就是随请求一起发送的一份数据，常见格式是 JSON，适合承载这样的结构化内容。</p>
+<p>可以把 URL 看成投递地址，把请求体看成信封里的表格。地址决定交给谁处理，表格提供这次处理所需的资料。它们并不互斥：修改第 3 个任务时，路径可以携带编号，请求体携带要修改的内容。</p>
+<p>本章使用 POST 演示 JSON 请求体。不要因为“请求体里放了数据”，就认为数据已经保存：接收、校验和持久化是不同步骤。本章只把处理结果返回，数据库保存留到数据库章节。</p>
+<span class="heading-anchor" id="2. 数据模型是一份可执行的约定"></span><h2 id="2">2. 数据模型是一份可执行的约定</h2>
+<p>继承 <code>BaseModel</code> 的类描述数据结构：字段名规定有哪些信息，类型规定每份信息是什么，默认值规定缺失时怎么办，<code>Field</code> 则补充长度和范围等要求。它不只是文档，也会参与实际请求校验。</p>
+<p>请求到达时，框架先读取 JSON，再按模型解析和校验。通过以后，函数拿到的是一个模型对象，可以用 <code>task.title</code> 访问字段。没有通过时，默认返回 422，并指出出错字段；本次请求不会正常进入处理函数的业务逻辑。</p>
+<p>这里可以把模型理解为“带检查规则的表格”。类比的边界是，模型不仅核对字段，还可能转换输入。例如默认的宽松校验可能把可解析的数字字符串转换为整数。所以校验通过通常表示“能解析成规定的数据”，不一定表示“原始输入的类型与声明一模一样”。确实需要拒绝这种转换时，再考虑严格模式。</p>
+<span class="heading-anchor" id="3. 最容易混淆的是缺失和 null"></span><h2 id="3-null">3. 最容易混淆的是缺失和 null</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段声明</th>
+<th>可以缺失吗</th>
+<th>可以传 JSON null 吗</th>
+<th>应如何理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name: str</code></td>
+<td>不可以</td>
+<td>不可以</td>
+<td>必须提供字符串</td>
+</tr>
+<tr>
+<td><code>name: str = "未命名"</code></td>
+<td>可以</td>
+<td>不可以</td>
+<td>不提供就用默认字符串</td>
+</tr>
+<tr>
+<td><code>name: str \| None</code></td>
+<td>不可以</td>
+<td>可以</td>
+<td>必须交这个字段，但可明确置空</td>
+</tr>
+<tr>
+<td><code>name: str \| None = None</code></td>
+<td>可以</td>
+<td>可以</td>
+<td>不交与明确置空都可接受</td>
+</tr>
+</tbody>
+</table></div>
+<p>“字段缺失”是 JSON 中根本没有这个键；“字段为 null”是键存在，但值为空。它们代表的意图可能不同。例如修改用户资料时，不传昵称可能意味着保持原值，传 null 可能意味着清空昵称。暂时不必实现更新接口，但应先保留这个区别。</p>
+<p>本系列采用 Pydantic v2。不要把 <code>str | None</code> 自动读成“选填”：允许空值与是否必须提供是两件事。先看有没有默认值，再看类型是否包含 <code>None</code>，就不容易判断反了。</p>
+<span class="heading-anchor" id="4. 哪些规则适合放进模型"></span><h2 id="4">4. 哪些规则适合放进模型</h2>
+<p>标题的最大长度、优先级的取值范围，属于单份输入就能判断的规则，适合放在模型里。某个任务是否已存在、当前用户能否创建任务，则需要数据库或登录上下文，通常由业务逻辑和权限逻辑处理。</p>
+<p>模型校验也不能靠规则名称想当然。<code>min_length=1</code> 能拒绝空字符串，但一个空格仍然占一个字符；若业务要求“去掉两端空白后仍有内容”，就需要额外规范化或校验。先说明业务真正要求什么，再选择校验方式。</p>
+<p>额外字段也是一种约定。Pydantic 默认通常忽略未声明的输入字段；设置 <code>extra="forbid"</code> 可以改成拒绝。例如客户端把 <code>priority</code> 拼成 <code>prioroty</code>，默认忽略可能让系统悄悄使用优先级默认值，而拒绝额外字段能更早暴露拼写问题。本章最小示例保留默认行为，配套示例展示拒绝方式。</p>
+<span class="heading-anchor" id="5. 最小 demo：标题必填，优先级有默认值"></span><h2 id="5-demo">5. 最小 demo：标题必填，优先级有默认值</h2>
+<p>完成环境安装后，将代码复制到 <code>main.py</code>，在该文件所在目录运行 <code>python -m uvicorn main:app --reload</code>。切换章节前按 <code>Ctrl+C</code> 停止上一章。</p>
+<pre><code class="language-python">from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
+app = FastAPI()
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=30)
+    priority: int = Field(default=1, ge=1, le=3)
+
+@app.post("/tasks", status_code=201)
+def create_task(task: TaskCreate):
+    return task.model_dump()
+</code></pre>
+<p>打开 <a href="http://127.0.0.1:8000/docs">交互文档</a>，展开 <code>POST /tasks</code>，点击 <strong>Try it out</strong>。把请求体改为 <code>{"title":"学习 FastAPI"}</code> 后执行。状态码为 201，响应中除了标题，还会出现默认的 <code>priority: 1</code>。</p>
+<p>接下来每次只改变一个条件：把标题改为空字符串，观察长度错误；删掉标题，观察必填错误；把优先级改成 9，观察范围错误。它们都返回 422，但错误位置和原因不同。读错误时，先找到字段位置，再看约束，不必背完整的错误 JSON。</p>
+<p>这里的 201 是为了演示创建接口常用的成功状态；示例只返回校验后的数据，没有保存任务。最小示例的目标是看清请求体如何变成模型对象。</p>
+<p>可选配套：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch03.py">demos/ch03.py</a>，额外展示标签列表与禁止未知字段，比正文示例完整。</p>
+<span class="heading-anchor" id="6. 模型、字典和 JSON 是三种东西"></span><h2 id="6-json">6. 模型、字典和 JSON 是三种东西</h2>
+<p>模型对象便于在 Python 中按字段访问，并携带模型定义的结构信息；<code>model_dump()</code> 返回 Python 字典，适合交给后续处理；JSON 是网络传输时常用的文本表示。三者关系密切，但不能混为同一种类型。</p>
+<p>本章返回字典后，FastAPI 负责生成 JSON 响应。<code>model_dump_json()</code> 才会直接生成 JSON 字符串。若在普通接口里把这类字符串当普通返回值再交给框架，可能得到被再次编码的字符串，所以入门时直接返回模型或字典更清楚。</p>
+<p><code>model_validate()</code> 用于根据一份输入构造并校验模型。路由参数已经声明为模型时，框架会完成相应解析，通常不需要在函数里对同一份请求再手动校验一次。</p>
+<p>列表默认值也有一个易记写法：<code>Field(default_factory=list)</code> 表达“创建每个对象时，都调用 list 生成自己的列表”。Pydantic 对部分可变默认值有保护机制，但工厂写法能直接说清意图，也方便扩展为其他动态默认值。</p>
+<span class="heading-anchor" id="7. 合上笔记，检查三条边界"></span><h2 id="7">7. 合上笔记，检查三条边界</h2>
+<p><strong>模型校验通过，数据就进入数据库了吗？</strong> 没有。校验只保证数据符合声明，保存需要单独实现。</p>
+<p><strong><code>model_dump()</code> 返回 JSON 字符串吗？</strong> 返回 Python 字典，最终网络响应由框架序列化。</p>
+<p><strong>只给函数写一个普通字符串参数，它会自动从 JSON 请求体取吗？</strong> 通常不会，普通标量默认会按查询参数处理；单独的请求体标量需要显式使用 <code>Body</code>。本章的 <code>BaseModel</code> 参数则默认作为请求体。</p>
+<span class="heading-anchor" id="8. 官方资料"></span><h2 id="8">8. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/body/">Request Body</a> · <a href="https://fastapi.tiangolo.com/tutorial/body-fields/">Body Fields</a> · <a href="https://docs.pydantic.dev/latest/concepts/fields/">Pydantic Fields</a> · <a href="https://docs.pydantic.dev/latest/concepts/models/">Pydantic Models</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

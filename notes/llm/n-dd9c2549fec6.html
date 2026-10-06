@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>大型语言模型的11种高效微调方法 · 李杨的学习笔记</title><meta name="description" content="导读：大型预训练模型是一种在大规模语料库上预先训练的深度学习模型，它们可以通过在大量无标注数据上进行训练来学习通用语言表示，并在各种下游任务中进行微调和迁移。随着模型参数规模的扩大，微调和推理阶段的资源消耗也在增加。针对这一挑战，可以通过优化模型结构和训练策略来降低资源消耗。"><meta property="og:title" content="大型语言模型的11种高效微调方法 · 李杨的学习笔记"><meta property="og:description" content="导读：大型预训练模型是一种在大规模语料库上预先训练的深度学习模型，它们可以通过在大量无标注数据上进行训练来学习通用语言表示，并在各种下游任务中进行微调和迁移。随着模型参数规模的扩大，微调和推理阶段的资源消耗也在增加。针对这一挑战，可以通过优化模型结构和训练策略来降低资源消耗。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-dd9c2549fec6.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-dd9c2549fec6.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>大型语言模型的11种高效微调方法</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/%E5%A4%A7%E5%9E%8B%E8%AF%AD%E8%A8%80%E6%A8%A1%E5%9E%8B%E7%9A%8411%E7%A7%8D%E9%AB%98%E6%95%88%E5%BE%AE%E8%B0%83%E6%96%B9%E6%B3%95.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、前缀调优</a></li><li><a href="#_2">二、提示调优</a></li><li><a href="#p-tuning-v2">三、P-Tuning v2</a></li><li><a href="#lora">四、LoRA</a></li><li><a href="#dylora">五、DyLoRA</a></li><li><a href="#adalora">六、AdaLoRA</a></li><li><a href="#qlora">七、QLoRA</a></li><li><a href="#qa-lora">八、QA-LoRA</a></li><li><a href="#longlora">九、LongLoRA</a></li><li><a href="#vera">十、VeRA</a></li><li><a href="#s-lora">十一、S-LoRA</a></li><li><a href="#_3">十二、总结</a></li><li><a href="#_4"></a></li></ul></details><article class="note-content">
+<p>导读：大型预训练模型是一种在大规模语料库上预先训练的深度学习模型，它们可以通过在大量无标注数据上进行训练来学习通用语言表示，并在各种下游任务中进行微调和迁移。随着模型参数规模的扩大，微调和推理阶段的资源消耗也在增加。针对这一挑战，可以通过优化模型结构和训练策略来降低资源消耗。</p>
+<p><strong>一般来说，研究者的优化方向从两个方面共同推进：</strong></p>
+<ul>
+<li>
+<p>一方面，针对训练参数过多导致资源消耗巨大的情况，可以考虑通过固定基础大型语言模型的参数，引入部分特定参数进行模型训练，大大减少了算力资源的消耗，也加速了模型的训练速度。比较常用的方法包括前缀调优、提示调优等。</p>
+</li>
+<li>
+<p>另一方面，还可以通过固定基础大型语言模型的架构，通过增加一个“新的旁路”来针对特定任务或特定数据进行微调，当前非常热门的LoRA就是通过增加一个旁路来提升模型在多任务中的表现。</p>
+</li>
+</ul>
+<p><strong>接下来，我们将详细介绍11种高效的大型语言模型参数调优的方法。</strong></p>
+<span class="heading-anchor" id="一、前缀调优"></span><h2 id="_1">一、<strong>前缀调优</strong></h2>
+<p>前缀调优（Prefix Tuning）是一种轻量级的微调替代方法，专门用于自然语言生成任务。前缀调优的灵感来自于语言模型提示，前缀就好像是“虚拟标记”一样，这种方法可在特定任务的上下文中引导模型生成文本。</p>
+<p>前缀调优的独特之处在于它不改变语言模型的参数，而是通过冻结LM参数，仅优化一系列连续的任务特定向量（即前缀）来实现优化任务。前缀调优的架构如图1所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/ed54dcb4ba2576038478115c1b3f0a60.png"/></p>
+<p><em>图1 前缀调优的架构</em></p>
+<p>由于在训练中只需要为每个任务存储前缀，前缀调优的轻量级设计避免了存储和计算资源的浪费，同时保持了模型的性能，具有模块化和高效利用空间的特点，有望在NLP任务中提供高效的解决方案。</p>
+<span class="heading-anchor" id="二、提示调优"></span><h2 id="_2">二、<strong>提示调优</strong></h2>
+<p>提示调优（Prompt Tuning）方法是由Brian Lester在论文“The Power of Scale for Parameter-Efficient Prompt Tuning”中提出的。</p>
+<p>提示调优采用“软提示”（Soft Prompt）的方式，通过冻结整个预训练模型，只允许每个下游任务在输入文本前面添加k个可调的标记（Token）来优化模型参数，赋予语言模型能够执行特定的下游任务的能力。提示调优的架构如图2所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/ad283e99a704eba775a45c80b0b80945.png"/></p>
+<p><em>图2 提示调优的架构</em></p>
+<p>在论文的实验对比中，对于T5-XXL模型，每个经过调整的模型副本需要110亿个参数，相较于为每个下游任务制作特定的预训练模型副本，提示调优需要的参数规模仅为20480个参数。该方法在少样本提示方面表现出色。</p>
+<span class="heading-anchor" id="三、P-Tuning v2"></span><h2 id="p-tuning-v2">三、<strong>P-Tuning v2</strong></h2>
+<p>尽管提示调优在相应任务上取得了一定的效果，但当底座模型规模较小，特别是小于1000亿个参数时，效果表现不佳。为了解决这个问题，清华大学的团队提出了针对深度提示调优的优化和适应性实现——P-Tuning v2方法。  </p>
+<p>该方法最显著的改进是对预训练模型的每一层应用连续提示，而不仅仅是输入层。这实际上是一种针对大型语言模型的软提示方法，主要是将大型语言模型的词嵌入层和每个Transformer网络层前都加上新的参数。深度提示调优增加了连续提示的功能，并缩小了在各种设置之间进行微调的差距，特别是对于小型模型和困难的任务。</p>
+<p>实验表明，P-Tuning v2在30亿到100亿个参数的不同模型规模下，以及在提取性问题回答和命名实体识别等NLP任务上，都能与传统微调的性能相匹敌，且训练成本大大降低。</p>
+<span class="heading-anchor" id="四、LoRA"></span><h2 id="lora">四、<strong>LoRA</strong></h2>
+<p>微软公司在2021年提出了一种名为Low-Rank Adaptation（LoRA，低秩适配器）的方法。</p>
+<p>LoRA的核心思想是通过冻结预训练模型的权重，并将可训练的秩分解矩阵注入Transformer架构的每一层，从而显著减少下游任务中可训练参数的数量。在训练过程中，只需要固定原始模型的参数，然后训练降维矩阵A和升维矩阵B。LoRA的架构如图3所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/ea0eee21a2819855d36139975e225cea.png"/></p>
+<p><em>图3 LoRA的架构</em></p>
+<p>具体来看，假设预训练的矩阵为<img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/3663d9af364b48df7bf3223772481a93.png"/>，它的更新可表示为：<img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/6aa594e1cfb4cef6da0d7278ed335a1d.png"/>，其中：<img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/3704021ecdf25a70f8783961aa8d341f.png"/>。</p>
+<p>与使用Adam微调的GPT-3 175B相比，LoRA可以将可训练参数的数量减少10000倍，并将GPU内存需求减少3倍。尽管LoRA的可训练参数较少，训练吞吐量较高，但与RoBERTa、DeBERTa、GPT-2和GPT-3等模型相比，LoRA在模型质量性能方面与微调相当，甚至更好。</p>
+<span class="heading-anchor" id="五、DyLoRA"></span><h2 id="dylora">五、<strong>DyLoRA</strong></h2>
+<p>但随着研究的深入，LoRA块存在两大核心问题：  </p>
+<ul>
+<li>一旦训练完成后，LoRA块的大小便无法更改，若要调整LoRA块的秩，则需重新训练整个模型，这无疑增加了大量时间和计算成本；    </li>
+<li>LoRA块的大小是在训练前设计的固定超参，优化秩的过程需要精细的搜索与调优操作，仅设计单一的超参可能无法有效提升模型效果。</li>
+</ul>
+<p>为解决上述问题，研究者引入了一种全新的方法—DyLoRA（动态低秩适应）。</p>
+<p>研究者参考LoRA的基本架构，针对每个LoRA块设计了上投影（Wup）和下投影（Wdw）矩阵及当前LoRA块的规模范围R。为确保增加或减少秩不会明显阻碍模型的表现，在训练过程中通过对LoRA块对不同秩的信息内容进行排序，再结合预定义的随机分布中进行抽样，来对LoRA块镜像上投影矩阵和下投影矩阵截断，最终确认单个LoRA块的大小。DyLoRA的架构如图4所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/26e07c5eba7f427f8b8a0a38cb2c64cc.png"/></p>
+<p><em>图4 DyLoRA的架构</em></p>
+<p>研究结果表明，与LoRA相比，使用DyLoRA训练出的模型速度可提升4～7倍，且性能几乎没有下降。此外，与LoRA相比，该模型在更广泛的秩范围内展现出了卓越的性能。</p>
+<span class="heading-anchor" id="六、AdaLoRA"></span><h2 id="adalora">六、<strong>AdaLoRA</strong></h2>
+<p>正如DyLoRA优化方法一样，提出AdaLoRA的研究者也发现，当前LoRA存在的改进方向：</p>
+<ul>
+<li>
+<p>由于权重矩阵在不同LoRA块和模型层中的重要性存在差异，因此不能提前制定一个统一规模的秩来约束相关权重信息，需要设计可以支持动态更新的参数矩阵；</p>
+</li>
+<li>
+<p>需要设计有效的方法来评估当前参数矩阵的重要性，并根据重要性程度，为重要性高的矩阵分配更多参数量，以提升模型效果，对重要性低的矩阵进行裁剪，进一步降低计算量。</p>
+</li>
+</ul>
+<p>根据上述思想，研究者提出了AdaLoRA方法，可以根据权重矩阵的重要性得分，在权重矩阵之间自适应地分配参数规模。在实际操作中，AdaLoRA采用奇异值分解（SVD）的方法来进行参数训练，根据重要性指标剪裁掉不重要的奇异值来提高计算效率，从而进一步提升模型在微调阶段的效果。</p>
+<span class="heading-anchor" id="七、QLoRA"></span><h2 id="qlora">七、<strong>QLoRA</strong></h2>
+<p>Tim Dettmers等研究者在论文“QLoRA: Efficient Finetuning of Quantized LLMs”中提出了一种高效的模型微调方法——QLoRA。</p>
+<p>QLoRA的架构如图5所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/bee0e53045bb92b324eb823ac461559a.png"/></p>
+<p><em>图5 QLoRA的架构</em></p>
+<p>QLoRA的创新内容主要如下：</p>
+<ul>
+<li>4bit NormalFloat（NF4）。NF4是一种新型数据类型，它对正态分布的权重来说是信息理论上的最优选择。    </li>
+<li>双重量化技术。双重量化技术减少了平均内存的使用，它通过对已量化的常量进行再量化来实现。    </li>
+<li>分页优化器。分页优化器有助于管理内存峰值，防止梯度检查点时出现内存不足的错误。</li>
+</ul>
+<p>实验表明，QLoRA技术使得研究者能够在单个48GB GPU上微调650亿个参数规模的模型，同时维持16bit精度任务的完整性能。例如，在训练Guanaco模型时，仅需在单个GPU上微调24h，即可达到与ChatGPT相当的99.3%性能水平。通过QLoRA微调技术，可以有效降低模型微调时的显存消耗。</p>
+<span class="heading-anchor" id="八、QA-LoRA"></span><h2 id="qa-lora">八、<strong>QA-LoRA</strong></h2>
+<p>大型语言模型取得了迅猛发展，尽管在许多语言理解任务中表现强大，但由于巨大的计算负担，尤其是在需要将它们部署到边缘设备时，应用受到了限制。具体而言，预训练权重矩阵的每一列只伴随一个缩放和零参数对，但有很多LoRA参数。这种不平衡不仅导致了大量的量化误差（对LLM的准确性造成损害），而且使得将辅助权重整合到主模型中变得困难。</p>
+<p>在论文“QA-LoRA: Quantization-aware Low-rank Adaptation of large language models”中，研究者提出了一种量化感知的低秩适应（QA-LoRA）算法。该方法来源于量化和适应的自由度不平衡的思想。</p>
+<p>研究者提出采用分组运算符的方式，旨在增加量化自由度的同时减少适应自由度。</p>
+<p>QA-LoRA的实现简便，仅需几行代码，同时赋予原始的LoRA两倍的能力：</p>
+<ul>
+<li>
+<p>在微调过程中，LLM的权重被量化（如INT4），以降低时间和内存的使用；</p>
+</li>
+<li>
+<p>微调后，LLM和辅助权重能够自然地集成到一个量化模型中，而不损失准确性。</p>
+</li>
+</ul>
+<p>通过在LLaMA和LLaMA2模型系列的实验中证明，QA-LoRA在不同的微调数据集和下游场景中验证了其有效性。</p>
+<p>如图6所示，与之前的适应方法LoRA和QLoRA相比，QA-LoRA在微调和推理阶段都具有更高的计算效率。更重要的是，由于不需要进行训练后量化，因此它不会导致准确性损失。在图6中展示了INT4的量化，但QA-LoRA可以推广到INT3和INT2。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/53acc84858c80e75947082d10f63521a.png"/></p>
+<p><em>图6 LoRA、QLoRA、QA-LoRA的架构对比</em></p>
+<span class="heading-anchor" id="九、LongLoRA"></span><h2 id="longlora">九、<strong>LongLoRA</strong></h2>
+<p>通常情况下，用较长的上下文长度训练大型语言模型的计算成本较高，需要大量的训练时间和GPU资源。</p>
+<p>为了在有限的计算成本下扩展预训练大型语言模型的上下文大小，研究者在论文“LongLoRA: Efficient Fine-tuning of Long-Context Large Language Models”中提出了LongLoRA的方法，整体架构如图7所示。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/8edc59093cd6b59a5c63d458720539b7.png"/></p>
+<p><em>图7 LongLoRA的整体架构</em></p>
+<p>LongLoRA在两个方面进行了改进：</p>
+<ul>
+<li>
+<p>虽然在推理过程中需要密集的全局注意力，但通过采用稀疏的局部注意力，可以有效地进行模型微调。在LongLoRA中，引入的转移短暂的注意力机制能够有效地实现上下文扩展，从而在性能上与使用香草注意力（Vanilla Attention）进行微调的效果相似；</p>
+</li>
+<li>
+<p>通过重新审视上下文扩展的参数高效微调机制，研究者发现在可训练嵌入和规范化的前提下，用于上下文扩展的LoRA表现良好。</p>
+</li>
+</ul>
+<p>LongLoRA在从70亿、130亿到700亿个参数的LLaMA2模型的各种任务上都取得了良好的结果。具体而言，LongLoRA采用LLaMA2-7B模型，将上下文长度从4000个Token扩展到10万个Token，展现了其在增加上下文长度的同时保持了高效计算的能力。这为大型语言模型的进一步优化和应用提供了有益的思路。</p>
+<span class="heading-anchor" id="十、VeRA"></span><h2 id="vera">十、<strong>VeRA</strong></h2>
+<p>LoRA是一种常用的大型语言模型微调方法，它在微调大型语言模型时能够减少可训练参数的数量。然而，随着模型规模的进一步扩大或者需要部署大量适应于每个用户或任务的模型时，存储问题仍然是一个挑战。</p>
+<p>研究者提出了一种基于向量的随机矩阵适应（Vector-based Random matrix Adaptation，VeRA）的方法，VeRA的实现方法是通过使用一对低秩矩阵在所有层之间共享，并学习小的缩放向量来实现这一目标。</p>
+<p>与LoRA相比，VeRA成功将可训练参数的数量减少了10倍，同时保持了相同的性能水平。VeRA与LoRA的架构对比如图8所示，LoRA通过训练低秩矩阵和来更新权重矩阵，中间秩为。在VeRA中，这些矩阵被冻结，在所有层之间共享，并通过可训练向量和进行适应，从而显著减少可训练参数的数量。在这种情况下，低秩矩阵和向量可以合并到原始权重矩阵中，不引入额外的延迟。这种新颖的结构设计使得VeRA在减少存储开销的同时，还能够保持和LoRA相媲美的性能，为大型语言模型的优化和应用提供了更加灵活的解决方案。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://img-blog.csdnimg.cn/img_convert/6d4ab98f463535b93e9f90e7fe4452dc.png"/></p>
+<p><em>图8 VeRA与LoRA的架构对比</em></p>
+<p>实验证明，VeRA在GLUE和E2E基准测试中展现了其有效性，并在使用LLaMA2 7B模型时仅使用140万个参数的指令就取得了一定的效果。这一方法为在大型语言模型微调中降低存储开销提供了一种新的思路，有望在实际应用中取得更为显著的效益。</p>
+<span class="heading-anchor" id="十一、S-LoRA"></span><h2 id="s-lora">十一、<strong>S-LoRA</strong></h2>
+<p>LoRA作为一种参数高效的大型语言模型微调方法，通常用于将基础模型适应到多种任务中，从而形成了大量派生自基础模型的LoRA模型。由于多个采用LoRA形式训练的模型的底座模型都为同一个，因此可以参考批处理模式进行推理。</p>
+<p>据此，研究者提出了一种S-LoRA（Serving thousands of con current LoRA adapters）方法，S-LoRA是一种专为可伸缩地服务多个LoRA适配器而设计的方法。</p>
+<p>S-LoRA的设计理念是将所有适配器存储在主内存中，并在GPU内存中动态获取当前运行查询所需的适配器。为了高效使用GPU内存并减少碎片，S-LoRA引入了统一分页。统一分页采用统一的内存池来管理具有不同秩的动态适配器权重以及具有不同序列长度的KV缓存张量。此外，S-LoRA还采用了一种新颖的张量并行策略和高度优化的自定义CUDA核心，用于异构批处理LoRA计算。这些特性使得S-LoRA能够在单个GPU或跨多个GPU上提供数千个LoRA适配器，而开销相对较小。</p>
+<p>通过实验发现，S-LoRA的吞吐量提高了4倍多，并且提供的适配器数量增加了数个数量级。因此，S-LoRA在实现对许多任务特定微调模型的可伸缩服务方面取得了显著进展，并为大规模定制微调服务提供了潜在的可能性。</p>
+<span class="heading-anchor" id="十二、总结"></span><h2 id="_3">十二、<strong>总结</strong></h2>
+<p>本文从背景、来源、技术路线及性能等方面综述了11种在模型参数调优阶段进行的方法，其中前缀调优、提示调优和P-Tuning v2属于引入特定参数来减少算力消耗、提升训练速度；基于LoRA的各种方法的基本思想是添加新的旁路，对特定任务或特定数据进行微调。  </p>
+<p>开源社区Hugging Face将这11种方法归纳为高效参数调优方法（Parameter-Efficient Fine-Tuning，PEFT）。PEFT方法能够在不微调所有模型参数的情况下，有效地让预训练语言模型适应各种下游应用。PEFT方法只微调了少量额外的模型参数，从而大幅降低了大模型训练和微调的计算与存储成本。通过合理使用PEFT方法，不但能提高模型的训练效率，还能在特定任务上达到大型语言模型的效果。</p>
+<span class="heading-anchor" id=""></span><h3 id="_4"></h3></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

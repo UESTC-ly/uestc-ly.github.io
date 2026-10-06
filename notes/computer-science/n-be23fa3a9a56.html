@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Debug/Release 差异与 Sanitizer · 李杨的学习笔记</title><meta name="description" content="你需要会查看 CMake 生成的真实编译命令，并理解未定义行为、数据竞争和调试符号。完成本章后，应能解释某个构建目录实际使用了哪些 flags，为 ASan/UBSan 与 TSan 建立隔离配置，并从一份报告追到最小复现和回归测试。"><meta property="og:title" content="Debug/Release 差异与 Sanitizer · 李杨的学习笔记"><meta property="og:description" content="你需要会查看 CMake 生成的真实编译命令，并理解未定义行为、数据竞争和调试符号。完成本章后，应能解释某个构建目录实际使用了哪些 flags，为 ASan/UBSan 与 TSan 建立隔离配置，并从一份报告追到最小复现和回归测试。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-be23fa3a9a56.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-be23fa3a9a56.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 05-原生程序工程诊断</p><h1>Debug/Release 差异与 Sanitizer</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/05-%E5%8E%9F%E7%94%9F%E7%A8%8B%E5%BA%8F%E5%B7%A5%E7%A8%8B%E8%AF%8A%E6%96%AD/02-%E6%9E%84%E5%BB%BA%E6%A8%A1%E5%BC%8F%E4%B8%8E%E8%BF%90%E8%A1%8C%E6%97%B6%E6%A3%80%E6%B5%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">前置知识与完成标准</a></li><li><a href="#1">1. 核心概念：不要只看构建类型名称</a></li><li><a href="#11-flags">1.1 构建类型、配置与 flags 的关系</a></li><li><a href="#12">1.2 常见配置不等于固定选项</a></li><li><a href="#2-release">2. 为什么“只在 Release 出错”</a></li><li><a href="#21">2.1 优化为何改变可观察行为</a></li><li><a href="#3-sanitizer">3. Sanitizer 选择</a></li><li><a href="#31">3.1 它们怎样工作，为什么有盲区</a></li><li><a href="#32">3.2 组合策略</a></li><li><a href="#4-cmake">4. 示例：CMake 中建立独立配置</a></li><li><a href="#41-asan-use-after-free">4.1 从零实验：ASan 定位 use-after-free</a></li><li><a href="#42-tsan">4.2 TSan 最小竞争实验</a></li><li><a href="#5">5. 读懂报告</a></li><li><a href="#51">5.1 报告处理模板</a></li><li><a href="#6-sanitizer-ci">6. 典型工作流：Sanitizer CI 矩阵</a></li><li><a href="#7">7. 常见坑与排障步骤</a></li><li><a href="#8">8. 练习</a></li><li><a href="#9">9. 检查清单</a></li><li><a href="#10">10. 小结</a></li><li><a href="#11">11. 官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解构建类型只是配置集合，不是统一标准。</li>
+<li>识别优化、断言和未定义行为造成的 Debug/Release 差异。</li>
+<li>正确构建和运行 ASan、UBSan、TSan、MSan 测试。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h3 id="_2">前置知识与完成标准</h3>
+<p>你需要会查看 CMake 生成的真实编译命令，并理解未定义行为、数据竞争和调试符号。完成本章后，应能解释某个构建目录实际使用了哪些 flags，为 ASan/UBSan 与 TSan 建立隔离配置，并从一份报告追到最小复现和回归测试。</p>
+<span class="heading-anchor" id="1. 核心概念：不要只看构建类型名称"></span><h2 id="1">1. 核心概念：不要只看构建类型名称</h2>
+<p>CMake 的 <code>Debug</code>、<code>Release</code>、<code>RelWithDebInfo</code>、<code>MinSizeRel</code> 会初始化一组默认 flags，但工具链和项目都能覆盖它们。诊断时直接查看编译命令或构建日志：</p>
+<pre><code class="language-bash">cmake -S . -B build/rel \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build/rel --verbose
+</code></pre>
+<p>常见差异包括：</p>
+<ul>
+<li>优化级别与内联、循环变换、常量传播。</li>
+<li>调试信息是否生成、是否被剥离。</li>
+<li><code>NDEBUG</code> 是否定义，从而移除 <code>assert</code> 表达式。</li>
+<li>标准库迭代器调试、运行时检查和 allocator 行为。</li>
+<li>链接时优化、函数/数据段回收和帧指针策略。</li>
+</ul>
+<p>不要在 <code>assert(expr_with_side_effect())</code> 中放业务副作用；Release 下表达式可能完全不执行。</p>
+<span class="heading-anchor" id="1.1 构建类型、配置与 flags 的关系"></span><h3 id="11-flags">1.1 构建类型、配置与 flags 的关系</h3>
+<p><code>Debug</code> 不是 C++ 标准概念，而是构建系统提供的配置名称。单配置生成器通常在配置阶段用 <code>CMAKE_BUILD_TYPE</code> 选择一次；Visual Studio、Xcode、Ninja Multi-Config 等多配置生成器在构建阶段用 <code>--config</code> 选择。混用二者会导致“我明明指定 Release，实际却构建了另一配置”。</p>
+<p>诊断时按以下顺序取证：</p>
+<pre><code class="language-bash">cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build --config RelWithDebInfo --verbose
+cmake -LA -N build | grep -E 'CMAKE_(CXX_FLAGS|BUILD_TYPE)'
+</code></pre>
+<p><code>compile_commands.json</code> 反映编译步骤，但不包含全部链接命令；verbose 构建可补齐链接证据。最终关注每个 target 的实际命令，不要只看全局缓存变量。</p>
+<span class="heading-anchor" id="1.2 常见配置不等于固定选项"></span><h3 id="12">1.2 常见配置不等于固定选项</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配置意图</th>
+<th>通常需要确认的属性</th>
+<th>常见误解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>快速开发</td>
+<td>调试信息、低优化、断言</td>
+<td>Debug 一定和生产行为相同</td>
+</tr>
+<tr>
+<td>生产发布</td>
+<td>优化、<code>NDEBUG</code>、LTO/剥离策略</td>
+<td>Release 完全无法调试</td>
+</tr>
+<tr>
+<td>可诊断生产近似</td>
+<td>优化、调试信息、帧指针</td>
+<td><code>RelWithDebInfo</code> 在所有项目都相同</td>
+</tr>
+<tr>
+<td>体积优先</td>
+<td>size 优化、段回收</td>
+<td>MinSizeRel 必然更快</td>
+</tr>
+</tbody>
+</table></div>
+<p>项目可能追加或覆盖默认 flags，包管理器和工具链文件也会注入选项。因此基线报告要保存命令、编译器版本和 CMake cache，而不是只有配置名。</p>
+<span class="heading-anchor" id="2. 为什么“只在 Release 出错”"></span><h2 id="2-release">2. 为什么“只在 Release 出错”</h2>
+<p>优化通常暴露而不是制造这些问题：</p>
+<ul>
+<li>未初始化读取、越界、use-after-free 等未定义行为。</li>
+<li>数据竞争和错误的内存序假设。</li>
+<li>依赖求值顺序、对象生命周期或 strict aliasing 的代码。</li>
+<li>断言移除后遗漏了必须执行的检查或初始化。</li>
+<li>栈布局、堆布局、时序变化让潜伏问题更容易出现。</li>
+<li>优化后局部变量消失或函数内联，调试观察方式改变。</li>
+</ul>
+<p>建议保留一个“接近生产但可诊断”的配置：启用优化、调试信息和帧指针，必要时把符号与部署二进制分离。</p>
+<pre><code class="language-cmake">target_compile_options(service PRIVATE
+  $&lt;$&lt;CONFIG:RelWithDebInfo&gt;:-fno-omit-frame-pointer&gt;
+)
+</code></pre>
+<p>具体选项必须按编译器和平台条件化，不能假定所有工具链都支持 GCC/Clang flags。</p>
+<span class="heading-anchor" id="2.1 优化为何改变可观察行为"></span><h3 id="21">2.1 优化为何改变可观察行为</h3>
+<p>只要程序符合 C++ 规则，优化前后外部语义应保持一致；未定义行为给了编译器不受该约束的空间。例如有符号整数溢出不是“自然回绕”的可移植保证，优化器可据此删除看似必要的分支。数据竞争同样属于未定义行为，加入日志改变时序后“恢复正常”不是修复。</p>
+<p>排查只在优化构建出现的问题：</p>
+<ol>
+<li>用相同输入在 <code>-O0 -g</code> 与 <code>-O2 -g</code> 重现，保存完整命令。</li>
+<li>在优化构建启用 ASan/UBSan；并发怀疑单独跑 TSan。</li>
+<li>缩小到最少翻译单元，再逐模块降低优化，定位变化区域。</li>
+<li>检查诊断是否依赖日志、断点或未初始化内存布局。</li>
+<li>修复后在原优化级别、原并发和压力条件验证。</li>
+</ol>
+<span class="heading-anchor" id="3. Sanitizer 选择"></span><h2 id="3-sanitizer">3. Sanitizer 选择</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>主要发现</th>
+<th>重要限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AddressSanitizer (ASan)</td>
+<td>越界、use-after-free 等内存访问错误；在支持平台可集成 LSan 做进程退出时泄漏检测</td>
+<td>显著增加内存；泄漏检测依赖平台和运行参数；不能证明无内存错误</td>
+</tr>
+<tr>
+<td>UndefinedBehaviorSanitizer (UBSan)</td>
+<td>整数/移位/对齐/类型等未定义行为</td>
+<td>检查集合可配置；部分问题默认只报告后继续</td>
+</tr>
+<tr>
+<td>ThreadSanitizer (TSan)</td>
+<td>数据竞争、部分同步误用</td>
+<td>开销大；通常不与 ASan 同时使用</td>
+</tr>
+<tr>
+<td>MemorySanitizer (MSan)</td>
+<td>未初始化内存读取</td>
+<td>依赖链最好全部插桩，部署门槛较高</td>
+</tr>
+</tbody>
+</table></div>
+<p>不同平台、编译器版本和运行时支持不同，使用前查询对应编译器文档和当前工具链能力。</p>
+<span class="heading-anchor" id="3.1 它们怎样工作，为什么有盲区"></span><h3 id="31">3.1 它们怎样工作，为什么有盲区</h3>
+<ul>
+<li>ASan 通过 shadow memory 和 redzone 标记可访问性，擅长捕获被插桩代码的非法访问；自定义 allocator、未插桩库和某些栈生命周期可能形成盲区。</li>
+<li>UBSan 在编译器能插入检查的位置验证语言约束。<code>-fsanitize=undefined</code> 是检查集合，不等于所有未定义行为都能动态捕获。</li>
+<li>TSan 记录内存访问与 happens-before 关系，报告缺少同步的冲突访问；开销和地址空间映射都很大，改变时序是预期现象。</li>
+<li>MSan 传播“是否已初始化”的 shadow 状态，未插桩依赖会让状态丢失，因此要求完整工具链和依赖重编译。</li>
+</ul>
+<p>Sanitizer 的结论是“这次执行路径检测到/未检测到”，不是形式化证明。测试数据、线程交错和覆盖率仍决定能看到什么。</p>
+<span class="heading-anchor" id="3.2 组合策略"></span><h3 id="32">3.2 组合策略</h3>
+<p>ASan 与 UBSan 常可组合；TSan 通常独立构建，不与 ASan 混用。MSan 也通常使用独立且完整插桩的环境。是否可组合和具体限制以当前编译器文档为准，不要把一套 flags 无差别塞进所有 target。</p>
+<span class="heading-anchor" id="4. 示例：CMake 中建立独立配置"></span><h2 id="4-cmake">4. 示例：CMake 中建立独立配置</h2>
+<p>以下示例适合 GCC/Clang 风格工具链：</p>
+<pre><code class="language-cmake">option(ENABLE_ASAN_UBSAN "Enable address and UB sanitizers" OFF)
+
+if(ENABLE_ASAN_UBSAN)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(service PRIVATE
+      -fsanitize=address,undefined
+      -fno-omit-frame-pointer
+      -g
+    )
+    target_link_options(service PRIVATE
+      -fsanitize=address,undefined
+    )
+  else()
+    message(FATAL_ERROR "Sanitizer flags are not configured for this compiler")
+  endif()
+endif()
+</code></pre>
+<p>编译和链接阶段都要传 sanitizer 选项。更大型项目可用 interface target 集中复用，但只连接到需要插桩的目标。</p>
+<pre><code class="language-bash">cmake -S . -B build/asan \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DENABLE_ASAN_UBSAN=ON
+cmake --build build/asan --parallel
+ctest --test-dir build/asan --output-on-failure
+</code></pre>
+<p>Sanitizer 构建通常用于 CI、测试和预生产。生产启用前必须评估运行时开销、信号处理、allocator、兼容性和运维策略。</p>
+<span class="heading-anchor" id="4.1 从零实验：ASan 定位 use-after-free"></span><h3 id="41-asan-use-after-free">4.1 从零实验：ASan 定位 use-after-free</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+
+int main() {
+  int* value = new int(42);
+  delete value;
+  std::cout &lt;&lt; *value &lt;&lt; '\n';
+}
+</code></pre>
+<pre><code class="language-bash">clang++ -O1 -g -fsanitize=address -fno-omit-frame-pointer uaf.cpp -o uaf
+./uaf
+</code></pre>
+<p>预期报告包含非法读取栈、释放栈和最初分配栈。逐段回答：访问大小是多少、地址属于哪块区域、在哪释放、当前访问从哪发生。把指针赋空只能让这个样例更早失败；真实修复应让所有权模型保证对象在最后一次使用后才释放。</p>
+<span class="heading-anchor" id="4.2 TSan 最小竞争实验"></span><h3 id="42-tsan">4.2 TSan 最小竞争实验</h3>
+<p>两个线程同时执行 <code>counter++</code> 即使最终常得到“看起来正确”的值也存在数据竞争。用 <code>-fsanitize=thread -O1 -g</code> 编译后，报告应展示两次冲突访问和线程创建栈。修复可以使用互斥量或符合语义的原子操作；选择原子时还要说明所需内存序，而不是机械换成 <code>atomic</code>。</p>
+<span class="heading-anchor" id="5. 读懂报告"></span><h2 id="5">5. 读懂报告</h2>
+<p>优先处理第一条真实错误，而不是后续连锁报错：</p>
+<ol>
+<li>错误类型：heap-use-after-free、stack-buffer-overflow、data race 等。</li>
+<li>发生访问的线程与栈。</li>
+<li>对象分配/释放栈或竞争线程的另一侧栈。</li>
+<li>源码和二进制是否正确符号化。</li>
+<li>能否用最小输入稳定复现。</li>
+</ol>
+<p>保留完整原始报告。不要未经分析就把三方库或某个调用栈加入 suppression；抑制项必须说明原因、适用版本、负责人和移除条件。</p>
+<span class="heading-anchor" id="5.1 报告处理模板"></span><h3 id="51">5.1 报告处理模板</h3>
+<pre><code class="language-text">制品/提交/编译器/flags：
+Sanitizer 与运行参数：
+第一条错误类型：
+访问栈与线程：
+分配、释放或竞争另一侧栈：
+最小输入与随机种子：
+所有权/同步根因：
+修复后的回归测试：
+原配置复验结果：
+</code></pre>
+<p>若报告只有地址，先修复符号化链路；若第一条错误之后出现大量异常，先解决第一条再重跑，因为内存已破坏后续报告可能只是连锁结果。</p>
+<span class="heading-anchor" id="6. 典型工作流：Sanitizer CI 矩阵"></span><h2 id="6-sanitizer-ci">6. 典型工作流：Sanitizer CI 矩阵</h2>
+<pre><code class="language-text">普通 Debug：快速单测与断言
+优化构建：捕捉优化相关差异
+ASan + UBSan：内存安全和未定义行为
+TSan：较小且稳定的并发测试集
+MSan：具备完整插桩依赖链时运行
+</code></pre>
+<p>Sanitizer 不能替代单元测试；它只能检查被执行到的路径。高价值输入、边界值、模糊测试和并发压力决定覆盖质量。</p>
+<p>更可执行的 CI 安排：</p>
+<ul>
+<li>每个合并请求跑 ASan+UBSan 的核心单元/集成测试，失败保留完整 stderr。</li>
+<li>TSan 使用稳定的并发测试集，控制并行度和超时，避免把资源耗尽误判为代码失败。</li>
+<li>定期跑更大输入、随机/模糊测试和长时任务，保存失败种子。</li>
+<li>报告任务使用精确符号，sanitizer runtime 版本与编译器配套。</li>
+<li>suppression 作为有到期日的债务清单审查，而不是让流水线变绿的快捷键。</li>
+</ul>
+<span class="heading-anchor" id="7. 常见坑与排障步骤"></span><h2 id="7">7. 常见坑与排障步骤</h2>
+<ul>
+<li>报告只有地址：安装/保留调试符号，确认符号化工具可用，核对产物 build ID。</li>
+<li>链接阶段缺 sanitizer runtime：编译与最终链接目标使用一致选项。</li>
+<li>TSan 报告大量竞争：从第一个报告和共享对象所有权入手，区分真实竞争与已知不支持组件。</li>
+<li>ASan 进程被 OOM：降低并行度/数据规模，给测试容器合理内存；不要因此关闭关键检查。</li>
+<li>只在非插桩库中出错：尽可能重编关键依赖；理解跨边界检查盲区。</li>
+<li>测试偶发通过：固定随机种子只是为了复现，同时保存失败种子并保留随机覆盖。</li>
+</ul>
+<p>决策路径：先确认目标平台支持该 Sanitizer；构建失败检查编译和最终链接 flags；启动失败检查 runtime/地址空间/容器限制；报告不可读检查符号；报告稳定后缩小输入；修复后删除临时 suppression，并在普通优化构建复验业务行为。</p>
+<span class="heading-anchor" id="8. 练习"></span><h2 id="8">8. 练习</h2>
+<ol>
+<li><strong>基础</strong>：完成 use-after-free 示例，标注访问、释放、分配三条栈。答案要点：先解释生命周期，再改所有权，不能只隐藏报告。</li>
+<li><strong>进阶</strong>：写两个线程无同步递增，用 TSan 定位并分别用 mutex/atomic 修复。答案要点：两种修复的复合操作语义不同。</li>
+<li><strong>进阶</strong>：为带有有符号溢出的程序分别运行 UBSan recover 与 trap 策略，记录退出行为。答案要点：检查策略影响报告与继续执行，不改变问题本身。</li>
+<li><strong>综合</strong>：建立 Debug、优化、ASan+UBSan、TSan 四任务矩阵，记录耗时和覆盖范围，并说明为何没有把所有 Sanitizer 合成一个任务。</li>
+</ol>
+<span class="heading-anchor" id="9. 检查清单"></span><h2 id="9">9. 检查清单</h2>
+<ul>
+<li>[ ] 构建报告保存实际编译/链接命令，而非只写 Debug/Release。</li>
+<li>[ ] Release 正确性检查不依赖 <code>assert</code> 的副作用。</li>
+<li>[ ] 至少有优化且带符号的可诊断构建。</li>
+<li>[ ] ASan/UBSan 和 TSan 使用独立任务并运行有价值的测试集。</li>
+<li>[ ] 报告与精确制品/符号关联，第一条错误可复现。</li>
+<li>[ ] suppression 有依据、负责人和清理计划。</li>
+</ul>
+<span class="heading-anchor" id="10. 小结"></span><h2 id="10">10. 小结</h2>
+<p>Debug/Release 不是两种语言，而是两组可被覆盖的构建属性。只在 Release 出错应优先怀疑未定义行为、竞争和断言副作用。Sanitizer 把部分运行时错误变成带栈证据的失败，但只覆盖实际执行且被正确插桩的路径，必须与分层测试、最小复现和原优化配置复验结合。</p>
+<span class="heading-anchor" id="11. 官方延伸阅读"></span><h2 id="11">11. 官方延伸阅读</h2>
+<ul>
+<li><a href="https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html#build-configurations">CMake Build Configurations</a></li>
+<li><a href="https://clang.llvm.org/docs/AddressSanitizer.html">Clang AddressSanitizer</a></li>
+<li><a href="https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html">Clang UndefinedBehaviorSanitizer</a></li>
+<li><a href="https://clang.llvm.org/docs/ThreadSanitizer.html">Clang ThreadSanitizer</a></li>
+<li><a href="https://clang.llvm.org/docs/MemorySanitizer.html">Clang MemorySanitizer</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

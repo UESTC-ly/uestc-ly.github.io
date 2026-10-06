@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-文件系统 · 李杨的学习笔记</title><meta name="description" content="文件系统把磁盘块抽象成文件和目录。本章要讲清楚：文件名如何找到数据、fd 和 inode 是什么关系、为什么删除文件后空间可能不释放、为什么 write() 成功不代表落盘。"><meta property="og:title" content="08-文件系统 · 李杨的学习笔记"><meta property="og:description" content="文件系统把磁盘块抽象成文件和目录。本章要讲清楚：文件名如何找到数据、fd 和 inode 是什么关系、为什么删除文件后空间可能不释放、为什么 write() 成功不代表落盘。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-606a5eed2bdd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-606a5eed2bdd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>08-文件系统</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/08-%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">文件系统解决什么问题</a></li><li><a href="#_3">路径名如何找到文件</a></li><li><a href="#inode">inode 是什么</a></li><li><a href="#fd">文件描述符 fd</a></li><li><a href="#_4">硬链接和软链接</a></li><li><a href="#_5">删除文件后空间为什么可能不释放</a></li><li><a href="#_6">页缓存</a></li><li><a href="#writefsync">write、fsync 和崩溃一致性</a></li><li><a href="#_7">文件系统日志</a></li><li><a href="#inode_1">小文件和 inode 问题</a></li><li><a href="#_8">实践任务</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">补充深入讲解</a></li><li><a href="#_11">从零开始理解：文件名不是文件本身</a></li><li><a href="#fd-inode">fd、打开文件表和 inode 的区别</a></li><li><a href="#write">write 为什么不等于安全</a></li><li><a href="#_12">为什么文件系统需要日志</a></li><li><a href="#_13">进一步案例：日志轮转为什么可能失败</a></li><li><a href="#_14">进一步案例：为什么大量小文件很麻烦</a></li><li><a href="#_15">思维导图</a></li><li><a href="#1">1. 路径到数据块</a></li><li><a href="#2-fdinode">2. fd、打开文件表、inode</a></li><li><a href="#3-write">3. write 到持久化</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>文件系统把磁盘块抽象成文件和目录。本章要讲清楚：文件名如何找到数据、fd 和 inode 是什么关系、为什么删除文件后空间可能不释放、为什么 <code>write()</code> 成功不代表落盘。</p>
+<span class="heading-anchor" id="文件系统解决什么问题"></span><h2 id="_2">文件系统解决什么问题</h2>
+<p>磁盘本质上是块设备，能读写固定大小的块。人和程序不想直接管理块号，于是文件系统提供：</p>
+<ul>
+<li>命名：用路径找到文件。</li>
+<li>空间管理：哪些块空闲，哪些块属于某文件。</li>
+<li>元数据：权限、所有者、大小、时间戳。</li>
+<li>缓存：用内存加速读写。</li>
+<li>一致性：崩溃后尽量不损坏结构。</li>
+</ul>
+<span class="heading-anchor" id="路径名如何找到文件"></span><h2 id="_3">路径名如何找到文件</h2>
+<p>路径 <code>/home/li/a.txt</code> 的解析过程：</p>
+<pre><code class="language-text">根目录 /
+  → 查找 home 目录项，得到 home 的 inode
+  → 在 home 中查找 li，得到 li 的 inode
+  → 在 li 中查找 a.txt，得到 a.txt 的 inode
+  → 根据 inode 找到文件数据块
+</code></pre>
+<p>目录本质上是特殊文件，内容是“文件名 → inode 编号”的映射。</p>
+<span class="heading-anchor" id="inode 是什么"></span><h2 id="inode">inode 是什么</h2>
+<p>inode 保存文件元数据和数据块位置，通常包括：</p>
+<ul>
+<li>文件类型。</li>
+<li>权限。</li>
+<li>所有者和组。</li>
+<li>文件大小。</li>
+<li>时间戳。</li>
+<li>链接数。</li>
+<li>数据块指针或 extent。</li>
+</ul>
+<p>注意：<strong>文件名不在 inode 中</strong>。文件名在目录项里。</p>
+<span class="heading-anchor" id="文件描述符 fd"></span><h2 id="fd">文件描述符 fd</h2>
+<p>进程打开文件后，内核返回一个小整数 fd。fd 是进程访问内核文件对象的句柄。</p>
+<p>层次关系：</p>
+<pre><code class="language-text">进程 fd 表
+  → 打开文件表项：偏移量、打开标志
+  → inode/vnode：文件元数据
+  → 页缓存/磁盘块
+</code></pre>
+<p><code>dup()</code> 出来的 fd 共享同一个打开文件表项，因此共享文件偏移量。两次独立 <code>open()</code> 得到的 fd 可能指向同一 inode，但偏移量独立。</p>
+<span class="heading-anchor" id="硬链接和软链接"></span><h2 id="_4">硬链接和软链接</h2>
+<p>硬链接：多个目录项指向同一 inode。</p>
+<p>软链接：一个特殊文件，内容是目标路径。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比</th>
+<th>硬链接</th>
+<th>软链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本质</td>
+<td>同一 inode 的多个名字</td>
+<td>保存路径的特殊文件</td>
+</tr>
+<tr>
+<td>跨文件系统</td>
+<td>通常不可以</td>
+<td>可以</td>
+</tr>
+<tr>
+<td>目标删除后</td>
+<td>其他硬链接仍可访问</td>
+<td>变成悬空链接</td>
+</tr>
+<tr>
+<td>是否有独立 inode</td>
+<td>共享目标 inode</td>
+<td>自己有 inode</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="删除文件后空间为什么可能不释放"></span><h2 id="_5">删除文件后空间为什么可能不释放</h2>
+<p>删除文件通常只是删除目录项并减少 inode 链接数。如果某进程仍然打开该文件，内核还保留打开引用，数据块不会释放。</p>
+<p>典型场景：日志文件被 <code>rm</code> 删除，但服务仍在写旧 fd，磁盘空间不下降。</p>
+<p>排查：</p>
+<pre><code class="language-bash">lsof | grep deleted
+</code></pre>
+<p>解决：关闭 fd、重启进程、让日志系统重新打开文件。</p>
+<span class="heading-anchor" id="页缓存"></span><h2 id="_6">页缓存</h2>
+<p>读文件时，内核会把文件数据缓存到内存页缓存中。第二次读相同数据时，如果命中页缓存，就不需要访问磁盘。</p>
+<p>写文件时，数据通常先写入页缓存并标记为脏页，后台线程稍后回写磁盘。</p>
+<p>这带来两个重要结论：</p>
+<ol>
+<li>空闲内存被 buff/cache 使用不一定是坏事。</li>
+<li><code>write()</code> 返回不代表数据已经物理落盘。</li>
+</ol>
+<span class="heading-anchor" id="write、fsync 和崩溃一致性"></span><h2 id="writefsync">write、fsync 和崩溃一致性</h2>
+<p><code>write()</code> 成功通常表示数据进入内核缓冲区。若此时断电，数据可能丢失。</p>
+<p><code>fsync(fd)</code> 要求内核把文件数据和必要元数据刷到底层存储。</p>
+<p>但如果你创建新文件或 rename 文件，只 fsync 文件可能还不够，因为目录项也需要持久化。可靠替换文件常见流程：</p>
+<pre><code class="language-text">写临时文件
+fsync(临时文件)
+rename(临时文件, 目标文件)
+fsync(目录)
+</code></pre>
+<span class="heading-anchor" id="文件系统日志"></span><h2 id="_7">文件系统日志</h2>
+<p>崩溃可能发生在任意时刻。文件系统需要保证崩溃后结构不损坏。</p>
+<p>日志 journaling 思路：</p>
+<ol>
+<li>先记录“我要做什么修改”。</li>
+<li>确保日志落盘。</li>
+<li>应用真实修改。</li>
+<li>崩溃恢复时根据日志重放或回滚。</li>
+</ol>
+<p>不同文件系统日志模式不同，有的只记录元数据，有的记录数据和元数据。</p>
+<span class="heading-anchor" id="小文件和 inode 问题"></span><h2 id="inode_1">小文件和 inode 问题</h2>
+<p>磁盘容量没满，但创建文件失败，可能是 inode 用尽。大量小文件会消耗 inode。</p>
+<p>排查：</p>
+<pre><code class="language-bash">df -h
+df -i
+</code></pre>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_8">实践任务</h2>
+<pre><code class="language-bash">ls -li
+stat 文件名
+ln a b
+ln -s a c
+lsof -p $$
+df -i
+</code></pre>
+<p>观察 inode、链接数、fd。</p>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>文件名存在哪里？inode 存什么？</li>
+<li>fd 和 inode 是什么关系？</li>
+<li>删除文件后空间为什么可能不释放？</li>
+<li><code>write</code> 和 <code>fsync</code> 的区别是什么？</li>
+<li>为什么目录也可能需要 fsync？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_10">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：文件名不是文件本身"></span><h2 id="_11">从零开始理解：文件名不是文件本身</h2>
+<p>很多人以为文件就是文件名。实际上文件名只是目录里的一个入口，真正表示文件的是 inode。目录项把名字指向 inode，inode 再指向数据块。</p>
+<p>这解释了硬链接：两个名字可以指向同一个 inode。也解释了删除文件后空间不释放：路径没了，但 inode 仍可能被进程打开引用。</p>
+<span class="heading-anchor" id="fd、打开文件表和 inode 的区别"></span><h2 id="fd-inode">fd、打开文件表和 inode 的区别</h2>
+<p>fd 是进程自己的编号；打开文件表项保存当前偏移量和打开模式；inode 表示文件元数据。</p>
+<p>如果两个 fd 来自 <code>dup</code>，它们共享偏移量；如果分别 <code>open</code> 同一文件，它们通常不共享偏移量。这是很多日志、并发写文件问题的根源。</p>
+<span class="heading-anchor" id="write 为什么不等于安全"></span><h2 id="write">write 为什么不等于安全</h2>
+<p><code>write</code> 成功通常只说明数据到了内核。内核为了性能会把数据放在页缓存里，稍后批量写回。断电时，页缓存里的数据会丢失。</p>
+<p>因此数据库、消息队列这类系统必须理解 fsync、日志、rename、目录 fsync 的语义。普通应用可以接受性能换取弱持久性，但不能误以为 write 就绝对安全。</p>
+<span class="heading-anchor" id="为什么文件系统需要日志"></span><h2 id="_12">为什么文件系统需要日志</h2>
+<p>更新文件常常不止改一个地方。例如创建文件要分配 inode、写目录项、更新位图、写数据块。如果崩溃发生在中间，文件系统可能不一致。日志把“准备做的修改”先记录下来，崩溃后才能恢复。</p>
+<span class="heading-anchor" id="进一步案例：日志轮转为什么可能失败"></span><h2 id="_13">进一步案例：日志轮转为什么可能失败</h2>
+<p>日志系统常把 <code>app.log</code> 重命名为 <code>app.log.1</code>，再创建新的 <code>app.log</code>。如果应用没有重新打开日志文件，它仍然写旧 fd。路径上看旧文件可能被压缩或删除，但进程仍持有 inode，磁盘空间不释放。</p>
+<p>正确做法是日志轮转后通知进程 reopen，或者日志库自己检测轮转。排查用 <code>lsof | grep deleted</code>。</p>
+<span class="heading-anchor" id="进一步案例：为什么大量小文件很麻烦"></span><h2 id="_14">进一步案例：为什么大量小文件很麻烦</h2>
+<p>大量小文件不仅占数据块，还占 inode、目录项和元数据缓存。目录查找、备份、同步、删除都会变慢。即使总数据量不大，也可能 inode 用尽或元数据 I/O 成为瓶颈。工程上常把小对象打包、使用对象存储、数据库或分层目录结构。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_15">思维导图</h2>
+<blockquote>
+<p>记忆建议：文件名不是文件本身；路径找到 inode，fd 指向打开文件对象。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 路径到数据块"></span><h3 id="1">1. 路径到数据块</h3>
+<pre class="mermaid">flowchart LR
+  A["路径名"] --&gt; B["逐级目录项dentry"]
+  B --&gt; C["inode"]
+  C --&gt; D["权限和元数据"]
+  C --&gt; E["数据块位置"]
+  E --&gt; F["页缓存"]
+  F --&gt; G["块设备"]
+</pre>
+<span class="heading-anchor" id="2. fd、打开文件表、inode"></span><h3 id="2-fdinode">2. fd、打开文件表、inode</h3>
+<pre class="mermaid">flowchart TD
+  A["进程fd表"] --&gt; B["fd 3"]
+  B --&gt; C["打开文件对象\n偏移量和打开模式"]
+  C --&gt; D["inode\n文件元数据"]
+  D --&gt; E["磁盘数据块"]
+  F["另一个fd"] --&gt; C
+  G["硬链接文件名"] --&gt; D
+</pre>
+<span class="heading-anchor" id="3. write 到持久化"></span><h3 id="3-write">3. write 到持久化</h3>
+<pre class="mermaid">flowchart LR
+  A["write返回"] --&gt; B["数据进入页缓存"]
+  B --&gt; C["文件系统日志或元数据"]
+  C --&gt; D["块层队列"]
+  D --&gt; E["设备缓存"]
+  E --&gt; F["介质持久化"]
+  B --&gt; G["fsync要求刷盘\n但还要关注目录项和设备flush"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07-06 父文档、多向量与上下文化检索 · 李杨的学习笔记</title><meta name="description" content="完成本章后，你应该能够区分“用于匹配的表示”和“最终返回的内容”，解释父文档检索、
+多向量检索和上下文化检索的映射关系，并识别映射失效、版本不一致和权限继承错误。"><meta property="og:title" content="07-06 父文档、多向量与上下文化检索 · 李杨的学习笔记"><meta property="og:description" content="完成本章后，你应该能够区分“用于匹配的表示”和“最终返回的内容”，解释父文档检索、
+多向量检索和上下文化检索的映射关系，并识别映射失效、版本不一致和权限继承错误。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-63e8e8a83e0a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-63e8e8a83e0a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 07-retrieval</p><h1>07-06 父文档、多向量与上下文化检索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/07-retrieval/06-parent-multi-vector-and-contextual-retrieval.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">小块好匹配，大块好阅读</a></li><li><a href="#_2">父子映射的最小契约</a></li><li><a href="#_3">多向量：一个对象有多个检索入口</a></li><li><a href="#_4">上下文化检索：给片段补充定位信息</a></li><li><a href="#_5">三种方法的区别</a></li><li><a href="#_6">权限与来源不能只从子块继承一次</a></li><li><a href="#_7">练习与自测</a></li><li><a href="#_8">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>07-06</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>55 分钟阅读，加 25 分钟映射练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>了解文本切分、向量表示、混合检索和权限过滤</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用卡片模拟子块、父文档和多个表示</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够区分“用于匹配的表示”和“最终返回的内容”，解释父文档检索、
+多向量检索和上下文化检索的映射关系，并识别映射失效、版本不一致和权限继承错误。</p>
+<span class="heading-anchor" id="小块好匹配，大块好阅读"></span><h2 id="_1">小块好匹配，大块好阅读</h2>
+<p>较小文本块往往主题集中，适合精确匹配；较大段落或完整章节包含解释条件，更适合交给后续
+步骤理解。这形成一个常见矛盾：用大块检索可能稀释信号，用小块返回又可能缺少上下文。</p>
+<p>父文档检索（parent document retrieval）把小块作为检索单位，命中后回取它所属的较大
+父块或文档。关键不是“把更多文字塞进去”，而是维护可靠的子到父映射。</p>
+<span class="heading-anchor" id="父子映射的最小契约"></span><h2 id="_2">父子映射的最小契约</h2>
+<p>每个子块至少关联 <code>child_id</code>、<code>parent_id</code>、来源版本、位置和权限引用。命中子块后，系统应：</p>
+<ol>
+<li>验证子块与父对象属于同一来源版本；</li>
+<li>重新检查父对象的权限和有效状态；</li>
+<li>按稳定位置回取，不依赖易变数组下标；</li>
+<li>对多个子块映射到同一父对象进行去重；</li>
+<li>记录是哪个子块触发了父对象返回。</li>
+</ol>
+<p>若文档重新切分，旧子块可能仍指向已经变化的父内容。索引、映射表和缓存需要一起版本化。</p>
+<span class="heading-anchor" id="多向量：一个对象有多个检索入口"></span><h2 id="_3">多向量：一个对象有多个检索入口</h2>
+<p>多向量检索（multi-vector retrieval）为同一父对象保存多个表示。例如一份产品手册可以有：</p>
+<ul>
+<li>各段落的内容向量；</li>
+<li>标题或摘要向量；</li>
+<li>问题形式的辅助表示；</li>
+<li>图片说明或表格标题的表示。</li>
+</ul>
+<p>任一表示命中后，返回同一个受控父对象。多向量增加入口，也增加存储、去重、更新和归因
+复杂度。辅助摘要或问题如果由模型生成，只能作为检索表示，不能替代原文或来源。</p>
+<span class="heading-anchor" id="上下文化检索：给片段补充定位信息"></span><h2 id="_4">上下文化检索：给片段补充定位信息</h2>
+<p>一个文本块只写“该限制为 30 天”时，离开章节标题就不知道限制什么。上下文化检索会在生成
+索引表示前，为片段附加文档标题、章节主题或经过验证的简短上下文，例如“退货政策—标准
+商品：该限制为 30 天”。用于检索的文本更完整，最终引用仍应指向原始片段和父来源。</p>
+<p>上下文不能随意加入推测。若由模型生成，需要保留生成版本，并防止它改变数字、否定和适用
+范围。最安全的起点通常是确定性的标题、路径和结构元数据。</p>
+<span class="heading-anchor" id="三种方法的区别"></span><h2 id="_5">三种方法的区别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>用什么匹配</th>
+<th>返回什么</th>
+<th>主要风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>父文档检索</td>
+<td>子块表示</td>
+<td>父块或文档</td>
+<td>子父版本错配、返回过大</td>
+</tr>
+<tr>
+<td>多向量检索</td>
+<td>同一对象的多个表示</td>
+<td>统一父对象</td>
+<td>更新遗漏、重复和归因困难</td>
+</tr>
+<tr>
+<td>上下文化检索</td>
+<td>加入定位上下文的表示</td>
+<td>原始片段或父对象</td>
+<td>上下文引入错误条件</td>
+</tr>
+</tbody>
+</table></div>
+<p>它们可以组合，但不应在没有基线和映射测试时一次全部启用。</p>
+<span class="heading-anchor" id="权限与来源不能只从子块继承一次"></span><h2 id="_6">权限与来源不能只从子块继承一次</h2>
+<p>子块可见不自动证明整个父文档可见。例如父文档可能包含不同访问级别的附件或章节。设计时
+应明确权限粒度；若父对象权限更宽或更窄，返回前按最终内容重新检查。</p>
+<p>同样，命中模型生成的辅助问题不能把该问题当作来源。引用应回到真实文档位置，调试信息才
+记录辅助表示。</p>
+<span class="heading-anchor" id="练习与自测"></span><h2 id="_7">练习与自测</h2>
+<p>画出一份手册、两个章节、六个子块和三个辅助表示。任选两个命中，写出如何去重并回到父内容，
+再标注删除手册新版本时必须更新哪些对象。</p>
+<ol>
+<li>为什么检索单位和返回单位可以不同？</li>
+<li>多向量检索增加了哪些维护成本？</li>
+<li>上下文化表示为什么不能替代原始引用？</li>
+<li>回取父文档时为什么必须再次检查权限？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_8">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿；未实现父文档存储、多向量索引或上下文生成器。</li>
+<li>验证计划：后续需要覆盖映射、版本、删除、去重和权限边界测试。</li>
+<li>
+<p>摘要：<a href="n-50af8b7c45c0.html">07-06 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-47fb6f6dfa56.html">07-05 查询分解与 HyDE</a></p>
+</li>
+<li>下一章：<a href="n-2eb88328931f.html">07-07 自查询与路由</a></li>
+<li>返回：<a href="n-3b5435427cd1.html">07 检索索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

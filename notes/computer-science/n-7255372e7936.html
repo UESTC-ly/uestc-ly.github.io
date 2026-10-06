@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04 - 内存模型与淘汰策略 · 李杨的学习笔记</title><meta name="description" content="目标读者：想从“会用 Redis”进阶到“知道 Redis 为什么占内存、为什么会淘汰 key、怎么控制内存”的学习者。本文以 Redis 7.x 开源版为主；Redis 8.x 新增或云厂商特性会单独注明。"><meta property="og:title" content="04 - 内存模型与淘汰策略 · 李杨的学习笔记"><meta property="og:description" content="目标读者：想从“会用 Redis”进阶到“知道 Redis 为什么占内存、为什么会淘汰 key、怎么控制内存”的学习者。本文以 Redis 7.x 开源版为主；Redis 8.x 新增或云厂商特性会单独注明。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-7255372e7936.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-7255372e7936.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>04 - 内存模型与淘汰策略</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/04-%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%E4%B8%8E%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#1-redis-value">1. Redis 的内存不是只有 value</a></li><li><a href="#2-redis">2. Redis 对象类型与底层编码</a></li><li><a href="#3">3. 小对象聚合为什么省内存？</a></li><li><a href="#4-maxmemoryredis">4. maxmemory：Redis 可用内存上限</a></li><li><a href="#5-vs">5. 过期删除 vs 内存淘汰</a></li><li><a href="#redis-7x">淘汰策略（Redis 7.x）</a></li><li><a href="#_3">关键命令 / 配置</a></li><li><a href="#_4">观察内存</a></li><li><a href="#_5">控制编码阈值</a></li><li><a href="#_6">配置淘汰</a></li><li><a href="#_7">示例</a></li><li><a href="#1-key">示例 1：查看一个 key 的编码变化</a></li><li><a href="#2">示例 2：通用缓存配置</a></li><li><a href="#3-ttl-key">示例 3：只淘汰带 TTL 的缓存 key</a></li><li><a href="#4-lfu">示例 4：稳定热点读场景使用 LFU</a></li><li><a href="#5">示例 5：区分过期和淘汰</a></li><li><a href="#_8">常见误区</a></li><li><a href="#1-ttl">误区 1：设置 TTL 就等于设置了内存上限</a></li><li><a href="#2maxmemory-redis-rss">误区 2：maxmemory 是 Redis 进程最大 RSS</a></li><li><a href="#3lru-key">误区 3：LRU 是精确删除全局最久未访问 key</a></li><li><a href="#4volatile-lru-allkeys-lru">误区 4：volatile-lru 一定比 allkeys-lru 安全</a></li><li><a href="#5-key">误区 5：大 key 只是占内存多</a></li><li><a href="#6">误区 6：内存碎片高就一定是泄漏</a></li><li><a href="#_9">实践检查清单</a></li><li><a href="#_10">建模阶段</a></li><li><a href="#_11">配置阶段</a></li><li><a href="#_12">运行阶段</a></li><li><a href="#_13">速记：策略怎么选？</a></li><li><a href="#_14">延伸阅读关键词</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标读者：想从“会用 Redis”进阶到“知道 Redis 为什么占内存、为什么会淘汰 key、怎么控制内存”的学习者。本文以 Redis 7.x 开源版为主；Redis 8.x 新增或云厂商特性会单独注明。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本篇，你应该能够：</p>
+<ul>
+<li>理解 Redis 内存主要花在哪里：数据、对象头、字典、编码结构、过期字典、客户端缓冲区、复制/AOF 缓冲区、内存碎片。</li>
+<li>会使用 <code>INFO memory</code>、<code>MEMORY USAGE</code>、<code>OBJECT ENCODING</code> 等命令定位内存问题。</li>
+<li>理解 <code>maxmemory</code> 与 <code>maxmemory-policy</code> 的作用边界。</li>
+<li>能区分过期删除（expire）和内存淘汰（eviction）。</li>
+<li>能为缓存、会话、排行榜、限流等场景选择合适淘汰策略。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="1. Redis 的内存不是只有 value"></span><h3 id="1-redis-value">1. Redis 的内存不是只有 value</h3>
+<p>一个 key-value 在 Redis 中通常包含多层开销：</p>
+<pre><code class="language-text">数据库字典 dict
+  └── key 对象（SDS 字符串）
+      value 对象（redisObject）
+        └── 具体编码结构（int / embstr / raw / listpack / quicklist / hashtable / skiplist ...）
+</code></pre>
+<p>因此，一个看起来很短的 key 和 value，也可能因为对象头、哈希表节点、内存分配器对齐等原因占用更多内存。</p>
+<p>常见内存来源：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据本身</td>
+<td>key、value、集合元素、列表元素等</td>
+</tr>
+<tr>
+<td>Redis 对象开销</td>
+<td>类型、编码、LRU/LFU 信息、引用计数等元数据</td>
+</tr>
+<tr>
+<td>字典开销</td>
+<td>Redis DB 主字典、哈希表 bucket、rehash 期间额外表</td>
+</tr>
+<tr>
+<td>过期字典</td>
+<td>设置 TTL 的 key 还会在 expires 字典中记录过期时间</td>
+</tr>
+<tr>
+<td>客户端缓冲区</td>
+<td>大查询、慢消费者、Pub/Sub、阻塞客户端可能占用大量内存</td>
+</tr>
+<tr>
+<td>复制/AOF 缓冲区</td>
+<td>replication backlog、AOF buffer 等</td>
+</tr>
+<tr>
+<td>内存碎片</td>
+<td>jemalloc / 系统分配器导致 <code>used_memory_rss</code> 高于逻辑数据内存</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="2. Redis 对象类型与底层编码"></span><h3 id="2-redis">2. Redis 对象类型与底层编码</h3>
+<p>Redis 命令层看到的是 String、Hash、List、Set、ZSet、Stream 等类型；内部会根据数据大小和形态选择更省内存或更高性能的编码。</p>
+<p>常见编码（Redis 7.x 视角）：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>逻辑类型</th>
+<th>常见编码</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>String</td>
+<td><code>int</code> / <code>embstr</code> / <code>raw</code></td>
+<td>小整数可直接编码；短字符串常用 embstr；长字符串 raw</td>
+</tr>
+<tr>
+<td>List</td>
+<td><code>quicklist</code></td>
+<td>由多个紧凑节点组成，适合两端操作</td>
+</tr>
+<tr>
+<td>Hash</td>
+<td><code>listpack</code> / <code>hashtable</code></td>
+<td>小 hash 用 listpack 省内存，大 hash 转 hashtable</td>
+</tr>
+<tr>
+<td>Set</td>
+<td><code>intset</code> / <code>hashtable</code></td>
+<td>全是整数且数量少时用 intset</td>
+</tr>
+<tr>
+<td>ZSet</td>
+<td><code>listpack</code> / <code>skiplist</code></td>
+<td>小 zset 用 listpack；大 zset 用 dict + skiplist</td>
+</tr>
+<tr>
+<td>Stream</td>
+<td>radix tree + listpack</td>
+<td>适合追加日志和消费组</td>
+</tr>
+</tbody>
+</table></div>
+<p>查看编码：</p>
+<pre><code class="language-bash">OBJECT ENCODING mykey
+MEMORY USAGE mykey
+TYPE mykey
+</code></pre>
+<blockquote>
+<p>版本差异：Redis 早期文档常见 <code>ziplist</code>，Redis 7.x 中 Hash/ZSet 等小对象更多使用 <code>listpack</code>。阅读旧文章时要注意配置名和编码名变化。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="3. 小对象聚合为什么省内存？"></span><h3 id="3">3. 小对象聚合为什么省内存？</h3>
+<p>如果存 10 万个用户属性，有两种设计：</p>
+<pre><code class="language-text">方案 A：user:1:name, user:1:age, user:1:city ... 每个字段一个 key
+方案 B：user:1 作为 hash，name/age/city 作为 field
+</code></pre>
+<p>方案 B 往往更省内存，因为：</p>
+<ul>
+<li>key 数量更少，主字典开销更低。</li>
+<li>小 Hash 可能使用 <code>listpack</code> 紧凑编码。</li>
+<li>TTL 管理也更简单（但只能对整个 hash 设置 TTL，不能对单个 field 设置 TTL；Redis 7.x 开源版不支持 hash field 级 TTL）。</li>
+</ul>
+<p>代价：</p>
+<ul>
+<li>单个 field 不能独立过期。</li>
+<li>大 hash 可能形成热点 key。</li>
+<li>更新粒度和迁移策略要提前设计。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. maxmemory：Redis 可用内存上限"></span><h3 id="4-maxmemoryredis">4. <code>maxmemory</code>：Redis 可用内存上限</h3>
+<p><code>maxmemory</code> 用于限制 Redis 数据集使用的内存。当写入新数据导致内存超过限制时，Redis 根据 <code>maxmemory-policy</code> 决定淘汰 key 或返回错误。</p>
+<pre><code class="language-conf">maxmemory 4gb
+maxmemory-policy allkeys-lru
+</code></pre>
+<p>运行时设置：</p>
+<pre><code class="language-bash">CONFIG SET maxmemory 4gb
+CONFIG SET maxmemory-policy allkeys-lru
+CONFIG GET maxmemory
+CONFIG GET maxmemory-policy
+</code></pre>
+<p>注意：</p>
+<ul>
+<li>64 位 Redis 默认 <code>maxmemory 0</code>，表示不主动限制数据集内存。</li>
+<li><code>maxmemory</code> 不是进程 RSS 的绝对上限；客户端缓冲区、复制/AOF 缓冲区、碎片等会让进程实际占用更高。</li>
+<li>开启复制或 AOF 时，应预留内存给 backlog / AOF buffer，避免到达上限后反复淘汰。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="5. 过期删除 vs 内存淘汰"></span><h3 id="5-vs">5. 过期删除 vs 内存淘汰</h3>
+<p>这两个概念经常混淆：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>触发条件</th>
+<th>处理对象</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>过期删除 expire</td>
+<td>key 到达 TTL</td>
+<td>设置了过期时间的 key</td>
+<td>删除逻辑过期数据</td>
+</tr>
+<tr>
+<td>内存淘汰 eviction</td>
+<td>内存超过 <code>maxmemory</code></td>
+<td>取决于淘汰策略</td>
+<td>释放内存给新写入</td>
+</tr>
+</tbody>
+</table></div>
+<p>过期删除有两种主要方式：</p>
+<ul>
+<li>惰性删除：访问 key 时发现过期再删除。</li>
+<li>定期删除：Redis 后台周期性抽样检查过期 key。</li>
+</ul>
+<p>内存淘汰则是在内存压力下，根据策略选择 key 删除。</p>
+<hr/>
+<span class="heading-anchor" id="淘汰策略（Redis 7.x）"></span><h2 id="redis-7x">淘汰策略（Redis 7.x）</h2>
+<p>配置项：</p>
+<pre><code class="language-conf">maxmemory-policy noeviction
+</code></pre>
+<p>Redis 7.x 开源版常用策略：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>候选 key</th>
+<th>淘汰规则</th>
+<th>适合场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>noeviction</code></td>
+<td>不淘汰</td>
+<td>写入可能报 OOM 错误</td>
+<td>数据不能被 Redis 自动丢弃</td>
+</tr>
+<tr>
+<td><code>allkeys-lru</code></td>
+<td>所有 key</td>
+<td>近似淘汰最近最少使用</td>
+<td>通用缓存</td>
+</tr>
+<tr>
+<td><code>volatile-lru</code></td>
+<td>只有设置 TTL 的 key</td>
+<td>近似 LRU</td>
+<td>只允许淘汰缓存类 key</td>
+</tr>
+<tr>
+<td><code>allkeys-lfu</code></td>
+<td>所有 key</td>
+<td>近似淘汰最低频使用</td>
+<td>热点稳定的缓存</td>
+</tr>
+<tr>
+<td><code>volatile-lfu</code></td>
+<td>只有设置 TTL 的 key</td>
+<td>近似 LFU</td>
+<td>有 TTL 且热点稳定</td>
+</tr>
+<tr>
+<td><code>allkeys-random</code></td>
+<td>所有 key</td>
+<td>随机淘汰</td>
+<td>访问分布接近均匀、低成本</td>
+</tr>
+<tr>
+<td><code>volatile-random</code></td>
+<td>只有设置 TTL 的 key</td>
+<td>随机淘汰</td>
+<td>简单 TTL 缓存</td>
+</tr>
+<tr>
+<td><code>volatile-ttl</code></td>
+<td>只有设置 TTL 的 key</td>
+<td>优先淘汰 TTL 更短的 key</td>
+<td>希望快过期数据先走</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>版本差异：Redis 最新文档中可能出现 LRM（Least Recently Modified）策略，但它不属于 Redis 7.x 常规策略；写 Redis 7.x 配置时不要误用。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="关键命令 / 配置"></span><h2 id="_3">关键命令 / 配置</h2>
+<span class="heading-anchor" id="观察内存"></span><h3 id="_4">观察内存</h3>
+<pre><code class="language-bash"># 内存总体情况
+INFO memory
+
+# 某个 key 的估算内存占用
+MEMORY USAGE mykey
+MEMORY USAGE myhash SAMPLES 0
+
+# 内存统计细节
+MEMORY STATS
+
+# 内存诊断建议
+MEMORY DOCTOR
+
+# 查看对象编码和空闲时间 / 频率
+OBJECT ENCODING mykey
+OBJECT IDLETIME mykey       # LRU 策略下更有参考意义
+OBJECT FREQ mykey           # LFU 策略下更有参考意义
+</code></pre>
+<p>常看指标：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>used_memory</code></td>
+<td>Redis 分配器视角已用内存</td>
+</tr>
+<tr>
+<td><code>used_memory_human</code></td>
+<td>人类可读格式</td>
+</tr>
+<tr>
+<td><code>used_memory_rss</code></td>
+<td>操作系统看到的常驻内存</td>
+</tr>
+<tr>
+<td><code>mem_fragmentation_ratio</code></td>
+<td>RSS / allocator used 的近似比值</td>
+</tr>
+<tr>
+<td><code>mem_not_counted_for_evict</code></td>
+<td>未计入淘汰判断的缓冲区内存</td>
+</tr>
+<tr>
+<td><code>maxmemory</code></td>
+<td>配置的数据集内存上限</td>
+</tr>
+<tr>
+<td><code>evicted_keys</code></td>
+<td>已淘汰 key 数量，来自 <code>INFO stats</code></td>
+</tr>
+<tr>
+<td><code>expired_keys</code></td>
+<td>已过期删除 key 数量，来自 <code>INFO stats</code></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="控制编码阈值"></span><h3 id="_5">控制编码阈值</h3>
+<p>Redis 会根据阈值把小结构保持为紧凑编码，超过阈值后转为更适合大数据的结构。</p>
+<pre><code class="language-conf">hash-max-listpack-entries 512
+hash-max-listpack-value 64
+
+zset-max-listpack-entries 128
+zset-max-listpack-value 64
+
+set-max-intset-entries 512
+</code></pre>
+<p>实践建议：</p>
+<ul>
+<li>不要为了省内存盲目调大阈值；紧凑编码在大对象上可能导致 CPU 开销增加。</li>
+<li>调整前先构造真实数据压测 <code>MEMORY USAGE</code>、延迟和吞吐。</li>
+</ul>
+<span class="heading-anchor" id="配置淘汰"></span><h3 id="_6">配置淘汰</h3>
+<pre><code class="language-conf">maxmemory 4gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+
+# LFU 相关
+lfu-log-factor 10
+lfu-decay-time 1
+
+# 惰性释放，降低删除大 key 时的主线程阻塞风险
+lazyfree-lazy-eviction no
+lazyfree-lazy-expire no
+lazyfree-lazy-server-del no
+</code></pre>
+<p>说明：</p>
+<ul>
+<li><code>maxmemory-samples</code> 越大，LRU/LFU 近似越准确，但 CPU 成本更高。</li>
+<li>Redis 的 LRU/LFU 是近似算法，不是全局精确排序。</li>
+<li><code>lazyfree-*</code> 能把部分释放工作放到后台线程，但也会改变内存回收的即时性，需要监控。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="示例"></span><h2 id="_7">示例</h2>
+<span class="heading-anchor" id="示例 1：查看一个 key 的编码变化"></span><h3 id="1-key">示例 1：查看一个 key 的编码变化</h3>
+<pre><code class="language-bash">HSET user:1 name alice age 18 city shanghai
+OBJECT ENCODING user:1
+MEMORY USAGE user:1
+
+# 写入大量 field 后，可能从 listpack 转 hashtable
+# 示例仅表达思路，不建议在生产直接压测大 key
+</code></pre>
+<p>观察点：小 Hash 通常更紧凑；变大后为了查询性能会转换编码。</p>
+<hr/>
+<span class="heading-anchor" id="示例 2：通用缓存配置"></span><h3 id="2">示例 2：通用缓存配置</h3>
+<pre><code class="language-conf">maxmemory 8gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+</code></pre>
+<p>适合：所有 key 都是缓存，丢了可以回源。</p>
+<p>优点：简单，避免忘记设置 TTL 导致不可淘汰。<br/>
+风险：如果混入不能丢的数据，也会被淘汰。</p>
+<hr/>
+<span class="heading-anchor" id="示例 3：只淘汰带 TTL 的缓存 key"></span><h3 id="3-ttl-key">示例 3：只淘汰带 TTL 的缓存 key</h3>
+<pre><code class="language-conf">maxmemory 8gb
+maxmemory-policy volatile-lru
+</code></pre>
+<p>适合：同一个 Redis 中混有“可淘汰缓存”和“不希望淘汰的数据”。</p>
+<p>前提：所有可淘汰 key 必须设置 TTL。</p>
+<p>风险：如果没有足够多 TTL key，Redis 可能无法释放内存，写入仍会报错。</p>
+<hr/>
+<span class="heading-anchor" id="示例 4：稳定热点读场景使用 LFU"></span><h3 id="4-lfu">示例 4：稳定热点读场景使用 LFU</h3>
+<pre><code class="language-conf">maxmemory 8gb
+maxmemory-policy allkeys-lfu
+lfu-log-factor 10
+lfu-decay-time 1
+</code></pre>
+<p>适合：热点相对稳定，例如热门商品、热门文章、公共配置。</p>
+<p>不适合：热点快速变化且冷启动频繁的场景；LFU 计数有衰减，但仍需要观察命中率。</p>
+<hr/>
+<span class="heading-anchor" id="示例 5：区分过期和淘汰"></span><h3 id="5">示例 5：区分过期和淘汰</h3>
+<pre><code class="language-bash">INFO stats | grep -E 'expired_keys|evicted_keys'
+
+SET cache:a 1 EX 10
+# 10 秒后访问或后台任务清理，expired_keys 可能增加
+
+# 当 used_memory 超过 maxmemory 且策略允许淘汰时，evicted_keys 增加
+</code></pre>
+<p>如果 <code>expired_keys</code> 很高，说明 TTL 数据自然过期多；如果 <code>evicted_keys</code> 持续增长，说明内存上限正在压迫数据集，需要评估容量、策略和命中率。</p>
+<hr/>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<span class="heading-anchor" id="误区 1：设置 TTL 就等于设置了内存上限"></span><h3 id="1-ttl">误区 1：设置 TTL 就等于设置了内存上限</h3>
+<p>TTL 只说明 key 什么时候逻辑过期。过期前如果数据增长太快，仍可能打满内存。内存上限要靠 <code>maxmemory</code>。</p>
+<span class="heading-anchor" id="误区 2：maxmemory 是 Redis 进程最大 RSS"></span><h3 id="2maxmemory-redis-rss">误区 2：<code>maxmemory</code> 是 Redis 进程最大 RSS</h3>
+<p><code>maxmemory</code> 主要用于数据集淘汰判断，不等于操作系统层面的进程内存硬限制。RSS 还受碎片、缓冲区、后台任务影响。</p>
+<span class="heading-anchor" id="误区 3：LRU 是精确删除全局最久未访问 key"></span><h3 id="3lru-key">误区 3：LRU 是精确删除全局最久未访问 key</h3>
+<p>Redis 为了性能使用抽样近似 LRU。<code>maxmemory-samples</code> 会影响近似质量。</p>
+<span class="heading-anchor" id="误区 4：volatile-lru 一定比 allkeys-lru 安全"></span><h3 id="4volatile-lru-allkeys-lru">误区 4：<code>volatile-lru</code> 一定比 <code>allkeys-lru</code> 安全</h3>
+<p>如果缓存 key 忘记设置 TTL，<code>volatile-lru</code> 不会选择它，内存满时可能写入失败。安全的前提是 key 设计规范可靠。</p>
+<span class="heading-anchor" id="误区 5：大 key 只是占内存多"></span><h3 id="5-key">误区 5：大 key 只是占内存多</h3>
+<p>大 key 还可能造成网络阻塞、删除阻塞、迁移阻塞、AOF/RDB 膨胀。应避免单个 Hash/List/Set/ZSet 过大。</p>
+<span class="heading-anchor" id="误区 6：内存碎片高就一定是泄漏"></span><h3 id="6">误区 6：内存碎片高就一定是泄漏</h3>
+<p>碎片可能来自 jemalloc、数据频繁增删、fork Copy-on-Write、对象大小分布。先看趋势、RSS、allocator 指标和业务写入模式，再判断。</p>
+<hr/>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_9">实践检查清单</h2>
+<span class="heading-anchor" id="建模阶段"></span><h3 id="_10">建模阶段</h3>
+<ul>
+<li>[ ] key 命名是否过长？是否包含重复冗余前缀？</li>
+<li>[ ] 是否可以把多个小 key 合并为 Hash，但不会形成难以维护的大 key？</li>
+<li>[ ] TTL 是按 key 维度还是 field 维度？Redis 7.x 是否满足需求？</li>
+<li>[ ] 数据是否可淘汰？如果不可淘汰，是否应该放在 Redis？</li>
+<li>[ ] 是否混用了缓存数据和关键状态数据？是否需要拆实例或拆 DB？</li>
+</ul>
+<span class="heading-anchor" id="配置阶段"></span><h3 id="_11">配置阶段</h3>
+<ul>
+<li>[ ] 设置合理 <code>maxmemory</code>，为 OS、复制、AOF、客户端缓冲区预留空间。</li>
+<li>[ ] 选择明确的 <code>maxmemory-policy</code>，不要依赖默认值。</li>
+<li>[ ] 缓存实例优先考虑 <code>allkeys-lru</code> 或 <code>allkeys-lfu</code>。</li>
+<li>[ ] 混合实例如用 <code>volatile-*</code>，确保可淘汰 key 都有 TTL。</li>
+<li>[ ] 大 key 删除风险高时，评估 <code>lazyfree-*</code> 配置。</li>
+</ul>
+<span class="heading-anchor" id="运行阶段"></span><h3 id="_12">运行阶段</h3>
+<ul>
+<li>[ ] 定期查看 <code>INFO memory</code>、<code>INFO stats</code>。</li>
+<li>[ ] 监控 <code>used_memory</code>、<code>used_memory_rss</code>、<code>mem_fragmentation_ratio</code>。</li>
+<li>[ ] 监控 <code>evicted_keys</code> 是否持续增长。</li>
+<li>[ ] 抽样检查大 key：<code>MEMORY USAGE</code>、<code>SCAN</code> + 类型命令。</li>
+<li>[ ] 观察命中率：<code>keyspace_hits</code> / (<code>keyspace_hits</code> + <code>keyspace_misses</code>)。</li>
+<li>[ ] 对重要业务做压测，验证淘汰后能否正确回源。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="速记：策略怎么选？"></span><h2 id="_13">速记：策略怎么选？</h2>
+<pre><code class="language-text">所有数据都可回源缓存     -&gt; allkeys-lru
+热点稳定、希望留住高频 key -&gt; allkeys-lfu
+只允许淘汰带 TTL 的 key   -&gt; volatile-lru / volatile-lfu
+希望快过期的先淘汰       -&gt; volatile-ttl
+数据绝不能被自动淘汰     -&gt; noeviction，并做好容量保护
+访问分布差不多且追求简单 -&gt; allkeys-random
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_14">延伸阅读关键词</h2>
+<ul>
+<li>Redis memory optimization</li>
+<li>Redis object encoding</li>
+<li>SDS / dict / listpack / quicklist / intset / skiplist</li>
+<li><code>INFO memory</code></li>
+<li><code>MEMORY USAGE</code></li>
+<li><code>MEMORY STATS</code></li>
+<li><code>OBJECT ENCODING</code></li>
+<li>Redis eviction policies</li>
+<li><code>maxmemory</code> / <code>maxmemory-policy</code></li>
+<li>approximated LRU / LFU</li>
+<li>big key problem</li>
+<li>memory fragmentation / jemalloc</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

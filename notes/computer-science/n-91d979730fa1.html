@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>CMake · 李杨的学习笔记</title><meta name="description" content="说明： core 对外暴露头文件目录和 C++ 标准要求； demo_app 只是使用 core ，所以链接关系是 PRIVATE 。"><meta property="og:title" content="CMake · 李杨的学习笔记"><meta property="og:description" content="说明： core 对外暴露头文件目录和 C++ 标准要求； demo_app 只是使用 core ，所以链接关系是 PRIVATE 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-91d979730fa1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-91d979730fa1.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 01-基础工具</p><h1>CMake</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/01-%E5%9F%BA%E7%A1%80%E5%B7%A5%E5%85%B7/03-%E6%9E%84%E5%BB%BA%E7%B3%BB%E7%BB%9F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">最小项目示例</a></li><li><a href="#_4">常用命令</a></li><li><a href="#_5">常用配置片段</a></li><li><a href="#_6">典型工作流</a></li><li><a href="#_7">常见坑</a></li><li><a href="#_8">排障步骤</a></li><li><a href="#_9">练习</a></li><li><a href="#_10">检查清单</a></li><li><a href="#_11">延伸阅读</a></li><li><a href="#_12">深化学习说明</a></li><li><a href="#_13">前置知识和完成标准</a></li><li><a href="#_14">核心概念分层</a></li><li><a href="#_15">从零开始实验：库、应用、测试</a></li><li><a href="#_16">命令和配置逐段解释</a></li><li><a href="#_17">常见坑的机制和排障决策路径</a></li><li><a href="#_18">练习答案要点</a></li><li><a href="#_19">章节小结</a></li><li><a href="#_20">官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解配置阶段、生成阶段、构建阶段的区别。</li>
+<li>能写出现代 CMake 的目标式配置。</li>
+<li>能管理 include 路径、编译选项、链接库、测试和安装规则。</li>
+<li>能排查构建目录、缓存、编译器、生成器和依赖发现问题。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<ul>
+<li>源码目录：包含 <code>CMakeLists.txt</code> 的项目目录。</li>
+<li>构建目录：CMake 生成工程文件和编译产物的位置，推荐与源码目录分离。</li>
+<li>生成器：决定生成 Ninja、Makefile、Xcode 或 Visual Studio 工程。</li>
+<li>目标：可执行程序、库或自定义构建对象。</li>
+<li>属性传播：<code>PUBLIC</code>、<code>PRIVATE</code>、<code>INTERFACE</code> 控制 include、编译定义和链接依赖如何传递。</li>
+<li>缓存：<code>CMakeCache.txt</code> 记录配置结果；编译器、依赖路径等变更后可能需要重新配置或清理构建目录。</li>
+<li>构建类型：单配置生成器常用 <code>CMAKE_BUILD_TYPE=Debug</code> 或 <code>Release</code>；多配置生成器在构建时选择配置。</li>
+</ul>
+<span class="heading-anchor" id="最小项目示例"></span><h2 id="_3">最小项目示例</h2>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20)
+project(demo LANGUAGES CXX)
+
+add_library(core src/core.cpp)
+target_compile_features(core PUBLIC cxx_std_20)
+target_include_directories(core PUBLIC include)
+
+add_executable(demo_app src/main.cpp)
+target_link_libraries(demo_app PRIVATE core)
+</code></pre>
+<p>说明：<code>core</code> 对外暴露头文件目录和 C++ 标准要求；<code>demo_app</code> 只是使用 <code>core</code>，所以链接关系是 <code>PRIVATE</code>。</p>
+<span class="heading-anchor" id="常用命令"></span><h2 id="_4">常用命令</h2>
+<p>配置项目。会写入构建目录；不要把构建目录放进源码目录内的版本控制范围。</p>
+<pre><code class="language-bash">cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+</code></pre>
+<p>构建项目。会生成目标文件、库和可执行文件。</p>
+<pre><code class="language-bash">cmake --build build
+</code></pre>
+<p>并行构建。会增加 CPU 和内存压力；大型项目上可能让机器负载很高。</p>
+<pre><code class="language-bash">cmake --build build --parallel 8
+</code></pre>
+<p>运行测试。风险低，通常只读源码和运行测试产物；部分测试可能写临时文件或访问网络，取决于项目实现。</p>
+<pre><code class="language-bash">ctest --test-dir build --output-on-failure
+</code></pre>
+<p>安装到指定前缀。会写入安装目录；确认 <code>--prefix</code> 不指向系统路径，除非你确实需要系统级安装。</p>
+<pre><code class="language-bash">cmake --install build --prefix install
+</code></pre>
+<p>清理构建产物。会删除构建系统知道的产物；不会等同于删除整个 build 目录。</p>
+<pre><code class="language-bash">cmake --build build --target clean
+</code></pre>
+<span class="heading-anchor" id="常用配置片段"></span><h2 id="_5">常用配置片段</h2>
+<p>添加测试。</p>
+<pre><code class="language-cmake">include(CTest)
+
+if(BUILD_TESTING)
+  add_executable(core_tests tests/core_tests.cpp)
+  target_link_libraries(core_tests PRIVATE core)
+  add_test(NAME core_tests COMMAND core_tests)
+endif()
+</code></pre>
+<p>添加编译告警。</p>
+<pre><code class="language-cmake">target_compile_options(core PRIVATE
+  $&lt;$&lt;CXX_COMPILER_ID:GNU,Clang&gt;:-Wall -Wextra -Wpedantic&gt;
+  $&lt;$&lt;CXX_COMPILER_ID:MSVC&gt;:/W4&gt;
+)
+</code></pre>
+<p>查找并链接外部包。</p>
+<pre><code class="language-cmake">find_package(fmt CONFIG REQUIRED)
+target_link_libraries(core PRIVATE fmt::fmt)
+</code></pre>
+<p>风险说明：<code>find_package</code> 的结果取决于包是否安装、安装方式、<code>CMAKE_PREFIX_PATH</code> 和工具链文件。不要假设所有机器都有同样的全局依赖。</p>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_6">典型工作流</h2>
+<ol>
+<li>新项目先建立 out-of-source 构建。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug
+ctest --test-dir build/debug --output-on-failure
+</code></pre>
+<ol>
+<li>切换 Release 构建时使用独立目录。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release --parallel 8
+</code></pre>
+<ol>
+<li>编译器或工具链变更时重新配置。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build/clang -DCMAKE_CXX_COMPILER=clang++
+</code></pre>
+<p>风险说明：不要在同一个 build 目录里反复切换编译器。缓存可能保留旧探测结果，导致问题难以解释。</p>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_7">常见坑</h2>
+<ul>
+<li>在源码目录内构建，污染仓库并容易误提交生成文件。</li>
+<li>全局使用 <code>include_directories()</code>、<code>link_libraries()</code>，依赖边界不清晰。</li>
+<li>滥用变量拼接编译命令，没有利用 target 属性传播。</li>
+<li><code>PUBLIC</code>、<code>PRIVATE</code>、<code>INTERFACE</code> 随便写，导致依赖泄漏或下游缺少头文件。</li>
+<li>修改编译器、工具链或依赖路径后没有清理缓存。</li>
+<li>单配置和多配置生成器混用时误解 <code>CMAKE_BUILD_TYPE</code>。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_8">排障步骤</h2>
+<ol>
+<li>看配置命令、生成器和编译器。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build --log-level=STATUS
+cmake -LAH build
+</code></pre>
+<ol>
+<li>查看缓存中的关键变量。</li>
+</ol>
+<pre><code class="language-bash">rg "CMAKE_CXX_COMPILER|CMAKE_BUILD_TYPE|CMAKE_PREFIX_PATH" build/CMakeCache.txt
+</code></pre>
+<ol>
+<li>打开详细构建输出。</li>
+</ol>
+<pre><code class="language-bash">cmake --build build --verbose
+</code></pre>
+<ol>
+<li>依赖找不到时，显式提供前缀。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/deps
+</code></pre>
+<ol>
+<li>无法解释的缓存问题，换一个新的构建目录验证。</li>
+</ol>
+<pre><code class="language-bash">cmake -S . -B build/fresh-debug -DCMAKE_BUILD_TYPE=Debug
+</code></pre>
+<p>风险说明：删除整个构建目录通常可恢复，但会丢失本地构建产物和缓存配置。删除前确认目录确实是构建目录，不是源码或安装目录。</p>
+<span class="heading-anchor" id="练习"></span><h2 id="_9">练习</h2>
+<ul>
+<li>写一个包含静态库和可执行程序的最小 CMake 项目。</li>
+<li>给库添加 <code>PUBLIC</code> 头文件目录，并解释为什么应用目标能找到头文件。</li>
+<li>添加一个测试目标并用 <code>ctest</code> 运行。</li>
+<li>分别创建 Debug 和 Release 构建目录，比较编译命令差异。</li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_10">检查清单</h2>
+<ul>
+<li>我能区分配置、生成、构建和测试阶段。</li>
+<li>我习惯使用 <code>cmake -S . -B build</code> 的 out-of-source 构建。</li>
+<li>我能解释 <code>PUBLIC</code>、<code>PRIVATE</code>、<code>INTERFACE</code> 的影响。</li>
+<li>我知道修改编译器或工具链后要避免复用旧缓存。</li>
+<li>我能用 verbose 构建和 <code>CMakeCache.txt</code> 排查问题。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>版本协作见：<a href="n-0d704e4c5d91.html">Git 和分支协作</a>。</li>
+<li>Python 辅助工具和脚本环境见：<a href="n-7f284c6623b6.html">Python 环境和依赖管理</a>。</li>
+</ul>
+<span class="heading-anchor" id="深化学习说明"></span><h2 id="_12">深化学习说明</h2>
+<p>前半部分用于快速建立 CMake 命令、目标和常见片段的操作感。下面的内容进一步解释目标属性、配置/构建阶段证据和排障路径，帮助你从“能构建”推进到“能定位构建为什么失败”。</p>
+<span class="heading-anchor" id="前置知识和完成标准"></span><h2 id="_13">前置知识和完成标准</h2>
+<p>学习本章前，应理解编译、链接、头文件搜索路径、库文件和可执行文件的区别。CMake 不是编译器，而是生成构建系统的元构建工具；真正编译代码的是 GCC、Clang、MSVC 等工具链。</p>
+<p>完成本章后，应能做到：</p>
+<ul>
+<li>区分配置、生成、构建、测试、安装五个阶段的输入和输出。</li>
+<li>能写出一个库、一个可执行程序、一个测试目标，并使用目标式命令传播依赖。</li>
+<li>能解释 <code>PUBLIC</code>、<code>PRIVATE</code>、<code>INTERFACE</code> 对当前目标和下游目标的影响。</li>
+<li>遇到“找不到头文件/库/包”时，能从 target 属性、缓存、编译命令和依赖安装位置逐层排查。</li>
+</ul>
+<span class="heading-anchor" id="核心概念分层"></span><h2 id="_14">核心概念分层</h2>
+<p>第一层是目录分离：源码目录保存人写的文件，构建目录保存 CMake 生成物和编译产物。构建目录可删除重建，源码目录不应被生成物污染。</p>
+<p>第二层是阶段分离：<code>cmake -S -B</code> 完成配置和生成，<code>cmake --build</code> 调用底层构建工具，<code>ctest</code> 执行已注册测试，<code>cmake --install</code> 执行安装规则。阶段不同，失败证据也不同。</p>
+<p>第三层是目标模型：现代 CMake 以目标为中心。include 路径、编译选项、编译定义、链接库都挂在目标上，而不是通过全局变量散落到目录。</p>
+<p>第四层是使用要求：库的头文件目录、C++ 标准、必要编译定义可能是消费者必须知道的要求，应通过 <code>PUBLIC</code> 或 <code>INTERFACE</code> 暴露；仅当前库内部需要的选项应保持 <code>PRIVATE</code>。</p>
+<span class="heading-anchor" id="从零开始实验：库、应用、测试"></span><h2 id="_15">从零开始实验：库、应用、测试</h2>
+<p>教学边界：实验在系统临时目录下创建唯一目录。生产项目中不要直接复制版本号和目录结构，应遵循项目已有 CMake 最低版本和工具链约定。</p>
+<pre><code class="language-bash">lab_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmake-lab.XXXXXX")"
+mkdir -p "$lab_dir/include" "$lab_dir/src" "$lab_dir/tests"
+cd "$lab_dir"
+cat &gt; include/mathlib.hpp &lt;&lt;'EOF'
+#pragma once
+int add(int a, int b);
+EOF
+cat &gt; src/mathlib.cpp &lt;&lt;'EOF'
+#include "mathlib.hpp"
+int add(int a, int b) { return a + b; }
+EOF
+cat &gt; src/main.cpp &lt;&lt;'EOF'
+#include "mathlib.hpp"
+#include &lt;iostream&gt;
+int main() { std::cout &lt;&lt; add(2, 3) &lt;&lt; "\n"; }
+EOF
+cat &gt; tests/mathlib_test.cpp &lt;&lt;'EOF'
+#include "mathlib.hpp"
+int main() { return add(2, 3) == 5 ? 0 : 1; }
+EOF
+cat &gt; CMakeLists.txt &lt;&lt;'EOF'
+cmake_minimum_required(VERSION 3.20)
+project(cmake_lab LANGUAGES CXX)
+
+add_library(mathlib src/mathlib.cpp)
+target_compile_features(mathlib PUBLIC cxx_std_17)
+target_include_directories(mathlib PUBLIC include)
+
+add_executable(app src/main.cpp)
+target_link_libraries(app PRIVATE mathlib)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(mathlib_test tests/mathlib_test.cpp)
+  target_link_libraries(mathlib_test PRIVATE mathlib)
+  add_test(NAME mathlib_test COMMAND mathlib_test)
+endif()
+EOF
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+</code></pre>
+<p>预期结果：配置阶段识别 C++ 编译器，构建阶段生成 <code>app</code> 和 <code>mathlib_test</code>，测试阶段显示 <code>100% tests passed</code>。若缺少编译器，配置阶段就会失败；若 include 传播错误，构建测试目标时会报 <code>mathlib.hpp</code> 找不到。</p>
+<p>验证方式：运行 <code>./build/app</code> 应输出 <code>5</code>；<code>cmake --build build --verbose</code> 能看到编译命令中包含 <code>-I.../include</code>。</p>
+<span class="heading-anchor" id="命令和配置逐段解释"></span><h2 id="_16">命令和配置逐段解释</h2>
+<pre><code class="language-cmake">target_include_directories(mathlib PUBLIC include)
+</code></pre>
+<p><code>mathlib</code> 自己编译 <code>src/mathlib.cpp</code> 时需要 <code>include</code>，链接 <code>mathlib</code> 的 <code>app</code> 和 <code>mathlib_test</code> 也需要这个目录才能包含公开头文件，所以使用 <code>PUBLIC</code>。如果头文件只给库内部 <code>.cpp</code> 使用，应改为 <code>PRIVATE</code>。</p>
+<pre><code class="language-cmake">target_link_libraries(app PRIVATE mathlib)
+</code></pre>
+<p><code>app</code> 使用 <code>mathlib</code>，但 <code>app</code> 不是库，不需要继续把该依赖传播给下游，所以用 <code>PRIVATE</code>。如果某个库 <code>api</code> 的公开头文件中包含了 <code>mathlib</code> 的头文件，<code>api</code> 链接 <code>mathlib</code> 往往应使用 <code>PUBLIC</code>。</p>
+<pre><code class="language-bash">cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+</code></pre>
+<p><code>-S .</code> 指源码目录，<code>-B build</code> 指构建目录，<code>-D</code> 设置缓存变量。单配置生成器会使用 <code>CMAKE_BUILD_TYPE</code>；Visual Studio、Xcode 等多配置生成器通常在构建时用 <code>--config Debug</code> 选择配置。</p>
+<span class="heading-anchor" id="常见坑的机制和排障决策路径"></span><h2 id="_17">常见坑的机制和排障决策路径</h2>
+<p>遇到构建失败，先判断失败阶段：</p>
+<ol>
+<li>配置阶段失败：先看终端错误和编译器探测。较新的 CMake 会把详细配置事件写入 <code>build/CMakeFiles/CMakeConfigureLog.yaml</code>；较旧版本常见证据在 <code>build/CMakeFiles/CMakeOutput.log</code> 和 <code>build/CMakeFiles/CMakeError.log</code>。排查 <code>find_package</code> 时还要保留完整配置命令和 <code>CMAKE_PREFIX_PATH</code>。</li>
+<li>生成阶段失败：通常是目标名重复、生成表达式错误、属性冲突。</li>
+<li>编译阶段失败：用 <code>cmake --build build --verbose</code> 看真实编译命令，确认 <code>-I</code>、<code>-D</code>、标准版本。</li>
+<li>链接阶段失败：确认库是否被编译、链接顺序、符号是否定义、Debug/Release ABI 是否混用。</li>
+<li>测试阶段失败：<code>ctest --output-on-failure</code> 查看测试 stdout/stderr，再进入单测二进制复现。</li>
+</ol>
+<p>失败现象和含义：</p>
+<ul>
+<li><code>Could NOT find fmt</code>：CMake 没找到 <code>fmt</code> 的包配置或查找模块；检查包是否安装、<code>CMAKE_PREFIX_PATH</code>、工具链文件。</li>
+<li><code>undefined reference</code> 或 <code>unresolved external symbol</code>：头文件编译通过，但链接时找不到实现或链接了不匹配的库。</li>
+<li>修改 CMakeLists 后构建没变化：可能没有重新配置，或改的是未被包含的子目录。</li>
+<li>换编译器后错误异常：旧 <code>CMakeCache.txt</code> 保留了上一套工具链探测结果，应使用新构建目录验证。</li>
+</ul>
+<span class="heading-anchor" id="练习答案要点"></span><h2 id="_18">练习答案要点</h2>
+<p>基础练习：最小项目必须包含 <code>cmake_minimum_required</code>、<code>project</code>、<code>add_executable</code>，并能完成 <code>cmake -S . -B build &amp;&amp; cmake --build build</code>。</p>
+<p>进阶练习：库的公开头文件目录用 <code>PUBLIC</code>，因为消费者编译自己的源码时也要找到这些头文件。若把它误写成 <code>PRIVATE</code>，库本身能编译，应用目标会失败。</p>
+<p>综合练习：Debug/Release 对比应从独立构建目录产生，不能在同一个缓存里来回切。答案应说明 Debug 通常包含调试信息且优化较低，Release 通常优化更高，但具体编译参数由工具链和项目配置决定。</p>
+<span class="heading-anchor" id="章节小结"></span><h2 id="_19">章节小结</h2>
+<p>现代 CMake 的主线是“目标及其使用要求”。少用全局命令，多让依赖关系跟着目标传播，构建问题就能从目标、属性、缓存和真实命令四个位置逐层定位。</p>
+<span class="heading-anchor" id="官方延伸阅读"></span><h2 id="_20">官方延伸阅读</h2>
+<ul>
+<li>CMake Tutorial：<a href="https://cmake.org/cmake/help/latest/guide/tutorial/">https://cmake.org/cmake/help/latest/guide/tutorial/</a></li>
+<li><code>cmake-buildsystem(7)</code>：<a href="https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html">https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html</a></li>
+<li><code>target_link_libraries</code>：<a href="https://cmake.org/cmake/help/latest/command/target_link_libraries.html">https://cmake.org/cmake/help/latest/command/target_link_libraries.html</a></li>
+<li><code>target_include_directories</code>：<a href="https://cmake.org/cmake/help/latest/command/target_include_directories.html">https://cmake.org/cmake/help/latest/command/target_include_directories.html</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

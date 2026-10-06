@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07. PostgreSQL 实践指南 · 李杨的学习笔记</title><meta name="description" content="本章把前面的通用知识落到 PostgreSQL。读完后你应该能："><meta property="og:title" content="07. PostgreSQL 实践指南 · 李杨的学习笔记"><meta property="og:description" content="本章把前面的通用知识落到 PostgreSQL。读完后你应该能："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fa264a361a37.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fa264a361a37.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>07. PostgreSQL 实践指南</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/07-PostgreSQL%E5%AE%9E%E8%B7%B5%E6%8C%87%E5%8D%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">数据类型选择</a></li><li><a href="#schema">Schema 组织</a></li><li><a href="#_3">常见索引模式</a></li><li><a href="#_4">等值与范围</a></li><li><a href="#_5">部分索引</a></li><li><a href="#gin-jsonb">GIN + JSONB</a></li><li><a href="#brin">BRIN 时间索引</a></li><li><a href="#upsert">UPSERT</a></li><li><a href="#for-update-skip-locked">队列处理：FOR UPDATE SKIP LOCKED</a></li><li><a href="#_6">全文搜索</a></li><li><a href="#row-level-securityrls">Row Level Security（RLS）</a></li><li><a href="#_7">分区表</a></li><li><a href="#vacuum-analyze">Vacuum 与 Analyze</a></li><li><a href="#_8">监控慢查询</a></li><li><a href="#postgresql">PostgreSQL 项目默认清单</a></li><li><a href="#_9">本章练习</a></li><li><a href="#postgresql_1">深入展开：PostgreSQL 项目的工程化默认设置</a></li><li><a href="#1">1. 建表时就把约束写完整</a></li><li><a href="#2-jsonb">2. JSONB 使用边界</a></li><li><a href="#3-rls">3. RLS 要配合连接上下文</a></li><li><a href="#4-create-index-concurrently">4. CREATE INDEX CONCURRENTLY 的注意点</a></li><li><a href="#5-vacuum">5. Vacuum 不是可选项</a></li><li><a href="#6-sql">6. 常用诊断 SQL 思路</a></li><li><a href="#7-postgresql">7. PostgreSQL 项目上线前底线</a></li><li><a href="#_10">思维导图</a></li><li><a href="#1_1">1. 建表默认清单</a></li><li><a href="#2-postgresql">2. PostgreSQL 常用能力</a></li><li><a href="#3-jsonb">3. JSONB 使用边界</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章把前面的通用知识落到 PostgreSQL。读完后你应该能：</p>
+<ul>
+<li>做出合理的数据类型选择。</li>
+<li>使用 PostgreSQL 常见索引模式。</li>
+<li>编写 UPSERT、队列、全文搜索等实用 SQL。</li>
+<li>理解 RLS、schema、extension、vacuum 的工程意义。</li>
+<li>建立 PostgreSQL 项目默认清单。</li>
+</ul>
+<span class="heading-anchor" id="数据类型选择"></span><h2 id="_2">数据类型选择</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自增主键</td>
+<td><code>BIGINT GENERATED ALWAYS AS IDENTITY</code></td>
+<td>避免过早用小整数</td>
+</tr>
+<tr>
+<td>文本</td>
+<td><code>TEXT</code></td>
+<td>PostgreSQL 中无需迷信 <code>VARCHAR(255)</code></td>
+</tr>
+<tr>
+<td>时间</td>
+<td><code>TIMESTAMPTZ</code></td>
+<td>保存绝对时间点，显示时再转时区</td>
+</tr>
+<tr>
+<td>金额</td>
+<td><code>NUMERIC(12,2)</code> 或整数分</td>
+<td>不用浮点数表示钱</td>
+</tr>
+<tr>
+<td>布尔</td>
+<td><code>BOOLEAN</code></td>
+<td>不用 <code>'Y'/'N'</code> 或 0/1 文本</td>
+</tr>
+<tr>
+<td>半结构化</td>
+<td><code>JSONB</code></td>
+<td>适合扩展属性，不适合核心关系</td>
+</tr>
+<tr>
+<td>枚举</td>
+<td><code>TEXT + CHECK</code> 或 enum</td>
+<td>变更频繁时 CHECK 更灵活</td>
+</tr>
+</tbody>
+</table></div>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE TABLE invoices (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id BIGINT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('draft', 'issued', 'paid', 'void')),
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount &gt;= 0),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  issued_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</code></pre>
+<span class="heading-anchor" id="Schema 组织"></span><h2 id="schema">Schema 组织</h2>
+<p>PostgreSQL 的 schema 是命名空间。常见用法：</p>
+<ul>
+<li><code>public</code>：默认 schema，不建议无限堆所有对象。</li>
+<li><code>app</code>：业务表。</li>
+<li><code>audit</code>：审计表。</li>
+<li><code>analytics</code>：汇总/报表对象。</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE SCHEMA app;
+CREATE SCHEMA audit;
+</code></pre>
+<p>安全默认项：不要让所有用户随意在 public schema 创建对象。</p>
+<pre><code class="language-sql">REVOKE ALL ON SCHEMA public FROM public;
+</code></pre>
+<span class="heading-anchor" id="常见索引模式"></span><h2 id="_3">常见索引模式</h2>
+<span class="heading-anchor" id="等值与范围"></span><h3 id="_4">等值与范围</h3>
+<pre><code class="language-sql">CREATE INDEX idx_orders_customer_created
+ON orders (customer_id, created_at DESC);
+</code></pre>
+<p>适合客户订单列表：</p>
+<pre><code class="language-sql">SELECT *
+FROM orders
+WHERE customer_id = 1
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<span class="heading-anchor" id="部分索引"></span><h3 id="_5">部分索引</h3>
+<pre><code class="language-sql">CREATE INDEX idx_jobs_pending_created
+ON jobs (created_at)
+WHERE status = 'pending';
+</code></pre>
+<p>适合队列或少量活跃状态。</p>
+<span class="heading-anchor" id="GIN + JSONB"></span><h3 id="gin-jsonb">GIN + JSONB</h3>
+<pre><code class="language-sql">CREATE INDEX idx_events_payload_gin
+ON events USING gin (payload);
+</code></pre>
+<p>查询：</p>
+<pre><code class="language-sql">SELECT *
+FROM events
+WHERE payload @&gt; '{"type":"checkout"}'::jsonb;
+</code></pre>
+<p>不要把必须强约束的字段藏在 JSONB 里。JSONB 是扩展，不是偷懒建模的借口。</p>
+<span class="heading-anchor" id="BRIN 时间索引"></span><h3 id="brin">BRIN 时间索引</h3>
+<pre><code class="language-sql">CREATE INDEX idx_logs_created_brin
+ON logs USING brin (created_at);
+</code></pre>
+<p>适合按时间追加的大表，索引很小，但查询精度不如 B-tree。</p>
+<span class="heading-anchor" id="UPSERT"></span><h2 id="upsert">UPSERT</h2>
+<pre><code class="language-sql">INSERT INTO user_settings (user_id, key, value)
+VALUES (1, 'theme', 'dark')
+ON CONFLICT (user_id, key)
+DO UPDATE SET
+  value = EXCLUDED.value,
+  updated_at = now();
+</code></pre>
+<p>需要唯一约束：</p>
+<pre><code class="language-sql">ALTER TABLE user_settings
+ADD CONSTRAINT user_settings_user_key_uq UNIQUE (user_id, key);
+</code></pre>
+<span class="heading-anchor" id="队列处理：FOR UPDATE SKIP LOCKED"></span><h2 id="for-update-skip-locked">队列处理：FOR UPDATE SKIP LOCKED</h2>
+<p>多个 worker 并发领取任务：</p>
+<pre><code class="language-sql">UPDATE jobs
+SET status = 'processing', locked_at = now()
+WHERE id = (
+  SELECT id
+  FROM jobs
+  WHERE status = 'pending'
+  ORDER BY created_at
+  LIMIT 1
+  FOR UPDATE SKIP LOCKED
+)
+RETURNING *;
+</code></pre>
+<p><code>SKIP LOCKED</code> 会跳过已被其他事务锁住的行，适合轻量任务队列。复杂队列仍应考虑专门消息系统。</p>
+<span class="heading-anchor" id="全文搜索"></span><h2 id="_6">全文搜索</h2>
+<pre><code class="language-sql">ALTER TABLE articles
+ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (
+  to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(body, ''))
+) STORED;
+
+CREATE INDEX idx_articles_search
+ON articles USING gin (search_vector);
+
+SELECT id, title
+FROM articles
+WHERE search_vector @@ plainto_tsquery('simple', 'database index');
+</code></pre>
+<p>如果需要复杂相关性、拼写纠错、分布式搜索，可以引入搜索引擎。</p>
+<span class="heading-anchor" id="Row Level Security（RLS）"></span><h2 id="row-level-securityrls">Row Level Security（RLS）</h2>
+<p>RLS 让数据库根据行级策略控制访问，常见于多租户和后端即服务。</p>
+<pre><code class="language-sql">ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON orders
+USING (tenant_id = current_setting('app.current_tenant')::bigint);
+</code></pre>
+<p>应用连接后设置租户：</p>
+<pre><code class="language-sql">SET app.current_tenant = '42';
+</code></pre>
+<p>注意：RLS 是安全边界的一部分，但不是替代应用鉴权的全部。</p>
+<span class="heading-anchor" id="分区表"></span><h2 id="_7">分区表</h2>
+<p>适合超大表按时间或租户拆分管理。</p>
+<pre><code class="language-sql">CREATE TABLE events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY,
+  created_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE events_2026_04
+PARTITION OF events
+FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+</code></pre>
+<p>分区不是免费加速。只有查询条件能命中分区裁剪，才会明显受益。</p>
+<span class="heading-anchor" id="Vacuum 与 Analyze"></span><h2 id="vacuum-analyze">Vacuum 与 Analyze</h2>
+<p>PostgreSQL 更新/删除会留下旧版本，需要 vacuum 清理。</p>
+<ul>
+<li><code>VACUUM</code>：清理死元组，复用空间。</li>
+<li><code>ANALYZE</code>：更新统计信息，帮助优化器估算。</li>
+<li>autovacuum：自动执行，但需要监控。</li>
+</ul>
+<p>长事务会阻止旧版本清理。批量任务应分批提交。</p>
+<span class="heading-anchor" id="监控慢查询"></span><h2 id="_8">监控慢查询</h2>
+<p>启用 <code>pg_stat_statements</code> 后可按平均耗时、调用次数排查：</p>
+<pre><code class="language-sql">SELECT query, mean_exec_time, calls
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 20;
+</code></pre>
+<p>慢查询优化前先确认：</p>
+<ol>
+<li>查询是否必要。</li>
+<li>返回行数是否过多。</li>
+<li>是否缺索引。</li>
+<li>统计信息是否准确。</li>
+<li>是否存在锁等待。</li>
+</ol>
+<span class="heading-anchor" id="PostgreSQL 项目默认清单"></span><h2 id="postgresql">PostgreSQL 项目默认清单</h2>
+<ul>
+<li>[ ] 所有表有主键。</li>
+<li>[ ] 外键列有索引。</li>
+<li>[ ] 时间字段使用 <code>TIMESTAMPTZ</code>。</li>
+<li>[ ] 金额不用浮点数。</li>
+<li>[ ] 状态字段有 CHECK 或明确枚举策略。</li>
+<li>[ ] 大表索引用 <code>CREATE INDEX CONCURRENTLY</code>。</li>
+<li>[ ] 启用慢查询观测。</li>
+<li>[ ] 连接池配置合理。</li>
+<li>[ ] 备份和恢复演练已验证。</li>
+<li>[ ] public schema 权限已收紧。</li>
+</ul>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_9">本章练习</h2>
+<ol>
+<li>为 <code>orders(customer_id, created_at)</code> 设计一个支持最近订单列表的索引。</li>
+<li>写一个基于 <code>ON CONFLICT</code> 的用户设置更新 SQL。</li>
+<li>设计一个 pending jobs 队列领取 SQL。</li>
+<li>判断一个字段应该建成普通列还是 JSONB 属性。</li>
+</ol>
+<p>下一章：<a href="n-5ae44e8d4b70.html">08-MySQL关键差异</a>。</p>
+<span class="heading-anchor" id="深入展开：PostgreSQL 项目的工程化默认设置"></span><h2 id="postgresql_1">深入展开：PostgreSQL 项目的工程化默认设置</h2>
+<p>PostgreSQL 功能很丰富，但工程上更重要的是形成一套默认习惯。下面这些习惯能显著减少后期数据质量、性能和权限问题。</p>
+<span class="heading-anchor" id="1. 建表时就把约束写完整"></span><h3 id="1">1. 建表时就把约束写完整</h3>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE TABLE app.orders (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'cancelled')),
+  total_amount NUMERIC(12, 2) NOT NULL CHECK (total_amount &gt;= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at TIMESTAMPTZ
+);
+</code></pre>
+<p>不要先让脏数据进库，再想着以后治理。越早加约束，成本越低。</p>
+<span class="heading-anchor" id="2. JSONB 使用边界"></span><h3 id="2-jsonb">2. JSONB 使用边界</h3>
+<p>JSONB 很方便，但要定规则：</p>
+<ul>
+<li>外部原始 payload 可以放 JSONB。</li>
+<li>低频扩展字段可以放 JSONB。</li>
+<li>高频过滤、排序、JOIN 字段不要长期放 JSONB。</li>
+<li>核心字段一旦稳定，应迁移为普通列。</li>
+</ul>
+<p>从 JSONB 提升为普通列的过程，本质是一次 expand-contract：新增列、双写、回填、切查询、清理旧结构。</p>
+<span class="heading-anchor" id="3. RLS 要配合连接上下文"></span><h3 id="3-rls">3. RLS 要配合连接上下文</h3>
+<p>RLS 常见于多租户：</p>
+<pre><code class="language-sql">CREATE POLICY tenant_isolation ON app.orders
+USING (tenant_id = current_setting('app.current_tenant')::bigint);
+</code></pre>
+<p>应用必须在每个请求开始时设置租户上下文，并在连接归还连接池前清理或覆盖。否则连接复用可能导致租户上下文泄漏。</p>
+<p>RLS 策略必须测试：同租户可见、跨租户不可见、未设置租户不可见、管理员路径明确。</p>
+<span class="heading-anchor" id="4. CREATE INDEX CONCURRENTLY 的注意点"></span><h3 id="4-create-index-concurrently">4. <code>CREATE INDEX CONCURRENTLY</code> 的注意点</h3>
+<p>大表在线建索引要用：</p>
+<pre><code class="language-sql">CREATE INDEX CONCURRENTLY idx_orders_user_created
+ON app.orders(user_id, created_at DESC);
+</code></pre>
+<p>但它不能在普通事务块中运行。很多 migration 工具默认把 migration 包在事务里，需要单独配置。</p>
+<p>失败的 concurrent index 可能留下 invalid index，需要清理。所以上线脚本要检查索引状态。</p>
+<span class="heading-anchor" id="5. Vacuum 不是可选项"></span><h3 id="5-vacuum">5. Vacuum 不是可选项</h3>
+<p>PostgreSQL 的 MVCC 决定了 vacuum 是日常维护的一部分。你要监控：</p>
+<ul>
+<li>dead tuples。</li>
+<li>autovacuum 是否及时。</li>
+<li>长事务。</li>
+<li>表和索引膨胀。</li>
+<li>transaction ID 年龄。</li>
+</ul>
+<p>如果应用里经常出现长事务，调 autovacuum 参数只能缓解，不能根治。</p>
+<span class="heading-anchor" id="6. 常用诊断 SQL 思路"></span><h3 id="6-sql">6. 常用诊断 SQL 思路</h3>
+<p>慢查询：</p>
+<pre><code class="language-sql">SELECT query, calls, mean_exec_time, total_exec_time
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+</code></pre>
+<p>长事务：</p>
+<pre><code class="language-sql">SELECT pid, now() - xact_start AS age, state, query
+FROM pg_stat_activity
+WHERE xact_start IS NOT NULL
+ORDER BY age DESC;
+</code></pre>
+<p>表膨胀线索：</p>
+<pre><code class="language-sql">SELECT relname, n_live_tup, n_dead_tup, last_vacuum, last_autovacuum
+FROM pg_stat_user_tables
+ORDER BY n_dead_tup DESC
+LIMIT 20;
+</code></pre>
+<p>这些 SQL 不一定原封不动用于所有环境，但体现了排查方向：慢查询、长事务、旧版本堆积。</p>
+<span class="heading-anchor" id="7. PostgreSQL 项目上线前底线"></span><h3 id="7-postgresql">7. PostgreSQL 项目上线前底线</h3>
+<ul>
+<li>[ ] 应用用户不是超级用户。</li>
+<li>[ ] public schema 权限收紧。</li>
+<li>[ ] 所有核心表有主键和必要约束。</li>
+<li>[ ] 外键查询列有索引。</li>
+<li>[ ] 慢查询观测已启用。</li>
+<li>[ ] migration 支持 concurrent index。</li>
+<li>[ ] 备份和恢复演练已做。</li>
+<li>[ ] 连接池大小和数据库连接上限匹配。</li>
+</ul>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_10">思维导图</h2>
+<blockquote>
+<p>记忆建议：PostgreSQL 工程实践的底线是“类型准确、约束完整、索引有证据、Vacuum可观测”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 建表默认清单"></span><h3 id="1_1">1. 建表默认清单</h3>
+<pre class="mermaid">flowchart LR
+  A["选择准确数据类型"] --&gt; B["写完整约束"]
+  B --&gt; C["按查询设计索引"]
+  C --&gt; D["规划Schema和权限"]
+  D --&gt; E["准备Migration和回滚"]
+  E --&gt; F["监控慢查询和Vacuum"]
+</pre>
+<span class="heading-anchor" id="2. PostgreSQL 常用能力"></span><h3 id="2-postgresql">2. PostgreSQL 常用能力</h3>
+<pre class="mermaid">mindmap
+  root((PostgreSQL实践))
+    索引
+      BTree等值范围
+      部分索引
+      GIN JSONB
+      BRIN时间序列
+    并发
+      UPSERT
+      SKIP LOCKED队列
+    安全
+      Schema组织
+      RLS
+    维护
+      Vacuum
+      Analyze
+      慢查询监控
+</pre>
+<span class="heading-anchor" id="3. JSONB 使用边界"></span><h3 id="3-jsonb">3. JSONB 使用边界</h3>
+<pre class="mermaid">flowchart TD
+  A["想用JSONB"] --&gt; B{"字段是否高频过滤排序关联"}
+  B --&gt;|是| C["优先提升为正式列"]
+  B --&gt;|否| D["可作为扩展属性"]
+  D --&gt; E{"是否需要查询其中字段"}
+  E --&gt;|是| F["考虑GIN或表达式索引"]
+  E --&gt;|否| G["仅作为附加信息存储"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

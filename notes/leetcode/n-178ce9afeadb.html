@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>栈专题：括号匹配、最小栈与字符串解码 · 李杨的学习笔记</title><meta name="description" content="本笔记整理自本次会话中讨论的 LeetCode 20、155、394。统一主题：利用栈的“后进先出（LIFO）”特性处理匹配、嵌套和历史状态恢复。"><meta property="og:title" content="栈专题：括号匹配、最小栈与字符串解码 · 李杨的学习笔记"><meta property="og:description" content="本笔记整理自本次会话中讨论的 LeetCode 20、155、394。统一主题：利用栈的“后进先出（LIFO）”特性处理匹配、嵌套和历史状态恢复。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-178ce9afeadb.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-178ce9afeadb.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">栈</p><h1>栈专题：括号匹配、最小栈与字符串解码</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E6%A0%88/%E6%A0%88%E4%B8%93%E9%A2%98%EF%BC%8820%E3%80%81155%E3%80%81394%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">一、栈的核心特点</a></li><li><a href="#1">1. 题意</a></li><li><a href="#2">2. 核心思路</a></li><li><a href="#3-c">3. C++ 代码</a></li><li><a href="#4">4. 复杂度</a></li><li><a href="#5">5. 方法归纳</a></li><li><a href="#1_1">1. 题意</a></li><li><a href="#2_1">2. 核心思路：数据栈 + 最小值栈</a></li><li><a href="#_3">为什么只用一个变量记录最小值不够？</a></li><li><a href="#_4">为什么重复的最小值也要保存？</a></li><li><a href="#3">3. 变量含义</a></li><li><a href="#4-c">4. C++ 代码</a></li><li><a href="#5_1">5. 复杂度</a></li><li><a href="#6">6. 方法归纳</a></li><li><a href="#1_2">1. 题意</a></li><li><a href="#2_2">2. 核心思路：保存每一层的上下文</a></li><li><a href="#3_1">3. 变量含义</a></li><li><a href="#4_1">4. 四种字符处理规则</a></li><li><a href="#5-c">5. C++ 代码</a></li><li><a href="#_5">与两个栈写法的对应关系</a></li><li><a href="#6-3a2bc">6. 示例 &quot;3[a]2[bc]&quot; 推演</a></li><li><a href="#7">7. 常见错误</a></li><li><a href="#8">8. 复杂度</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本笔记整理自本次会话中讨论的 LeetCode 20、155、394。统一主题：利用栈的“后进先出（LIFO）”特性处理匹配、嵌套和历史状态恢复。</p>
+<p>相关笔记：<a href="n-d4b5f3529862.html">单调栈专题：每日温度与柱状图最大矩形</a></p>
+</blockquote>
+<span class="heading-anchor" id="一、栈的核心特点"></span><h2 id="_2">一、栈的核心特点</h2>
+<p>栈只能在同一端进行操作：</p>
+<ul>
+<li><code>push</code>：元素入栈；</li>
+<li><code>pop</code>：删除栈顶元素；</li>
+<li><code>top</code>：查看栈顶元素；</li>
+<li>特点：<strong>后进先出</strong>。</li>
+</ul>
+<p>当题目具有下面的特征时，可以优先考虑栈：</p>
+<ul>
+<li>括号、符号需要成对匹配；</li>
+<li>结构存在嵌套，需要先处理内层再返回外层；</li>
+<li>需要保存“进入当前层之前”的历史状态；</li>
+<li>需要维护栈顶或辅助信息。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="二、20. 有效的括号"></span><h1 id="20">二、20. 有效的括号</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1">1. 题意</h2>
+<p>给定只包含 <code>(</code>、<code>)</code>、<code>[</code>、<code>]</code>、<code>{</code>、<code>}</code> 的字符串，判断括号是否有效。</p>
+<p>有效字符串需要满足：</p>
+<ol>
+<li>左括号必须由相同类型的右括号闭合；</li>
+<li>左括号必须按照正确顺序闭合；</li>
+<li>每个右括号都必须有对应的左括号。</li>
+</ol>
+<p>例如：</p>
+<pre><code class="language-text">"()"       -&gt; true
+"()[]{}"   -&gt; true
+"(]"       -&gt; false
+"([)]"      -&gt; false
+"{[]}"      -&gt; true
+</code></pre>
+<span class="heading-anchor" id="2. 核心思路"></span><h2 id="2">2. 核心思路</h2>
+<ul>
+<li>遇到左括号：压入栈；</li>
+<li>遇到右括号：检查它是否匹配栈顶左括号，匹配后弹出；</li>
+<li>如果遇到右括号时栈为空，说明没有左括号可以匹配；</li>
+<li>遍历结束后，栈必须为空，否则说明还有未闭合的左括号。</li>
+</ul>
+<p>括号的匹配顺序是“最后打开的括号最先关闭”，正好符合栈的后进先出特性。</p>
+<span class="heading-anchor" id="3. C++ 代码"></span><h2 id="3-c">3. C++ 代码</h2>
+<pre><code class="language-cpp">#include &lt;stack&gt;
+#include &lt;string&gt;
+using namespace std;
+
+class Solution {
+public:
+    bool isValid(string s) {
+        // st 保存当前还没有匹配的左括号。
+        stack&lt;char&gt; st;
+
+        // 依次检查字符串中的每个括号。
+        for (char c : s) {
+            // 左括号先入栈，等待后面的右括号进行匹配。
+            if (c == '(' || c == '[' || c == '{') {
+                st.push(c);
+            } else {
+                // 右括号出现时，如果栈为空，说明没有对应的左括号。
+                if (st.empty()) {
+                    return false;
+                }
+
+                // 当前右括号必须与栈顶左括号属于同一种类型。
+                if ((c == ')' &amp;&amp; st.top() != '(') ||
+                    (c == ']' &amp;&amp; st.top() != '[') ||
+                    (c == '}' &amp;&amp; st.top() != '{')) {
+                    return false;
+                }
+
+                // 匹配成功，删除已经完成匹配的左括号。
+                st.pop();
+            }
+        }
+
+        // 栈为空表示每个左括号都成功匹配了右括号。
+        return st.empty();
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="4. 复杂度"></span><h2 id="4">4. 复杂度</h2>
+<ul>
+<li>时间复杂度：<code>O(n)</code>，每个括号最多入栈和出栈一次；</li>
+<li>空间复杂度：<code>O(n)</code>，最坏情况下所有字符都是左括号。</li>
+</ul>
+<span class="heading-anchor" id="5. 方法归纳"></span><h2 id="5">5. 方法归纳</h2>
+<blockquote>
+<p><strong>左括号入栈；右括号检查栈顶并弹出；最后栈必须为空。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="三、155. 最小栈"></span><h1 id="155">三、155. 最小栈</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1_1">1. 题意</h2>
+<p>设计一个支持以下操作的栈，并且每个操作都要在 <code>O(1)</code> 时间内完成：</p>
+<pre><code class="language-cpp">MinStack()          // 初始化
+push(val)           // 入栈
+pop()               // 删除栈顶元素
+top()               // 获取栈顶元素
+getMin()            // 获取当前栈中的最小元素
+</code></pre>
+<p>难点是：普通栈可以在 <code>O(1)</code> 时间内完成 <code>push</code>、<code>pop</code>、<code>top</code>，但不能直接在 <code>O(1)</code> 时间内找到整个栈的最小值。</p>
+<span class="heading-anchor" id="2. 核心思路：数据栈 + 最小值栈"></span><h2 id="2_1">2. 核心思路：数据栈 + 最小值栈</h2>
+<p>使用两个栈：</p>
+<ul>
+<li><code>dataStack</code>：保存真正入栈的所有元素；</li>
+<li><code>minStack</code>：保存每一层对应的当前最小值。</li>
+</ul>
+<p>每次压入 <code>value</code> 时：</p>
+<pre><code class="language-text">minStack.push(min(value, minStack.top()))
+</code></pre>
+<p>因此，<code>minStack.top()</code> 始终就是当前数据栈中的最小值。</p>
+<p>例如依次压入 <code>-2、0、-3</code>：</p>
+<pre><code class="language-text">dataStack: [-2, 0, -3]
+minStack : [-2, -2, -3]
+</code></pre>
+<p>弹出 <code>-3</code> 后：</p>
+<pre><code class="language-text">dataStack: [-2, 0]
+minStack : [-2, -2]
+</code></pre>
+<p>最小值自动恢复为 <code>-2</code>。</p>
+<span class="heading-anchor" id="为什么只用一个变量记录最小值不够？"></span><h3 id="_3">为什么只用一个变量记录最小值不够？</h3>
+<p>依次入栈 <code>3、5、2</code>，当前最小值是 2；弹出 2 后应恢复为 3。只保存当前最小值就丢失了旧状态，重新扫描又需要 O(n)。因此每一层都保存对应的最小值，即使它没变化也要入栈；两个栈始终等高，同步弹出即可恢复上一层状态。</p>
+<p>本实现的 <code>pop</code>、<code>top</code>、<code>getMin</code> 按非空栈上的合法调用处理。</p>
+<span class="heading-anchor" id="为什么重复的最小值也要保存？"></span><h3 id="_4">为什么重复的最小值也要保存？</h3>
+<p>例如：</p>
+<pre><code class="language-text">push(2), push(1), push(1)
+</code></pre>
+<p>最小值栈应为：</p>
+<pre><code class="language-text">[2, 1, 1]
+</code></pre>
+<p>两个 <code>1</code> 都要保存。弹出一个 <code>1</code> 后，另一个 <code>1</code> 仍然是最小值。</p>
+<span class="heading-anchor" id="3. 变量含义"></span><h2 id="3">3. 变量含义</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dataStack</code></td>
+<td>保存所有真实数据的普通栈</td>
+</tr>
+<tr>
+<td><code>minStack</code></td>
+<td>保存每一层的历史最小值</td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td>即将入栈的新元素</td>
+</tr>
+<tr>
+<td><code>currentMinimum</code></td>
+<td>入栈后当前栈中的最小值</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. C++ 代码"></span><h2 id="4-c">4. C++ 代码</h2>
+<pre><code class="language-cpp">#include &lt;algorithm&gt;
+#include &lt;stack&gt;
+using namespace std;
+
+class MinStack {
+private:
+    // 保存真正入栈的元素，用于实现普通栈的功能。
+    stack&lt;int&gt; dataStack;
+
+    // minStack[i] 表示 dataStack 当前对应层及以前元素的最小值。
+    stack&lt;int&gt; minStack;
+
+public:
+    MinStack() {
+        // 两个栈默认初始化为空。
+    }
+
+    void push(int value) {
+        // 先把新元素放入数据栈。
+        dataStack.push(value);
+
+        // 计算加入 value 后的当前最小值，并同步放入最小值栈。
+        if (minStack.empty()) {
+            // 第一个元素同时就是当前最小值。
+            minStack.push(value);
+        } else {
+            // 当前最小值是 value 和之前最小值中的较小者。
+            int currentMinimum = min(value, minStack.top());
+            minStack.push(currentMinimum);
+        }
+    }
+
+    void pop() {
+        // 两个栈必须同步弹出同一层状态。
+        dataStack.pop();
+        minStack.pop();
+    }
+
+    int top() {
+        // 数据栈栈顶就是当前栈顶元素。
+        return dataStack.top();
+    }
+
+    int getMin() {
+        // 最小值栈栈顶保存当前所有元素中的最小值。
+        return minStack.top();
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="5. 复杂度"></span><h2 id="5_1">5. 复杂度</h2>
+<ul>
+<li><code>push</code>：<code>O(1)</code>；</li>
+<li><code>pop</code>：<code>O(1)</code>；</li>
+<li><code>top</code>：<code>O(1)</code>；</li>
+<li><code>getMin</code>：<code>O(1)</code>；</li>
+<li>空间复杂度：<code>O(n)</code>。</li>
+</ul>
+<span class="heading-anchor" id="6. 方法归纳"></span><h2 id="6">6. 方法归纳</h2>
+<blockquote>
+<p><strong>普通结构负责原始数据，辅助结构负责维护额外信息；入栈、出栈时两个结构同步变化。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="四、394. 字符串解码"></span><h1 id="394">四、394. 字符串解码</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1_2">1. 题意</h2>
+<p>编码规则为：</p>
+<pre><code class="language-text">k[encoded_string]
+</code></pre>
+<p>表示方括号中的字符串重复 <code>k</code> 次。</p>
+<p>例如：</p>
+<pre><code class="language-text">3[a]          -&gt; "aaa"
+2[bc]         -&gt; "bcbc"
+3[a]2[bc]     -&gt; "aaabcbc"
+3[a2[c]]      -&gt; "accaccacc"
+2[abc]3[cd]ef -&gt; "abcabccdcdcdef"
+</code></pre>
+<p>题目保证输入格式合法，数字只表示重复次数，并且可能出现多位数字和嵌套括号。</p>
+<span class="heading-anchor" id="2. 核心思路：保存每一层的上下文"></span><h2 id="2_2">2. 核心思路：保存每一层的上下文</h2>
+<p>遇到嵌套时，内层处理必须先于外层完成。例如：</p>
+<pre><code class="language-text">3[a2[c]]
+</code></pre>
+<p>处理内层 <code>2[c]</code> 时，外层已经有：</p>
+<pre><code class="language-text">外层字符串："a"
+外层次数：2
+</code></pre>
+<p>进入 <code>[</code> 时，把外层状态压入栈；遇到 <code>]</code> 时，取出外层状态，把当前层结果重复后拼回外层。</p>
+<p>栈中每个元素保存：</p>
+<pre><code class="language-cpp">{进入当前 '[' 之前的字符串, 当前 '[' 对应的重复次数}
+</code></pre>
+<span class="heading-anchor" id="3. 变量含义"></span><h2 id="3_1">3. 变量含义</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>st</code></td>
+<td>保存各层外部上下文的栈</td>
+</tr>
+<tr>
+<td><code>currentString</code></td>
+<td>当前括号层已经解码出的字符串</td>
+</tr>
+<tr>
+<td><code>repeatCount</code></td>
+<td>当前正在读取的重复次数</td>
+</tr>
+<tr>
+<td><code>character</code></td>
+<td>当前遍历到的字符</td>
+</tr>
+<tr>
+<td><code>previousString</code></td>
+<td>进入当前括号前外层已有的字符串</td>
+</tr>
+<tr>
+<td><code>times</code></td>
+<td>当前括号内容需要重复的次数</td>
+</tr>
+<tr>
+<td><code>repeatedString</code></td>
+<td>当前层字符串重复后的结果</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 四种字符处理规则"></span><h2 id="4_1">4. 四种字符处理规则</h2>
+<ol>
+<li>数字：更新重复次数，支持多位数字；</li>
+<li><code>[</code>：保存 <code>{currentString, repeatCount}</code>，然后清空当前层状态；</li>
+<li>普通字母：加入 <code>currentString</code>；</li>
+<li><code>]</code>：弹出外层状态，重复当前字符串，再拼回外层。</li>
+</ol>
+<p>多位数字的计算方式：</p>
+<pre><code class="language-cpp">repeatCount = repeatCount * 10 + (character - '0');
+</code></pre>
+<span class="heading-anchor" id="5. C++ 代码"></span><h2 id="5-c">5. C++ 代码</h2>
+<pre><code class="language-cpp">#include &lt;stack&gt;
+#include &lt;string&gt;
+#include &lt;utility&gt;
+using namespace std;
+
+class Solution {
+public:
+    string decodeString(string s) {
+        /*
+            st 中每个元素保存一层外部状态：
+
+            first  ：进入当前 '[' 前，外层已经拼好的字符串
+            second ：当前 '[' 对应的重复次数
+        */
+        stack&lt;pair&lt;string, int&gt;&gt; st;
+
+        // 当前这一层已经解码出的字符串。
+        string currentString = "";
+
+        // 当前正在读取的重复次数，例如 "12[a]" 最终得到 12。
+        int repeatCount = 0;
+
+        // 依次处理输入字符串中的每个字符。
+        for (char character : s) {
+            // 情况 1：数字，计算重复次数，支持多位数字。
+            if (character &gt;= '0' &amp;&amp; character &lt;= '9') {
+                repeatCount = repeatCount * 10 + (character - '0');
+            }
+
+            // 情况 2：左括号，保存外层状态并进入新的一层。
+            else if (character == '[') {
+                st.push({currentString, repeatCount});
+
+                // 新的一层从空字符串开始收集内容。
+                currentString = "";
+                repeatCount = 0;
+            }
+
+            // 情况 3：右括号，当前层处理结束。
+            else if (character == ']') {
+                // 取出进入当前 '[' 前保存的外层字符串和重复次数。
+                string previousString = st.top().first;
+                int times = st.top().second;
+                st.pop();
+
+                // 将当前层字符串重复 times 次。
+                string repeatedString = "";
+                for (int i = 0; i &lt; times; i++) {
+                    repeatedString += currentString;
+                }
+
+                /*
+                    恢复外层时，顺序必须是：
+                    外层已有字符串 + 当前层重复后的字符串。
+
+                    例如："aaa" + "bcbc" = "aaabcbc"。
+                */
+                currentString = previousString + repeatedString;
+            }
+
+            // 情况 4：普通字母，直接加入当前层字符串。
+            else {
+                currentString += character;
+            }
+        }
+
+        // 所有字符处理完成后，currentString 就是完整解码结果。
+        return currentString;
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="与两个栈写法的对应关系"></span><h3 id="_5">与两个栈写法的对应关系</h3>
+<p>本节用一个 <code>stack&lt;pair&lt;string, int&gt;&gt;</code> 将同一层的两个状态打包；本次讲解的两个栈写法与它等价，不需要重复整份题解：</p>
+<pre><code class="language-cpp">stack&lt;int&gt; countSt;
+stack&lt;string&gt; strSt;
+// 遇到 '['：
+countSt.push(num);
+strSt.push(cur);
+num = 0;
+cur = "";
+// 遇到 ']'：弹出 countSt.top() 得到 times，构建 repeated 后：
+cur = strSt.top() + repeated;
+strSt.pop();
+</code></pre>
+<p>两个栈必须同步保存和恢复同一层。嵌套例子 <code>3[a2[c]]</code> 中，内层结束先得到 <code>"a" + "c" × 2 = "acc"</code>，外层结束再得到 <code>"" + "acc" × 3 = "accaccacc"</code>。</p>
+<span class="heading-anchor" id='6. 示例 "3[a]2[bc]" 推演'></span><h2 id="6-3a2bc">6. 示例 <code>"3[a]2[bc]"</code> 推演</h2>
+<p>初始：</p>
+<pre><code class="language-text">栈 = []
+currentString = ""
+repeatCount = 0
+</code></pre>
+<p>处理 <code>3[a]</code>：</p>
+<ol>
+<li>读到 <code>3</code>：<code>repeatCount = 3</code>；</li>
+<li>读到 <code>[</code>：保存 <code>{ "", 3 }</code>，清空当前层；</li>
+<li>读到 <code>a</code>：<code>currentString = "a"</code>；</li>
+<li>读到 <code>]</code>：<code>"a"</code> 重复 3 次，得到 <code>"aaa"</code>，拼回外层。</li>
+</ol>
+<p>处理 <code>2[bc]</code>：</p>
+<ol>
+<li>读到 <code>2</code>：<code>repeatCount = 2</code>；</li>
+<li>读到 <code>[</code>：保存 <code>{ "aaa", 2 }</code>，清空当前层；</li>
+<li>读到 <code>b</code>、<code>c</code>：<code>currentString = "bc"</code>；</li>
+<li>读到 <code>]</code>：<code>"bc"</code> 重复 2 次得到 <code>"bcbc"</code>；</li>
+<li>拼回外层：<code>"aaa" + "bcbc" = "aaabcbc"</code>。</li>
+</ol>
+<p>最终返回：</p>
+<pre><code class="language-text">"aaabcbc"
+</code></pre>
+<span class="heading-anchor" id="7. 常见错误"></span><h2 id="7">7. 常见错误</h2>
+<ul>
+<li>遇到 <code>]</code> 时拼接顺序写反：</li>
+</ul>
+<p><code>cpp
+  // 错误：repeatedString + previousString
+  // 正确：previousString + repeatedString</code></p>
+<ul>
+<li>栈中只保存重复次数，没有保存外层字符串；</li>
+<li>读取数字时只处理一位，无法处理 <code>12[a]</code>；</li>
+<li>进入新括号后没有清空 <code>currentString</code> 和 <code>repeatCount</code>。</li>
+<li>判断数字的函数应拼作 <code>isdigit</code>，不是 <code>isdigig</code>；也可使用主代码中的字符范围判断。参见 <a href="n-daa7f9f0a953.html#isdigit">C++ 数字字符判断</a>。</li>
+</ul>
+<span class="heading-anchor" id="8. 复杂度"></span><h2 id="8">8. 复杂度</h2>
+<p>设输入长度为 <code>n</code>，最终解码结果长度为 <code>L</code>：</p>
+<ul>
+<li>时间复杂度：这份逐层展开并复制字符串的实现，保守上界为 <code>O(n(L + 1))</code>。扫描输入是 O(n)，但嵌套展开、保存外层前缀和拼接会重复复制已有字符，不能直接认定总时间为 O(n + L)。例如 <code>1[1[...1[a]...]]</code> 会在每层复制结果；不断拼接 <code>1[a]1[a]...</code> 也会重复复制越来越长的外层前缀。</li>
+<li>空间复杂度：<code>O(n + L)</code>，栈保存嵌套状态，字符串保存解码结果。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="五、栈专题统一归纳"></span><h1 id="_6">五、栈专题统一归纳</h1>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>题目</th>
+<th>栈中保存的内容</th>
+<th>核心用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>20. 有效的括号</td>
+<td>未匹配的左括号</td>
+<td>匹配嵌套括号</td>
+</tr>
+<tr>
+<td>155. 最小栈</td>
+<td>数据栈 + 每层最小值栈</td>
+<td><code>O(1)</code> 获取最小值</td>
+</tr>
+<tr>
+<td>394. 字符串解码</td>
+<td>外层字符串 + 重复次数</td>
+<td>保存和恢复嵌套上下文</td>
+</tr>
+</tbody>
+</table></div>
+<p>共同思想：</p>
+<blockquote>
+<p><strong>栈不是只用来存数据，也可以保存“之后还要恢复的状态”。处理完当前层后，再从栈中恢复上一层。</strong></p>
+</blockquote>
+<p>来源：本次会话中用户发送的 LeetCode 20、155、394 题目截图，以及随后对思路、变量、示例推演和 C++ 代码的讨论。</p></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06. 堆与优先队列 · 李杨的学习笔记</title><meta name="description" content="堆是一棵近似完全二叉树，维护父节点优先级不低于或不高于孩子节点；它适合动态维护最值。"><meta property="og:title" content="06. 堆与优先队列 · 李杨的学习笔记"><meta property="og:description" content="堆是一棵近似完全二叉树，维护父节点优先级不低于或不高于孩子节点；它适合动态维护最值。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-c54ae1181bb0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-c54ae1181bb0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据结构</p><h1>06. 堆与优先队列</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/06-%E5%A0%86%E4%B8%8E%E4%BC%98%E5%85%88%E9%98%9F%E5%88%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 堆的数组表示</a></li><li><a href="#2">2. 大根堆与小根堆</a></li><li><a href="#3-priority_queue-demo">3. priority_queue demo</a></li><li><a href="#4">4. 堆操作复杂度</a></li><li><a href="#5-top-k">5. Top K 问题</a></li><li><a href="#6-k">6. 合并 K 个有序链表</a></li><li><a href="#7">7. 自定义比较器</a></li><li><a href="#8">8. 常见坑</a></li><li><a href="#9">9. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>堆维护什么不变量？</li>
+<li>为什么堆可以 O(1) 取最值、O(log n) 插入删除？</li>
+<li>C++ <code>priority_queue</code> 默认是大根堆还是小根堆？</li>
+<li>堆适合解决哪些 Top K 和动态最值问题？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>堆是一棵近似完全二叉树，维护父节点优先级不低于或不高于孩子节点；它适合动态维护最值。</p>
+<blockquote>
+<p>记忆口诀：<strong>堆只保证堆顶最值，不保证整体有序。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((堆))
+    结构
+      完全二叉树
+      数组存储
+    操作
+      push
+      pop
+      top
+      heapify
+    类型
+      大根堆
+      小根堆
+    应用
+      TopK
+      合并K路
+      Dijkstra
+      任务调度
+</pre>
+<span class="heading-anchor" id="1. 堆的数组表示"></span><h2 id="1">1. 堆的数组表示</h2>
+<p>堆通常用数组存完全二叉树。</p>
+<p>对下标 <code>i</code>：</p>
+<pre><code class="language-text">left = 2*i + 1
+right = 2*i + 2
+parent = (i - 1) / 2
+</code></pre>
+<pre class="mermaid">flowchart TD
+  A["0"] --&gt; B["1"]
+  A --&gt; C["2"]
+  B --&gt; D["3"]
+  B --&gt; E["4"]
+  C --&gt; F["5"]
+  C --&gt; G["6"]
+</pre>
+<span class="heading-anchor" id="2. 大根堆与小根堆"></span><h2 id="2">2. 大根堆与小根堆</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>不变量</th>
+<th>堆顶</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>大根堆</td>
+<td>父节点 &gt;= 子节点</td>
+<td>最大值</td>
+</tr>
+<tr>
+<td>小根堆</td>
+<td>父节点 &lt;= 子节点</td>
+<td>最小值</td>
+</tr>
+</tbody>
+</table></div>
+<p>C++ <code>priority_queue&lt;int&gt;</code> 默认是大根堆。</p>
+<span class="heading-anchor" id="3. priority_queue demo"></span><h2 id="3-priority_queue-demo">3. priority_queue demo</h2>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+int main() {
+    priority_queue&lt;int&gt; maxHeap;
+    maxHeap.push(3);
+    maxHeap.push(1);
+    maxHeap.push(5);
+    cout &lt;&lt; maxHeap.top() &lt;&lt; "\n"; // 5
+
+    priority_queue&lt;int, vector&lt;int&gt;, greater&lt;int&gt;&gt; minHeap;
+    minHeap.push(3);
+    minHeap.push(1);
+    minHeap.push(5);
+    cout &lt;&lt; minHeap.top() &lt;&lt; "\n"; // 1
+    return 0;
+}
+</code></pre>
+<span class="heading-anchor" id="4. 堆操作复杂度"></span><h2 id="4">4. 堆操作复杂度</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>复杂度</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>top</code></td>
+<td>O(1)</td>
+<td>堆顶就是最值</td>
+</tr>
+<tr>
+<td><code>push</code></td>
+<td>O(log n)</td>
+<td>上浮高度为树高</td>
+</tr>
+<tr>
+<td><code>pop</code></td>
+<td>O(log n)</td>
+<td>下沉高度为树高</td>
+</tr>
+<tr>
+<td>建堆</td>
+<td>O(n)</td>
+<td>自底向上 heapify</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["push新元素到末尾"] --&gt; B["与父节点比较"]
+  B --&gt; C{违反堆性质}
+  C -- 是 --&gt; D["交换上浮"]
+  D --&gt; B
+  C -- 否 --&gt; E["结束"]
+</pre>
+<span class="heading-anchor" id="5. Top K 问题"></span><h2 id="5-top-k">5. Top K 问题</h2>
+<p>求数组中第 k 大元素，可以维护一个大小为 k 的小根堆。</p>
+<pre class="mermaid">flowchart TD
+  A["遍历元素x"] --&gt; B{堆大小小于k}
+  B -- 是 --&gt; C["入堆"]
+  B -- 否 --&gt; D{x大于堆顶吗}
+  D -- 是 --&gt; E["弹出堆顶再入堆"]
+  D -- 否 --&gt; F["忽略"]
+  C --&gt; G["最终堆顶是第k大"]
+  E --&gt; G
+  F --&gt; G
+</pre>
+<p>C++ demo：</p>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+int findKthLargest(vector&lt;int&gt;&amp; nums, int k) {
+    priority_queue&lt;int, vector&lt;int&gt;, greater&lt;int&gt;&gt; pq;
+    for (int x : nums) {
+        if ((int)pq.size() &lt; k) pq.push(x);
+        else if (x &gt; pq.top()) {
+            pq.pop();
+            pq.push(x);
+        }
+    }
+    return pq.top();
+}
+</code></pre>
+<p>复杂度：O(n log k)。</p>
+<span class="heading-anchor" id="6. 合并 K 个有序链表"></span><h2 id="6-k">6. 合并 K 个有序链表</h2>
+<p>使用小根堆每次取当前最小节点。</p>
+<pre class="mermaid">flowchart LR
+  A["K个链表头"] --&gt; B["入小根堆"]
+  B --&gt; C["弹出最小节点"]
+  C --&gt; D["接入结果链表"]
+  D --&gt; E["该节点next入堆"]
+  E --&gt; C
+</pre>
+<span class="heading-anchor" id="7. 自定义比较器"></span><h2 id="7">7. 自定义比较器</h2>
+<pre><code class="language-cpp">struct Node {
+    int id;
+    int dist;
+};
+
+struct Cmp {
+    bool operator()(const Node&amp; a, const Node&amp; b) const {
+        return a.dist &gt; b.dist; // dist小的优先，形成小根堆
+    }
+};
+
+priority_queue&lt;Node, vector&lt;Node&gt;, Cmp&gt; pq;
+</code></pre>
+<p>注意：<code>priority_queue</code> 的比较器含义容易反直觉。返回 <code>true</code> 表示优先级更低。</p>
+<span class="heading-anchor" id="8. 常见坑"></span><h2 id="8">8. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>以为堆整体有序</td>
+<td>堆只保证堆顶最值</td>
+</tr>
+<tr>
+<td>小根堆写法忘记 <code>greater&lt;int&gt;</code></td>
+<td>默认是大根堆</td>
+</tr>
+<tr>
+<td>自定义比较器方向反</td>
+<td>需要测试简单样例</td>
+</tr>
+<tr>
+<td>删除任意元素困难</td>
+<td>标准 priority_queue 不支持高效删除任意元素</td>
+</tr>
+<tr>
+<td>TopK 选错堆</td>
+<td>第 k 大用大小为 k 的小根堆</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9. 学习自检"></span><h2 id="9">9. 学习自检</h2>
+<ol>
+<li>堆和 BST 有什么区别？</li>
+<li>为什么堆顶取最值是 O(1)？</li>
+<li>求第 k 大为什么用小根堆？</li>
+<li><code>priority_queue</code> 默认是什么堆？</li>
+<li>堆为什么不适合查找任意元素？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>12-安全保护与虚拟化 · 李杨的学习笔记</title><meta name="description" content="操作系统不仅要让程序跑起来，还要让程序不能越权。本章讲用户权限、文件权限、capabilities、namespace、cgroup、容器和虚拟机。"><meta property="og:title" content="12-安全保护与虚拟化 · 李杨的学习笔记"><meta property="og:description" content="操作系统不仅要让程序跑起来，还要让程序不能越权。本章讲用户权限、文件权限、capabilities、namespace、cgroup、容器和虚拟机。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8378962f84f0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8378962f84f0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>12-安全保护与虚拟化</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/12-%E5%AE%89%E5%85%A8%E4%BF%9D%E6%8A%A4%E4%B8%8E%E8%99%9A%E6%8B%9F%E5%8C%96.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">权限模型</a></li><li><a href="#root">root 与最小权限</a></li><li><a href="#capabilities">capabilities</a></li><li><a href="#namespace">namespace</a></li><li><a href="#cgroup">cgroup</a></li><li><a href="#seccompapparmorselinux">seccomp、AppArmor、SELinux</a></li><li><a href="#_3">容器不是虚拟机</a></li><li><a href="#_4">虚拟化</a></li><li><a href="#_5">常见安全问题</a></li><li><a href="#_6">自测题</a></li><li><a href="#_7">补充深入讲解</a></li><li><a href="#_8">从零开始理解：隔离不是一个开关</a></li><li><a href="#root_1">容器里的 root 为什么容易误解</a></li><li><a href="#cgroup_1">cgroup 造成的性能现象</a></li><li><a href="#_9">虚拟机为什么隔离更强</a></li><li><a href="#docker-socket">进一步案例：为什么挂载 Docker socket 很危险</a></li><li><a href="#seccomp">进一步案例：seccomp 为什么有用</a></li><li><a href="#_10">思维导图</a></li><li><a href="#1">1. 隔离三问</a></li><li><a href="#2">2. 容器与虚拟机</a></li><li><a href="#3">3. 最小权限实践</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>操作系统不仅要让程序跑起来，还要让程序不能越权。本章讲用户权限、文件权限、capabilities、namespace、cgroup、容器和虚拟机。</p>
+<span class="heading-anchor" id="权限模型"></span><h2 id="_2">权限模型</h2>
+<p>Unix 权限围绕用户、组和其他人：</p>
+<pre><code class="language-text">-rw-r--r--  owner group others
+</code></pre>
+<p>权限含义：</p>
+<ul>
+<li>r：读。</li>
+<li>w：写。</li>
+<li>x：执行；对目录表示可进入/穿越。</li>
+</ul>
+<p>目录没有 x 权限，即使知道文件名，也可能无法访问。</p>
+<span class="heading-anchor" id="root 与最小权限"></span><h2 id="root">root 与最小权限</h2>
+<p>root 权限很大，但服务不应该默认以 root 运行。原因：一旦服务被攻击，攻击者就获得过大权限。</p>
+<p>最小权限原则：程序只获得完成任务所需的最少权限。</p>
+<h2 id="capabilities">capabilities</h2>
+<p>Linux capabilities 把 root 权限拆成更细粒度能力。例如：</p>
+<ul>
+<li><code>CAP_NET_ADMIN</code>：网络管理。</li>
+<li><code>CAP_SYS_ADMIN</code>：非常大的系统管理能力。</li>
+<li><code>CAP_NET_BIND_SERVICE</code>：绑定低端口。</li>
+</ul>
+<p>容器安全中常通过 drop capabilities 降低风险。</p>
+<h2 id="namespace">namespace</h2>
+<p>namespace 解决“看到什么”的问题。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>namespace</th>
+<th>隔离内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PID</td>
+<td>进程号视图</td>
+</tr>
+<tr>
+<td>Mount</td>
+<td>挂载点</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>网络设备、路由、端口</td>
+</tr>
+<tr>
+<td>UTS</td>
+<td>主机名</td>
+</tr>
+<tr>
+<td>IPC</td>
+<td>IPC 对象</td>
+</tr>
+<tr>
+<td>User</td>
+<td>用户/组映射</td>
+</tr>
+</tbody>
+</table></div>
+<p>容器里看到 PID 1，不代表它是宿主机真正的 PID 1。</p>
+<h2 id="cgroup">cgroup</h2>
+<p>cgroup 解决“能用多少”的问题：</p>
+<ul>
+<li>CPU quota/weight。</li>
+<li>内存限制。</li>
+<li>I/O 限制。</li>
+<li>进程数限制。</li>
+</ul>
+<p>容器 CPU limit 太低时，应用可能被 throttle，表现为周期性延迟尖峰。排查要看 cgroup 的 throttled 指标，而不是只看宿主机 CPU。</p>
+<span class="heading-anchor" id="seccomp、AppArmor、SELinux"></span><h2 id="seccompapparmorselinux">seccomp、AppArmor、SELinux</h2>
+<p>seccomp 可以限制进程能调用哪些系统调用。AppArmor/SELinux 提供更细的强制访问控制。</p>
+<p>浏览器沙箱、容器运行时、在线判题系统都常用这些机制降低攻击面。</p>
+<span class="heading-anchor" id="容器不是虚拟机"></span><h2 id="_3">容器不是虚拟机</h2>
+<p>容器共享宿主机内核。虚拟机有独立客户机内核。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比</th>
+<th>容器</th>
+<th>虚拟机</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内核</td>
+<td>共享宿主机内核</td>
+<td>独立内核</td>
+</tr>
+<tr>
+<td>启动速度</td>
+<td>快</td>
+<td>较慢</td>
+</tr>
+<tr>
+<td>隔离强度</td>
+<td>依赖内核机制</td>
+<td>通常更强</td>
+</tr>
+<tr>
+<td>资源开销</td>
+<td>小</td>
+<td>大</td>
+</tr>
+</tbody>
+</table></div>
+<p>容器中的 root 也不一定是宿主机 root，但 privileged 容器、挂载宿主目录、暴露 Docker socket 都会显著降低安全性。</p>
+<span class="heading-anchor" id="虚拟化"></span><h2 id="_4">虚拟化</h2>
+<p>虚拟机通过 hypervisor 虚拟化 CPU、内存、磁盘和网卡。硬件辅助虚拟化让 VM 性能更好。IOMMU 可以安全地把设备直通给 VM。</p>
+<span class="heading-anchor" id="常见安全问题"></span><h2 id="_5">常见安全问题</h2>
+<ul>
+<li>服务以 root 运行。</li>
+<li>密钥文件权限过宽。</li>
+<li>临时文件创建不安全。</li>
+<li>容器 privileged 运行。</li>
+<li>挂载宿主敏感目录。</li>
+<li>无资源限制导致 fork bomb 或 OOM。</li>
+<li>seccomp/capabilities 配置过宽。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_6">自测题</h2>
+<ol>
+<li>namespace 和 cgroup 的区别是什么？</li>
+<li>容器为什么不是强虚拟机边界？</li>
+<li>capabilities 解决什么问题？</li>
+<li>容器 CPU throttle 会导致什么现象？</li>
+<li>为什么服务不应以 root 运行？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_7">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：隔离不是一个开关"></span><h2 id="_8">从零开始理解：隔离不是一个开关</h2>
+<p>很多人说“容器隔离”或“虚拟机隔离”，但隔离不是有/无，而是由多层机制叠加出来的。文件系统视图、进程号视图、网络视图、用户权限、系统调用权限、资源限制都需要分别控制。</p>
+<span class="heading-anchor" id="容器里的 root 为什么容易误解"></span><h2 id="root_1">容器里的 root 为什么容易误解</h2>
+<p>容器内 root 可能只是在 user namespace 中的 root，并不等于宿主机 root。但如果容器 privileged、挂载宿主 <code>/</code>、拥有危险 capability 或 Docker socket，就可能获得宿主控制权。容器安全取决于配置，不是“用了容器就安全”。</p>
+<span class="heading-anchor" id="cgroup 造成的性能现象"></span><h2 id="cgroup_1">cgroup 造成的性能现象</h2>
+<p>CPU limit 会导致 throttle。应用可能看起来没有用满宿主机 CPU，但延迟周期性变高，因为容器本周期 CPU 配额用完后必须等下个周期。内存 limit 会导致容器 OOM，即使宿主机还有内存。</p>
+<span class="heading-anchor" id="虚拟机为什么隔离更强"></span><h2 id="_9">虚拟机为什么隔离更强</h2>
+<p>虚拟机有独立内核，攻击者即使攻破 guest 内核，还要突破 hypervisor 才能影响宿主机。容器共享宿主机内核，内核漏洞影响面更大。因此安全敏感场景常用 VM、microVM 或更强沙箱。</p>
+<span class="heading-anchor" id="进一步案例：为什么挂载 Docker socket 很危险"></span><h2 id="docker-socket">进一步案例：为什么挂载 Docker socket 很危险</h2>
+<p>如果容器内能访问宿主机 Docker socket，它就可以请求 Docker daemon 创建特权容器、挂载宿主机文件系统，从而获得宿主机控制权。即使容器本身看起来不是 privileged，Docker socket 也等于高权限入口。</p>
+<p>这说明安全不能只看进程当前权限，还要看它能访问哪些控制平面接口。</p>
+<span class="heading-anchor" id="进一步案例：seccomp 为什么有用"></span><h2 id="seccomp">进一步案例：seccomp 为什么有用</h2>
+<p>很多程序只需要少量系统调用。如果用 seccomp 禁止危险或不需要的系统调用，即使攻击者控制了进程，也更难执行提权、加载内核模块、调试其他进程等操作。它不是万能防线，但能显著缩小攻击面。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_10">思维导图</h2>
+<blockquote>
+<p>记忆建议：安全与虚拟化分别回答“能看见什么、能用多少、能做什么”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 隔离三问"></span><h3 id="1">1. 隔离三问</h3>
+<pre class="mermaid">mindmap
+  root((隔离模型))
+    看见什么
+      namespace
+      PID Mount Network
+    能用多少
+      cgroup
+      CPU 内存 IO限制
+    能做什么
+      权限
+      capabilities
+      seccomp MAC
+</pre>
+<span class="heading-anchor" id="2. 容器与虚拟机"></span><h3 id="2">2. 容器与虚拟机</h3>
+<pre class="mermaid">flowchart TD
+  A["应用隔离需求"] --&gt; B{"隔离边界在哪里"}
+  B --&gt;|共享宿主内核| C["容器\nnamespace + cgroup"]
+  B --&gt;|独立客户机内核| D["虚拟机\nHypervisor虚拟硬件"]
+  C --&gt; E["轻量 快速\n内核共享风险"]
+  D --&gt; F["隔离更强\n资源开销更大"]
+</pre>
+<span class="heading-anchor" id="3. 最小权限实践"></span><h3 id="3">3. 最小权限实践</h3>
+<pre class="mermaid">flowchart LR
+  A["不要默认root运行"] --&gt; B["删除不必要capabilities"]
+  B --&gt; C["限制系统调用seccomp"]
+  C --&gt; D["限制文件和网络权限"]
+  D --&gt; E["用cgroup限制资源"]
+  E --&gt; F["观测审计与告警"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

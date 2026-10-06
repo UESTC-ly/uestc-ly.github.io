@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06 索引与向量数据库 · 李杨的学习笔记</title><meta name="description" content="上一部分解释了怎样把文本块转换成可以比较的向量。本部分继续回答一个工程问题：当向量从
+几十条增长到更多记录时，系统怎样保存它们、寻找相近候选，并在速度、召回、内存和运维
+复杂度之间作出可解释的选择。"><meta property="og:title" content="06 索引与向量数据库 · 李杨的学习笔记"><meta property="og:description" content="上一部分解释了怎样把文本块转换成可以比较的向量。本部分继续回答一个工程问题：当向量从
+几十条增长到更多记录时，系统怎样保存它们、寻找相近候选，并在速度、召回、内存和运维
+复杂度之间作出可解释的选择。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-7e0707727de9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-7e0707727de9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 06-indexes-vector-databases</p><h1>06 索引与向量数据库</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/06-indexes-vector-databases/README.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">阅读顺序</a></li><li><a href="#_2">学完这一部分后</a></li><li><a href="#_3">始终保留的边界</a></li></ul></details><article class="note-content">
+<p>上一部分解释了怎样把文本块转换成可以比较的向量。本部分继续回答一个工程问题：当向量从
+几十条增长到更多记录时，系统怎样保存它们、寻找相近候选，并在速度、召回、内存和运维
+复杂度之间作出可解释的选择。</p>
+<p>索引不是“更聪明的嵌入模型”，向量数据库也不是完整 RAG 系统。索引负责缩小搜索范围或
+组织候选，数据库负责保存、查询和管理记录；原文、来源、权限、版本以及最终回答仍有各自
+的责任边界。近似检索还可能漏掉本应出现的候选，因此任何配置都要结合任务数据评估，不能
+只凭算法名称判断效果。</p>
+<span class="heading-anchor" id="阅读顺序"></span><h2 id="_1">阅读顺序</h2>
+<ol>
+<li><a href="n-e9288013e6ed.html">06-01 Flat 与近似最近邻索引</a>：先用全量比较建立基线，再理解近似最近邻检索为何用部分召回换取资源收益。</li>
+<li><a href="n-5b638535ac00.html">06-02 HNSW 的分层图直觉</a>：用“多层道路网”理解图索引的构建、查询参数和更新限制。</li>
+<li><a href="n-f5f409581b2b.html">06-03 IVF 与乘积量化</a>：区分先分桶再搜索与压缩向量表示，理解两类误差怎样叠加。</li>
+<li><a href="n-438d6aab46d9.html">06-04 本地 FAISS 与元数据索引</a>：理解本地向量索引、业务元数据和权限过滤之间的映射边界。</li>
+<li><a href="n-7c09890456e5.html">06-05 数据库边界与适配器抽象</a>：比较向量库、关系数据库和搜索系统的责任，并设计不泄漏厂商细节的接口。</li>
+<li><a href="n-9dfeb910a8c9.html">06-06 分片、复制、备份与一致性</a>：从单机走向多节点，区分扩容、可用性、恢复能力和一致性。</li>
+</ol>
+<p>建议按顺序阅读。06-01 是后续所有近似索引的比较基线；06-02 与 06-03 解释两类常见索引
+思路；06-04 和 06-05 把算法放回应用边界；06-06 再讨论分布式运维。初学者不必先记住
+所有参数，先学会说明“调大或调小会影响什么、需要用什么证据验证”。</p>
+<span class="heading-anchor" id="学完这一部分后"></span><h2 id="_2">学完这一部分后</h2>
+<p>你应该能够解释 Flat 与近似最近邻（Approximate Nearest Neighbor，ANN）检索的差别；
+能够用直觉说明 HNSW、IVF 和乘积量化（Product Quantization，PQ）的工作方式；能够区分
+向量索引和元数据索引；能够为应用定义稳定的向量存储适配器；还能够说明分片、复制、备份
+与一致性分别解决什么问题，以及它们为什么不能互相替代。</p>
+<p>本部分是教学草稿，不提供未经执行的 FAISS 性能结论，不宣称某种索引或数据库在所有场景
+中最佳。计划中的代码、图表、基准测试和具体产品行为仍需在后续实现与来源核查中完成。</p>
+<span class="heading-anchor" id="始终保留的边界"></span><h2 id="_3">始终保留的边界</h2>
+<ul>
+<li>ANN 的得分高不代表候选正确，漏召回也不能由后续生成步骤自动补回。</li>
+<li>向量索引不能替代原文存储、来源定位、权限检查和表示版本管理。</li>
+<li>元数据过滤的执行位置会影响安全性与召回，不能只在回答生成后补做权限判断。</li>
+<li>分片用于分布数据，复制用于保留副本，备份用于时间点恢复；三者不是同义词。</li>
+<li>厂商功能、默认参数和一致性语义会随版本变化，接入时必须核对官方资料并记录版本。</li>
+</ul>
+<p>返回：<a href="n-cf7d5431540b.html">文档总索引</a>｜上一部分：<a href="n-5cf09a1e4448.html">05 嵌入向量</a>｜下一部分：<a href="n-3b5435427cd1.html">07 检索</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

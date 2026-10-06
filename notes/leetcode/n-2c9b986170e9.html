@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>拓扑排序与课程表（207） · 李杨的学习笔记</title><meta name="description" content="LeetCode 207 的本质是：把课程依赖建成有向图，通过拓扑排序判断图中是否存在环。"><meta property="og:title" content="拓扑排序与课程表（207） · 李杨的学习笔记"><meta property="og:description" content="LeetCode 207 的本质是：把课程依赖建成有向图，通过拓扑排序判断图中是否存在环。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-2c9b986170e9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-2c9b986170e9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">图论</p><h1>拓扑排序与课程表（207）</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E5%9B%BE%E8%AE%BA/%E6%8B%93%E6%89%91%E6%8E%92%E5%BA%8F%E4%B8%8E%E8%AF%BE%E7%A8%8B%E8%A1%A8%EF%BC%88207%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、题意</a></li><li><a href="#_2">二、把课程关系转换成有向图</a></li><li><a href="#_3">三、为什么问题等价于判断有向图是否有环</a></li><li><a href="#_4">四、核心概念：入度</a></li><li><a href="#bfs">五、BFS 拓扑排序步骤</a></li><li><a href="#_5">六、示例推演</a></li><li><a href="#1">示例 1</a></li><li><a href="#2">示例 2</a></li><li><a href="#c">七、C++ 代码</a></li><li><a href="#_6">八、为什么处理数量不足就说明有环</a></li><li><a href="#_7">九、常见错误</a></li><li><a href="#1_1">1. 把边的方向写反</a></li><li><a href="#2-0">2. 只把一个入度为 0 的课程入队</a></li><li><a href="#3-0">3. 入度减到 0 后没有入队</a></li><li><a href="#4">4. 只判断初始队列是否为空</a></li><li><a href="#5-bfs">5. 不需要按层记录 BFS</a></li><li><a href="#_8">十、复杂度</a></li><li><a href="#_9">十一、方法归纳</a></li><li><a href="#_10">来源</a></li></ul></details><article class="note-content"><span class="heading-anchor" id="拓扑排序与课程表（207）"></span>
+<blockquote>
+<p>LeetCode 207 的本质是：把课程依赖建成有向图，通过拓扑排序判断图中是否存在环。</p>
+<p>总览：<a href="n-42f8cd326540.html">图论专题</a>｜相关：<a href="n-a6f8617f2fe2.html">网格图搜索（200、994）</a></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="一、题意"></span><h2 id="_1">一、题意</h2>
+<p>共有 <code>numCourses</code> 门课程，编号为：</p>
+<pre><code class="language-text">0 ～ numCourses - 1
+</code></pre>
+<p>先修关系：</p>
+<pre><code class="language-cpp">prerequisites[i] = {a, b};
+</code></pre>
+<p>表示学习课程 <code>a</code> 之前，必须先学习课程 <code>b</code>。需要判断能否完成所有课程。</p>
+<hr/>
+<span class="heading-anchor" id="二、把课程关系转换成有向图"></span><h2 id="_2">二、把课程关系转换成有向图</h2>
+<p>每门课程是一个节点。对于：</p>
+<pre><code class="language-text">[a, b]
+</code></pre>
+<p>正确的有向边是：</p>
+<pre><code class="language-text">b → a
+</code></pre>
+<p>因为 <code>b</code> 是先修课程，完成 <code>b</code> 后才能学习 <code>a</code>。</p>
+<p>对应代码：</p>
+<pre><code class="language-cpp">graph[b].push_back(a);
+++indegree[a];
+</code></pre>
+<p>记忆：</p>
+<blockquote>
+<p>先修课指向后续课；后续课的入度加一。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="三、为什么问题等价于判断有向图是否有环"></span><h2 id="_3">三、为什么问题等价于判断有向图是否有环</h2>
+<p>如果依赖关系形成环，例如：</p>
+<pre><code class="language-text">0 → 1
+↑   ↓
+└───┘
+</code></pre>
+<p>就表示：</p>
+<pre><code class="language-text">学 1 前必须先学 0；
+学 0 前又必须先学 1。
+</code></pre>
+<p>两门课程互相等待，无法开始。因此：</p>
+<pre><code class="language-text">有环：不能完成所有课程；
+无环：可以得到合法的课程学习顺序。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="四、核心概念：入度"></span><h2 id="_4">四、核心概念：入度</h2>
+<p>课程 <code>x</code> 的入度表示：</p>
+<blockquote>
+<p>学习课程 <code>x</code> 前，还有多少门先修课程没有完成。</p>
+</blockquote>
+<p>例如：</p>
+<pre><code class="language-text">0 → 2
+1 → 2
+</code></pre>
+<p>课程 <code>2</code> 有两门先修课程，所以：</p>
+<pre><code class="language-cpp">indegree[2] = 2;
+</code></pre>
+<p>入度为 <code>0</code> 的课程没有未完成的前置要求，可以立即学习。</p>
+<hr/>
+<span class="heading-anchor" id="五、BFS 拓扑排序步骤"></span><h2 id="bfs">五、BFS 拓扑排序步骤</h2>
+<ol>
+<li>根据先修关系建立邻接表 <code>graph</code> 和入度数组 <code>indegree</code>；</li>
+<li>将所有入度为 <code>0</code> 的课程加入队列；</li>
+<li>每次从队列取出一门课程，视为完成该课程；</li>
+<li>遍历它指向的所有后续课程，将这些课程的入度减一；</li>
+<li>某门后续课程的入度变为 <code>0</code> 时，将它加入队列；</li>
+<li>最后比较已完成课程数与课程总数：
+   - 相等：不存在环，返回 <code>true</code>；
+   - 不相等：仍有课程互相依赖，返回 <code>false</code>。</li>
+</ol>
+<p>统一过程：</p>
+<pre><code class="language-text">所有入度为 0 的课程入队
+→ 取出并完成一门课
+→ 后续课程入度减一
+→ 新的入度为 0 的课程入队
+→ 比较最终完成数量
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="六、示例推演"></span><h2 id="_5">六、示例推演</h2>
+<span class="heading-anchor" id="示例 1"></span><h3 id="1">示例 1</h3>
+<pre><code class="language-cpp">numCourses = 2;
+prerequisites = {{1, 0}};
+</code></pre>
+<p>建图：</p>
+<pre><code class="language-text">0 → 1
+</code></pre>
+<p>初始入度：</p>
+<pre><code class="language-text">indegree[0] = 0
+indegree[1] = 1
+</code></pre>
+<p>处理过程：</p>
+<pre><code class="language-text">课程 0 入队
+→ 完成 0
+→ 课程 1 的入度从 1 变成 0
+→ 课程 1 入队并完成
+</code></pre>
+<p>最终完成 <code>2</code> 门课程，返回 <code>true</code>。</p>
+<span class="heading-anchor" id="示例 2"></span><h3 id="2">示例 2</h3>
+<pre><code class="language-cpp">numCourses = 2;
+prerequisites = {{1, 0}, {0, 1}};
+</code></pre>
+<p>建图：</p>
+<pre><code class="language-text">0 → 1
+1 → 0
+</code></pre>
+<p>两门课程的入度都为 <code>1</code>，初始队列为空，无法开始拓扑排序，最终完成数量为 <code>0</code>，返回 <code>false</code>。</p>
+<hr/>
+<span class="heading-anchor" id="七、C++ 代码"></span><h2 id="c">七、C++ 代码</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    bool canFinish(int numCourses,
+                   vector&lt;vector&lt;int&gt;&gt;&amp; prerequisites) {
+        // graph[x]：完成课程 x 后，可以继续学习哪些课程。
+        vector&lt;vector&lt;int&gt;&gt; graph(numCourses);
+
+        // indegree[x]：课程 x 还有多少门先修课程未完成。
+        vector&lt;int&gt; indegree(numCourses, 0);
+
+        // [course, preCourse] 表示 preCourse → course。
+        for (const auto&amp; prerequisite : prerequisites) {
+            int course = prerequisite[0];
+            int preCourse = prerequisite[1];
+
+            graph[preCourse].push_back(course);
+            ++indegree[course];
+        }
+
+        queue&lt;int&gt; courseQueue;
+
+        // 所有入度为 0 的课程都可以立即学习。
+        for (int course = 0; course &lt; numCourses; ++course) {
+            if (indegree[course] == 0) {
+                courseQueue.push(course);
+            }
+        }
+
+        int completedCourses = 0;
+
+        while (!courseQueue.empty()) {
+            int currentCourse = courseQueue.front();
+            courseQueue.pop();
+
+            ++completedCourses;
+
+            // 完成当前课程后，后续课程少一个未完成的前置要求。
+            for (int nextCourse : graph[currentCourse]) {
+                --indegree[nextCourse];
+
+                if (indegree[nextCourse] == 0) {
+                    courseQueue.push(nextCourse);
+                }
+            }
+        }
+
+        return completedCourses == numCourses;
+    }
+};
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="八、为什么处理数量不足就说明有环"></span><h2 id="_6">八、为什么处理数量不足就说明有环</h2>
+<p>拓扑排序只会处理入度为 <code>0</code> 的节点。如果队列已经为空，但仍有课程没有完成，那么剩余课程的入度都大于 <code>0</code>，说明它们仍在互相等待。</p>
+<p>即使图中只有一部分节点成环，最终完成数量也会小于总课程数。例如：</p>
+<pre><code class="language-text">0 → 1
+
+2 → 3
+↑   ↓
+└───┘
+</code></pre>
+<p>课程 <code>0、1</code> 可以完成，但 <code>2、3</code> 形成环，所以仍应返回 <code>false</code>。</p>
+<p>因此不能只判断初始队列是否为空，必须使用：</p>
+<pre><code class="language-cpp">return completedCourses == numCourses;
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="九、常见错误"></span><h2 id="_7">九、常见错误</h2>
+<span class="heading-anchor" id="1. 把边的方向写反"></span><h3 id="1_1">1. 把边的方向写反</h3>
+<p>对于 <code>[a, b]</code>：</p>
+<pre><code class="language-text">正确：b → a
+错误：a → b
+</code></pre>
+<p>正确代码：</p>
+<pre><code class="language-cpp">graph[b].push_back(a);
+++indegree[a];
+</code></pre>
+<span class="heading-anchor" id="2. 只把一个入度为 0 的课程入队"></span><h3 id="2-0">2. 只把一个入度为 0 的课程入队</h3>
+<p>可能有多门互不依赖的课程可以同时开始，初始化时必须遍历所有课程。</p>
+<span class="heading-anchor" id="3. 入度减到 0 后没有入队"></span><h3 id="3-0">3. 入度减到 0 后没有入队</h3>
+<pre><code class="language-cpp">--indegree[nextCourse];
+if (indegree[nextCourse] == 0) {
+    courseQueue.push(nextCourse);
+}
+</code></pre>
+<p>只有这样，后续课程才能继续进入拓扑序列。</p>
+<span class="heading-anchor" id="4. 只判断初始队列是否为空"></span><h3 id="4">4. 只判断初始队列是否为空</h3>
+<p>初始队列非空并不代表整个图无环，因为图的一部分仍可能成环。应比较最终处理数量。</p>
+<span class="heading-anchor" id="5. 不需要按层记录 BFS"></span><h3 id="5-bfs">5. 不需要按层记录 BFS</h3>
+<p>本题不求经过多少轮，只判断所有课程能否被处理，因此不需要：</p>
+<pre><code class="language-cpp">int levelSize = courseQueue.size();
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="十、复杂度"></span><h2 id="_8">十、复杂度</h2>
+<p>设：</p>
+<pre><code class="language-text">V = numCourses
+E = prerequisites.size()
+</code></pre>
+<ul>
+<li>时间复杂度：<code>O(V + E)</code>；</li>
+<li>空间复杂度：<code>O(V + E)</code>。</li>
+</ul>
+<p>每门课程最多入队、出队一次，每条先修关系最多遍历一次。</p>
+<hr/>
+<span class="heading-anchor" id="十一、方法归纳"></span><h2 id="_9">十一、方法归纳</h2>
+<p>看到以下描述时，优先考虑拓扑排序：</p>
+<ul>
+<li>任务之间存在先后依赖；</li>
+<li>判断是否能够完成全部任务；</li>
+<li>判断依赖关系中是否存在循环；</li>
+<li>安排课程、任务或构建顺序。</li>
+</ul>
+<p>通用模板：</p>
+<pre><code class="language-cpp">建立邻接表和入度数组;
+将所有入度为 0 的节点加入队列;
+
+while (队列不为空) {
+    取出并处理一个节点;
+    已处理节点数加一;
+
+    for (当前节点指向的后续节点) {
+        后续节点入度减一;
+        if (后续节点入度变成 0) {
+            后续节点入队;
+        }
+    }
+}
+
+return 已处理节点数 == 总节点数;
+</code></pre>
+<p>复习口诀：</p>
+<pre><code class="language-text">[a,b] 表示 b→a；
+入度为 0 才能学；
+学完一门，后续入度减一；
+处理数量不足，说明图中有环。
+</code></pre>
+<span class="heading-anchor" id="来源"></span><h2 id="_10">来源</h2>
+<ul>
+<li>本次新增会话中用户发送的 LeetCode 207“课程表”题目截图；</li>
+<li>本次新增会话中对课程依赖建图、入度、BFS 拓扑排序、环检测、示例推演和 C++ 实现的讨论；</li>
+<li>算法解释与实现为本次会话基于通用图论知识的整理。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

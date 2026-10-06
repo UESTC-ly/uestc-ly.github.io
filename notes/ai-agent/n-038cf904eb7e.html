@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>综合练习与验收清单 · 李杨的学习笔记</title><meta name="description" content="实现一个“订单售后申请”系统，要求同时体现 Agent 和 Workflow 的边界："><meta property="og:title" content="综合练习与验收清单 · 李杨的学习笔记"><meta property="og:description" content="实现一个“订单售后申请”系统，要求同时体现 Agent 和 Workflow 的边界："><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-038cf904eb7e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-038cf904eb7e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 04-Agent与工作流</p><h1>综合练习与验收清单</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/04-Agent%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81/08-%E7%BB%BC%E5%90%88%E7%BB%83%E4%B9%A0%E4%B8%8E%E9%AA%8C%E6%94%B6%E6%B8%85%E5%8D%95.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-agent-workflow">1. 推荐练习：售后申请 Agent + 确定性 Workflow</a></li><li><a href="#_2">模型可以做的事</a></li><li><a href="#_3">应用程序必须控制的事</a></li><li><a href="#2">2. 建议工具</a></li><li><a href="#3">3. 建议状态机</a></li><li><a href="#4">4. 最小实现步骤</a></li><li><a href="#5">5. 必测故障场景</a></li><li><a href="#_4">工具调用协议</a></li><li><a href="#_5">可靠性</a></li><li><a href="#_6">安全与人工</a></li><li><a href="#6">6. 验收问题</a></li><li><a href="#7">7. 完成标准</a></li><li><a href="#8">8. 延伸实践顺序</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 推荐练习：售后申请 Agent + 确定性 Workflow"></span><h2 id="1-agent-workflow">1. 推荐练习：售后申请 Agent + 确定性 Workflow</h2>
+<p>实现一个“订单售后申请”系统，要求同时体现 Agent 和 Workflow 的边界：</p>
+<span class="heading-anchor" id="模型可以做的事"></span><h3 id="_2">模型可以做的事</h3>
+<ul>
+<li>理解用户的自然语言诉求；</li>
+<li>提取订单号、问题类型和用户期望；</li>
+<li>在只读工具中选择查询订单、查询售后政策；</li>
+<li>生成结构化的候选售后方案；</li>
+<li>对缺失信息提出问题。</li>
+</ul>
+<span class="heading-anchor" id="应用程序必须控制的事"></span><h3 id="_3">应用程序必须控制的事</h3>
+<ul>
+<li>校验订单归属和售后资格；</li>
+<li>计算真实可退款金额；</li>
+<li>判断是否需要人工审批；</li>
+<li>创建售后申请、发送通知或执行退款；</li>
+<li>设置超时、重试、幂等、补偿和审计。</li>
+</ul>
+<span class="heading-anchor" id="2. 建议工具"></span><h2 id="2">2. 建议工具</h2>
+<pre><code class="language-text">get_order_status(order_id)             只读
+get_return_policy(order_id, reason)    只读
+calculate_refund(order_id, items)      只读/业务计算
+create_after_sales_request(...)        有副作用，需要幂等
+issue_refund(request_id, idempotency_key) 高风险，需要审批
+notify_user(...)                       有副作用，可重试但需幂等
+</code></pre>
+<p>每个工具都应有：描述、参数 Schema、风险等级、所需权限、超时、可重试错误、幂等要求和结果 Schema。</p>
+<span class="heading-anchor" id="3. 建议状态机"></span><h2 id="3">3. 建议状态机</h2>
+<pre><code class="language-text">RECEIVED
+  ↓
+UNDERSTANDING
+  ├─ NEEDS_USER_INPUT
+  └─ CHECKING_ELIGIBILITY
+          ↓
+PROPOSAL_READY
+  ├─ WAITING_APPROVAL
+  └─ REJECTED
+          ↓
+CREATING_REQUEST
+          ↓
+REFUNDING
+  ├─ SUCCEEDED
+  └─ COMPENSATING / NEEDS_HUMAN_REVIEW
+</code></pre>
+<p>不要让模型直接把状态写成 <code>SUCCEEDED</code>。只有业务系统返回已确认结果后，代码才能转入成功状态。</p>
+<span class="heading-anchor" id="4. 最小实现步骤"></span><h2 id="4">4. 最小实现步骤</h2>
+<ol>
+<li>定义 <code>AgentState</code>、事件类型和状态转移表；</li>
+<li>用模型厂商原生 SDK 实现一次普通文本调用；</li>
+<li>注册两个只读工具并实现 Tool Calling 消息链；</li>
+<li>加入 JSON Schema 和业务校验；</li>
+<li>加入用户/租户/资源级权限检查；</li>
+<li>设置最大步数、总超时和 Token/费用预算；</li>
+<li>为临时网络错误实现有限重试，为副作用动作加入幂等键；</li>
+<li>将状态保存到持久化存储，并实现版本检查；</li>
+<li>在退款节点加入审批、过期和拒绝处理；</li>
+<li>加入结构化日志、Trace ID、工具调用 ID 和审计事件；</li>
+<li>模拟 Worker 崩溃、重复消息、超时、取消和外部结果不确定；</li>
+<li>再用一个框架重写编排部分，对比代码、可观测性和恢复能力。</li>
+</ol>
+<span class="heading-anchor" id="5. 必测故障场景"></span><h2 id="5">5. 必测故障场景</h2>
+<span class="heading-anchor" id="工具调用协议"></span><h3 id="_4">工具调用协议</h3>
+<ul>
+<li>模型返回空 <code>content</code> 但包含工具调用；</li>
+<li>工具参数是非法 JSON；</li>
+<li>参数缺少必填字段或包含额外字段；</li>
+<li>模型请求未注册工具；</li>
+<li>一次响应包含多个工具调用；</li>
+<li>工具结果返回后消息链缺失或 ID 不匹配。</li>
+</ul>
+<span class="heading-anchor" id="可靠性"></span><h3 id="_5">可靠性</h3>
+<ul>
+<li>读取工具超时；</li>
+<li>服务端限流；</li>
+<li>创建申请请求发出后客户端断开；</li>
+<li>Worker 在工具执行后、保存状态前崩溃；</li>
+<li>同一任务被两个 Worker 同时领取；</li>
+<li>重复投递同一事件；</li>
+<li>外部系统返回“未知”，无法判断副作用是否成功。</li>
+</ul>
+<span class="heading-anchor" id="安全与人工"></span><h3 id="_6">安全与人工</h3>
+<ul>
+<li>用户查询不属于自己的订单；</li>
+<li>模型把 <code>user_id</code> 改成其他用户；</li>
+<li>检索文档要求忽略系统规则并调用危险工具；</li>
+<li>审批通过后参数被修改；</li>
+<li>审批过期后仍尝试执行；</li>
+<li>用户取消后任务继续运行。</li>
+</ul>
+<span class="heading-anchor" id="6. 验收问题"></span><h2 id="6">6. 验收问题</h2>
+<p>完成后应能用自己的代码和日志回答：</p>
+<ol>
+<li>模型请求调用工具时，应用在哪个位置阻止越权？</li>
+<li>为什么 <code>Schema valid</code> 仍不代表可以执行？</li>
+<li>如何保证 Tool Calling 消息链在恢复后完整？</li>
+<li>为什么创建退款不能简单地在超时后重试？</li>
+<li>如何区分“模型规划失败”“工具失败”“业务拒绝”和“状态冲突”？</li>
+<li>如何从日志定位一次任务经历了哪些模型轮次和工具尝试？</li>
+<li>哪些状态可以自动恢复，哪些状态必须请求人工？</li>
+<li>如果拆成多个 Agent，新增的边界、成本和故障点是什么？</li>
+<li>MCP 在系统中负责连接什么，不能负责什么？</li>
+<li>哪些步骤应该保持确定性，不交给 Agent 自主决定？</li>
+</ol>
+<span class="heading-anchor" id="7. 完成标准"></span><h2 id="7">7. 完成标准</h2>
+<ul>
+<li>[ ] 能画出 Agent 循环和确定性状态机。</li>
+<li>[ ] 能脱离框架完成一次模型调用和 Tool Calling 闭环。</li>
+<li>[ ] 能在执行前完成参数、权限和业务校验。</li>
+<li>[ ] 能解释并实现超时、有限重试、幂等和补偿。</li>
+<li>[ ] 能持久化状态并从检查点恢复。</li>
+<li>[ ] 能实现审批、拒绝、过期、取消和人工接管。</li>
+<li>[ ] 能为每次运行生成可关联且脱敏的日志和审计记录。</li>
+<li>[ ] 能说明 MCP、Memory、Planning 与 Agent 循环各自的职责。</li>
+<li>[ ] 能说明为什么多 Agent 不是默认架构。</li>
+<li>[ ] 能将框架 API 映射回模型、工具、状态、策略、执行和观测这些原语。</li>
+</ul>
+<span class="heading-anchor" id="8. 延伸实践顺序"></span><h2 id="8">8. 延伸实践顺序</h2>
+<pre><code class="language-text">单 Agent + 只读工具
+→ Agent + 有状态 Workflow
+→ 加入审批和长任务
+→ 加入记忆与检索
+→ 接入 MCP
+→ 仅在有明确收益时拆分多 Agent
+</code></pre>
+<p>如需深入单项，可返回 <a href="n-c2d1c327d8ab.html">学习总览</a> 选择对应章节。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-04 本地 FAISS 与元数据索引 · 李杨的学习笔记</title><meta name="description" content="FAISS 是常见的向量相似性搜索工具。本章只讨论它在本地教学架构中的概念位置，不声称已经
+安装、运行或验证任何具体版本。具体 API、支持的索引类型和保存行为属于可变事实，后续实现
+必须依据官方资料和锁定版本核查。"><meta property="og:title" content="06-04 本地 FAISS 与元数据索引 · 李杨的学习笔记"><meta property="og:description" content="FAISS 是常见的向量相似性搜索工具。本章只讨论它在本地教学架构中的概念位置，不声称已经
+安装、运行或验证任何具体版本。具体 API、支持的索引类型和保存行为属于可变事实，后续实现
+必须依据官方资料和锁定版本核查。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-438d6aab46d9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-438d6aab46d9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 06-indexes-vector-databases</p><h1>06-04 本地 FAISS 与元数据索引</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/06-indexes-vector-databases/04-local-faiss-and-metadata-indexes.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本地索引只是一个组件</a></li><li><a href="#_2">三类存储的责任</a></li><li><a href="#_3">稳定标识与内部编号</a></li><li><a href="#_4">元数据索引怎样参与查询</a></li><li><a href="#_5">保存与加载不是完整备份</a></li><li><a href="#_6">增量更新与删除</a></li><li><a href="#_7">本地方案适合什么阶段</a></li><li><a href="#_8">架构练习</a></li><li><a href="#_9">自测</a></li><li><a href="#_10">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>06-04</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 20 分钟架构练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解向量记录、Flat、ANN、HNSW、IVF 与 PQ 的基本边界</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网、无 API Key；安装与代码演示留待后续实现批次</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用表格模拟向量索引、元数据表和文档存储的三方映射</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>说明本地 FAISS 类索引在应用中的责任与非责任；</li>
+<li>区分向量索引、元数据索引和原文存储；</li>
+<li>设计稳定标识，把检索结果安全地映射回来源、权限和版本；</li>
+<li>识别保存、加载、删除和重建时需要验证的边界。</li>
+</ul>
+<span class="heading-anchor" id="本地索引只是一个组件"></span><h2 id="_1">本地索引只是一个组件</h2>
+<p>FAISS 是常见的向量相似性搜索工具。本章只讨论它在本地教学架构中的概念位置，不声称已经
+安装、运行或验证任何具体版本。具体 API、支持的索引类型和保存行为属于可变事实，后续实现
+必须依据官方资料和锁定版本核查。</p>
+<p>在最小系统里，本地向量索引可以接收查询向量，返回内部编号与相似度；它通常不自动理解
+“这段文本来自哪份合同”“当前用户是否可见”“资料是否已撤回”。这些信息需要由应用维护的
+记录映射和元数据约束提供。</p>
+<span class="heading-anchor" id="三类存储的责任"></span><h2 id="_2">三类存储的责任</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>主要保存什么</th>
+<th>不应默认承担什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>向量索引</td>
+<td>向量、内部编号、搜索结构</td>
+<td>完整原文、业务权限、权威版本状态</td>
+</tr>
+<tr>
+<td>元数据索引或表</td>
+<td>租户、来源、时间、标签、状态、表示版本</td>
+<td>高维向量近邻搜索的全部能力</td>
+</tr>
+<tr>
+<td>文档或对象存储</td>
+<td>原文、结构、附件、可审计来源</td>
+<td>低延迟向量 Top-K 排序</td>
+</tr>
+</tbody>
+</table></div>
+<p>三者可以由同一个产品承载，也可以分别实现。逻辑边界仍需清楚，否则团队容易把某个内部
+编号误当作长期稳定的文档身份，或在重建索引后失去来源映射。</p>
+<span class="heading-anchor" id="稳定标识与内部编号"></span><h2 id="_3">稳定标识与内部编号</h2>
+<p>建议为每个可检索文本块保留稳定的 <code>chunk_id</code>，并关联 <code>document_id</code>、来源位置、内容版本、
+权限引用和表示版本。向量索引内部可能使用连续整数编号以便高效存取，但整数编号只是索引
+实例内的定位方式，应通过映射表回到稳定标识。</p>
+<p>例如，内部编号 42 可以映射到 <code>chunk_id=policy-2026-03#section-4</code>。索引重建后，这条记录
+可能变成编号 108，但稳定标识和来源关系不应改变。若业务代码直接把 42 当作永久身份，备份
+恢复、合并索引或删除重建都会产生错配风险。</p>
+<span class="heading-anchor" id="元数据索引怎样参与查询"></span><h2 id="_4">元数据索引怎样参与查询</h2>
+<p>用户查询通常同时包含语义条件与结构条件，例如“查找我有权访问的、今年生效的退款政策”。
+语义近邻由向量索引提供，租户、权限、生效时间和状态则属于元数据条件。</p>
+<p>常见组合方式有：</p>
+<ol>
+<li>先通过元数据得到允许的标识集合，再限制向量搜索；</li>
+<li>先扩大向量候选，再在受控边界内过滤并补充搜索；</li>
+<li>按租户或高选择性字段建立独立分区；</li>
+<li>使用原生支持结构过滤的存储系统，但仍由应用定义权限语义。</li>
+</ol>
+<p>没有一种顺序对所有场景都最佳。预过滤可能让 ANN 图变得难以导航，后过滤可能导致结果不足，
+而权限数据若被读入不受信任组件则可能越界。需要用权限测试、召回测试和威胁模型共同决定。</p>
+<span class="heading-anchor" id="保存与加载不是完整备份"></span><h2 id="_5">保存与加载不是完整备份</h2>
+<p>把索引序列化到文件，只保存了某一组件的状态。完整恢复至少还需要原文、元数据、标识映射、
+嵌入与预处理版本、索引配置、删除记录和一致的快照时间。如果只恢复向量文件却缺少映射，
+系统可能返回无法追溯的编号；如果映射来自另一个时间点，编号还可能指向错误内容。</p>
+<p>加载外部索引文件也应视为数据输入边界。需要验证文件来源、完整性、格式版本和资源限制，
+不应把未知文件直接交给高权限服务。检索到的文本始终是数据，不是可以改变系统规则的指令。</p>
+<span class="heading-anchor" id="增量更新与删除"></span><h2 id="_6">增量更新与删除</h2>
+<p>新增记录需要先完成原文入库、权限与版本登记、向量生成、索引写入和映射提交。若中途失败，
+系统应能识别“元数据存在但向量缺失”或“向量存在但记录不可用”等中间状态。删除也不只是
+从结果中隐藏：需要撤回权限、阻止返回，并安排索引与副本中的实际清理。</p>
+<p>一种稳妥思路是把记录状态设为不可检索，再异步清理索引；重建时只读取有效快照。具体事务
+边界取决于所用存储，本章不声称本地工具自动提供跨组件事务。</p>
+<span class="heading-anchor" id="本地方案适合什么阶段"></span><h2 id="_7">本地方案适合什么阶段</h2>
+<p>本地索引便于学习、离线开发和可控的小规模实验，减少外部服务依赖，也方便保存精确基线。
+但当需求扩展到多进程写入、高可用、在线扩缩容、细粒度审计和跨区域恢复时，应用需要补充
+相应基础设施或选择具备这些能力的系统。是否迁移应由已记录的需求缺口驱动，而不是由产品
+类别驱动。</p>
+<span class="heading-anchor" id="架构练习"></span><h2 id="_8">架构练习</h2>
+<p>画三张表：向量索引保存 <code>internal_id</code> 与向量，映射表保存 <code>internal_id</code> 到 <code>chunk_id</code>，文档表
+保存 <code>chunk_id</code>、原文、来源、权限、状态和版本。模拟一次新增、一次撤回和一次索引重建，写出
+每一步怎样避免返回错文档。再考虑某一步失败时，系统怎样发现并修复不一致。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_9">自测</h2>
+<ol>
+<li>为什么向量索引内部编号不适合作为长期业务标识？</li>
+<li>保存索引文件为什么不等于完成备份？</li>
+<li>元数据预过滤与后过滤各有什么风险？</li>
+<li>删除文本块时为什么需要同时考虑映射、索引和副本？</li>
+<li>本地索引何时可能不再满足系统需求？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_10">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿，已做轻量静态检查；未安装或执行 FAISS，具体 API 行为仍待核查。</li>
+<li>代码与图表：本地向量 RAG 示例、元数据索引与组件图仍是计划项。</li>
+<li>
+<p>摘要：<a href="n-c352a2983f7e.html">06-04 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-f5f409581b2b.html">06-03 IVF 与乘积量化</a></p>
+</li>
+<li>下一章：<a href="n-7c09890456e5.html">06-05 数据库边界与适配器抽象</a></li>
+<li>返回：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

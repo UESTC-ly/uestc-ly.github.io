@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>RAG 端到端实践 · 李杨的学习笔记</title><meta name="description" content="上一节： 向量存储选型 ｜导航： RAG 笔记空间"><meta property="og:title" content="RAG 端到端实践 · 李杨的学习笔记"><meta property="og:description" content="上一节： 向量存储选型 ｜导航： RAG 笔记空间"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-88dce774ecdb.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-88dce774ecdb.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>RAG 端到端实践</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/11-RAG%E7%AB%AF%E5%88%B0%E7%AB%AF%E5%AE%9E%E8%B7%B5.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、实践目标</a></li><li><a href="#_2">二、先定义系统边界</a></li><li><a href="#21-rag">2.1 RAG 适合解决什么问题</a></li><li><a href="#22">2.2 离线流程与在线流程分离</a></li><li><a href="#_3">三、最小可用数据模型</a></li><li><a href="#31-chunk">3.1 文档、版本和 Chunk</a></li><li><a href="#32">3.2 为什么必须保存版本</a></li><li><a href="#_4">四、阶段一：构建最小基线</a></li><li><a href="#41">4.1 基线范围</a></li><li><a href="#42">4.2 离线索引伪代码</a></li><li><a href="#43">4.3 在线问答伪代码</a></li><li><a href="#_5">五、阶段二：改进解析、切分和检索</a></li><li><a href="#51">5.1 解析时保留结构</a></li><li><a href="#52-chunk">5.2 Chunk 的基本原则</a></li><li><a href="#53">5.3 混合检索</a></li><li><a href="#54-query-rewrite-rerank">5.4 Query Rewrite 与 Rerank 的位置</a></li><li><a href="#_6">六、阶段三：上下文组装、引用和抗干扰</a></li><li><a href="#61">6.1 上下文组装原则</a></li><li><a href="#62">6.2 去重和上下文压缩</a></li><li><a href="#63">6.3 引用的可验证性</a></li><li><a href="#_7">七、阶段四：权限与多租户隔离</a></li><li><a href="#_8">八、阶段五：评测基线</a></li><li><a href="#81">8.1 建立小型黄金数据集</a></li><li><a href="#82">8.2 检索指标</a></li><li><a href="#83">8.3 生成指标</a></li><li><a href="#84">8.4 端到端排障矩阵</a></li><li><a href="#_9">九、阶段六：增量更新、删除与一致性</a></li><li><a href="#91">9.1 使用内容哈希识别变化</a></li><li><a href="#92">9.2 推荐的更新顺序</a></li><li><a href="#93">9.3 删除不是简单删除一行记录</a></li><li><a href="#_10">十、生产化观察指标</a></li><li><a href="#101">10.1 数据管道指标</a></li><li><a href="#102">10.2 在线链路指标</a></li><li><a href="#_11">十一、常见反模式</a></li><li><a href="#111-prompt">11.1 一次性把全部文档放进 Prompt</a></li><li><a href="#112">11.2 只看向量相似度</a></li><li><a href="#113-rag">11.3 把 RAG 当作训练替代品</a></li><li><a href="#114">11.4 没有黄金数据集就反复调参</a></li><li><a href="#115">11.5 只评估最终答案</a></li><li><a href="#_12">十二、建议的实施路线</a></li><li><a href="#a">阶段 A：可运行基线</a></li><li><a href="#b">阶段 B：可评测</a></li><li><a href="#c">阶段 C：可用性增强</a></li><li><a href="#d">阶段 D：生产安全</a></li><li><a href="#_13">十三、上线前检查清单</a></li><li><a href="#_14">数据与索引</a></li><li><a href="#_15">检索与生成</a></li><li><a href="#_16">运行与运维</a></li><li><a href="#_17">十四、核心结论</a></li><li><a href="#_18">来源与相关笔记</a></li><li><a href="#_19">下一步练习</a></li><li><a href="#_20">附：一个最小目录与模块划分示例</a></li><li><a href="#_21">附：最小验收标准</a></li><li><a href="#_22">复习问题</a></li><li><a href="#_23">一句话总结</a></li><li><a href="#_24">与前后章节的关系</a></li><li><a href="#_25">结束</a></li><li><a href="#_26">版本记录模板</a></li><li><a href="#_27">实践记录</a></li><li><a href="#_28">最终检查</a></li><li><a href="#_29">备注</a></li><li><a href="#_30">完</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>上一节：<a href="n-6e7610736812.html">向量存储选型</a>｜导航：<a href="n-1984c9335328.html">RAG 笔记空间</a></p>
+<p>本文定位：把 RAG 的各个环节串成一个可运行、可评测、可追踪的最小系统，并说明如何从基线逐步演进到生产方案。</p>
+</blockquote>
+<span class="heading-anchor" id="一、实践目标"></span><h2 id="_1">一、实践目标</h2>
+<p>一个“能调用大模型”的 Demo，不等于一个可用的 RAG 系统。本实践关注一条完整链路：</p>
+<pre><code class="language-text">原始文档
+  → 接入与解析
+  → 清洗、标准化与切分
+  → Embedding
+  → 向量 / 关键词索引
+  → 查询改写与意图识别
+  → 检索与重排
+  → 上下文压缩、去重与权限过滤
+  → Prompt 组装
+  → 答案生成与引用
+  → 评测、监控和增量更新
+</code></pre>
+<p>完成本节后，应能够：</p>
+<ol>
+<li>设计一个最小但边界清晰的 RAG 系统；</li>
+<li>区分离线索引流程和在线问答流程；</li>
+<li>为文档、Chunk、索引和回答建立可追踪关系；</li>
+<li>用离线数据集评估检索质量和生成质量；</li>
+<li>处理更新、删除、权限、失败重试和版本一致性问题；</li>
+<li>明确哪些问题应通过 RAG 解决，哪些问题需要模型训练或业务系统配合。</li>
+</ol>
+<span class="heading-anchor" id="二、先定义系统边界"></span><h2 id="_2">二、先定义系统边界</h2>
+<span class="heading-anchor" id="2.1 RAG 适合解决什么问题"></span><h3 id="21-rag">2.1 RAG 适合解决什么问题</h3>
+<p>RAG 主要解决模型缺少外部、动态或私有知识的问题，例如：</p>
+<ul>
+<li>企业内部制度、产品文档和技术手册；</li>
+<li>经常更新的 FAQ、公告和知识库；</li>
+<li>需要给出来源依据的问答；</li>
+<li>需要按用户、租户或角色限制知识可见范围的场景。</li>
+</ul>
+<p>RAG 不会自动解决以下问题：</p>
+<ul>
+<li>原始文档本身错误或相互矛盾；</li>
+<li>用户问题需要复杂业务计算，但系统没有提供业务工具；</li>
+<li>检索到了相关文本，但模型无法完成需要的推理；</li>
+<li>用户没有权限访问某些文档；</li>
+<li>需要改变模型稳定行为或输出偏好，却只提供了少量检索文本。</li>
+</ul>
+<p>因此，RAG 的目标不是“把所有文档塞进 Prompt”，而是让模型在回答当前问题时获得<strong>相关、可用、可授权、可追溯</strong>的证据。</p>
+<span class="heading-anchor" id="2.2 离线流程与在线流程分离"></span><h3 id="22">2.2 离线流程与在线流程分离</h3>
+<p>推荐把系统拆成两条主流程：</p>
+<p><strong>离线索引流程：</strong></p>
+<pre><code class="language-text">读取文档
+  → 解析结构
+  → 清洗文本
+  → 生成文档版本
+  → 切分 Chunk
+  → 生成 Embedding
+  → 写入索引
+  → 校验索引状态
+</code></pre>
+<p><strong>在线问答流程：</strong></p>
+<pre><code class="language-text">接收问题与用户身份
+  → 鉴权与构造权限过滤器
+  → 查询改写 / 意图识别
+  → 混合检索
+  → 重排
+  → 去重与上下文压缩
+  → 组装 Prompt
+  → 生成答案与引用
+  → 记录评测和审计信息
+</code></pre>
+<p>离线流程追求数据正确、可重建和可增量更新；在线流程追求延迟、权限安全、答案质量和故障可恢复。两者混在一起，通常会导致请求延迟不可控，也难以定位问题。</p>
+<span class="heading-anchor" id="三、最小可用数据模型"></span><h2 id="_3">三、最小可用数据模型</h2>
+<span class="heading-anchor" id="3.1 文档、版本和 Chunk"></span><h3 id="31-chunk">3.1 文档、版本和 Chunk</h3>
+<p>不要只在向量库中保存一段文本和一个向量。至少需要保留以下信息：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>实体</th>
+<th>关键字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文档 <code>Document</code></td>
+<td><code>document_id</code>、标题、来源、所属租户</td>
+<td>标识逻辑文档</td>
+</tr>
+<tr>
+<td>文档版本 <code>DocumentVersion</code></td>
+<td><code>version_id</code>、内容哈希、解析时间、状态</td>
+<td>区分同一文档的不同版本</td>
+</tr>
+<tr>
+<td>Chunk</td>
+<td><code>chunk_id</code>、<code>document_id</code>、<code>version_id</code>、序号、文本</td>
+<td>作为检索和引用的最小单元</td>
+</tr>
+<tr>
+<td>索引记录</td>
+<td><code>chunk_id</code>、向量版本、索引状态</td>
+<td>追踪 Chunk 是否已进入索引</td>
+</tr>
+<tr>
+<td>权限元数据</td>
+<td><code>tenant_id</code>、ACL、标签、密级</td>
+<td>生成服务端过滤条件</td>
+</tr>
+</tbody>
+</table></div>
+<p>一个 Chunk 的元数据可以抽象为：</p>
+<pre><code class="language-json">{
+  "chunk_id": "chunk_8f2...",
+  "document_id": "doc_123",
+  "version_id": "ver_2025_03_01",
+  "chunk_index": 7,
+  "text_hash": "sha256:...",
+  "source_uri": "...",
+  "title": "员工报销制度",
+  "tenant_id": "tenant_a",
+  "acl": ["finance", "admin"],
+  "valid_from": "2025-03-01T00:00:00Z",
+  "valid_to": null,
+  "embedding_model": "embedding-model-v1",
+  "embedding_version": 1,
+  "index_status": "active"
+}
+</code></pre>
+<span class="heading-anchor" id="3.2 为什么必须保存版本"></span><h3 id="32">3.2 为什么必须保存版本</h3>
+<p>如果只根据文本内容写入向量，更新和删除会变得模糊：</p>
+<ul>
+<li>无法判断当前索引是否对应最新文档；</li>
+<li>旧版本 Chunk 可能仍然被检索到；</li>
+<li>回答引用无法还原当时使用的内容；</li>
+<li>Embedding 模型升级后，难以区分不同向量版本。</li>
+</ul>
+<p>建议让回答日志至少能够关联到：</p>
+<pre><code class="language-text">request_id
+  → query_id
+  → retrieved_chunk_id
+  → document_id + version_id
+  → prompt_version
+  → model_version
+</code></pre>
+<span class="heading-anchor" id="四、阶段一：构建最小基线"></span><h2 id="_4">四、阶段一：构建最小基线</h2>
+<span class="heading-anchor" id="4.1 基线范围"></span><h3 id="41">4.1 基线范围</h3>
+<p>第一版不宜同时引入所有高级能力。可以先固定：</p>
+<ul>
+<li>一种文档格式；</li>
+<li>一种解析器；</li>
+<li>一种 Chunk 策略；</li>
+<li>一个 Embedding 模型；</li>
+<li>一个向量索引；</li>
+<li>固定的 <code>top_k</code>；</li>
+<li>一个带引用要求的生成 Prompt；</li>
+<li>一组人工构造的测试问题。</li>
+</ul>
+<p>最小基线的目的，是获得一个可以测量的起点，而不是追求完整的生产功能。</p>
+<span class="heading-anchor" id="4.2 离线索引伪代码"></span><h3 id="42">4.2 离线索引伪代码</h3>
+<pre><code class="language-python">from dataclasses import dataclass
+from typing import Iterable
+
+
+@dataclass
+class Chunk:
+    chunk_id: str
+    document_id: str
+    version_id: str
+    index: int
+    text: str
+    metadata: dict
+
+
+def index_document(document: dict, parser, splitter, embedder, store):
+    version_id = store.create_document_version(
+        document_id=document["document_id"],
+        content_hash=document["content_hash"],
+    )
+
+    parsed = parser.parse(document["content"])
+    cleaned = clean_document(parsed)
+    chunks = splitter.split(cleaned)
+
+    records = []
+    for index, text in enumerate(chunks):
+        chunk = Chunk(
+            chunk_id=make_chunk_id(document["document_id"], version_id, index),
+            document_id=document["document_id"],
+            version_id=version_id,
+            index=index,
+            text=text,
+            metadata={
+                "title": document.get("title"),
+                "source_uri": document.get("source_uri"),
+                "tenant_id": document["tenant_id"],
+                "acl": document.get("acl", []),
+                "index_status": "pending",
+            },
+        )
+        records.append(chunk)
+
+    vectors = embedder.embed([chunk.text for chunk in records])
+    store.upsert_chunks(records, vectors)
+    store.mark_version_active(version_id)
+    return version_id
+</code></pre>
+<p>这里的 <code>clean_document</code>、<code>make_chunk_id</code> 和存储接口只是边界示例。真实系统还应处理：</p>
+<ul>
+<li>解析失败和部分解析；</li>
+<li>空文本和过短文本；</li>
+<li>重复文档；</li>
+<li>超大文档分批处理；</li>
+<li>Embedding 调用限流、超时和重试；</li>
+<li>写入成功但状态更新失败；</li>
+<li>版本激活前后的并发查询。</li>
+</ul>
+<span class="heading-anchor" id="4.3 在线问答伪代码"></span><h3 id="43">4.3 在线问答伪代码</h3>
+<pre><code class="language-python">def answer(question: str, user: dict, services: dict) -&gt; dict:
+    request_id = services["audit"].start_request(user=user, question=question)
+
+    # 权限由服务端根据身份生成，不能直接信任客户端传来的过滤条件。
+    access_filter = services["authz"].build_chunk_filter(user)
+    query = services["query"].rewrite(question, user=user)
+
+    candidates = services["retriever"].search(
+        query=query,
+        top_k=services["config"].retrieval_top_k,
+        metadata_filter=access_filter,
+    )
+    ranked = services["reranker"].rank(question, candidates)
+    context = services["context"].compress_and_deduplicate(ranked)
+
+    prompt = services["prompt"].build(
+        question=question,
+        context=context,
+        require_citations=True,
+    )
+    result = services["llm"].generate(prompt)
+    citations = services["citation"].extract(result, context)
+
+    services["audit"].finish_request(
+        request_id=request_id,
+        rewritten_query=query,
+        retrieved_chunks=context,
+        citations=citations,
+        model=result.model,
+    )
+    return {
+        "answer": result.text,
+        "citations": citations,
+        "request_id": request_id,
+    }
+</code></pre>
+<p>这个流程中的关键点是：权限过滤必须尽量前置，引用应当来自实际传入模型的上下文，而不是回答生成后凭空补充。</p>
+<span class="heading-anchor" id="五、阶段二：改进解析、切分和检索"></span><h2 id="_5">五、阶段二：改进解析、切分和检索</h2>
+<span class="heading-anchor" id="5.1 解析时保留结构"></span><h3 id="51">5.1 解析时保留结构</h3>
+<p>纯文本抽取会丢失大量语义结构。解析结果最好保留：</p>
+<ul>
+<li>标题层级；</li>
+<li>段落和列表；</li>
+<li>表格的行列关系；</li>
+<li>代码块和配置块；</li>
+<li>页码、章节号或原文定位信息；</li>
+<li>图片、附件和链接关系。</li>
+</ul>
+<p>对于表格、扫描 PDF 和复杂网页，不能只用“抽取后按字符切分”的策略。应先判断结构是否仍然可读，再决定是否使用专门的表格解析、OCR 或人工校验流程。</p>
+<span class="heading-anchor" id="5.2 Chunk 的基本原则"></span><h3 id="52-chunk">5.2 Chunk 的基本原则</h3>
+<p>Chunk 不是越短越好，也不是越长越好。需要在三个目标之间平衡：</p>
+<ol>
+<li><strong>独立可理解：</strong> 单个 Chunk 尽量包含完整的定义、步骤或论点；</li>
+<li><strong>检索可区分：</strong> 不同 Chunk 不要大量重复相同内容；</li>
+<li><strong>上下文可拼接：</strong> 相邻 Chunk 必要时能够恢复原文语义。</li>
+</ol>
+<p>可先从固定长度加小比例重叠开始，再用评测集调整。调参时应同时观察：</p>
+<ul>
+<li>相关 Chunk 是否能进入候选集；</li>
+<li>一个答案需要多少个 Chunk；</li>
+<li>重复内容占上下文的比例；</li>
+<li>Token 成本和在线延迟；</li>
+<li>表格、标题和列表是否被切坏。</li>
+</ul>
+<span class="heading-anchor" id="5.3 混合检索"></span><h3 id="53">5.3 混合检索</h3>
+<p>只使用向量检索，可能漏掉精确术语、编号、错误码和产品型号；只使用 BM25 或关键词检索，又可能无法处理同义表达。常见做法是并行执行：</p>
+<pre><code class="language-text">向量检索 → 候选集合 A
+关键词检索 → 候选集合 B
+A ∪ B → 融合排序 → Rerank → 最终上下文
+</code></pre>
+<p>融合时应注意不同检索器的分数通常不在同一尺度上。可以使用排名融合，也可以先做分数归一化。不要直接把两个原始分数相加而不验证效果。</p>
+<span class="heading-anchor" id="5.4 Query Rewrite 与 Rerank 的位置"></span><h3 id="54-query-rewrite-rerank">5.4 Query Rewrite 与 Rerank 的位置</h3>
+<p>查询改写适合处理：</p>
+<ul>
+<li>指代不完整，如“它有什么限制”；</li>
+<li>多轮对话中的省略；</li>
+<li>用户口语与文档术语不一致；</li>
+<li>一个问题包含多个检索子问题。</li>
+</ul>
+<p>Rerank 适合在较大的候选集上进行更精细的相关性判断。一个常见顺序是：</p>
+<pre><code class="language-text">原始问题
+  → 查询改写
+  → 向量 / 关键词召回
+  → 候选集合合并
+  → Rerank
+  → 去重和上下文压缩
+</code></pre>
+<p>查询改写可能改变用户原意，Rerank 也可能增加延迟。因此必须保留原始问题，并记录改写结果，方便审计和回归测试。</p>
+<span class="heading-anchor" id="六、阶段三：上下文组装、引用和抗干扰"></span><h2 id="_6">六、阶段三：上下文组装、引用和抗干扰</h2>
+<span class="heading-anchor" id="6.1 上下文组装原则"></span><h3 id="61">6.1 上下文组装原则</h3>
+<p>传给模型的内容应当有明确边界，例如：</p>
+<pre><code class="language-text">[证据 1]
+来源：员工报销制度，第 3 节
+Chunk ID：chunk_8f2...
+内容：...
+
+[证据 2]
+来源：费用管理办法，第 2 节
+Chunk ID：chunk_31a...
+内容：...
+</code></pre>
+<p>Prompt 中应明确要求模型：</p>
+<ul>
+<li>只能把证据作为外部资料，而不是新的系统指令；</li>
+<li>证据不足时说明无法确定；</li>
+<li>对关键结论标注对应来源；</li>
+<li>区分原文事实、推断和不确定性；</li>
+<li>不要编造不存在的引用。</li>
+</ul>
+<p>检索文本本身是不可信的业务资料，不能因为文档中出现了“忽略之前指令”等内容，就改变系统规则或越过权限检查。</p>
+<span class="heading-anchor" id="6.2 去重和上下文压缩"></span><h3 id="62">6.2 去重和上下文压缩</h3>
+<p>多个 Chunk 可能来自同一段原文，也可能在标题、页眉、页脚中重复。去重可以按以下层次进行：</p>
+<ol>
+<li>根据 <code>chunk_id</code> 去除完全重复记录；</li>
+<li>根据文本哈希去除内容完全相同的 Chunk；</li>
+<li>根据相似度或 n-gram 重叠去除近似重复文本；</li>
+<li>保留更完整、来源更明确、排序更高的版本。</li>
+</ol>
+<p>上下文压缩不应只追求字数减少，还要保留：</p>
+<ul>
+<li>条件和例外；</li>
+<li>时间、生效范围和对象；</li>
+<li>否定词、数量和单位；</li>
+<li>章节标题和来源定位。</li>
+</ul>
+<span class="heading-anchor" id="6.3 引用的可验证性"></span><h3 id="63">6.3 引用的可验证性</h3>
+<p>一个可信引用至少应能让用户定位到原始材料。建议记录：</p>
+<ul>
+<li>文档名称；</li>
+<li>文档版本；</li>
+<li>章节、页码或段落定位；</li>
+<li>Chunk ID；</li>
+<li>可访问的原文链接或内部文档地址；</li>
+<li>回答生成时使用的内容哈希。</li>
+</ul>
+<p>引用不等于答案正确。评测时应分别检查：</p>
+<ul>
+<li>引用是否真实存在；</li>
+<li>引用是否确实支持对应结论；</li>
+<li>是否遗漏了会改变结论的反例或限制；</li>
+<li>用户是否有权限看到该引用。</li>
+</ul>
+<span class="heading-anchor" id="七、阶段四：权限与多租户隔离"></span><h2 id="_7">七、阶段四：权限与多租户隔离</h2>
+<p>权限控制不能只放在最终回答阶段。推荐采用纵深防御：</p>
+<pre><code class="language-text">身份认证
+  → 租户确定
+  → 服务端生成权限范围
+  → 检索前过滤
+  → 文档访问时再次鉴权
+  → 引用字段脱敏
+  → 审计记录
+</code></pre>
+<p>至少要验证以下情况：</p>
+<ul>
+<li>不同租户中存在相同或相似文本；</li>
+<li>用户无权访问的文档与有权文档高度相似；</li>
+<li>通过查询改写后仍然保持原权限范围；</li>
+<li>缓存键包含租户和权限维度；</li>
+<li>删除或撤权后，旧缓存和旧索引不会继续泄露内容；</li>
+<li>引用链接不会绕过原文服务的鉴权。</li>
+</ul>
+<p>检索服务不应直接接受客户端构造的任意过滤表达式。客户端可以提供业务条件，但最终可执行的权限过滤器应由认证和授权服务根据当前身份生成。</p>
+<span class="heading-anchor" id="八、阶段五：评测基线"></span><h2 id="_8">八、阶段五：评测基线</h2>
+<span class="heading-anchor" id="8.1 建立小型黄金数据集"></span><h3 id="81">8.1 建立小型黄金数据集</h3>
+<p>每条测试样本至少包含：</p>
+<pre><code class="language-json">{
+  "question": "员工出差可以报销哪些费用？",
+  "tenant_id": "tenant_a",
+  "user_role": "employee",
+  "relevant_chunks": ["chunk_1", "chunk_7"],
+  "must_include": ["交通费", "住宿费"],
+  "must_not_include": ["其他租户的内部规则"],
+  "reference_answer": "..."
+}
+</code></pre>
+<p>样本应覆盖：</p>
+<ul>
+<li>直接事实查询；</li>
+<li>同义表达和口语问题；</li>
+<li>多轮指代；</li>
+<li>多跳问题；</li>
+<li>无答案或证据不足的问题；</li>
+<li>文档冲突和版本问题；</li>
+<li>权限边界问题；</li>
+<li>恶意提示注入文本。</li>
+</ul>
+<span class="heading-anchor" id="8.2 检索指标"></span><h3 id="82">8.2 检索指标</h3>
+<p>常见指标包括：</p>
+<ul>
+<li><code>Recall@k</code>：相关 Chunk 是否进入前 <code>k</code> 个结果；</li>
+<li><code>Precision@k</code>：前 <code>k</code> 个结果中相关结果的比例；</li>
+<li><code>MRR</code>：第一个相关结果出现位置的倒数平均值；</li>
+<li><code>nDCG</code>：考虑结果位置和相关性等级的排序指标。</li>
+</ul>
+<p>这些指标回答的是“检索到了什么”，不完全等价于“是否足以支持答案”。因此还应增加人工标注：候选证据是否足以回答问题，引用是否支持结论。</p>
+<span class="heading-anchor" id="8.3 生成指标"></span><h3 id="83">8.3 生成指标</h3>
+<p>生成评测可以从以下维度拆分：</p>
+<ul>
+<li><strong>答案正确性：</strong> 是否回答了问题；</li>
+<li><strong>忠实性：</strong> 是否能被检索证据支持；</li>
+<li><strong>引用正确性：</strong> 引用是否对应实际证据；</li>
+<li><strong>完整性：</strong> 是否遗漏重要条件；</li>
+<li><strong>拒答质量：</strong> 证据不足时是否诚实说明；</li>
+<li><strong>格式和延迟：</strong> 是否满足产品约束。</li>
+</ul>
+<p>自动评测可以用于大规模回归，但关键场景仍应采用人工复核。尤其要警惕“语言流畅但事实错误”的答案。</p>
+<span class="heading-anchor" id="8.4 端到端排障矩阵"></span><h3 id="84">8.4 端到端排障矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+<th>优先检查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>找不到相关资料</td>
+<td>解析失败、切分不合理、召回不足</td>
+<td>原文、Chunk、Recall@k</td>
+</tr>
+<tr>
+<td>找到资料但答案错误</td>
+<td>Rerank、上下文顺序、Prompt 或模型问题</td>
+<td>候选集、最终上下文、生成日志</td>
+</tr>
+<tr>
+<td>答案遗漏条件</td>
+<td>Chunk 被切断、压缩过度、<code>top_k</code> 太小</td>
+<td>章节结构、压缩前后文本</td>
+</tr>
+<tr>
+<td>引用不支持结论</td>
+<td>引用映射错误、模型过度推断</td>
+<td>引用 ID 与证据内容</td>
+</tr>
+<tr>
+<td>偶发越权</td>
+<td>过滤器、缓存、异步索引或引用服务缺陷</td>
+<td>租户字段、缓存键、审计日志</td>
+</tr>
+<tr>
+<td>延迟过高</td>
+<td>候选过多、Rerank 或模型调用耗时</td>
+<td>各阶段耗时分布</td>
+</tr>
+<tr>
+<td>更新后仍返回旧内容</td>
+<td>版本激活、删除、缓存或索引一致性问题</td>
+<td>版本状态和索引状态</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="九、阶段六：增量更新、删除与一致性"></span><h2 id="_9">九、阶段六：增量更新、删除与一致性</h2>
+<span class="heading-anchor" id="9.1 使用内容哈希识别变化"></span><h3 id="91">9.1 使用内容哈希识别变化</h3>
+<p>可以对规范化后的文档内容计算哈希：</p>
+<pre><code class="language-text">normalized_content
+  → content_hash
+  → 与当前 active 版本比较
+</code></pre>
+<p>如果哈希没有变化，不必重复生成 Embedding；如果内容发生变化，则创建新版本并重新生成受影响 Chunk。</p>
+<span class="heading-anchor" id="9.2 推荐的更新顺序"></span><h3 id="92">9.2 推荐的更新顺序</h3>
+<p>一种较安全的流程是：</p>
+<pre><code class="language-text">创建新版本
+  → 解析并切分
+  → 生成向量
+  → 写入新索引记录
+  → 校验数量和元数据
+  → 原子切换 active 版本
+  → 异步清理旧版本
+</code></pre>
+<p>在切换前，新版本不应参与正常查询；切换后，查询只能使用新版本。旧版本可以保留一段时间用于回滚，但必须明确其不可见状态。</p>
+<span class="heading-anchor" id="9.3 删除不是简单删除一行记录"></span><h3 id="93">9.3 删除不是简单删除一行记录</h3>
+<p>删除文档时应同时考虑：</p>
+<ul>
+<li>原文存储；</li>
+<li>向量索引；</li>
+<li>关键词索引；</li>
+<li>缓存；</li>
+<li>引用链接；</li>
+<li>异步任务队列；</li>
+<li>评测和审计数据中的脱敏要求。</li>
+</ul>
+<p>如果底层索引不能立即物理删除，可以先写入 tombstone 或 <code>deleted</code> 状态，并在检索过滤器中立即排除，之后再执行物理清理。</p>
+<span class="heading-anchor" id="十、生产化观察指标"></span><h2 id="_10">十、生产化观察指标</h2>
+<span class="heading-anchor" id="10.1 数据管道指标"></span><h3 id="101">10.1 数据管道指标</h3>
+<ul>
+<li>成功解析文档数和失败数；</li>
+<li>每个文档生成的 Chunk 数；</li>
+<li>空 Chunk、异常短 Chunk 和重复 Chunk 数；</li>
+<li>Embedding 调用失败率和重试次数；</li>
+<li>待索引、已索引和索引失败记录数；</li>
+<li>文档版本与索引版本不一致的数量。</li>
+</ul>
+<span class="heading-anchor" id="10.2 在线链路指标"></span><h3 id="102">10.2 在线链路指标</h3>
+<ul>
+<li>端到端延迟及各阶段 P50、P95、P99；</li>
+<li>检索候选数量和最终上下文 Token 数；</li>
+<li>缓存命中率；</li>
+<li>模型调用失败率和 Token 成本；</li>
+<li>无证据回答比例；</li>
+<li>引用缺失或引用校验失败比例；</li>
+<li>权限拒绝、异常访问和越权测试告警。</li>
+</ul>
+<p>指标必须与 <code>request_id</code>、索引版本、Prompt 版本和模型版本关联，否则只能看到“系统变慢或变差”，无法判断具体原因。</p>
+<span class="heading-anchor" id="十一、常见反模式"></span><h2 id="_11">十一、常见反模式</h2>
+<span class="heading-anchor" id="11.1 一次性把全部文档放进 Prompt"></span><h3 id="111-prompt">11.1 一次性把全部文档放进 Prompt</h3>
+<p>这会带来上下文超限、成本上升、相关信息被淹没、权限难以控制等问题。正确方向是先检索，再排序、压缩和组装。</p>
+<span class="heading-anchor" id="11.2 只看向量相似度"></span><h3 id="112">11.2 只看向量相似度</h3>
+<p>相似度高不代表能支持当前问题。还要考虑关键词精确匹配、文档时效、权限、版本、章节完整性和查询意图。</p>
+<span class="heading-anchor" id="11.3 把 RAG 当作训练替代品"></span><h3 id="113-rag">11.3 把 RAG 当作训练替代品</h3>
+<p>需要频繁更新、可追溯的事实通常更适合外部知识库；需要稳定改变模型行为、格式偏好或领域能力时，才进一步评估 SFT、DPO、RLHF 或持续预训练。项目中的训练笔记已给出相应的选择判断，不能把少量动态知识盲目写入模型参数。</p>
+<span class="heading-anchor" id="11.4 没有黄金数据集就反复调参"></span><h3 id="114">11.4 没有黄金数据集就反复调参</h3>
+<p>没有固定问题集和版本化指标，调 Chunk、<code>top_k</code> 或模型往往只是主观感受。每次改动都应记录配置、数据版本和指标变化。</p>
+<span class="heading-anchor" id="11.5 只评估最终答案"></span><h3 id="115">11.5 只评估最终答案</h3>
+<p>最终答案变差，可能是解析、切分、Embedding、召回、Rerank、上下文压缩、Prompt 或模型中的任一环节导致。必须保存中间结果，才能进行分层评测。</p>
+<span class="heading-anchor" id="十二、建议的实施路线"></span><h2 id="_12">十二、建议的实施路线</h2>
+<span class="heading-anchor" id="阶段 A：可运行基线"></span><h3 id="a">阶段 A：可运行基线</h3>
+<ul>
+<li>[ ] 接入一种文档格式；</li>
+<li>[ ] 完成解析、清洗和固定策略切分；</li>
+<li>[ ] 生成 Embedding 并建立索引；</li>
+<li>[ ] 实现最基本的 <code>top_k</code> 检索；</li>
+<li>[ ] 用固定 Prompt 生成答案；</li>
+<li>[ ] 返回原始 Chunk 作为引用。</li>
+</ul>
+<span class="heading-anchor" id="阶段 B：可评测"></span><h3 id="b">阶段 B：可评测</h3>
+<ul>
+<li>[ ] 建立黄金问题集；</li>
+<li>[ ] 记录检索候选和最终上下文；</li>
+<li>[ ] 统计 <code>Recall@k</code>、延迟和 Token 成本；</li>
+<li>[ ] 增加答案正确性、忠实性和引用评测；</li>
+<li>[ ] 固定数据、Embedding、Prompt 和模型版本。</li>
+</ul>
+<span class="heading-anchor" id="阶段 C：可用性增强"></span><h3 id="c">阶段 C：可用性增强</h3>
+<ul>
+<li>[ ] 加入关键词检索和混合排序；</li>
+<li>[ ] 加入查询改写和 Rerank；</li>
+<li>[ ] 实现去重、上下文压缩和 Token 预算；</li>
+<li>[ ] 处理无答案、低置信度和模型失败；</li>
+<li>[ ] 增加缓存、限流和超时控制。</li>
+</ul>
+<span class="heading-anchor" id="阶段 D：生产安全"></span><h3 id="d">阶段 D：生产安全</h3>
+<ul>
+<li>[ ] 实现租户隔离和服务端权限过滤；</li>
+<li>[ ] 实现文档版本、增量更新和删除；</li>
+<li>[ ] 对回答、引用和访问行为进行审计；</li>
+<li>[ ] 建立越权、提示注入和敏感信息测试集；</li>
+<li>[ ] 支持索引重建、回滚和故障恢复。</li>
+</ul>
+<span class="heading-anchor" id="十三、上线前检查清单"></span><h2 id="_13">十三、上线前检查清单</h2>
+<span class="heading-anchor" id="数据与索引"></span><h3 id="_14">数据与索引</h3>
+<ul>
+<li>[ ] 原文来源和版本可追踪；</li>
+<li>[ ] 解析失败不会静默进入索引；</li>
+<li>[ ] Chunk 保留必要的标题、位置和权限元数据；</li>
+<li>[ ] Embedding 模型和索引版本已记录；</li>
+<li>[ ] 更新、删除和重建流程已验证。</li>
+</ul>
+<span class="heading-anchor" id="检索与生成"></span><h3 id="_15">检索与生成</h3>
+<ul>
+<li>[ ] 已评估不同 <code>top_k</code> 和 Chunk 策略；</li>
+<li>[ ] 相关证据不足时会拒答或表达不确定性；</li>
+<li>[ ] 上下文不会把文档内容当作系统指令；</li>
+<li>[ ] 引用能定位到真实来源；</li>
+<li>[ ] 生成结果不会泄露未授权信息。</li>
+</ul>
+<span class="heading-anchor" id="运行与运维"></span><h3 id="_16">运行与运维</h3>
+<ul>
+<li>[ ] 每个请求可以关联到检索、Prompt 和模型版本；</li>
+<li>[ ] 关键阶段有超时、重试和降级策略；</li>
+<li>[ ] 已设置延迟、成本、错误率和质量告警；</li>
+<li>[ ] 有固定回归集和发布前评测门槛；</li>
+<li>[ ] 有索引损坏、模型不可用和数据回滚预案。</li>
+</ul>
+<span class="heading-anchor" id="十四、核心结论"></span><h2 id="_17">十四、核心结论</h2>
+<ol>
+<li>RAG 的核心不是“接一个向量数据库”，而是建立从原文到答案的可追踪链路。</li>
+<li>离线索引和在线问答应分离设计，文档、版本、Chunk、权限和索引状态应显式建模。</li>
+<li>检索质量、上下文质量、生成质量和权限安全必须分层评估，不能只看最终回答是否流畅。</li>
+<li>引用必须来自实际使用的证据，并能回到具体文档版本和位置。</li>
+<li>增量更新、删除、缓存和权限变更是生产 RAG 的一致性重点。</li>
+<li>应先建立可评测的简单基线，再按数据质量、检索质量、延迟、安全和成本逐步演进。</li>
+</ol>
+<span class="heading-anchor" id="来源与相关笔记"></span><h2 id="_18">来源与相关笔记</h2>
+<ul>
+<li>本项目：<a href="n-1984c9335328.html">RAG 笔记空间</a>。</li>
+<li>本项目：<a href="n-6e7610736812.html">向量存储选型</a>。</li>
+<li>本项目：<a href="n-758dc45c7b99.html">文档权限与多租户隔离</a>。</li>
+<li>本项目：<a href="n-3a9f79208663.html">增量更新、删除与索引一致性</a>。</li>
+<li>本文的端到端编排、伪代码和工程检查清单，是在项目相关笔记基础上结合通用 RAG 工程知识整理；当前上下文未提供一份独立的端到端原始资料。 </li>
+</ul>
+<span class="heading-anchor" id="下一步练习"></span><h2 id="_19">下一步练习</h2>
+<ol>
+<li>选取一组不会包含敏感信息的示例文档，完成解析、切分和索引；</li>
+<li>为至少十个问题标注相关 Chunk，并计算不同 <code>top_k</code> 下的 <code>Recall@k</code>；</li>
+<li>比较“仅向量检索”和“混合检索 + Rerank”的答案与延迟；</li>
+<li>修改一个文档版本，验证旧 Chunk 不再被正常检索；</li>
+<li>创建两个租户的相似文档，验证检索、缓存和引用都不会跨租户泄露。 </li>
+</ol>
+<hr/>
+<blockquote>
+<p>相关前置主题：数据接入与文档解析、文档清洗与切分、Embedding 与向量库、检索与重排、上下文压缩与引用溯源、文档权限与多租户隔离、检索与生成评测、增量更新与索引一致性。 </p>
+<p>完整学习顺序请以 <a href="n-1984c9335328.html">RAG 笔记空间</a> 为准。 </p>
+</blockquote>
+<hr/>
+<p><em>本笔记用于学习和工程设计参考；具体实现仍需结合所使用的解析器、Embedding 服务、向量存储、模型 API、权限系统和数据合规要求进行验证。</em> </p>
+<hr/>
+<span class="heading-anchor" id="附：一个最小目录与模块划分示例"></span><h2 id="_20">附：一个最小目录与模块划分示例</h2>
+<pre><code class="language-text">rag_app/
+├── ingestion/
+│   ├── parsers.py          # 文档解析
+│   ├── cleaning.py         # 清洗和标准化
+│   ├── chunking.py         # Chunk 策略
+│   └── indexing.py         # Embedding 与索引写入
+├── retrieval/
+│   ├── rewrite.py          # 查询改写
+│   ├── hybrid.py           # 混合检索
+│   ├── rerank.py           # 重排
+│   └── context.py          # 去重和上下文压缩
+├── security/
+│   ├── authn.py            # 身份认证
+│   └── authz.py            # 权限过滤器
+├── generation/
+│   ├── prompts.py          # Prompt 模板
+│   ├── answer.py           # 答案生成
+│   └── citations.py        # 引用映射
+├── evaluation/
+│   ├── dataset.jsonl       # 黄金数据集
+│   └── runner.py            # 离线评测
+└── observability/
+    ├── logging.py          # 结构化日志
+    └── metrics.py          # 指标和告警
+</code></pre>
+<p>模块划分不是固定答案，但职责边界应保持清晰：解析模块不负责生成答案，检索模块不负责自行决定用户权限，生成模块不负责绕过引用校验，评测模块不应依赖人工主观记忆。 </p>
+<hr/>
+<span class="heading-anchor" id="附：最小验收标准"></span><h2 id="_21">附：最小验收标准</h2>
+<p>一个 RAG 基线至少应满足：</p>
+<ul>
+<li>给定一个问题，可以返回答案、引用和请求 ID；</li>
+<li>给定一个引用 ID，可以定位到文档版本和 Chunk；</li>
+<li>给定一条索引记录，可以判断它是否属于当前 active 版本；</li>
+<li>给定一个用户身份，可以生成服务端权限过滤条件；</li>
+<li>给定一组标注问题，可以计算基本检索指标；</li>
+<li>给定一次文档更新，可以验证新旧版本的切换结果；</li>
+<li>任一阶段失败时，日志能够指出失败位置，而不是只返回“生成失败”。 </li>
+</ul>
+<p>这组标准有助于把“看起来能回答”转化为“能够验证、能够解释、能够维护”。 </p>
+<hr/>
+<span class="heading-anchor" id="复习问题"></span><h2 id="_22">复习问题</h2>
+<ol>
+<li>为什么要把离线索引流程和在线问答流程分开？</li>
+<li>文档版本、Chunk ID 和 Embedding 版本分别解决什么问题？</li>
+<li>为什么权限过滤不能只在模型生成答案之后执行？</li>
+<li><code>Recall@k</code> 高但最终答案仍然错误，可能是哪几个环节出了问题？</li>
+<li>删除文档时，除了向量索引还要清理哪些位置？</li>
+<li>为什么引用“存在”不等于引用“支持结论”？</li>
+<li>在什么情况下应优先考虑 RAG，而不是微调模型？</li>
+<li>如何设计一个能够发现跨租户泄露的测试样本？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="一句话总结"></span><h2 id="_23">一句话总结</h2>
+<p><strong>生产级 RAG = 可更新的知识管道 + 可过滤的检索链路 + 受约束的生成上下文 + 可验证的引用 + 可量化的评测与运维。</strong></p>
+<hr/>
+<blockquote>
+<p>注：本文没有把具体供应商 SDK、数据库 API 或模型名称写死；落地时应根据项目的技术选型补充适配层，并通过实际数据集验证质量、延迟、成本和安全性。 </p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="与前后章节的关系"></span><h2 id="_24">与前后章节的关系</h2>
+<ul>
+<li>前文重点解决：如何选择向量存储，以及如何比较检索质量、延迟和运维成本。</li>
+<li>本文重点解决：如何把数据接入、索引、检索、生成、权限、评测和更新串成系统。</li>
+<li>后续实践可以围绕一个可控数据集实现最小版本，再逐项替换模块和比较指标。 </li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="结束"></span><h2 id="_25">结束</h2>
+<p>当系统能够回答“答案来自哪里”“用户为什么能看到它”“文档更新后何时生效”“这次改动是否让质量变好”时，RAG 才真正从 Demo 进入工程系统。 </p>
+<hr/>
+<p><em>End.</em></p>
+<hr/>
+<span class="heading-anchor" id="版本记录模板"></span><h2 id="_26">版本记录模板</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>数据集版本</th>
+<th>Embedding</th>
+<th>检索配置</th>
+<th>生成模型</th>
+<th>主要变更</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>v0</code></td>
+<td><code>dataset-0</code></td>
+<td><code>embedding-v0</code></td>
+<td>向量 <code>top_k=5</code></td>
+<td><code>model-v0</code></td>
+<td>初始基线</td>
+</tr>
+<tr>
+<td><code>v1</code></td>
+<td><code>dataset-0</code></td>
+<td><code>embedding-v0</code></td>
+<td>混合检索 + Rerank</td>
+<td><code>model-v0</code></td>
+<td>待实测</td>
+</tr>
+</tbody>
+</table></div>
+<p>版本记录应在实际实验后填写，不要把示例配置误认为已经验证的生产参数。</p>
+<hr/>
+<span class="heading-anchor" id="实践记录"></span><h2 id="_27">实践记录</h2>
+<pre><code class="language-text">问题集：
+数据版本：
+文档数量：
+Chunk 策略：
+Embedding 模型：
+检索配置：
+Rerank 配置：
+模型与 Prompt 版本：
+Recall@k：
+答案正确性：
+引用正确性：
+P95 延迟：
+单次成本：
+已知问题：
+</code></pre>
+<p>通过固定记录格式，可以让后续实验具备可比较性，而不是依赖零散的手工印象。 </p>
+<hr/>
+<span class="heading-anchor" id="最终检查"></span><h2 id="_28">最终检查</h2>
+<ul>
+<li>[ ] 结构化文档解析没有破坏标题、表格和代码块；</li>
+<li>[ ] Chunk 具备稳定 ID 和来源定位；</li>
+<li>[ ] 索引写入有幂等键和状态；</li>
+<li>[ ] 在线检索使用服务端权限过滤；</li>
+<li>[ ] 最终上下文经过排序、去重和预算控制；</li>
+<li>[ ] 回答可以关联到实际证据；</li>
+<li>[ ] 无证据时不会为了流畅而编造答案；</li>
+<li>[ ] 更新和删除已经过回归测试；</li>
+<li>[ ] 评测、日志、成本和延迟均可观察。 </li>
+</ul>
+<hr/>
+<blockquote>
+<p>RAG 不是单一模型能力，而是一套数据、检索、权限、生成和评测共同构成的系统能力。 </p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="备注"></span><h2 id="_29">备注</h2>
+<p>本文中的代码为接口边界示例，不应直接视为可运行生产代码。正式实现还需要补充输入校验、异常处理、资源释放、并发控制、幂等设计、敏感信息处理和测试。 </p>
+<hr/>
+<span class="heading-anchor" id="完"></span><h2 id="_30">完</h2></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

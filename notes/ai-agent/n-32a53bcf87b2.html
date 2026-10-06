@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>框架映射与原生实现 · 李杨的学习笔记</title><meta name="description" content="具体类名和行为会随版本变化，学习时应以实际版本文档和源码为准。表格只用于建立概念映射，不是 API 兼容承诺。"><meta property="og:title" content="框架映射与原生实现 · 李杨的学习笔记"><meta property="og:description" content="具体类名和行为会随版本变化，学习时应以实际版本文档和源码为准。表格只用于建立概念映射，不是 API 兼容承诺。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-32a53bcf87b2.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-32a53bcf87b2.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 04-Agent与工作流</p><h1>框架映射与原生实现</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/04-Agent%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81/07-%E6%A1%86%E6%9E%B6%E6%98%A0%E5%B0%84%E4%B8%8E%E5%8E%9F%E7%94%9F%E5%AE%9E%E7%8E%B0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 先掌握原语，再学习框架</a></li><li><a href="#2">2. 四类工具的定位</a></li><li><a href="#langchain">LangChain</a></li><li><a href="#langgraph">LangGraph</a></li><li><a href="#llamaindex">LlamaIndex</a></li><li><a href="#sdk">模型厂商原生 SDK</a></li><li><a href="#3">3. 脱离框架的最小组件</a></li><li><a href="#4-agent-runner">4. 原生 Agent Runner 的结构</a></li><li><a href="#5">5. 原生实现的模块职责</a></li><li><a href="#6">6. 选择框架的判断标准</a></li><li><a href="#7">7. 框架评估清单</a></li><li><a href="#8">8. 学习结论</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 先掌握原语，再学习框架"></span><h2 id="1">1. 先掌握原语，再学习框架</h2>
+<p>不同框架的命名不同，但核心原语通常相同：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>原语</th>
+<th>LangChain</th>
+<th>LangGraph</th>
+<th>LlamaIndex</th>
+<th>模型厂商原生 SDK</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模型调用</td>
+<td>Chat Model</td>
+<td>图节点中的模型调用</td>
+<td>LLM/Agent 抽象</td>
+<td>Chat/Responses API 客户端</td>
+</tr>
+<tr>
+<td>工具定义</td>
+<td>Tool / Structured Tool</td>
+<td>节点或 ToolNode</td>
+<td>Tool / Function Tool</td>
+<td>tools Schema</td>
+</tr>
+<tr>
+<td>Agent 循环</td>
+<td>Agent Executor 等</td>
+<td>State Graph + 条件边</td>
+<td>Agent / Workflow</td>
+<td>应用代码自行循环</td>
+</tr>
+<tr>
+<td>状态</td>
+<td>消息与运行上下文</td>
+<td>显式 Graph State、Checkpoint</td>
+<td>Workflow/Agent Context</td>
+<td>应用数据库或内存</td>
+</tr>
+<tr>
+<td>检索与索引</td>
+<td>可接入 Retriever</td>
+<td>通常作为节点调用</td>
+<td>Index、Retriever、Query Engine</td>
+<td>通常自行接入</td>
+</tr>
+<tr>
+<td>人工介入</td>
+<td>回调或自定义逻辑</td>
+<td>图节点暂停/恢复</td>
+<td>Workflow 自定义状态</td>
+<td>应用 API、队列和数据库</td>
+</tr>
+<tr>
+<td>追踪</td>
+<td>回调与观测平台</td>
+<td>节点/边执行记录</td>
+<td>回调与日志</td>
+<td>自己生成 Trace 和审计</td>
+</tr>
+</tbody>
+</table></div>
+<p>具体类名和行为会随版本变化，学习时应以实际版本文档和源码为准。表格只用于建立概念映射，不是 API 兼容承诺。</p>
+<span class="heading-anchor" id="2. 四类工具的定位"></span><h2 id="2">2. 四类工具的定位</h2>
+<span class="heading-anchor" id="LangChain"></span><h3 id="langchain">LangChain</h3>
+<p>适合快速组合模型、Prompt、工具、输出解析器和检索组件。学习重点是理解每个 Runnable、Agent 和 Tool 背后的输入输出，而不是只记装配代码。</p>
+<span class="heading-anchor" id="LangGraph"></span><h3 id="langgraph">LangGraph</h3>
+<p>更适合显式表达有状态、可暂停、可恢复、带条件分支和循环的 Agent Workflow。它的核心思想与本目录中的状态机、检查点和事件转移相近。</p>
+<span class="heading-anchor" id="LlamaIndex"></span><h3 id="llamaindex">LlamaIndex</h3>
+<p>在文档、数据连接、索引、检索和知识库型应用上较有优势，也可以承载 Agent 和 Workflow。要特别区分“检索到的资料”和“可信业务事实”。</p>
+<span class="heading-anchor" id="模型厂商原生 SDK"></span><h3 id="sdk">模型厂商原生 SDK</h3>
+<p>最接近模型服务的真实协议，适合掌握消息、工具调用、流式响应、结构化输出、错误码和用量。不同厂商在工具字段、并行调用、上下文和响应格式上可能不同。</p>
+<span class="heading-anchor" id="3. 脱离框架的最小组件"></span><h2 id="3">3. 脱离框架的最小组件</h2>
+<pre><code class="language-python">from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class AgentState:
+    task_id: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    status: str = "RUNNING"
+    step: int = 0
+    artifacts: dict[str, Any] = field(default_factory=dict)
+    retry_counts: dict[str, int] = field(default_factory=dict)
+
+class ModelClient:
+    def complete(self, *, messages, tools, deadline):
+        raise NotImplementedError
+
+class ToolExecutor:
+    def invoke(self, *, name, args, context, deadline):
+        raise NotImplementedError
+
+class StateStore:
+    def load(self, task_id) -&gt; AgentState:
+        raise NotImplementedError
+
+    def save(self, state: AgentState, expected_version: int):
+        raise NotImplementedError
+
+class PolicyEngine:
+    def check(self, *, principal, name, args, state):
+        raise NotImplementedError
+
+class Tracer:
+    def event(self, name, **fields):
+        raise NotImplementedError
+</code></pre>
+<p>这些接口分别代表：模型边界、真实执行边界、持久化边界、安全边界和观测边界。测试时可以替换为 Fake 实现，不必调用真实模型或真实支付系统。</p>
+<span class="heading-anchor" id="4. 原生 Agent Runner 的结构"></span><h2 id="4-agent-runner">4. 原生 Agent Runner 的结构</h2>
+<pre><code class="language-python">def run_agent(*, task_id, principal, model, executor, store, policy, tracer, deadline):
+    state = store.load(task_id)
+
+    while state.status == "RUNNING":
+        if state.step &gt;= 8 or now() &gt;= deadline:
+            state.status = "FAILED"
+            state.artifacts["reason"] = "budget_exhausted"
+            store.save(state, expected_version=state.version)
+            return state
+
+        tracer.event("model_started", task_id=task_id, step=state.step)
+        response = model.complete(
+            messages=state.messages,
+            tools=available_tool_schemas(principal),
+            deadline=deadline,
+        )
+        state.messages.append(response.assistant_message)
+
+        calls = response.tool_calls
+        if not calls:
+            state.status = "SUCCEEDED"
+            state.artifacts["answer"] = response.text
+            store.save(state, expected_version=state.version)
+            tracer.event("task_succeeded", task_id=task_id)
+            return state
+
+        for call in calls:
+            args = parse_and_validate(call.name, call.arguments)
+            policy.check(
+                principal=principal,
+                name=call.name,
+                args=args,
+                state=state,
+            )
+            result = executor.invoke(
+                name=call.name,
+                args=args,
+                context={"task_id": task_id, "principal": principal},
+                deadline=deadline,
+            )
+            state.messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": safe_serialize(result),
+            })
+            tracer.event("tool_finished", task_id=task_id, tool=call.name)
+
+        state.step += 1
+        store.save(state, expected_version=state.version)
+
+    return state
+</code></pre>
+<p>这是学习用骨架，生产实现还需要：流式响应聚合、并行工具调用、取消信号、重试分类、幂等、人工审批、状态迁移、敏感数据脱敏和队列租约。</p>
+<span class="heading-anchor" id="5. 原生实现的模块职责"></span><h2 id="5">5. 原生实现的模块职责</h2>
+<ul>
+<li><code>ModelClient</code>：封装供应商 SDK、模型名、超时、流式/非流式和响应归一化；</li>
+<li><code>ToolRegistry</code>：保存名称、描述、Schema、风险和执行器引用；</li>
+<li><code>PolicyEngine</code>：用户、租户、资源、额度、审批和工具白名单；</li>
+<li><code>ToolExecutor</code>：调用 HTTP、数据库或内部服务，处理超时和错误分类；</li>
+<li><code>StateStore</code>：保存状态、事件、版本和检查点；</li>
+<li><code>TaskQueue</code>：投递、租约、重试、延迟和死信；</li>
+<li><code>ApprovalStore</code>：创建、批准、拒绝、过期和审计；</li>
+<li><code>Tracer</code>：统一 Trace、Span、结构化事件和指标。</li>
+</ul>
+<span class="heading-anchor" id="6. 选择框架的判断标准"></span><h2 id="6">6. 选择框架的判断标准</h2>
+<ul>
+<li>需要快速验证 Prompt、工具和检索组合：可先用 LangChain 或原生 SDK；</li>
+<li>需要显式循环、分支、暂停、恢复和检查点：重点比较 LangGraph 或自建状态机；</li>
+<li>主要问题是文档接入、索引、检索和数据连接：重点比较 LlamaIndex；</li>
+<li>需要最小依赖、精确控制协议、成本和安全边界：优先原生 SDK 加自建编排层；</li>
+<li>业务副作用强、审计要求高：无论使用什么框架，都要把权限、幂等和状态持久化放在框架之外或框架明确可控的边界上。</li>
+</ul>
+<span class="heading-anchor" id="7. 框架评估清单"></span><h2 id="7">7. 框架评估清单</h2>
+<p>试用一个框架时，不只看 Demo 是否能跑，还要验证：</p>
+<ul>
+<li>能否查看和修改完整消息链；</li>
+<li>Tool Calling 参数是否能在执行前拦截；</li>
+<li>是否支持自定义权限和业务校验；</li>
+<li>状态能否持久化、版本控制和恢复；</li>
+<li>如何实现 HITL、取消和长任务；</li>
+<li>失败重试是否可配置且不会重复副作用；</li>
+<li>日志能否关联模型、工具、任务和用户；</li>
+<li>升级版本后 Schema 和状态是否兼容；</li>
+<li>是否可以替换模型供应商和存储实现。</li>
+</ul>
+<span class="heading-anchor" id="8. 学习结论"></span><h2 id="8">8. 学习结论</h2>
+<p>框架的价值主要在于减少胶水代码、提供常用组件和统一观测；框架不能替代：</p>
+<ul>
+<li>业务状态机；</li>
+<li>资源级权限；</li>
+<li>事务与幂等；</li>
+<li>错误分类和补偿；</li>
+<li>人工审批；</li>
+<li>数据治理与审计。</li>
+</ul>
+<p>下一步：用 <a href="n-038cf904eb7e.html">综合练习与验收清单</a> 从零搭建一个最小但完整的 Agent 系统。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

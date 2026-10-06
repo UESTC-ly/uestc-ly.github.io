@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Core Dump 定位崩溃 · 李杨的学习笔记</title><meta name="description" content="建议先掌握进程、信号、虚拟内存、线程栈和调试符号。完成本章后，你应能验证 core 是否完整、制品是否匹配，批量导出所有线程栈，并把“崩在某行”推进为有复现和回归测试支持的根因。"><meta property="og:title" content="Core Dump 定位崩溃 · 李杨的学习笔记"><meta property="og:description" content="建议先掌握进程、信号、虚拟内存、线程栈和调试符号。完成本章后，你应能验证 core 是否完整、制品是否匹配，批量导出所有线程栈，并把“崩在某行”推进为有复现和回归测试支持的根因。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-2a22ca5396b8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-2a22ca5396b8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 05-原生程序工程诊断</p><h1>Core Dump 定位崩溃</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/05-%E5%8E%9F%E7%94%9F%E7%A8%8B%E5%BA%8F%E5%B7%A5%E7%A8%8B%E8%AF%8A%E6%96%AD/03-%E6%A0%B8%E5%BF%83%E8%BD%AC%E5%82%A8%E4%B8%8E%E5%B4%A9%E6%BA%83%E5%88%86%E6%9E%90.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">前置知识与完成标准</a></li><li><a href="#1-core-dump">1. 核心概念：Core Dump 是什么</a></li><li><a href="#11-core">1.1 Core 中有什么、没有什么</a></li><li><a href="#12-build-id">1.2 Build ID 是制品身份证，不是版本号</a></li><li><a href="#2">2. 先确认转储链路</a></li><li><a href="#21">2.1 收集链路的四层限制</a></li><li><a href="#22">2.2 收集前的安全设计</a></li><li><a href="#3-gdb">3. 示例：使用 GDB 打开</a></li><li><a href="#31">3.1 从零实验：生成可分析的崩溃</a></li><li><a href="#4">4. 典型工作流：分析顺序</a></li><li><a href="#41">4.1 确认信号和故障点</a></li><li><a href="#42">4.2 检查所有线程</a></li><li><a href="#43">4.3 检查对象，但保持怀疑</a></li><li><a href="#44-gdb">4.4 补充的 GDB 证据</a></li><li><a href="#5">5. 常见坑与排障步骤：常见“看不懂”的原因</a></li><li><a href="#6">6. 从现场到根因</a></li><li><a href="#7">7. 练习</a></li><li><a href="#8">8. 检查清单</a></li><li><a href="#9">9. 小结</a></li><li><a href="#10">10. 官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 core dump、可执行文件、共享库与调试符号的对应关系。</li>
+<li>在 Linux 上确认转储策略并离线分析崩溃。</li>
+<li>从信号、线程、调用栈和对象状态形成可验证的根因假设。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h3 id="_2">前置知识与完成标准</h3>
+<p>建议先掌握进程、信号、虚拟内存、线程栈和调试符号。完成本章后，你应能验证 core 是否完整、制品是否匹配，批量导出所有线程栈，并把“崩在某行”推进为有复现和回归测试支持的根因。</p>
+<span class="heading-anchor" id="1. 核心概念：Core Dump 是什么"></span><h2 id="1-core-dump">1. 核心概念：Core Dump 是什么</h2>
+<p>进程因特定信号终止时，操作系统可保存当时的虚拟内存、寄存器和线程状态。有效分析通常需要四类匹配材料：</p>
+<pre><code class="language-text">core 文件
+崩溃时的精确可执行文件
+崩溃时加载的精确共享库/容器文件系统
+与这些二进制匹配的调试符号和源码版本
+</code></pre>
+<p>只有 core 而没有匹配制品，往往只能看到地址或错误符号。调试符号可能含源码路径、变量和内存中的敏感数据；core 更可能包含密钥、令牌和用户数据，必须按敏感制品控制访问、传输和保留期。</p>
+<span class="heading-anchor" id="1.1 Core 中有什么、没有什么"></span><h3 id="11-core">1.1 Core 中有什么、没有什么</h3>
+<p>core 通常保存进程终止时的寄存器、线程和被策略选中的内存映射，但它不是完整执行录像。它通常不能直接回答：哪条历史请求最早破坏内存、线程之前按什么顺序调度、某块内存在哪一次写入被改坏。这些问题需要日志、Trace、Sanitizer、录制调试或稳定复现补证。</p>
+<p>Linux 的 <code>coredump_filter</code> 和映射的 <code>VM_DONTDUMP</code> 标记会影响哪些页进入 core；收集器还可能因大小限制截断。看到 <code>coredumpctl</code> 的 <code>truncated</code>、GDB 无法读取某段映射时，应先判断证据是否缺失，而不是假定内容为零。</p>
+<span class="heading-anchor" id="1.2 Build ID 是制品身份证，不是版本号"></span><h3 id="12-build-id">1.2 Build ID 是制品身份证，不是版本号</h3>
+<p>同一提交使用不同编译器、flags、时间或依赖可产生不同二进制。版本字符串和文件名相同仍可能不匹配。ELF build ID 可用于把运行二进制、独立调试符号和 core 中的映射关联起来：</p>
+<pre><code class="language-bash">readelf -n /path/to/service | grep -A1 'Build ID'
+readelf -n /path/to/libexample.so | grep -A1 'Build ID'
+</code></pre>
+<p>归档系统应以不可变制品摘要/build ID 查找符号，而不是在分析机“重新编译同一提交”替代现场产物。</p>
+<span class="heading-anchor" id="2. 先确认转储链路"></span><h2 id="2">2. 先确认转储链路</h2>
+<pre><code class="language-bash">ulimit -c
+cat /proc/sys/kernel/core_pattern
+cat /proc/sys/kernel/core_uses_pid
+</code></pre>
+<p><code>ulimit -c</code> 为 <code>0</code> 时当前 shell 启动的进程通常不会生成 core。<code>core_pattern</code> 可能把转储交给系统服务，而不是写入当前目录。</p>
+<p>在使用 systemd-coredump 的系统可检查：</p>
+<pre><code class="language-bash">coredumpctl list
+coredumpctl info &lt;PID-or-executable&gt;
+coredumpctl debug &lt;PID-or-executable&gt;
+</code></pre>
+<p>具体可用性由发行版和系统配置决定。修改系统级 core 策略会影响磁盘和敏感数据风险，应走变更流程；不要为了排障在不受控目录无限保存 core。</p>
+<p>容器中还要确认：宿主内核策略、容器的 core size limit、转储路径/收集器、PID 映射、存储配额及安全策略。core 由宿主内核生成，不能只看容器内路径。</p>
+<span class="heading-anchor" id="2.1 收集链路的四层限制"></span><h3 id="21">2.1 收集链路的四层限制</h3>
+<ol>
+<li><strong>进程资源限制</strong>：启动进程继承的 core size limit 是否允许写出。</li>
+<li><strong>内核路由</strong>：<code>core_pattern</code> 是文件模板还是以 <code>|</code> 开头交给收集器。</li>
+<li><strong>收集器策略</strong>：systemd-coredump 等是否外部存储、压缩、截断或已清理。</li>
+<li><strong>存储与权限</strong>：目标文件系统容量、写权限、配额和容器挂载是否可用。</li>
+</ol>
+<p>只在当前交互 shell 执行 <code>ulimit -c</code>，不代表 systemd、Kubernetes 或 supervisor 启动的服务继承相同值。应检查真实服务单元/容器配置，并用受控测试崩溃验证端到端链路。</p>
+<span class="heading-anchor" id="2.2 收集前的安全设计"></span><h3 id="22">2.2 收集前的安全设计</h3>
+<ul>
+<li>只允许受控角色读取 core，传输和静态存储加密。</li>
+<li>设单个转储大小、总容量和保留期，监控截断与清理失败。</li>
+<li>将 core、二进制、共享库、符号和元数据用同一事件 ID 关联。</li>
+<li>明确脱敏边界：core 是内存快照，通常无法靠简单文本替换可靠脱敏。</li>
+<li>生产验证使用已审查的小程序和维护窗口，不随意让业务进程崩溃。</li>
+</ul>
+<span class="heading-anchor" id="3. 示例：使用 GDB 打开"></span><h2 id="3-gdb">3. 示例：使用 GDB 打开</h2>
+<pre><code class="language-bash">gdb /path/to/exact-service /path/to/core
+</code></pre>
+<p>进入 GDB 后：</p>
+<pre><code class="language-gdb">set pagination off
+info files
+info sharedlibrary
+info threads
+thread apply all bt
+thread apply all bt full
+</code></pre>
+<p><code>bt full</code> 可能输出大量变量和敏感内容，保存与分享前应脱敏。若共享库路径不同，可在隔离分析环境配置：</p>
+<pre><code class="language-gdb">set sysroot /path/to/extracted-rootfs
+set solib-search-path /path/to/extracted-rootfs/lib:/path/to/extracted-rootfs/usr/lib
+</code></pre>
+<p>路径必须指向崩溃时镜像/机器的库，不能用分析机上“看起来同版本”的文件替代。</p>
+<span class="heading-anchor" id="3.1 从零实验：生成可分析的崩溃"></span><h3 id="31">3.1 从零实验：生成可分析的崩溃</h3>
+<pre><code class="language-cpp">#include &lt;cstdlib&gt;
+
+void crash(int* p) { *p = 7; }
+int main() { crash(nullptr); }
+</code></pre>
+<p>在隔离环境构建：</p>
+<pre><code class="language-bash">c++ -O1 -g -fno-omit-frame-pointer crash.cpp -o crash-demo
+ulimit -c unlimited
+./crash-demo
+</code></pre>
+<p><code>ulimit</code> 只影响当前 shell 及其子进程；<code>unlimited</code> 可能产生大文件，只用于空间受控的实验目录。根据 <code>core_pattern</code> 查找文件，若系统使用 systemd-coredump，可用：</p>
+<pre><code class="language-bash">coredumpctl list crash-demo
+coredumpctl info crash-demo
+coredumpctl dump crash-demo --output=crash-demo.core
+gdb ./crash-demo ./crash-demo.core
+</code></pre>
+<p>预期在 <code>crash</code> 中看到空地址写入。实验完成标准不仅是看到栈，还要记录信号、<code>$pc</code>、参数 <code>p</code>、build ID，以及为什么 <code>p</code> 会为空的调用链。</p>
+<span class="heading-anchor" id="4. 典型工作流：分析顺序"></span><h2 id="4">4. 典型工作流：分析顺序</h2>
+<span class="heading-anchor" id="4.1 确认信号和故障点"></span><h3 id="41">4.1 确认信号和故障点</h3>
+<pre><code class="language-gdb">info program
+frame 0
+info registers
+x/i $pc
+bt
+</code></pre>
+<p>常见信号只是入口：<code>SIGSEGV</code> 表示非法内存访问，<code>SIGABRT</code> 常来自主动终止或运行库检测，<code>SIGFPE</code> 可能来自算术异常。信号本身不是根因。</p>
+<span class="heading-anchor" id="4.2 检查所有线程"></span><h3 id="42">4.2 检查所有线程</h3>
+<p>崩溃线程不一定是破坏内存的线程。观察：</p>
+<ul>
+<li>是否大量线程等待同一把锁或同一条件变量。</li>
+<li>是否有线程在 allocator、信号处理、异常终止或日志路径。</li>
+<li>是否有明显递归、栈溢出或已损坏的调用栈。</li>
+<li>崩溃前其他线程是否在释放/修改相关对象。</li>
+</ul>
+<span class="heading-anchor" id="4.3 检查对象，但保持怀疑"></span><h3 id="43">4.3 检查对象，但保持怀疑</h3>
+<pre><code class="language-gdb">frame 3
+info args
+info locals
+p this
+p *this
+x/32gx &lt;address&gt;
+</code></pre>
+<p>优化构建中变量可能显示 <code>&lt;optimized out&gt;</code>，函数可能内联，寄存器和源码行也可能不直观。内存破坏后的对象值不一定可信，优先把现场与 ASan、日志、Trace、复现用例等证据交叉验证。</p>
+<span class="heading-anchor" id="4.4 补充的 GDB 证据"></span><h3 id="44-gdb">4.4 补充的 GDB 证据</h3>
+<pre><code class="language-gdb">info proc mappings
+maintenance info sections
+disassemble /m
+x/16i $pc-32
+p/x $_siginfo._sifields._sigfault.si_addr
+</code></pre>
+<p>命令支持与字段名称可能随目标和 GDB 版本不同。映射用于判断地址属于主程序、共享库、堆、栈还是未映射区域；故障地址为小整数常见于空指针加偏移，但仍需结合指令和寄存器验证。</p>
+<p>大量 core 可先用批处理导出统一证据：</p>
+<pre><code class="language-bash">gdb -batch \
+  -ex 'set pagination off' \
+  -ex 'info threads' \
+  -ex 'thread apply all bt full' \
+  /path/to/service /path/to/core &gt; backtrace.txt
+</code></pre>
+<p>输出可能含敏感变量，自动上传前必须实施访问控制和内容治理。</p>
+<span class="heading-anchor" id="5. 常见坑与排障步骤：常见“看不懂”的原因"></span><h2 id="5">5. 常见坑与排障步骤：常见“看不懂”的原因</h2>
+<ul>
+<li><strong><code>??</code> 或无源码行</strong>：符号缺失、二进制不匹配或共享库路径错误。</li>
+<li><strong>栈回溯中断/地址异常</strong>：栈被破坏、缺少 unwind 信息或制品不匹配。</li>
+<li><strong>变量 optimized out</strong>：优化器已删除或合并变量；用带优化和符号的同配置重现，必要时针对模块降低优化。</li>
+<li><strong>源码行不合理</strong>：内联、宏、异步信号或内存破坏导致；结合反汇编和相邻帧。</li>
+<li><strong>本地无法加载 core</strong>：目标架构、GDB、库或 core 格式不匹配；在匹配容器/虚机内分析。</li>
+</ul>
+<p>排障路径：先确认收集器状态与是否截断，再核对主程序/库 build ID；符号缺失则修复符号路径；栈损坏则从仍可信的寄存器、映射和相邻线程取证；变量被优化则结合反汇编或用同 flags 重现；最终用 ASan/TSan/测试验证假设。不要通过反复猜测 <code>p</code> 出一个“看起来合理”的对象值来替代证据。</p>
+<span class="heading-anchor" id="6. 从现场到根因"></span><h2 id="6">6. 从现场到根因</h2>
+<p>一个可行动的报告应区分事实与推断：</p>
+<pre><code class="language-markdown">## 事实
+- 制品 build ID / 提交：
+- 信号、故障地址、崩溃线程：
+- 首个可信栈帧：
+- 相关线程、日志、请求/Trace ID：
+
+## 假设
+- 可能的所有权/边界条件/竞争问题：
+- 能支持或反驳假设的证据：
+
+## 复现与修复
+- 最小复现：
+- ASan/TSan/回归测试结果：
+- 修复和验证：
+</code></pre>
+<p>不要把“在某行崩溃”直接写成根因。空指针在哪产生、对象为何提前释放、数据竞争由什么所有权缺陷造成，才是下一层问题。</p>
+<span class="heading-anchor" id="7. 练习"></span><h2 id="7">7. 练习</h2>
+<ol>
+<li><strong>基础</strong>：完成空指针实验，输出信号、故障地址、源码行和 build ID。答案要点：崩溃点是事实，空指针来源仍要沿调用链解释。</li>
+<li><strong>进阶</strong>：剥离二进制后再次分析，再加载独立符号比较质量。答案要点：符号必须来自同一 build ID，重新编译的“同版本”不能替代。</li>
+<li><strong>进阶</strong>：限制 core 大小制造截断，观察收集器/GDB 提示。答案要点：证据缺失不能被解释为内存不存在。</li>
+<li><strong>综合</strong>：制造跨线程 use-after-free，用 core 提出假设，再用 ASan/TSan 或回归测试验证；报告区分事实、推断和验证结论。</li>
+</ol>
+<span class="heading-anchor" id="8. 检查清单"></span><h2 id="8">8. 检查清单</h2>
+<ul>
+<li>[ ] core 收集策略已验证，容量、权限、加密和保留期合理。</li>
+<li>[ ] 可执行文件、共享库、符号和源码与 core 精确匹配。</li>
+<li>[ ] 已记录信号、故障地址、崩溃线程及所有线程栈。</li>
+<li>[ ] 已识别优化、内存破坏或符号缺失带来的证据限制。</li>
+<li>[ ] 根因假设有最小复现或动态检查工具支持。</li>
+<li>[ ] 修复包含回归测试，且验证了目标构建类型。</li>
+</ul>
+<span class="heading-anchor" id="9. 小结"></span><h2 id="9">9. 小结</h2>
+<p>Core Dump 是崩溃瞬间的有限快照。高质量分析依赖端到端收集策略、精确匹配的制品与符号、所有线程和映射证据，以及对优化/截断/内存破坏局限的诚实说明。它适合提出根因假设，最终结论仍应由复现和动态检测工具验证。</p>
+<span class="heading-anchor" id="10. 官方延伸阅读"></span><h2 id="10">10. 官方延伸阅读</h2>
+<ul>
+<li><a href="https://sourceware.org/gdb/current/onlinedocs/gdb.html/Files.html">GDB：Core Files</a></li>
+<li><a href="https://sourceware.org/gdb/current/onlinedocs/gdb.html/Core-File-Generation.html">GDB：生成 Core File</a></li>
+<li><a href="https://www.freedesktop.org/software/systemd/man/latest/systemd-coredump.html">systemd-coredump</a></li>
+<li><a href="https://www.freedesktop.org/software/systemd/man/latest/coredumpctl.html">coredumpctl</a></li>
+<li><a href="https://man7.org/linux/man-pages/man5/core.5.html">Linux core(5)</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-06 元数据、权限与来源血缘 · 李杨的学习笔记</title><meta name="description" content="书脊标签可以记录分类和位置，也可能标明“仅馆内阅览”。前两项帮助查找，后一项决定
+谁能使用。若复印书中一页却没有复制“仅馆内阅览”的限制，这张纸就失去了原来的控制。"><meta property="og:title" content="03-06 元数据、权限与来源血缘 · 李杨的学习笔记"><meta property="og:description" content="书脊标签可以记录分类和位置，也可能标明“仅馆内阅览”。前两项帮助查找，后一项决定
+谁能使用。若复印书中一页却没有复制“仅馆内阅览”的限制，这张纸就失去了原来的控制。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-bf6b644a092d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-bf6b644a092d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 03-data-ingestion</p><h1>03-06 元数据、权限与来源血缘</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/03-data-ingestion/06-metadata-permissions-and-provenance.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">图书馆标签不只是方便查找</a></li><li><a href="#_2">三类信息承担不同责任</a></li><li><a href="#_3">描述性元数据</a></li><li><a href="#_4">控制性元数据</a></li><li><a href="#_5">来源血缘</a></li><li><a href="#_6">一个最小字段集合</a></li><li><a href="#_7">权限过滤要在内容暴露之前</a></li><li><a href="#_8">继承、覆盖与冲突</a></li><li><a href="#_9">具体例子：两个租户都有“员工手册”</a></li><li><a href="#_10">血缘让修复和撤回成为可能</a></li><li><a href="#_11">日志与元数据也可能泄露信息</a></li><li><a href="#_12">权限建模练习</a></li><li><a href="#_13">自测</a></li><li><a href="#_14">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>03-06</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 25 分钟权限建模练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td><a href="n-d348d38c9f8d.html">03-04 表格、布局与结构</a>；<a href="n-0c274f3e2bed.html">00-05 安全基线</a></td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本地表格模拟用户、租户、文档和访问范围</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分描述性元数据、控制性元数据和来源血缘；</li>
+<li>说明权限为什么必须随文档与文本块传播；</li>
+<li>设计最小的来源、位置、租户、版本和处理记录；</li>
+<li>识别“检索后再隐藏”造成的越权暴露风险。</li>
+</ul>
+<span class="heading-anchor" id="图书馆标签不只是方便查找"></span><h2 id="_1">图书馆标签不只是方便查找</h2>
+<p>书脊标签可以记录分类和位置，也可能标明“仅馆内阅览”。前两项帮助查找，后一项决定
+谁能使用。若复印书中一页却没有复制“仅馆内阅览”的限制，这张纸就失去了原来的控制。</p>
+<p>RAG 中的元数据（metadata）同样不仅用于展示。标题、页码和语言帮助定位；租户、访问
+组、保密等级和有效期则参与控制。Document 被切成 Chunk 后，这些约束仍然必须存在，
+否则细粒度记录可能成为无权限的孤儿数据。</p>
+<span class="heading-anchor" id="三类信息承担不同责任"></span><h2 id="_2">三类信息承担不同责任</h2>
+<span class="heading-anchor" id="描述性元数据"></span><h3 id="_3">描述性元数据</h3>
+<p>它帮助理解与引用，例如标题、作者、语言、页码、章节路径、发布时间和来源地址。描述性
+字段通常可用于过滤和展示，但并不自动代表授权。</p>
+<span class="heading-anchor" id="控制性元数据"></span><h3 id="_4">控制性元数据</h3>
+<p>它参与访问决策，例如租户 ID、资源所有者、允许的角色或组、地域限制、保密级别、失效
+时间和法律保留状态。控制字段的语义必须由授权系统定义，不能由摄取脚本随意猜测。</p>
+<span class="heading-anchor" id="来源血缘"></span><h3 id="_5">来源血缘</h3>
+<p>来源血缘（provenance）描述内容从哪里来、经过了哪些处理、由什么版本的规则生成。它可以
+连接原始对象、解析结果、清洗结果、Document 和后续 Chunk，让引用、排错、更新与撤回
+有据可循。</p>
+<p>三类信息可以位于同一个元数据对象，但字段含义和可信来源不能混淆。网页自报的“公开”
+标签不应覆盖平台授权策略。</p>
+<span class="heading-anchor" id="一个最小字段集合"></span><h2 id="_6">一个最小字段集合</h2>
+<p>不同项目字段会变化，但可以先回答以下问题：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>可能字段</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>这是谁</td>
+<td><code>document_id</code>、<code>source_id</code></td>
+<td>逻辑身份与具体来源可分开</td>
+</tr>
+<tr>
+<td>从哪里来</td>
+<td><code>source_uri</code>、<code>source_system</code></td>
+<td>地址本身可能敏感</td>
+</tr>
+<tr>
+<td>在哪里</td>
+<td>页码、章节、节点 ID</td>
+<td>位置应能回到原文</td>
+</tr>
+<tr>
+<td>哪个版本</td>
+<td>内容摘要、业务版本、处理版本</td>
+<td>三者不是同一概念</td>
+</tr>
+<tr>
+<td>谁能访问</td>
+<td><code>tenant_id</code>、策略或资源标识</td>
+<td>不要只存展示用角色名</td>
+</tr>
+<tr>
+<td>怎样产生</td>
+<td>Loader、Parser、清洗规则版本</td>
+<td>支持复现与撤回</td>
+</tr>
+<tr>
+<td>当前状态</td>
+<td>成功、部分、隔离、删除</td>
+<td>状态转换应可审计</td>
+</tr>
+</tbody>
+</table></div>
+<p>字段名称并不重要，重要的是定义：谁写入、何时写入、谁能修改、缺失时怎么办。</p>
+<span class="heading-anchor" id="权限过滤要在内容暴露之前"></span><h2 id="_7">权限过滤要在内容暴露之前</h2>
+<p>一个危险流程是先跨所有租户检索，再在最终界面隐藏不允许的结果。未授权内容可能已经
+进入候选列表、重排器、模型上下文、缓存或日志，即使用户界面没有显示，也已经发生边界
+外处理。</p>
+<p>更保守的原则是让授权范围在检索前或检索执行中生效，并在每个下游阶段维持约束：</p>
+<ol>
+<li>请求身份由可信认证系统提供；</li>
+<li>授权层把身份转换为当前可访问资源范围；</li>
+<li>检索只在该范围内寻找候选，或使用等效的强制过滤；</li>
+<li>重排、缓存、上下文和日志继续保持租户隔离；</li>
+<li>返回引用时再次校验资源仍可访问。</li>
+</ol>
+<p>具体方案取决于存储与授权架构。本章不声称某个元数据过滤器单独就能构成完整授权系统。</p>
+<span class="heading-anchor" id="继承、覆盖与冲突"></span><h2 id="_8">继承、覆盖与冲突</h2>
+<p>一份文档可能继承文件夹权限，某个附件又有更严格限制。摄取时需要明确：</p>
+<ul>
+<li>权限来自哪个权威系统；</li>
+<li>是复制策略快照，还是保存资源引用并实时查询；</li>
+<li>父级变化如何传播到子文档和 Chunk；</li>
+<li>多个来源权限冲突时采用什么规则；</li>
+<li>权限字段缺失时默认拒绝还是默认允许。</li>
+</ul>
+<p>安全默认值通常是缺失或冲突时不发布，并记录可处理的错误。默认允许虽然减少失败，却会
+扩大越权风险。</p>
+<span class="heading-anchor" id="具体例子：两个租户都有“员工手册”"></span><h2 id="_9">具体例子：两个租户都有“员工手册”</h2>
+<p>租户 A 与租户 B 上传了标题相同、部分内容相似的员工手册。若去重系统只按正文摘要保留
+一份记录，并覆盖 <code>tenant_id</code>，其中一个租户可能检索到另一个租户的段落。</p>
+<p>合理模型可以共享受控的内容实体，但必须保留两个独立来源记录与授权关系。查询 A 时，
+系统只允许 A 的来源进入候选；引用也回到 A 的资源。若 B 删除文档，不应顺带删除 A 仍然
+拥有的来源，反之亦然。</p>
+<p>这个例子说明去重、存储优化和授权是不同责任。优化不能改变访问语义。</p>
+<span class="heading-anchor" id="血缘让修复和撤回成为可能"></span><h2 id="_10">血缘让修复和撤回成为可能</h2>
+<p>假设清洗规则错误地删除了所有小数点。通过血缘记录，可以找到由该规则版本产生的文档
+与 Chunk，回到原始来源，重新处理并替换旧结果。若只保存最终文本，团队可能既不知道
+哪些内容受影响，也无法证明修复是否完整。</p>
+<p>最小血缘链可以记录：原始来源标识 -&gt; Loader 运行 -&gt; Parser 运行 -&gt; 清洗运行 -&gt;
+Document 版本。后续章节会继续连接 Chunk、Embedding 与索引版本。</p>
+<span class="heading-anchor" id="日志与元数据也可能泄露信息"></span><h2 id="_11">日志与元数据也可能泄露信息</h2>
+<p>文件路径可能包含姓名，来源地址可能含访问令牌，租户 ID 与错误信息可能暴露组织结构。
+因此元数据不是天然无敏感信息。应按用途最小化收集，限制访问和保留期，并对密钥、令牌
+和不必要的正文进行遮蔽。</p>
+<p>审计日志要能回答谁在何时改变了什么，但不能成为一个权限更弱的全文副本。</p>
+<p>计划中的 <code>permissions.py</code> 过滤前置契约、D17 权限过滤图和对应测试将在后续批次实现。</p>
+<span class="heading-anchor" id="权限建模练习"></span><h2 id="_12">权限建模练习</h2>
+<p>画一张包含两个租户、三个用户、两个用户组和四份文档的表。为每份文档写出权威来源、
+允许范围和缺失权限时的默认行为。然后模拟：</p>
+<ol>
+<li>用户从一个组中移除；</li>
+<li>文档移动到更严格的文件夹；</li>
+<li>一个 Chunk 丢失 <code>document_id</code>；</li>
+<li>缓存中仍有旧候选。</li>
+</ol>
+<p>说明每种变化如何阻止未授权内容进入上下文。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_13">自测</h2>
+<ol>
+<li>描述性元数据与控制性元数据有什么不同？</li>
+<li>为什么 UI 隐藏不能替代检索前授权？</li>
+<li>Chunk 为什么必须能回到 Document 和来源？</li>
+<li>权限缺失时默认允许有什么风险？</li>
+<li>来源血缘怎样支持错误清洗后的重建？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_14">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已做轻量静态检查；授权实现与安全验证尚未完成。</li>
+<li>代码与图表：<code>permissions.py</code> 契约、D17 和对应测试均为后续计划。</li>
+<li>
+<p>摘要：<a href="n-ef350ff3433e.html">03-06 摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-0163c5cbc7b7.html">03-05 清洗、编码与去重</a></p>
+</li>
+<li>下一章：<a href="n-4f6d26118749.html">03-07 版本、增量更新与删除</a></li>
+<li>返回：<a href="n-526fec9608d7.html">03 数据摄取索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

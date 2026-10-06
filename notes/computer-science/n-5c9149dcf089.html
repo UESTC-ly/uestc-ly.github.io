@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>C++ 资源管理与工程基础 · 李杨的学习笔记</title><meta name="description" content="本篇的核心线索是：用类型表达所有权，用作用域表达释放顺序，用错误对象表达失败边界，用测试和构建规则把这些约束固定下来。下面各节分别展开资源生命周期、智能指针、移动语义、异常安全和模块边界。"><meta property="og:title" content="C++ 资源管理与工程基础 · 李杨的学习笔记"><meta property="og:description" content="本篇的核心线索是：用类型表达所有权，用作用域表达释放顺序，用错误对象表达失败边界，用测试和构建规则把这些约束固定下来。下面各节分别展开资源生命周期、智能指针、移动语义、异常安全和模块边界。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5c9149dcf089.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5c9149dcf089.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 01-C++与Linux基础</p><h1>C++ 资源管理与工程基础</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/01-C%2B%2B%E4%B8%8ELinux%E5%9F%BA%E7%A1%80/01-C%2B%2B%E8%B5%84%E6%BA%90%E7%AE%A1%E7%90%86%E4%B8%8E%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#1">1. 生命周期比语法更重要</a></li><li><a href="#raii">RAII 解决的问题</a></li><li><a href="#_3">所有权与借用边界</a></li><li><a href="#2">2. 值、引用和智能指针</a></li><li><a href="#_4">智能指针不是并发策略</a></li><li><a href="#3">3. 移动语义与容器稳定性</a></li><li><a href="#_5">移动和异常安全</a></li><li><a href="#4">4. 错误处理策略</a></li><li><a href="#_6">返回值与错误路径示例</a></li><li><a href="#5">5. 接口和模块边界</a></li><li><a href="#6">6. 构建与测试</a></li><li><a href="#_7">工程实践/示例</a></li><li><a href="#_8">故障排查/观测</a></li><li><a href="#_9">生命周期问题怎么定位</a></li><li><a href="#code-review">Code review 检查点</a></li><li><a href="#_10">面试与工程复盘</a></li><li><a href="#raii_1">如何讲清一个 RAII 类型</a></li><li><a href="#_11">如何审查异步生命周期</a></li><li><a href="#_12">最小验收清单</a></li><li><a href="#_13">常见误区</a></li><li><a href="#_14">自测题</a></li><li><a href="#_15">实践任务</a></li><li><a href="#_16">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>用 RAII 表达文件、Socket、锁和线程等资源的生命周期。</li>
+<li>理解值语义、引用语义、移动语义及智能指针的所有权含义。</li>
+<li>建立错误处理、测试、构建和代码边界的基本习惯。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>本篇的核心线索是：用类型表达所有权，用作用域表达释放顺序，用错误对象表达失败边界，用测试和构建规则把这些约束固定下来。下面各节分别展开资源生命周期、智能指针、移动语义、异常安全和模块边界。</p>
+<span class="heading-anchor" id="1. 生命周期比语法更重要"></span><h2 id="1">1. 生命周期比语法更重要</h2>
+<p>C++ 后端常见资源不只有内存，还包括文件描述符、互斥锁、线程、数据库连接和注册到事件循环中的回调。每个资源都要回答：</p>
+<ul>
+<li>谁拥有它？能否共享？</li>
+<li>所有权能否转移？</li>
+<li>释放动作会不会失败或阻塞？</li>
+<li>回调执行时，被捕获对象还活着吗？</li>
+<li>服务关闭时，释放顺序是什么？</li>
+</ul>
+<p>RAII 把“取得资源”和对象构造绑定，把“释放资源”和析构绑定，使正常返回和异常路径使用相同清理机制。</p>
+<pre><code class="language-cpp">#include &lt;unistd.h&gt;
+#include &lt;utility&gt;
+
+class UniqueFd {
+public:
+    explicit UniqueFd(int fd = -1) noexcept : fd_(fd) {}
+    ~UniqueFd() { reset(); }
+
+    UniqueFd(const UniqueFd&amp;) = delete;
+    UniqueFd&amp; operator=(const UniqueFd&amp;) = delete;
+
+    UniqueFd(UniqueFd&amp;&amp; other) noexcept
+        : fd_(std::exchange(other.fd_, -1)) {}
+
+    UniqueFd&amp; operator=(UniqueFd&amp;&amp; other) noexcept {
+        if (this != &amp;other) reset(std::exchange(other.fd_, -1));
+        return *this;
+    }
+
+    int get() const noexcept { return fd_; }
+    explicit operator bool() const noexcept { return fd_ &gt;= 0; }
+
+    int release() noexcept { return std::exchange(fd_, -1); }
+    void reset(int next = -1) noexcept {
+        if (fd_ &gt;= 0) ::close(fd_);
+        fd_ = next;
+    }
+
+private:
+    int fd_;
+};
+</code></pre>
+<p>注意：<code>close</code> 后不要重试关闭同一个整数。即使某些错误使返回值看似失败，该 fd 数值也可能已被其他线程复用。</p>
+<span class="heading-anchor" id="RAII 解决的问题"></span><h3 id="raii">RAII 解决的问题</h3>
+<p>RAII 的核心不是“自动调用析构”这么简单，而是把资源状态从散落的控制流中收回到类型系统里。没有 RAII 时，函数每增加一个提前返回、异常、超时分支，就要重新检查是否遗漏 <code>close</code>、<code>unlock</code>、<code>delete</code> 或回滚动作；有 RAII 后，清理路径变成对象析构的自然结果。</p>
+<p>一个资源包装类型通常要明确四件事：</p>
+<ul>
+<li>构造后是否一定拥有有效资源，还是允许空状态；</li>
+<li>析构时释放动作是否可失败，失败如何记录；</li>
+<li>是否允许复制，复制后是共享资源还是复制资源内容；</li>
+<li>移动后源对象处于什么可析构状态。</li>
+</ul>
+<p><code>UniqueFd</code> 允许 <code>-1</code> 空状态，是为了让默认构造、移动后对象和 <code>release()</code> 后对象都能安全析构。它删除复制，是因为两个对象同时 <code>close</code> 同一个 fd 数字会造成 double close；它支持移动，是为了让 fd 可以从工厂函数、容器或连接对象之间转移。</p>
+<span class="heading-anchor" id="所有权与借用边界"></span><h3 id="_3">所有权与借用边界</h3>
+<p>后端代码里常见的生命周期 bug 来自“借用跨过了所有者的生命周期”。同步函数参数可以用 <code>T&amp;</code> 或 <code>T*</code> 表达短期借用；异步任务、线程、事件循环回调里如果保存借用，就必须证明回调执行前所有者不会析构。</p>
+<p>典型数据流：</p>
+<pre><code class="language-text">Acceptor 创建 fd -&gt; Connection 独占 fd -&gt; EventLoop 持有 Connection -&gt; 回调借用 Connection 状态
+</code></pre>
+<p>如果业务回调需要跨线程运行，不要把 <code>Connection*</code> 直接丢到线程池里。更稳妥的做法是把请求数据复制或移动到任务对象中，业务完成后只把响应和连接 id 投递回所属事件循环，由事件循环再次查找连接是否仍然存活。</p>
+<span class="heading-anchor" id="2. 值、引用和智能指针"></span><h2 id="2">2. 值、引用和智能指针</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>表达的含义</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>值对象</td>
+<td>独立状态，随作用域销毁</td>
+<td>配置、消息、缓冲区</td>
+</tr>
+<tr>
+<td><code>T&amp;</code> / <code>T*</code></td>
+<td>通常不拥有，只在约定期限内借用</td>
+<td>同步调用参数、可空观察者</td>
+</tr>
+<tr>
+<td><code>std::unique_ptr&lt;T&gt;</code></td>
+<td>唯一所有权，可移动</td>
+<td>多态对象、明确转移资源</td>
+</tr>
+<tr>
+<td><code>std::shared_ptr&lt;T&gt;</code></td>
+<td>共享生命周期，不等于线程安全</td>
+<td>异步回调共享连接对象</td>
+</tr>
+<tr>
+<td><code>std::weak_ptr&lt;T&gt;</code></td>
+<td>不延长生命周期的观察</td>
+<td>打破环、异步回调前探活</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>shared_ptr</code> 只保证控制块的引用计数操作可并发，不自动保护 <code>T</code> 的内部状态。把所有对象改成 <code>shared_ptr</code> 往往是在隐藏所有权问题，还可能形成引用环。</p>
+<p>异步回调的危险点：捕获裸 <code>this</code>，回调晚于对象析构。常见修复是让事件循环拥有任务，在对象可共享时捕获 <code>weak_ptr</code> 并在回调开始时 <code>lock()</code>；更根本的方法是规定取消与销毁的线程和顺序。</p>
+<span class="heading-anchor" id="智能指针不是并发策略"></span><h3 id="_4">智能指针不是并发策略</h3>
+<p><code>unique_ptr</code> 适合表达“此处唯一拥有”，例如连接对象独占协议解析器、输出缓冲区或 TLS 会话对象。<code>shared_ptr</code> 适合确实存在多个异步任务共同延长对象生命周期的场景，但它只管理对象存活，不管理对象内部字段的并发访问。</p>
+<p>回调生命周期的常见写法：</p>
+<pre><code class="language-cpp">std::weak_ptr&lt;Connection&gt; weak = shared_from_this();
+loop.runLater([weak] {
+    auto self = weak.lock();
+    if (!self) return;          // 连接已销毁，回调成为 no-op
+    self-&gt;onTimeout();          // 仍需保证在连接所属线程执行
+});
+</code></pre>
+<p>这段代码的简化边界是：它只避免 use-after-free，不保证 <code>onTimeout()</code> 与其他线程并发访问安全。如果 <code>onTimeout()</code> 可能和读写回调并发，仍要通过事件循环串行化或加锁保护状态。</p>
+<span class="heading-anchor" id="3. 移动语义与容器稳定性"></span><h2 id="3">3. 移动语义与容器稳定性</h2>
+<ul>
+<li>移动后对象仍需可析构、可赋值，但业务状态通常只能视为“有效但未指定”。</li>
+<li>声明析构、复制或移动成员时，检查 Rule of Zero/Rule of Five。</li>
+<li><code>vector</code> 扩容可能使指针、引用和迭代器失效；异步代码不要长期保存不稳定地址。</li>
+<li><code>string_view</code>、<code>span</code> 不拥有数据；跨线程或跨异步边界前确认底层存储仍有效。</li>
+</ul>
+<span class="heading-anchor" id="移动和异常安全"></span><h3 id="_5">移动和异常安全</h3>
+<p>容器扩容、排序、返回局部对象时都会触发移动。移动构造通常应标记 <code>noexcept</code>，否则某些标准容器在重新分配时可能退回复制，或者在元素不可复制时无法提供期望的异常保证。</p>
+<p>异常安全常见分级：</p>
+<ul>
+<li>基本保证：失败后对象仍可用，不泄漏资源；</li>
+<li>强保证：失败后状态不变，像操作从未发生；</li>
+<li>不抛保证：操作承诺不抛异常，常见于析构、移动和释放资源。</li>
+</ul>
+<p>实现“先准备后提交”可以获得强保证：</p>
+<pre><code class="language-cpp">void replaceConfig(Config next) {
+    next.validate();        // 可能抛异常，当前对象还没变
+    config_ = std::move(next);
+}
+</code></pre>
+<p>析构函数里不要抛异常；如果释放失败需要诊断，通常记录轻量错误计数或在显式 <code>close()</code> 中返回错误，把析构作为兜底清理。</p>
+<span class="heading-anchor" id="4. 错误处理策略"></span><h2 id="4">4. 错误处理策略</h2>
+<p>错误机制应按边界统一：</p>
+<ul>
+<li>不可恢复的构造失败可用异常；析构函数通常不能抛异常。</li>
+<li>高频系统调用路径常用返回值、<code>std::error_code</code> 或项目统一的 <code>Result&lt;T&gt;</code>。</li>
+<li>日志不是错误处理。调用者必须能区分可重试、不可重试、客户端错误和服务端错误。</li>
+<li>捕获异常后若不能增加上下文或恢复，不要静默吞掉。</li>
+</ul>
+<p>错误对象至少保留：错误类别、稳定错误码、人类可读上下文、根因；对外响应不要泄露凭据、SQL 或内部路径。</p>
+<span class="heading-anchor" id="返回值与错误路径示例"></span><h3 id="_6">返回值与错误路径示例</h3>
+<p>系统调用风格 API 要把返回值语义写清楚。以 <code>read</code> 为例：</p>
+<pre><code class="language-cpp">ssize_t n = ::read(fd, buf, sizeof(buf));
+if (n &gt; 0) {
+    consume(buf, static_cast&lt;size_t&gt;(n));
+} else if (n == 0) {
+    markPeerClosed();
+} else if (errno == EINTR) {
+    retryLaterOrImmediately();
+} else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    waitNextReadableEvent();
+} else {
+    closeWithError(errno);
+}
+</code></pre>
+<p>这段代码是教学片段，省略了输入缓冲区、协议解析、日志上下文和 fd 生命周期保护。关键点是不要把 <code>-1</code> 都当成同一种失败：<code>EINTR</code> 通常可重试，<code>EAGAIN</code> 表示非阻塞资源暂不可用，其他错误多半要关闭连接或进入失败状态。</p>
+<span class="heading-anchor" id="5. 接口和模块边界"></span><h2 id="5">5. 接口和模块边界</h2>
+<ul>
+<li>让无效状态难以表示，例如用强类型区分用户 ID 与订单 ID。</li>
+<li>头文件暴露最小接口，减少传递依赖。</li>
+<li>依赖从构造函数注入，使数据库、时钟和网络客户端可替换测试。</li>
+<li>配置在启动阶段解析和校验，运行时使用不可变快照或明确更新协议。</li>
+</ul>
+<span class="heading-anchor" id="6. 构建与测试"></span><h2 id="6">6. 构建与测试</h2>
+<p>一个最小 CMake 结构：</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20)
+project(backend_lab LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(core src/unique_fd.cpp)
+target_include_directories(core PUBLIC include)
+target_compile_options(core PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(server src/main.cpp)
+target_link_libraries(server PRIVATE core)
+
+enable_testing()
+add_subdirectory(tests)
+</code></pre>
+<p>测试分层：</p>
+<ul>
+<li>单元测试：状态机、编解码器、限流器等纯逻辑。</li>
+<li>集成测试：真实 Redis/数据库/消息队列及网络边界。</li>
+<li>端到端测试：从 API 到持久化的关键路径。</li>
+<li>故障测试：超时、重复、断连、服务重启、队列满。</li>
+</ul>
+<p>开发阶段建议启用 AddressSanitizer/UndefinedBehaviorSanitizer；并发测试使用 ThreadSanitizer 单独构建，避免与其他 Sanitizer 随意混用。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_7">工程实践/示例</h2>
+<p>前面的 <code>UniqueFd</code>、异步 <code>weak_ptr</code> 回调、系统调用返回值处理和 CMake 片段都是教学示例。实际项目中应把这些片段收敛为可测试组件：资源包装类放在基础库，错误类型在模块边界统一，异步任务只通过事件循环或线程池接口投递，构建选项在 target 上声明。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_8">故障排查/观测</h2>
+<span class="heading-anchor" id="生命周期问题怎么定位"></span><h3 id="_9">生命周期问题怎么定位</h3>
+<p>资源管理问题通常表现为 fd 泄漏、重复关闭、悬空回调或内存破坏。定位时先把“对象身份”和“资源身份”分开记录：对象地址、连接 id、fd 数字、创建线程、关闭线程和状态转换时间。</p>
+<p>常用检查：</p>
+<pre><code class="language-bash">ls -l /proc/&lt;pid&gt;/fd
+lsof -p &lt;pid&gt;
+ASAN_OPTIONS=detect_leaks=1 ./unit_tests
+TSAN_OPTIONS=halt_on_error=1 ./concurrency_tests
+</code></pre>
+<p>fd 数持续上涨通常是泄漏；大量相同业务状态的连接卡住，可能是关闭状态机没有走到 unregister/close；ASan 报 use-after-free 时优先查异步回调捕获、容器扩容导致的引用失效、对象析构和线程 join 顺序。</p>
+<span class="heading-anchor" id="Code review 检查点"></span><h3 id="code-review">Code review 检查点</h3>
+<ul>
+<li>每个 owning 类型是否禁止了错误复制；</li>
+<li>每个 <code>release()</code> 调用后是否有新的明确所有者；</li>
+<li>异步 lambda 捕获的是值、引用、裸指针、<code>shared_ptr</code> 还是 <code>weak_ptr</code>；</li>
+<li>析构是否会阻塞很久、抛异常或调用未知回调；</li>
+<li>错误路径是否和成功路径一样释放资源。</li>
+</ul>
+<span class="heading-anchor" id="面试与工程复盘"></span><h2 id="_10">面试与工程复盘</h2>
+<span class="heading-anchor" id="如何讲清一个 RAII 类型"></span><h3 id="raii_1">如何讲清一个 RAII 类型</h3>
+<p>讲 RAII 时不要只说“构造申请、析构释放”。更完整的回答顺序是：资源是什么，空状态如何表达，复制为什么禁止或允许，移动后源对象是什么状态，析构失败如何处理，和异步回调/线程关闭有什么关系。</p>
+<span class="heading-anchor" id="如何审查异步生命周期"></span><h3 id="_11">如何审查异步生命周期</h3>
+<p>沿任务投递链追踪对象：谁创建任务，任务队列是否延长对象生命周期，回调在哪个线程执行，取消时队列里尚未执行的任务如何处理。只要有一个环节回答不清，<code>shared_ptr</code> 也只能推迟崩溃，不能证明设计正确。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_12">最小验收清单</h3>
+<ul>
+<li>owning 类型有明确空状态和移动语义。</li>
+<li>释放动作不会从析构抛异常。</li>
+<li>异步回调不捕获长期裸引用。</li>
+<li>错误路径和成功路径都能到达释放点。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_13">常见误区</h2>
+<ul>
+<li>“用了智能指针就没有生命周期问题”：借用关系、回调顺序和引用环仍可能出错。</li>
+<li>“移动一定比复制快”：小对象或不能有效转移资源的类型未必如此。</li>
+<li>“析构自动解决一切”：析构时线程可能仍在访问对象，必须先停止和回收。</li>
+<li>“单元测试通过就能上线”：网络、线程、持久化和资源极限需要集成与故障测试。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_14">自测题</h2>
+<ol>
+<li>为什么 <code>shared_ptr</code> 不能替代锁？</li>
+<li><code>string_view</code> 跨异步任务传递有什么风险？</li>
+<li>一个连接对象销毁前需要与事件循环完成哪些同步？</li>
+<li>为什么析构函数通常应为 <code>noexcept</code>？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_15">实践任务</h2>
+<ol>
+<li>为 fd、<code>FILE*</code> 和数据库连接各写一个不可复制、可移动的 RAII 包装。</li>
+<li>制造 use-after-free、double-free、未定义行为，分别用 Sanitizer 定位并记录报告。</li>
+<li>为长度字段解码器写属性测试：任意分片输入与完整输入得到同样的消息序列。</li>
+</ol>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_16">延伸阅读</h2>
+<ul>
+<li><a href="https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines">C++ Core Guidelines</a></li>
+<li><a href="https://cmake.org/cmake/help/latest/guide/tutorial/">CMake 官方教程</a></li>
+<li><a href="https://github.com/google/sanitizers">Google Sanitizers</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

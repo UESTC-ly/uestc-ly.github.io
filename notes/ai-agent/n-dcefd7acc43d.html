@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04-01 固定长度、句子与段落切分 · 李杨的学习笔记</title><meta name="description" content="假设一份 40 页的售后手册同时讨论退货、换货、维修、退款时限和异常申诉。用户只问“定制
+商品能否退货”。如果检索单位是整份手册，候选虽然相关，却夹带大量无关内容；如果模型的
+上下文预算不足，真正的例外条件还可能在截断时消失。"><meta property="og:title" content="04-01 固定长度、句子与段落切分 · 李杨的学习笔记"><meta property="og:description" content="假设一份 40 页的售后手册同时讨论退货、换货、维修、退款时限和异常申诉。用户只问“定制
+商品能否退货”。如果检索单位是整份手册，候选虽然相关，却夹带大量无关内容；如果模型的
+上下文预算不足，真正的例外条件还可能在截断时消失。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-dcefd7acc43d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-dcefd7acc43d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 04-chunking</p><h1>04-01 固定长度、句子与段落切分</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/04-chunking/01-fixed-sentence-and-paragraph-chunking.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">为什么整篇文档通常太粗</a></li><li><a href="#_2">固定长度切分</a></li><li><a href="#_3">按句子切分</a></li><li><a href="#_4">按段落切分</a></li><li><a href="#_5">三种方法怎样组合</a></li><li><a href="#_6">手工检查一个切分结果</a></li><li><a href="#_7">工程与安全边界</a></li><li><a href="#_8">纸面练习</a></li><li><a href="#_9">自测</a></li><li><a href="#_10">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>04-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>35 分钟阅读，加 20 分钟纸面练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解 <a href="n-5357e5f164bd.html">02-03 索引阶段与查询阶段</a>；知道文本会先进入索引，再被查询召回</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章示例手工画出块边界，不要求运行切分库</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>说明文本块、块边界和切分单位的含义；</li>
+<li>比较固定长度、句子和段落切分的优点与失败方式；</li>
+<li>判断一个块是否丢失了标题、限定条件或来源位置；</li>
+<li>为一份普通说明文档写出可执行前的切分规则草案。</li>
+</ul>
+<span class="heading-anchor" id="为什么整篇文档通常太粗"></span><h2 id="_1">为什么整篇文档通常太粗</h2>
+<p>假设一份 40 页的售后手册同时讨论退货、换货、维修、退款时限和异常申诉。用户只问“定制
+商品能否退货”。如果检索单位是整份手册，候选虽然相关，却夹带大量无关内容；如果模型的
+上下文预算不足，真正的例外条件还可能在截断时消失。</p>
+<p>文本切分（chunking）是在索引前把可解析文本划成多个可管理单元的过程。每个单元称为文本
+块（chunk）。块边界（chunk boundary）是相邻两块的分界位置。边界选得不好，可能把一句话、
+一条规则的条件和结论，或标题与正文拆开。</p>
+<p>切分的目标不是让每块同样长，而是让检索单位既可区分又可理解。长度只是实现目标的一种
+约束。</p>
+<span class="heading-anchor" id="固定长度切分"></span><h2 id="_2">固定长度切分</h2>
+<p>固定长度切分先选择计数单位，再按上限截取。例如每 300 个字符一块，或每 200 个词元
+（token）一块。词元是模型处理文本的基本片段，同一个汉字、标点或英文单词不一定都对应
+一个词元，因此字符数和词元数不能直接互换。</p>
+<p>固定长度方法的主要优点是简单、可预测，适合作为实验基线。它也能为每块长度提供硬上限，
+便于估算嵌入和上下文预算。但它不理解语义：第 300 个字符可能恰好位于否定词、表格行或
+代码语句中间。</p>
+<p>考虑原文：</p>
+<blockquote>
+<p>标准商品签收后 30 天内可申请退货。定制商品除质量问题外不接受无理由退货。</p>
+</blockquote>
+<p>若第一块结束于“定制商品除质量问题外”，第二块从“不接受无理由退货”开始，两块单独看都
+不完整。检索第一块可能让系统漏掉否定结论，检索第二块又可能丢失适用对象。</p>
+<p>固定长度不等于错误。对于没有稳定结构、内容高度均匀的短记录，它可能足够好；对于复杂
+文档，它至少应尝试在接近上限时回退到句号或段落边界，而不是无条件硬切。</p>
+<span class="heading-anchor" id="按句子切分"></span><h2 id="_3">按句子切分</h2>
+<p>句子切分先识别句末，再把若干完整句子组合成一个块。这样通常比硬切字符更能保留局部意思。
+如果上面的两条规则分别作为完整句子保存，否定词不会与结论分离。</p>
+<p>实际文本的句号并不总是句末：版本号 <code>v2.1</code>、域名、缩写、编号和小数都可能包含点号；中文
+还会混用句号、问号、感叹号和英文标点。仅用一个正则表达式按所有句号分割，可能产生大量
+碎片。解析器的语言配置、异常样本和原文偏移都需要检查。</p>
+<p>单句也可能过长。例如法律条款或技术规范常用一个长句列出多个条件。工程上可以先保留句子，
+再对超过硬上限的长句使用次级规则；必须记录这是降级切分，便于后续审查。</p>
+<span class="heading-anchor" id="按段落切分"></span><h2 id="_4">按段落切分</h2>
+<p>段落通常由作者主动组织，常比纯长度更接近一个完整主题。Markdown 的空行、HTML 的段落
+元素和办公文档的段落对象都可提供边界。按段落切分还能保留列表前的引导句和连续说明。</p>
+<p>但“一个段落就是一个好块”仍不是普遍事实：</p>
+<ul>
+<li>有的段落只有一句“详情如下”，离开后续列表没有意义；</li>
+<li>有的段落长达数页，包含多个主题；</li>
+<li>PDF 解析可能把每一视觉行误当成段落；</li>
+<li>OCR 可能丢失空行，让多个区域粘在一起；</li>
+<li>标题可能被解析成独立短段，正文失去上文。</li>
+</ul>
+<p>因此，段落是候选边界，不是无需验证的真值。</p>
+<span class="heading-anchor" id="三种方法怎样组合"></span><h2 id="_5">三种方法怎样组合</h2>
+<p>常见的基础策略是“优先自然边界，长度负责兜底”：</p>
+<ol>
+<li>先按段落取得候选单元；</li>
+<li>将相邻短段落合并，直到接近目标长度；</li>
+<li>对超过硬上限的长段落尝试按句子拆分；</li>
+<li>只有单个句子仍超限时，才使用固定长度降级；</li>
+<li>为每块保存原文起止位置和所用规则。</li>
+</ol>
+<p>这只是可测试的起点，不是所有项目的默认答案。客服短记录、论文正文和产品目录的最佳策略
+可能完全不同。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>主要优点</th>
+<th>主要风险</th>
+<th>适合作为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定长度</td>
+<td>简单，有明确上限</td>
+<td>可能切断意思和结构</td>
+<td>最小基线、硬上限兜底</td>
+</tr>
+<tr>
+<td>句子</td>
+<td>局部语义较完整</td>
+<td>句界识别会错，长句仍超限</td>
+<td>普通叙述文本的中间层</td>
+</tr>
+<tr>
+<td>段落</td>
+<td>利用作者组织</td>
+<td>解析段落可能过短或过长</td>
+<td>结构清晰文档的首选候选边界</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="手工检查一个切分结果"></span><h2 id="_6">手工检查一个切分结果</h2>
+<p>对任意五个相邻块，逐项询问：</p>
+<ul>
+<li>每块能否说明它讨论的对象？</li>
+<li>“不、仅、除外、必须、最多”等限定词是否与结论同块？</li>
+<li>标题或栏目路径是否可从元数据恢复？</li>
+<li>块首是否依赖上一块未保留的代词或引导句？</li>
+<li>块尾是否突然中断表格、列表、代码或引用？</li>
+<li>原文位置能否用于打开并核对来源？</li>
+</ul>
+<p>人工检查不能替代检索评估，但能快速发现明显的边界损坏。</p>
+<span class="heading-anchor" id="工程与安全边界"></span><h2 id="_7">工程与安全边界</h2>
+<p>切分器必须处理空文本、异常长文本、混合换行、无效编码和重复内容。对失败文档应记录原因，
+不能悄悄生成空索引并报告成功。块标识应稳定或可追踪，文档更新后才能判断哪些记录需要删除。</p>
+<p>每个块还要继承文档的来源、版本、租户和权限。不能先把所有文本切进公共集合，再期望回答
+阶段补救越权。文本中出现“忽略此前规则”也只是来源内容；切分不能把它提升为系统指令。</p>
+<span class="heading-anchor" id="纸面练习"></span><h2 id="_8">纸面练习</h2>
+<p>取下面三段文字，为“定制商品能否退货”设计块边界：</p>
+<blockquote>
+<p>退货政策</p>
+<p>标准商品签收后 30 天内可申请无理由退货。商品必须保持未使用状态。</p>
+<p>定制商品不适用无理由退货；若存在质量问题，请进入质量申诉流程。</p>
+</blockquote>
+<p>至少比较两套方案：每句一块，以及标题加相邻段落一块。写下哪套方案更容易召回精确规则，
+又有哪些查询可能需要另一套方案。这里的答案是实验假设，不是已经验证的性能结论。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_9">自测</h2>
+<ol>
+<li>为什么字符数相同的两个块不一定包含相同数量的词元？</li>
+<li>固定长度切分最适合承担什么角色？</li>
+<li>按段落切分为什么仍可能把标题和正文分开？</li>
+<li>哪些词一旦跨块，最容易改变规则含义？</li>
+<li>为什么切分时就必须保留权限和来源元数据？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_10">本章状态与导航</h2>
+<ul>
+<li>章节状态：首批教学正文，已做轻量静态检查；切分规则是设计说明，未声称已实现或运行。</li>
+<li>工程边界：具体长度与组合方式必须根据语料、模型预算和查询集评估。</li>
+<li>安全边界：切分不会验证来源真实性，也不能替代权限过滤和不可信输入隔离。</li>
+<li>
+<p>摘要：<a href="n-89808f71ea6e.html">04-01 章节摘要</a></p>
+</li>
+<li>
+<p>上一站：<a href="n-6c8772db7ffa.html">04 文本切分索引</a></p>
+</li>
+<li>下一章：<a href="n-2ade56708b86.html">04-02 结构感知与递归切分</a></li>
+<li>返回：<a href="n-cf7d5431540b.html">文档总索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

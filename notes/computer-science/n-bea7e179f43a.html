@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02-数据类型与核心命令 · 李杨的学习笔记</title><meta name="description" content="适用版本：以 Redis 7.x 通用命令为主。大部分基础数据类型命令在 Redis 5/6/7 中通用；Stream、ACL、Functions 等能力在较新版本中更完整。命令细节以实际 COMMAND DOCS 或官方文档为准。"><meta property="og:title" content="02-数据类型与核心命令 · 李杨的学习笔记"><meta property="og:description" content="适用版本：以 Redis 7.x 通用命令为主。大部分基础数据类型命令在 Redis 5/6/7 中通用；Stream、ACL、Functions 等能力在较新版本中更完整。命令细节以实际 COMMAND DOCS 或官方文档为准。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-bea7e179f43a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-bea7e179f43a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>02-数据类型与核心命令</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/02-%E6%95%B0%E6%8D%AE%E7%B1%BB%E5%9E%8B%E4%B8%8E%E6%A0%B8%E5%BF%83%E5%91%BD%E4%BB%A4.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#redis-key">Redis 的 key 设计</a></li><li><a href="#value">value 的数据类型</a></li><li><a href="#key">通用 key 命令</a></li><li><a href="#_3">关键命令/配置</a></li><li><a href="#1-string">1. String</a></li><li><a href="#2-hash">2. Hash</a></li><li><a href="#3-list">3. List</a></li><li><a href="#4-set">4. Set</a></li><li><a href="#5-sorted-setzset">5. Sorted Set（ZSet）</a></li><li><a href="#6-bitmap">6. Bitmap</a></li><li><a href="#7-hyperloglog">7. HyperLogLog</a></li><li><a href="#8-geospatial">8. Geospatial</a></li><li><a href="#9-stream">9. Stream</a></li><li><a href="#_4">示例：如何选择数据类型</a></li><li><a href="#1">场景 1：缓存用户详情</a></li><li><a href="#2">场景 2：记录每日热门文章榜</a></li><li><a href="#3">场景 3：防止重复提交</a></li><li><a href="#4">场景 4：维护固定长度时间线</a></li><li><a href="#_5">常见误区</a></li><li><a href="#1-json-string">误区 1：所有对象都应该存成 JSON String</a></li><li><a href="#2hash-field">误区 2：Hash 的每个 field 都能单独过期</a></li><li><a href="#3lrange-key-0-1smembershgetall">误区 3：LRANGE key 0 -1、SMEMBERS、HGETALL 很安全</a></li><li><a href="#4sorted-set">误区 4：Sorted Set 排行榜不需要清理</a></li><li><a href="#5hyperloglog">误区 5：HyperLogLog 可以拿回去重后的用户列表</a></li><li><a href="#6scan">误区 6：SCAN 一定不会影响线上</a></li><li><a href="#_6">实践检查清单</a></li><li><a href="#_7">延伸阅读关键词</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>适用版本：以 Redis 7.x 通用命令为主。大部分基础数据类型命令在 Redis 5/6/7 中通用；Stream、ACL、Functions 等能力在较新版本中更完整。命令细节以实际 <code>COMMAND DOCS</code> 或官方文档为准。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学习本章后，你应该能够：</p>
+<ul>
+<li>理解 Redis key 的通用规则、过期机制和基础管理命令。</li>
+<li>掌握 String、Hash、List、Set、Sorted Set 五种核心数据类型的典型用法。</li>
+<li>了解 Bitmap、HyperLogLog、Geospatial、Stream 的适用场景。</li>
+<li>能根据业务问题选择合适的数据结构，而不是把所有内容都塞进 String。</li>
+<li>能识别常见命令误用：大 key、阻塞命令、无界集合、错误的过期策略。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="Redis 的 key 设计"></span><h3 id="redis-key">Redis 的 key 设计</h3>
+<p>Redis 中每条数据都以 key 作为入口。一个好 key 应该具备：</p>
+<ul>
+<li>可读：能看出业务含义。</li>
+<li>规范：统一分隔符和命名层级。</li>
+<li>有界：避免单个 key 对应无限增长的数据。</li>
+<li>可治理：便于统计、清理、迁移和排查。</li>
+</ul>
+<p>常见命名方式：</p>
+<pre><code class="language-text">业务:实体:标识:属性
+user:1001:profile
+user:1001:session
+article:2026:rank:daily
+order:lock:8899
+</code></pre>
+<p>建议：</p>
+<ul>
+<li>使用 <code>:</code> 分隔层级。</li>
+<li>避免过长 key，key 本身也占内存。</li>
+<li>避免包含空格、换行和不可见字符。</li>
+<li>缓存型 key 默认设置 TTL。</li>
+<li>不同环境或应用可以增加前缀，例如 <code>prod:shop:user:1001</code>。</li>
+</ul>
+<span class="heading-anchor" id="value 的数据类型"></span><h3 id="value">value 的数据类型</h3>
+<p>Redis 的“类型”是 value 的类型，而不是 key 的类型。</p>
+<pre><code class="language-redis">TYPE user:1001:profile
+</code></pre>
+<p>常见类型：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>适合场景</th>
+<th>典型命令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>String</td>
+<td>缓存、计数器、分布式锁、简单状态</td>
+<td><code>GET</code>、<code>SET</code>、<code>INCR</code></td>
+</tr>
+<tr>
+<td>Hash</td>
+<td>对象字段、用户资料、配置项</td>
+<td><code>HSET</code>、<code>HGET</code>、<code>HGETALL</code></td>
+</tr>
+<tr>
+<td>List</td>
+<td>队列、时间线、最近记录</td>
+<td><code>LPUSH</code>、<code>RPOP</code>、<code>BLPOP</code></td>
+</tr>
+<tr>
+<td>Set</td>
+<td>去重集合、标签、共同关注</td>
+<td><code>SADD</code>、<code>SISMEMBER</code>、<code>SINTER</code></td>
+</tr>
+<tr>
+<td>Sorted Set</td>
+<td>排行榜、延迟队列、按分值检索</td>
+<td><code>ZADD</code>、<code>ZRANGE</code>、<code>ZREVRANGE</code></td>
+</tr>
+<tr>
+<td>Bitmap</td>
+<td>用户签到、布尔状态集合</td>
+<td><code>SETBIT</code>、<code>GETBIT</code>、<code>BITCOUNT</code></td>
+</tr>
+<tr>
+<td>HyperLogLog</td>
+<td>大规模基数估算</td>
+<td><code>PFADD</code>、<code>PFCOUNT</code></td>
+</tr>
+<tr>
+<td>Geo</td>
+<td>地理位置半径查询</td>
+<td><code>GEOADD</code>、<code>GEOSEARCH</code></td>
+</tr>
+<tr>
+<td>Stream</td>
+<td>消息流、消费组、事件日志</td>
+<td><code>XADD</code>、<code>XREADGROUP</code></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="通用 key 命令"></span><h3 id="key">通用 key 命令</h3>
+<pre><code class="language-redis">EXISTS key
+DEL key
+UNLINK key
+TYPE key
+EXPIRE key seconds
+PEXPIRE key milliseconds
+TTL key
+PTTL key
+PERSIST key
+RENAME old new
+SCAN cursor MATCH pattern COUNT count
+</code></pre>
+<p>要点：</p>
+<ul>
+<li><code>DEL</code> 同步删除，删除大 key 时可能阻塞；<code>UNLINK</code> 会异步释放内存，更适合删除大 value。</li>
+<li><code>TTL = -1</code> 表示 key 存在但没有过期时间。</li>
+<li><code>TTL = -2</code> 表示 key 不存在。</li>
+<li><code>SCAN</code> 是渐进式遍历，不保证一次返回所有 key，也可能在迭代期间受数据变化影响。</li>
+<li>生产环境避免使用 <code>KEYS *</code>、<code>FLUSHDB</code>、<code>FLUSHALL</code> 等高风险命令。</li>
+</ul>
+<span class="heading-anchor" id="关键命令/配置"></span><h2 id="_3">关键命令/配置</h2>
+<span class="heading-anchor" id="1. String"></span><h3 id="1-string">1. String</h3>
+<p>String 是 Redis 最基础的类型，value 可以是文本、数字、JSON、二进制内容，但最大 value 不应无限增大。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">SET key value
+GET key
+MSET key1 value1 key2 value2
+MGET key1 key2
+SET key value EX seconds
+SET key value PX milliseconds
+SET key value NX
+SET key value XX
+GETSET key value
+INCR key
+INCRBY key increment
+DECR key
+APPEND key value
+STRLEN key
+</code></pre>
+<p>示例：缓存文章摘要。</p>
+<pre><code class="language-redis">SET article:1001:summary "Redis data types" EX 600
+GET article:1001:summary
+</code></pre>
+<p>示例：计数器。</p>
+<pre><code class="language-redis">INCR page:home:pv
+INCRBY page:home:pv 10
+GET page:home:pv
+</code></pre>
+<p>示例：基础分布式锁写法。</p>
+<pre><code class="language-redis">SET lock:order:8899 "request-uuid-001" NX EX 30
+</code></pre>
+<p>释放锁时不要简单 <code>DEL lock:order:8899</code>，应先校验 value 是否为自己的 token，再原子删除。常见做法是使用 Lua 脚本或 Redis Functions。</p>
+<span class="heading-anchor" id="2. Hash"></span><h3 id="2-hash">2. Hash</h3>
+<p>Hash 适合存储对象的多个字段，例如用户资料、商品属性、配置项。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">HSET key field value [field value ...]
+HGET key field
+HMGET key field [field ...]
+HGETALL key
+HDEL key field [field ...]
+HEXISTS key field
+HINCRBY key field increment
+HLEN key
+HSCAN key cursor MATCH pattern COUNT count
+</code></pre>
+<p>示例：用户资料。</p>
+<pre><code class="language-redis">HSET user:1001 name "Ada" age 28 city "Shanghai"
+HGET user:1001 name
+HMGET user:1001 name city
+HINCRBY user:1001 login_count 1
+HGETALL user:1001
+</code></pre>
+<p>使用建议：</p>
+<ul>
+<li>字段较多但经常整体读取时，Hash 很自然。</li>
+<li>如果每个字段需要不同 TTL，Hash 不适合直接表达，因为 TTL 作用在整个 key 上。</li>
+<li><code>HGETALL</code> 对大 Hash 可能很重，生产排查优先 <code>HSCAN</code>。</li>
+</ul>
+<span class="heading-anchor" id="3. List"></span><h3 id="3-list">3. List</h3>
+<p>List 是按插入顺序排列的字符串列表，底层实现适合两端 push/pop。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">LPUSH key element [element ...]
+RPUSH key element [element ...]
+LPOP key
+RPOP key
+LRANGE key start stop
+LLEN key
+LTRIM key start stop
+BLPOP key [key ...] timeout
+BRPOP key [key ...] timeout
+</code></pre>
+<p>示例：最近浏览记录。</p>
+<pre><code class="language-redis">LPUSH user:1001:recent article:9
+LPUSH user:1001:recent article:8
+LPUSH user:1001:recent article:7
+LTRIM user:1001:recent 0 49
+LRANGE user:1001:recent 0 9
+</code></pre>
+<p>示例：简单队列。</p>
+<pre><code class="language-redis">LPUSH queue:email "job-1"
+BRPOP queue:email 5
+</code></pre>
+<p>使用建议：</p>
+<ul>
+<li>List 适合简单队列，但缺少完整的确认、重试、消费组语义。</li>
+<li>更复杂的消息流优先考虑 Stream。</li>
+<li>避免超长 List 无限制增长，配合 <code>LTRIM</code> 或消费清理。</li>
+</ul>
+<span class="heading-anchor" id="4. Set"></span><h3 id="4-set">4. Set</h3>
+<p>Set 是无序去重集合，适合标签、去重、共同好友、权限集合等。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">SADD key member [member ...]
+SREM key member [member ...]
+SISMEMBER key member
+SMEMBERS key
+SCARD key
+SPOP key [count]
+SRANDMEMBER key [count]
+SINTER key [key ...]
+SUNION key [key ...]
+SDIFF key [key ...]
+SSCAN key cursor MATCH pattern COUNT count
+</code></pre>
+<p>示例：文章标签。</p>
+<pre><code class="language-redis">SADD article:1001:tags redis cache database
+SISMEMBER article:1001:tags redis
+SCARD article:1001:tags
+SMEMBERS article:1001:tags
+</code></pre>
+<p>示例：共同关注。</p>
+<pre><code class="language-redis">SADD user:1:follows user:2 user:3 user:4
+SADD user:9:follows user:3 user:4 user:8
+SINTER user:1:follows user:9:follows
+</code></pre>
+<p>使用建议：</p>
+<ul>
+<li>小集合可以用 <code>SMEMBERS</code>，大集合优先 <code>SSCAN</code>。</li>
+<li>集合运算很方便，但对超大集合可能造成 CPU 和内存压力。</li>
+</ul>
+<span class="heading-anchor" id="5. Sorted Set（ZSet）"></span><h3 id="5-sorted-setzset">5. Sorted Set（ZSet）</h3>
+<p>Sorted Set 是“成员 + 分数”的有序集合。成员唯一，分数可重复。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">ZADD key score member [score member ...]
+ZSCORE key member
+ZINCRBY key increment member
+ZRANGE key start stop [WITHSCORES]
+ZREVRANGE key start stop [WITHSCORES]
+ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]
+ZRANK key member
+ZREVRANK key member
+ZREM key member [member ...]
+ZCARD key
+ZCOUNT key min max
+</code></pre>
+<p>Redis 6.2+ 对有序集合范围命令做了统一增强，<code>ZRANGE</code> 支持更多参数；旧教程中的 <code>ZRANGEBYSCORE</code>、<code>ZREVRANGE</code> 仍常见，但新项目可逐步熟悉统一形式。</p>
+<p>示例：排行榜。</p>
+<pre><code class="language-redis">ZADD rank:game:daily 100 user:1 250 user:2 180 user:3
+ZINCRBY rank:game:daily 30 user:1
+ZREVRANGE rank:game:daily 0 9 WITHSCORES
+ZREVRANK rank:game:daily user:1
+</code></pre>
+<p>示例：延迟队列的基本思路。</p>
+<pre><code class="language-redis">ZADD delay:jobs 1716600000 job:1001
+ZRANGEBYSCORE delay:jobs -inf 1716600000 LIMIT 0 10
+ZREM delay:jobs job:1001
+</code></pre>
+<p>注意：延迟队列需要处理并发抢占、失败重试、幂等性，不能只靠三条命令就认为生产可用。</p>
+<span class="heading-anchor" id="6. Bitmap"></span><h3 id="6-bitmap">6. Bitmap</h3>
+<p>Bitmap 本质上是在 String 上进行 bit 位操作，适合大量布尔状态。</p>
+<pre><code class="language-redis">SETBIT sign:2026-05 userIndex 1
+GETBIT sign:2026-05 userIndex
+BITCOUNT sign:2026-05
+</code></pre>
+<p>示例：用户签到可以按“用户 + 月份”或“日期 + 用户索引”设计，取决于查询模式。</p>
+<span class="heading-anchor" id="7. HyperLogLog"></span><h3 id="7-hyperloglog">7. HyperLogLog</h3>
+<p>HyperLogLog 用于估算基数，例如 UV。它节省内存，但结果是近似值。</p>
+<pre><code class="language-redis">PFADD uv:2026-05-25 user:1 user:2 user:3
+PFCOUNT uv:2026-05-25
+PFMERGE uv:2026-05 uv:2026-05-24 uv:2026-05-25
+</code></pre>
+<p>适合：大规模去重计数，允许少量误差。</p>
+<p>不适合：需要精确列出成员或精确计数的场景。</p>
+<span class="heading-anchor" id="8. Geospatial"></span><h3 id="8-geospatial">8. Geospatial</h3>
+<p>Geo 用于存储经纬度并做位置查询。</p>
+<pre><code class="language-redis">GEOADD city:shops 121.4737 31.2304 shop:shanghai-1
+GEOADD city:shops 116.4074 39.9042 shop:beijing-1
+GEOSEARCH city:shops FROMLONLAT 121.4737 31.2304 BYRADIUS 5 km WITHDIST
+</code></pre>
+<p>Redis 6.2+ 推荐使用 <code>GEOSEARCH</code> 替代部分旧的 <code>GEORADIUS</code> 用法。</p>
+<span class="heading-anchor" id="9. Stream"></span><h3 id="9-stream">9. Stream</h3>
+<p>Stream 是 Redis 的消息流结构，支持消息 ID、阻塞读取、消费组和确认。</p>
+<p>常用命令：</p>
+<pre><code class="language-redis">XADD key * field value [field value ...]
+XRANGE key start end
+XREAD COUNT count BLOCK milliseconds STREAMS key id
+XGROUP CREATE key group id MKSTREAM
+XREADGROUP GROUP group consumer COUNT count BLOCK milliseconds STREAMS key &gt;
+XACK key group id [id ...]
+XPENDING key group
+</code></pre>
+<p>示例：订单事件流。</p>
+<pre><code class="language-redis">XADD stream:orders * type created orderId 8899 userId 1001
+XRANGE stream:orders - + COUNT 10
+</code></pre>
+<p>消费组：</p>
+<pre><code class="language-redis">XGROUP CREATE stream:orders group:billing 0 MKSTREAM
+XREADGROUP GROUP group:billing consumer-1 COUNT 10 BLOCK 5000 STREAMS stream:orders &gt;
+XACK stream:orders group:billing 1716600000000-0
+</code></pre>
+<p>使用建议：</p>
+<ul>
+<li>Stream 比 List 更适合需要确认、重试、多消费者协作的场景。</li>
+<li>Stream 不是 Kafka 的完全替代品，持久化、吞吐、保留策略和运维模型都要单独评估。</li>
+<li>使用 <code>XTRIM</code> 或 <code>MAXLEN</code> 控制长度，避免无限增长。</li>
+</ul>
+<span class="heading-anchor" id="示例：如何选择数据类型"></span><h2 id="_4">示例：如何选择数据类型</h2>
+<span class="heading-anchor" id="场景 1：缓存用户详情"></span><h3 id="1">场景 1：缓存用户详情</h3>
+<p>如果应用每次整体读取用户详情：</p>
+<pre><code class="language-redis">SET user:1001:profile '{"name":"Ada","age":28}' EX 600
+</code></pre>
+<p>如果应用经常单独读取或更新字段：</p>
+<pre><code class="language-redis">HSET user:1001:profile name "Ada" age 28 city "Shanghai"
+EXPIRE user:1001:profile 600
+</code></pre>
+<p>选择依据：字段级操作是否重要、序列化成本是否可接受、是否需要字段级 TTL。</p>
+<span class="heading-anchor" id="场景 2：记录每日热门文章榜"></span><h3 id="2">场景 2：记录每日热门文章榜</h3>
+<pre><code class="language-redis">ZINCRBY rank:article:2026-05-25 1 article:1001
+ZREVRANGE rank:article:2026-05-25 0 9 WITHSCORES
+EXPIRE rank:article:2026-05-25 604800
+</code></pre>
+<p>Sorted Set 能天然表达“成员 + 分数 + 排序”。</p>
+<span class="heading-anchor" id="场景 3：防止重复提交"></span><h3 id="3">场景 3：防止重复提交</h3>
+<pre><code class="language-redis">SET dedup:submit:request-abc 1 NX EX 60
+</code></pre>
+<p>如果返回 <code>OK</code>，说明首次提交；如果返回空，说明 60 秒内重复。</p>
+<span class="heading-anchor" id="场景 4：维护固定长度时间线"></span><h3 id="4">场景 4：维护固定长度时间线</h3>
+<pre><code class="language-redis">LPUSH user:1001:timeline event:5001
+LTRIM user:1001:timeline 0 99
+LRANGE user:1001:timeline 0 19
+</code></pre>
+<p>用 <code>LTRIM</code> 控制长度，避免 List 无界增长。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_5">常见误区</h2>
+<span class="heading-anchor" id="误区 1：所有对象都应该存成 JSON String"></span><h3 id="1-json-string">误区 1：所有对象都应该存成 JSON String</h3>
+<p>JSON String 简单，但字段级修改需要整体反序列化和重写。对象字段经常独立更新时，Hash 更合适。反过来，如果对象总是整体读写，String 可能更简单。</p>
+<span class="heading-anchor" id="误区 2：Hash 的每个 field 都能单独过期"></span><h3 id="2hash-field">误区 2：Hash 的每个 field 都能单独过期</h3>
+<p>Redis 的 TTL 作用在 key 上，不作用在 Hash field 上。如果需要字段级过期，通常要拆 key，或用 Sorted Set/定时清理等方案表达过期逻辑。</p>
+<span class="heading-anchor" id="误区 3：LRANGE key 0 -1、SMEMBERS、HGETALL 很安全"></span><h3 id="3lrange-key-0-1smembershgetall">误区 3：<code>LRANGE key 0 -1</code>、<code>SMEMBERS</code>、<code>HGETALL</code> 很安全</h3>
+<p>这些命令对小数据没问题，但对大 key 可能一次返回大量数据，造成阻塞、网络尖峰和客户端内存压力。</p>
+<span class="heading-anchor" id="误区 4：Sorted Set 排行榜不需要清理"></span><h3 id="4sorted-set">误区 4：Sorted Set 排行榜不需要清理</h3>
+<p>排行榜如果按天、周、活动周期生成，需要设置 TTL 或定期归档。否则历史榜单会持续占用内存。</p>
+<span class="heading-anchor" id="误区 5：HyperLogLog 可以拿回去重后的用户列表"></span><h3 id="5hyperloglog">误区 5：HyperLogLog 可以拿回去重后的用户列表</h3>
+<p>HyperLogLog 只能估算基数，不能列出成员。如果需要成员列表，应使用 Set 或其他存储方案。</p>
+<span class="heading-anchor" id="误区 6：SCAN 一定不会影响线上"></span><h3 id="6scan">误区 6：<code>SCAN</code> 一定不会影响线上</h3>
+<p><code>SCAN</code> 比 <code>KEYS</code> 安全，但仍然会消耗 CPU 和网络。<code>COUNT</code> 不是精确数量，而是遍历提示。线上排查应控制频率、范围和客户端处理速度。</p>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_6">实践检查清单</h2>
+<ul>
+<li>[ ] 能解释 Redis key 命名规范，并设计 5 个符合规范的业务 key。</li>
+<li>[ ] 能使用 <code>TYPE</code>、<code>TTL</code>、<code>EXPIRE</code>、<code>DEL</code>、<code>UNLINK</code> 管理 key。</li>
+<li>[ ] 能用 String 实现缓存、计数器和简单防重复提交。</li>
+<li>[ ] 能用 Hash 存储用户资料，并说明它与 JSON String 的取舍。</li>
+<li>[ ] 能用 List 实现固定长度最近记录。</li>
+<li>[ ] 能用 Set 实现标签去重和交集查询。</li>
+<li>[ ] 能用 Sorted Set 实现排行榜。</li>
+<li>[ ] 能说明 Bitmap、HyperLogLog、Geo、Stream 各自解决什么问题。</li>
+<li>[ ] 能指出 <code>KEYS</code>、<code>HGETALL</code>、<code>SMEMBERS</code>、<code>LRANGE 0 -1</code> 在大数据量下的风险。</li>
+<li>[ ] 能为缓存型 key 设置合理 TTL，并说明为什么需要 TTL。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_7">延伸阅读关键词</h2>
+<ul>
+<li>Redis String commands</li>
+<li>Redis Hash commands</li>
+<li>Redis List commands</li>
+<li>Redis Set commands</li>
+<li>Redis Sorted Set commands</li>
+<li>Redis Streams consumer groups</li>
+<li>Redis Bitmap</li>
+<li>Redis HyperLogLog</li>
+<li>Redis GEOSEARCH</li>
+<li>Redis key naming convention</li>
+<li>Redis big key</li>
+<li>Redis SCAN vs KEYS</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Kafka 深入篇 · 李杨的学习笔记</title><meta name="description" content="Kafka 的核心抽象是分区日志。每个 Partition 内消息有递增 offset，顺序只在单分区内成立。Broker 存储日志段，副本负责容错，消费者组通过分区分配实现并行消费。"><meta property="og:title" content="Kafka 深入篇 · 李杨的学习笔记"><meta property="og:description" content="Kafka 的核心抽象是分区日志。每个 Partition 内消息有递增 offset，顺序只在单分区内成立。Broker 存储日志段，副本负责容错，消费者组通过分区分配实现并行消费。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-4aca1f8c1e19.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-4aca1f8c1e19.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 04-消息队列</p><h1>Kafka 深入篇</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/04-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97/02-Kafka%E6%B7%B1%E5%85%A5.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#brokerpartitionleaderreplicaisr">Broker、Partition、Leader、Replica、ISR</a></li><li><a href="#segmentindex-retention">Segment、Index 与 Retention</a></li><li><a href="#producerbatchingacks">Producer：batching、acks、幂等和顺序</a></li><li><a href="#consumerpollrebalancecommit">Consumer：poll、rebalance、commit</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#_4">端到端监控指标</a></li><li><a href="#_5">分区数估算</a></li><li><a href="#_6">常见误区</a></li><li><a href="#_7">自测题</a></li><li><a href="#_8">实践任务</a></li><li><a href="#_9">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 Kafka Topic、Partition、Replica、ISR、Consumer Group 和 Offset。</li>
+<li>掌握生产者确认、消费者提交、再均衡和日志保留。</li>
+<li>能解释 Kafka 高吞吐来自顺序写、批量、页缓存和零拷贝等机制组合。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>Kafka 的核心抽象是分区日志。每个 Partition 内消息有递增 offset，顺序只在单分区内成立。Broker 存储日志段，副本负责容错，消费者组通过分区分配实现并行消费。</p>
+<pre class="mermaid">flowchart TD
+  Topic["Topic: order-events"] --&gt; P0["Partition 0"]
+  Topic --&gt; P1["Partition 1"]
+  P0 --&gt; L0["Leader"]
+  P0 --&gt; F0["Follower"]
+  G["Consumer Group"] --&gt; C1["Consumer A"]
+  G --&gt; C2["Consumer B"]
+</pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数/机制</th>
+<th>工程含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acks</code></td>
+<td>生产者等待多少副本确认</td>
+</tr>
+<tr>
+<td><code>retries</code></td>
+<td>发送失败重试，需配合幂等</td>
+</tr>
+<tr>
+<td><code>linger.ms</code></td>
+<td>批量等待时间，影响吞吐和延迟</td>
+</tr>
+<tr>
+<td>offset commit</td>
+<td>消费进度提交，决定重复或丢失风险</td>
+</tr>
+<tr>
+<td>retention</td>
+<td>消息保留策略，不等于消费成功即删除</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Broker、Partition、Leader、Replica、ISR"></span><h3 id="brokerpartitionleaderreplicaisr">Broker、Partition、Leader、Replica、ISR</h3>
+<p>Kafka topic 被拆成多个 partition。每个 partition 有一个 leader replica 负责读写，follower replica 从 leader 拉取数据。ISR 是当前跟得上的副本集合；<code>acks=all</code> 的确认依赖 ISR，而不是所有历史配置过的副本。</p>
+<pre class="mermaid">flowchart TD
+  P["Producer"] --&gt; L["Partition 0 Leader on Broker A"]
+  L --&gt; F1["Follower on Broker B"]
+  L --&gt; F2["Follower on Broker C"]
+  L --&gt; Seg["Log Segments"]
+  C["Consumer"] --&gt; L
+  Ctrl["Controller"] --&gt; L
+  Ctrl --&gt; F1
+  Ctrl --&gt; F2
+</pre>
+<p>Controller 负责集群元数据管理、leader 选举等控制面工作。新版本 Kafka 已逐步转向 KRaft 元数据模式；具体部署参数应以当前版本官方文档为准，不要沿用旧 ZooKeeper 假设。</p>
+<span class="heading-anchor" id="Segment、Index 与 Retention"></span><h3 id="segmentindex-retention">Segment、Index 与 Retention</h3>
+<p>Kafka partition 是追加日志，物理上切成多个 segment。每个 segment 配套 offset/time 等索引，便于按 offset 定位。retention 按时间或大小清理旧 segment；清理不等于某个消费者已经处理成功。</p>
+<pre><code class="language-text">partition-0/
+  00000000000000000000.log
+  00000000000000000000.index
+  00000000000000000000.timeindex
+  00000000000001000000.log
+</code></pre>
+<p>故障分析要区分：</p>
+<ul>
+<li>log end offset：leader 当前日志末尾。</li>
+<li>high watermark：消费者可见的已复制安全边界。</li>
+<li>committed offset：某个 consumer group 已提交的消费进度。</li>
+<li>consumer lag：log end offset 与 committed/current position 的差距。</li>
+</ul>
+<span class="heading-anchor" id="Producer：batching、acks、幂等和顺序"></span><h3 id="producerbatchingacks">Producer：batching、acks、幂等和顺序</h3>
+<p>生产者先按 topic-partition 聚合 batch，再发送给目标 partition leader。<code>linger.ms</code> 增加等待以换取更大 batch，<code>batch.size</code> 控制批大小，压缩减少网络和磁盘。<code>acks=0/1/all</code> 影响确认强度；幂等生产者通过 producer id、sequence number 等机制避免单会话内重试写出重复记录。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配置/机制</th>
+<th>作用</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acks=1</code></td>
+<td>leader 写入即确认</td>
+<td>leader 确认后未复制就故障可能丢</td>
+</tr>
+<tr>
+<td><code>acks=all</code></td>
+<td>等待当前 ISR 副本确认</td>
+<td>延迟更高；必须结合 <code>min.insync.replicas</code> 判断耐久性</td>
+</tr>
+<tr>
+<td><code>enable.idempotence</code></td>
+<td>避免生产者重试造成同分区重复</td>
+<td>不处理应用层重新发送的新消息</td>
+</tr>
+<tr>
+<td>key 分区</td>
+<td>同 key 进入同分区</td>
+<td>分区数变化影响未来映射</td>
+</tr>
+<tr>
+<td><code>max.in.flight</code></td>
+<td>单连接未完成请求数</td>
+<td>非幂等或错误配置下可能影响顺序</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>acks=all</code> 不能脱离 broker/topic 的 <code>min.insync.replicas</code> 单独理解：当 ISR 数量低于该下限时，生产请求应失败，而不是在副本不足时继续给出成功确认；若下限设得过低，ISR 退化后确认强度也会下降。生产端要把这类失败纳入超时、重试、告警和容量策略。</p>
+<span class="heading-anchor" id="Consumer：poll、rebalance、commit"></span><h3 id="consumerpollrebalancecommit">Consumer：poll、rebalance、commit</h3>
+<p>消费者通过 <code>poll()</code> 拉取消息。处理时间过长、心跳异常、成员增减都会触发 rebalance。提交 offset 的时机决定语义：先提交后处理会丢业务，先处理后提交会重复消费。</p>
+<pre class="mermaid">sequenceDiagram
+  participant C as Consumer
+  participant B as Broker
+  participant DB
+  C-&gt;&gt;B: poll records
+  C-&gt;&gt;DB: process idempotently
+  DB--&gt;&gt;C: commit business tx
+  C-&gt;&gt;B: commit offset
+  Note over C,B: crash before commit =&gt; duplicate after restart
+</pre>
+<p>Rebalance 期间要停止旧分区处理、提交已完成 offset、撤销本地分区状态，再接管新分区。批处理时不要提交尚未完成的最大 offset，否则同批中后续失败会被跳过。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<p>同一订单的事件需要顺序处理时，按 <code>order_id</code> 做 key，使同一订单进入同一分区：</p>
+<pre><code class="language-pseudo">partition = hash(order_id) % partition_count
+producer.send(topic="order-events", key=order_id, value=event)
+</code></pre>
+<p>消费者处理建议先执行业务幂等逻辑，成功后再提交 offset：</p>
+<pre><code class="language-pseudo">for record in poll():
+    process_idempotently(record)
+    commit_offset(record)
+</code></pre>
+<span class="heading-anchor" id="端到端监控指标"></span><h3 id="_4">端到端监控指标</h3>
+<ul>
+<li>Producer：发送成功率、错误率、重试次数、batch size、request latency、record queue time。</li>
+<li>Broker：leader 分布、under-replicated partitions、ISR 收缩、磁盘使用、网络出入、请求队列。</li>
+<li>Consumer：lag、poll 间隔、处理耗时、rebalance 次数、commit 失败。</li>
+<li>Topic：分区倾斜、单分区热点、retention 剩余空间。</li>
+</ul>
+<span class="heading-anchor" id="分区数估算"></span><h3 id="_5">分区数估算</h3>
+<pre><code class="language-text">partition_count &gt;= max(target_produce_mb_s / single_partition_write_mb_s,
+                      target_consume_parallelism,
+                      ordering_key_distribution_need)
+</code></pre>
+<p>分区不是越多越好。更多分区会带来更多文件、leader、网络连接、恢复和 rebalance 成本。先估算吞吐与顺序边界，再预留增长空间。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_6">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kafka Topic 全局有序</td>
+<td>Kafka 只保证单分区内有序</td>
+</tr>
+<tr>
+<td>ack=all 就绝不丢消息</td>
+<td>还要看副本、ISR、刷盘、配置和故障窗口</td>
+</tr>
+<tr>
+<td>提交 offset 就代表业务成功</td>
+<td>如果先提交后处理，处理失败会造成业务丢失</td>
+</tr>
+<tr>
+<td>分区数可以频繁调整</td>
+<td>分区增加会影响 key 到分区映射和顺序假设</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_7">自测题</h2>
+<ol>
+<li>Partition leader 和 follower 的职责是什么？</li>
+<li>offset commit 在业务处理前后分别有什么风险？</li>
+<li>为什么增加分区可能破坏按 key 的历史顺序假设？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_8">实践任务</h2>
+<ul>
+<li>为订单事件 Topic 设计分区键、分区数评估指标和消费者组部署方式。</li>
+<li>写出一次 Kafka consumer rebalance 时可能出现的重复消费流程。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_9">延伸阅读</h2>
+<ul>
+<li>Kafka design：https://kafka.apache.org/43/design/design/</li>
+<li>Kafka producer configs：https://kafka.apache.org/43/configuration/producer-configs/</li>
+<li>Kafka consumer configs：https://kafka.apache.org/43/configuration/consumer-configs/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

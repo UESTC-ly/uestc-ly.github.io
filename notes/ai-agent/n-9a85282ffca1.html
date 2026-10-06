@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02 路径参数与查询参数 · 李杨的学习笔记</title><meta name="description" content="记忆句： 路径定位谁，查询决定怎么查；类型管取值，默认值管能否省略。"><meta property="og:title" content="02 路径参数与查询参数 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 路径定位谁，查询决定怎么查；类型管取值，默认值管能否省略。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-9a85282ffca1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-9a85282ffca1.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>02 路径参数与查询参数</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/02_%E8%B7%AF%E5%BE%84%E5%8F%82%E6%95%B0%E4%B8%8E%E6%9F%A5%E8%AF%A2%E5%8F%82%E6%95%B0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-url">1. 先读懂 URL，而不是先背语法</a></li><li><a href="#2-fastapi">2. FastAPI 如何知道去哪里取参数</a></li><li><a href="#3-url">3. URL 里是文本，进入函数时可以是整数</a></li><li><a href="#4">4. 必填、默认值、允许空值要分开看</a></li><li><a href="#5-demo">5. 最小 demo：看见解析、默认值与失败</a></li><li><a href="#6">6. 路由顺序为什么会造成意外</a></li><li><a href="#7">7. 合上笔记，做三个判断</a></li><li><a href="#8">8. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>路径定位谁，查询决定怎么查；类型管取值，默认值管能否省略。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 先读懂 URL，而不是先背语法"></span><h2 id="1-url">1. 先读懂 URL，而不是先背语法</h2>
+<p>看到 <code>/tasks/3?detail=true</code>，可以先读成一句话：“查第 3 个任务，并要求详细信息。”这里的 <code>3</code> 在路径中，<code>detail=true</code> 在问号后的查询字符串中。两者都可以传值，但表达的意图不同。</p>
+<p>路径参数通常用于确定资源身份，例如任务编号。查询参数通常用于附加条件，例如关键词、分页、排序或是否包含详情。查询任务列表时，<code>/tasks?limit=10</code> 表达“取列表，但最多取十条”；查询单个任务时，<code>/tasks/3</code> 表达“取编号为 3 的任务”。</p>
+<p>可以把路径看成书架上的书号，把查询参数看成阅读要求。这个类比只是帮助设计接口，并不意味着查询参数不能传编号。技术上能够做到，不代表接口意图同样清楚；设计时优先让地址容易读懂。</p>
+<span class="heading-anchor" id="2. FastAPI 如何知道去哪里取参数"></span><h2 id="2-fastapi">2. FastAPI 如何知道去哪里取参数</h2>
+<p>对本章这种没有额外声明的普通参数，先看参数名是否出现在路由模板中。模板 <code>/tasks/{task_id}</code> 中有 <code>task_id</code>，同名函数参数就从路径读取；<code>detail</code> 没有出现在模板中，且是普通标量类型，就默认从查询字符串读取。</p>
+<p>这里的“同名”很重要。花括号里的名字与函数参数名应该对应起来；把函数参数改名，却没有修改路由模板，不能指望框架自动猜到两者的关系。</p>
+<p><code>Path</code> 和 <code>Query</code> 可以明确来源，并附加规则。读 <code>Annotated[int, Path(gt=0)]</code> 时不用把整行当成一个复杂语法：先读出“这是整数”，再读出“来自路径，并且大于零”。<code>Annotated</code> 是把额外说明附在类型上；<code>gt</code> 表示大于，<code>ge</code> 表示大于等于，<code>le</code> 表示小于等于。</p>
+<span class="heading-anchor" id="3. URL 里是文本，进入函数时可以是整数"></span><h2 id="3-url">3. URL 里是文本，进入函数时可以是整数</h2>
+<p>URL 中的 <code>3</code> 起初是文本。声明 <code>task_id: int</code> 后，FastAPI 会尝试把这份输入解析成整数，再把得到的值交给函数。因此业务代码通常不需要再手写一次整数转换。</p>
+<p>但“能转换成整数”和“业务上有效”是两层要求。<code>-1</code> 可以是合法整数，却可能不是合法任务编号，所以还需要 <code>Path(gt=0)</code>。进一步说，<code>3</code> 能通过正整数校验，也不代表数据库里存在第 3 个任务：<strong>输入格式校验回答“像不像编号”，业务查询回答“有没有这个任务”。</strong> 后一种情况会在下一章的异常处理里区分。</p>
+<p>如果请求不能通过校验，框架会返回 422，处理函数不会正常进入本次业务处理。理解这个执行顺序，可以避免在函数里重复写所有已经声明过的格式检查。</p>
+<span class="heading-anchor" id="4. 必填、默认值、允许空值要分开看"></span><h2 id="4">4. 必填、默认值、允许空值要分开看</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数声明</th>
+<th>请求里能否省略</th>
+<th>省略后的结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>q: str</code></td>
+<td>不能</td>
+<td>缺少必填参数，校验失败</td>
+</tr>
+<tr>
+<td><code>limit: int = 10</code></td>
+<td>可以</td>
+<td>使用默认值 10</td>
+</tr>
+<tr>
+<td><code>keyword: str \| None = None</code></td>
+<td>可以</td>
+<td>使用 Python 的 <code>None</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>类型回答“允许什么值”，默认值回答“没提供时怎么办”。<code>str | None</code> 只是声明允许空值；如果没有默认值，不能仅凭这个联合类型就认为参数可省略。路径参数用于组成路径，本身始终必填；没有那一段，通常连同一条路由都匹配不到。</p>
+<p>还要注意，查询字符串没有 JSON 那样原生的 <code>null</code>：URL 中写 <code>keyword=null</code>，通常得到的是文本 <code>"null"</code>；完全不传参数，才可能触发默认的 <code>None</code>。同样，<code>keyword=</code> 表示提供了一个空字符串，并不等于没有提供。排查输入问题时，应先区分“缺失、空字符串、文字 null”。</p>
+<span class="heading-anchor" id="5. 最小 demo：看见解析、默认值与失败"></span><h2 id="5-demo">5. 最小 demo：看见解析、默认值与失败</h2>
+<p>完成环境安装后，将代码复制到 <code>main.py</code>，在该文件所在目录运行 <code>python -m uvicorn main:app --reload</code>。切换章节前先按 <code>Ctrl+C</code> 停止上一章。</p>
+<pre><code class="language-python">from typing import Annotated
+from fastapi import FastAPI, Path
+
+app = FastAPI()
+
+@app.get("/tasks/{task_id}")
+def read_task(
+    task_id: Annotated[int, Path(gt=0)],
+    detail: bool = False,
+):
+    return {"task_id": task_id, "detail": detail}
+</code></pre>
+<p>打开 <a href="http://127.0.0.1:8000/docs">交互文档</a>，展开接口并选择 <strong>Try it out</strong>。填 <code>task_id=3</code>、<code>detail=true</code> 后执行，响应中的 <code>task_id</code> 是数字 3，<code>detail</code> 是布尔值 true。注意它们不再是带引号的字符串。</p>
+<p>接着在浏览器访问 <code>/tasks/3</code>，观察不提供查询参数时使用默认的 false；访问 <code>/tasks/0</code>，观察正数规则导致 422；访问 <code>/tasks/abc</code>，观察整数解析导致 422。浏览器完整地址前缀为 <code>http://127.0.0.1:8000</code>。这些对照分别验证了“能省略”“范围错误”“类型错误”，比重复看成功请求更容易记住规则。</p>
+<p>可选配套：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch02.py">demos/ch02.py</a>，包含查询约束等更完整内容，接口与正文最小示例有所不同。</p>
+<span class="heading-anchor" id="6. 路由顺序为什么会造成意外"></span><h2 id="6">6. 路由顺序为什么会造成意外</h2>
+<p>假设既有固定地址 <code>/tasks/search</code>，也有动态地址 <code>/tasks/{task_id}</code>。如果动态路由先登记，文本 <code>search</code> 可能先被当成 <code>task_id</code> 的值去匹配，随后因为无法转换成整数而失败。框架不会因为整数转换失败就自动退回去寻找你本来想调用的搜索接口。</p>
+<p>因此，固定而具体的路由应放在可能覆盖它的动态路由前面。可以记成“先登记特殊入口，再登记通用入口”。另一种设计方式是避免路径含义重叠，例如把搜索条件放到任务列表的查询参数中。</p>
+<span class="heading-anchor" id="7. 合上笔记，做三个判断"></span><h2 id="7">7. 合上笔记，做三个判断</h2>
+<p><strong><code>/tasks/3?detail=true</code> 中谁决定查哪个任务？</strong> 路径里的 3；查询参数决定返回方式。</p>
+<p><strong><code>limit: int = 10</code> 为什么可以不传？</strong> 因为有默认值，而不是因为它的类型是整数。</p>
+<p><strong>校验通过就代表任务存在吗？</strong> 不代表。校验保证输入满足声明的格式和范围，存在性需要业务代码检查。</p>
+<span class="heading-anchor" id="8. 官方资料"></span><h2 id="8">8. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/path-params/">Path Parameters</a> · <a href="https://fastapi.tiangolo.com/tutorial/query-params/">Query Parameters</a> · <a href="https://fastapi.tiangolo.com/tutorial/query-params-str-validations/">Query Validations</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

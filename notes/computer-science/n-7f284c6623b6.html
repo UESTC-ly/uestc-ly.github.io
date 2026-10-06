@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Python 环境和依赖管理 · 李杨的学习笔记</title><meta name="description" content="创建标准库虚拟环境。会写入 .venv 目录；不要把虚拟环境提交到 Git。"><meta property="og:title" content="Python 环境和依赖管理 · 李杨的学习笔记"><meta property="og:description" content="创建标准库虚拟环境。会写入 .venv 目录；不要把虚拟环境提交到 Git。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-7f284c6623b6.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-7f284c6623b6.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 01-基础工具</p><h1>Python 环境和依赖管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/01-%E5%9F%BA%E7%A1%80%E5%B7%A5%E5%85%B7/04-%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E4%B8%8E%E4%BE%9D%E8%B5%96%E7%AE%A1%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">常用命令</a></li><li><a href="#_4">配置示例</a></li><li><a href="#_5">典型工作流</a></li><li><a href="#_6">常见坑</a></li><li><a href="#_7">排障步骤</a></li><li><a href="#_8">练习</a></li><li><a href="#_9">检查清单</a></li><li><a href="#_10">延伸阅读</a></li><li><a href="#_11">深化学习说明</a></li><li><a href="#_12">前置知识和完成标准</a></li><li><a href="#_13">核心概念分层</a></li><li><a href="#_14">从零开始实验：创建可重建环境</a></li><li><a href="#_15">命令和配置逐段解释</a></li><li><a href="#_16">常见坑的机制和排障决策路径</a></li><li><a href="#_17">练习答案要点</a></li><li><a href="#_18">章节小结</a></li><li><a href="#_19">官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解解释器、虚拟环境、包、依赖解析和锁定文件的关系。</li>
+<li>能为项目创建隔离环境并安装、升级、导出依赖。</li>
+<li>能区分运行依赖、开发依赖、工具依赖和系统依赖。</li>
+<li>能排查版本冲突、解释器不一致、路径污染和可复现性问题。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<ul>
+<li>Python 解释器：实际执行代码的程序，例如 <code>python3.11</code>。</li>
+<li>虚拟环境：项目级隔离目录，保存独立的 Python 可执行文件入口和 site-packages。</li>
+<li>包管理器：安装和解析 Python 包，常见工具包括 <code>pip</code>、<code>uv</code>、<code>poetry</code>、<code>pdm</code>。</li>
+<li>依赖声明：描述项目需要什么包，常见文件包括 <code>pyproject.toml</code>、<code>requirements.txt</code>。</li>
+<li>锁定文件：记录解析后的精确版本和来源，用于可复现安装。</li>
+<li>系统依赖：不由 Python 包管理器完全负责的依赖，例如 C 编译器、OpenSSL、数据库客户端库。</li>
+<li>工具隔离：格式化、lint、测试、代码生成工具应尽量固定版本，避免“我机器上刚好可用”。</li>
+</ul>
+<span class="heading-anchor" id="常用命令"></span><h2 id="_3">常用命令</h2>
+<p>查看解释器。风险低，只读。</p>
+<pre><code class="language-bash">python3 --version
+python3 -c "import sys; print(sys.executable)"
+</code></pre>
+<p>创建标准库虚拟环境。会写入 <code>.venv</code> 目录；不要把虚拟环境提交到 Git。</p>
+<pre><code class="language-bash">python3 -m venv .venv
+</code></pre>
+<p>激活虚拟环境。会改变当前 Shell 的 <code>PATH</code>，只影响当前终端会话。</p>
+<pre><code class="language-bash">source .venv/bin/activate
+</code></pre>
+<p>确认正在使用的 Python 和 pip。风险低，只读。</p>
+<pre><code class="language-bash">python -c "import sys; print(sys.executable)"
+python -m pip --version
+</code></pre>
+<p>安装依赖。会修改虚拟环境中的包；如果没有激活环境，可能写到用户或系统环境。</p>
+<pre><code class="language-bash">python -m pip install requests
+</code></pre>
+<p>从 requirements 安装。会安装文件中声明的包；如果没有固定版本，解析结果可能随时间变化。</p>
+<pre><code class="language-bash">python -m pip install -r requirements.txt
+</code></pre>
+<p>导出当前环境。会把当前安装结果写入文件；注意它可能包含间接依赖和本机特定包。</p>
+<pre><code class="language-bash">python -m pip freeze &gt; requirements.lock.txt
+</code></pre>
+<p>使用 uv 创建和同步环境。会写入虚拟环境和锁定文件，具体行为取决于项目配置。</p>
+<pre><code class="language-bash">uv venv
+uv sync
+</code></pre>
+<span class="heading-anchor" id="配置示例"></span><h2 id="_4">配置示例</h2>
+<p>一个简化的 <code>pyproject.toml</code>：</p>
+<pre><code class="language-toml">[project]
+name = "demo-tools"
+version = "0.1.0"
+requires-python = "&gt;=3.11"
+dependencies = [
+  "requests&gt;=2.32,&lt;3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest&gt;=8,&lt;9",
+  "ruff&gt;=0.6,&lt;1",
+]
+</code></pre>
+<p>说明：<code>requires-python</code> 限制解释器版本；依赖范围既不应过宽到无法预测，也不应无理由锁死到妨碍安全更新。最终可复现安装通常还需要锁定文件。</p>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_5">典型工作流</h2>
+<ol>
+<li>进入项目后先确认解释器。</li>
+</ol>
+<pre><code class="language-bash">pwd
+python3 --version
+</code></pre>
+<ol>
+<li>创建并激活虚拟环境。</li>
+</ol>
+<pre><code class="language-bash">python3 -m venv .venv
+source .venv/bin/activate
+</code></pre>
+<ol>
+<li>升级基础安装工具。会修改虚拟环境；不建议在系统 Python 上直接执行。</li>
+</ol>
+<pre><code class="language-bash">python -m pip install --upgrade pip setuptools wheel
+</code></pre>
+<ol>
+<li>安装项目依赖和开发工具。</li>
+</ol>
+<pre><code class="language-bash">python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+</code></pre>
+<ol>
+<li>运行验证。</li>
+</ol>
+<pre><code class="language-bash">python -m pytest
+python -m ruff check .
+</code></pre>
+<ol>
+<li>新增依赖后记录来源和原因。</li>
+</ol>
+<pre><code class="language-bash">python -m pip install httpx
+python -m pip freeze &gt; requirements.lock.txt
+</code></pre>
+<p>风险说明：<code>pip freeze</code> 记录的是当前环境完整状态，不等于精心维护的直接依赖清单。团队项目应明确直接依赖和锁定依赖的职责。</p>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_6">常见坑</h2>
+<ul>
+<li>使用了错误解释器：命令行是系统 Python，IDE 用的是虚拟环境，CI 又是另一个版本。</li>
+<li>直接运行 <code>pip install</code>，但 <code>pip</code> 不属于当前 <code>python</code>。</li>
+<li>没有锁定依赖，过几周重新安装得到不同版本。</li>
+<li>把 <code>.venv</code>、缓存目录或本地凭据提交进仓库。</li>
+<li>Python 包需要编译扩展，但机器缺少编译器或系统头文件。</li>
+<li>在全局环境安装工具，多个项目之间版本互相污染。</li>
+<li>忽略 <code>requires-python</code>，导致依赖解析成功但运行时语法或 ABI 不兼容。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_7">排障步骤</h2>
+<ol>
+<li>确认解释器和包安装位置。</li>
+</ol>
+<pre><code class="language-bash">python -c "import sys, site; print(sys.executable); print(site.getsitepackages())"
+python -m pip --version
+</code></pre>
+<ol>
+<li>查看包版本和依赖关系。</li>
+</ol>
+<pre><code class="language-bash">python -m pip show requests
+python -m pip check
+</code></pre>
+<ol>
+<li>确认导入的是哪个文件。</li>
+</ol>
+<pre><code class="language-bash">python -c "import requests; print(requests.__file__)"
+</code></pre>
+<ol>
+<li>清理后重建环境。不要直接递归删除 <code>.venv</code>；先确认它确实是虚拟环境，再移动到带时间戳的备份目录。这样如果判断失误，还有恢复空间。</li>
+</ol>
+<pre><code class="language-bash">if [ -d .venv ] &amp;&amp; [ -f .venv/pyvenv.cfg ]; then
+  backup_dir=".venv.backup.$(date +%Y%m%d%H%M%S)"
+  mv .venv "$backup_dir"
+  printf "moved old venv to %s\n" "$backup_dir"
+else
+  printf "refuse to move: .venv is missing or is not a Python virtual environment\n" &gt;&amp;2
+  exit 1
+fi
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+</code></pre>
+<ol>
+<li>安装编译失败时，先看缺少的是 Python 包还是系统库。</li>
+</ol>
+<pre><code class="language-bash">python -m pip install -v package-name
+</code></pre>
+<p>风险说明：详细安装日志可能包含本机路径、内部镜像地址或 token，分享前需要脱敏。</p>
+<span class="heading-anchor" id="练习"></span><h2 id="_8">练习</h2>
+<ul>
+<li>创建一个虚拟环境，安装 <code>requests</code>，写脚本请求一个公开 HTTP 地址。</li>
+<li>故意在未激活和已激活环境中分别查看 <code>python -m pip --version</code>，比较路径。</li>
+<li>写一个 <code>requirements.txt</code>，固定一个直接依赖版本，再重建环境验证。</li>
+<li>用 <code>pip check</code> 制造并观察一次依赖冲突提示。</li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_9">检查清单</h2>
+<ul>
+<li>我能确认当前 <code>python</code> 和 <code>pip</code> 是否属于同一个虚拟环境。</li>
+<li>我知道虚拟环境目录不应该提交。</li>
+<li>我能解释直接依赖、间接依赖和锁定文件的区别。</li>
+<li>我会用 <code>python -m pip</code> 降低 pip 指向错误的风险。</li>
+<li>我能根据错误日志判断是 Python 版本、包版本还是系统依赖问题。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_10">延伸阅读</h2>
+<ul>
+<li>Shell 基础见：<a href="n-e45ec7103a3f.html">Linux 与 Shell</a>。</li>
+<li>C++ 构建系统见：<a href="n-91d979730fa1.html">CMake</a>。</li>
+</ul>
+<span class="heading-anchor" id="深化学习说明"></span><h2 id="_11">深化学习说明</h2>
+<p>前半部分是虚拟环境、pip 和依赖文件的日常速查。下面的内容深入解释解释器归属、依赖声明、锁定和可复现重建，重点训练你在“装了但导不进来”这类问题中找到真实环境。</p>
+<span class="heading-anchor" id="前置知识和完成标准"></span><h2 id="_12">前置知识和完成标准</h2>
+<p>学习本章前，应能使用 Shell 进入项目目录、运行命令、查看环境变量，并知道 Python 模块导入和包安装不是同一件事。<code>import requests</code> 成功，说明当前解释器能在自己的搜索路径中找到模块；不说明其他解释器也能找到。</p>
+<p>完成本章后，应能做到：</p>
+<ul>
+<li>使用 <code>python -c "import sys; print(sys.executable)"</code> 确认当前解释器。</li>
+<li>解释虚拟环境如何通过 <code>PATH</code>、<code>pyvenv.cfg</code>、<code>site-packages</code> 隔离依赖。</li>
+<li>区分 <code>pyproject.toml</code>、<code>requirements.txt</code>、锁定文件、构建后端的职责。</li>
+<li>遇到依赖冲突、导入错误、编译失败时，能判断是解释器、Python 包、系统库还是网络/索引问题。</li>
+</ul>
+<span class="heading-anchor" id="核心概念分层"></span><h2 id="_13">核心概念分层</h2>
+<p>第一层是解释器：不同 Python 版本有不同语法、标准库行为和 ABI。项目应明确 <code>requires-python</code>，CI 应覆盖支持范围。</p>
+<p>第二层是环境：虚拟环境保存项目依赖和命令入口。激活环境只是修改当前 Shell 的 <code>PATH</code>；脚本和 CI 更可靠的写法是使用 <code>.venv/bin/python -m ...</code> 或工具管理器提供的运行命令。</p>
+<p>第三层是依赖声明：直接依赖是项目主动使用的包，间接依赖是解析器为满足直接依赖拉入的包。把两者混在一个无注释文件里，会让升级和安全修复困难。</p>
+<p>第四层是可复现性：版本范围描述允许什么，锁定文件记录实际选了什么。应用服务通常更需要锁定；库项目通常声明兼容范围，并通过测试验证范围内版本。</p>
+<span class="heading-anchor" id="从零开始实验：创建可重建环境"></span><h2 id="_14">从零开始实验：创建可重建环境</h2>
+<p>教学边界：实验在系统临时目录下创建唯一目录并安装公开包。生产环境应使用团队认可的索引、锁定策略和凭据管理，不要把 token 写入 requirements 或日志。</p>
+<pre><code class="language-bash">lab_dir="$(mktemp -d "${TMPDIR:-/tmp}/python-env-lab.XXXXXX")"
+cd "$lab_dir"
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install "requests&gt;=2.32,&lt;3"
+.venv/bin/python - &lt;&lt;'PY'
+import sys
+import requests
+print(sys.executable)
+print(requests.__version__)
+print(requests.__file__)
+PY
+.venv/bin/python -m pip freeze &gt; requirements.lock.txt
+.venv/bin/python -m pip check
+</code></pre>
+<p>预期结果：输出的解释器路径包含本次 <code>mktemp</code> 创建目录下的 <code>.venv</code>，<code>requests.__file__</code> 位于该虚拟环境的 <code>site-packages</code> 下，<code>pip check</code> 报告无冲突。</p>
+<p>失败现象：</p>
+<ul>
+<li><code>No module named requests</code>：安装发生在另一个解释器，或当前命令没使用虚拟环境。</li>
+<li><code>externally-managed-environment</code>：系统 Python 被发行版保护，不应直接全局安装；创建虚拟环境后再装。</li>
+<li>编译扩展失败：可能缺少编译器、Python 头文件、OpenSSL/libpq/mysqlclient 等系统依赖。</li>
+</ul>
+<p>验证方式：按上面的校验和备份步骤移动旧 <code>.venv</code>，再用同一依赖文件重建，并确认脚本输出一致。确认新环境可用后，再按团队清理策略处理备份目录。</p>
+<span class="heading-anchor" id="命令和配置逐段解释"></span><h2 id="_15">命令和配置逐段解释</h2>
+<pre><code class="language-bash">python3 -m venv .venv
+</code></pre>
+<p><code>python3</code> 是基础解释器，<code>-m venv</code> 运行标准库模块，<code>.venv</code> 是目标目录。虚拟环境可重建，不应保存业务代码或手工唯一文件。</p>
+<pre><code class="language-bash">python -m pip install -r requirements.txt
+</code></pre>
+<p><code>python -m pip</code> 强制使用当前解释器对应的 pip，降低 <code>pip</code> 命令指向另一个环境的风险。<code>-r requirements.txt</code> 读取依赖文件；pip 不保证按文件顺序安装，所以不能依赖顺序解决构建副作用。</p>
+<pre><code class="language-toml">[project]
+requires-python = "&gt;=3.11"
+dependencies = [
+  "requests&gt;=2.32,&lt;3",
+]
+</code></pre>
+<p><code>requires-python</code> 用于阻止不支持的解释器安装项目。依赖范围给解析器选择空间；锁定文件才负责把某次部署固定到具体版本。生产镜像构建应记录锁定文件、包索引和基础镜像摘要。</p>
+<span class="heading-anchor" id="常见坑的机制和排障决策路径"></span><h2 id="_16">常见坑的机制和排障决策路径</h2>
+<p>遇到 Python 环境问题，按下面顺序查：</p>
+<ol>
+<li>解释器：<code>python -c "import sys; print(sys.version); print(sys.executable)"</code>。</li>
+<li>环境：<code>python -c "import sys; print(sys.prefix); print(sys.base_prefix)"</code>，两者不同通常表示在虚拟环境中。</li>
+<li>pip 归属：<code>python -m pip --version</code>，看路径是否在目标虚拟环境。</li>
+<li>包位置：<code>python -c "import pkg; print(pkg.__file__)"</code>，确认导入来源。</li>
+<li>依赖一致性：<code>python -m pip check</code>，找已安装包之间的不兼容。</li>
+<li>解析输入：检查 <code>requirements.txt</code>、约束文件、锁定文件、私有索引配置是否一致。</li>
+<li>系统依赖：编译失败时看第一条真正的编译器或链接器错误，不要只看最后的 pip 总结。</li>
+</ol>
+<p>边界说明：</p>
+<ul>
+<li>库项目不应无理由锁死所有间接依赖，否则下游难以组合。</li>
+<li>应用项目不应只写宽泛范围就部署，否则重复构建可能拿到不同版本。</li>
+<li><code>.venv</code> 不可移动；路径写入脚本 shebang 后，移动目录可能导致命令入口失效。</li>
+</ul>
+<span class="heading-anchor" id="练习答案要点"></span><h2 id="_17">练习答案要点</h2>
+<p>基础练习：答案应显示虚拟环境路径，并证明包安装在该环境内。</p>
+<pre><code class="language-bash">.venv/bin/python -c "import sys, requests; print(sys.executable); print(requests.__file__)"
+</code></pre>
+<p>进阶练习：比较未激活和已激活环境时，关键不是提示符变化，而是 <code>python -m pip --version</code> 指向的 site-packages 路径不同。</p>
+<p>综合练习：制造冲突后应使用 <code>pip check</code> 或解析器错误说明“哪个包要求哪个版本范围”。修复思路包括升级上游包、收窄或放宽版本范围、替换依赖，不能只反复清缓存。</p>
+<span class="heading-anchor" id="章节小结"></span><h2 id="_18">章节小结</h2>
+<p>Python 依赖管理的核心是让“哪个解释器、哪个环境、哪些直接依赖、解析出了哪些精确版本”都可见、可重建。稳定团队流程通常把本地开发便利和生产可复现性分开设计。</p>
+<span class="heading-anchor" id="官方延伸阅读"></span><h2 id="_19">官方延伸阅读</h2>
+<ul>
+<li>Python <code>venv</code> 官方文档：<a href="https://docs.python.org/3/library/venv.html">https://docs.python.org/3/library/venv.html</a></li>
+<li>Python Packaging User Guide：<a href="https://packaging.python.org/">https://packaging.python.org/</a></li>
+<li>pip User Guide：<a href="https://pip.pypa.io/en/stable/user_guide/">https://pip.pypa.io/en/stable/user_guide/</a></li>
+<li><code>pyproject.toml</code> 规范入口：<a href="https://packaging.python.org/en/latest/specifications/pyproject-toml/">https://packaging.python.org/en/latest/specifications/pyproject-toml/</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>日志、指标、Trace 三类信号 · 李杨的学习笔记</title><meta name="description" content="日志是事件记录，数据模型通常是一条带时间戳和字段的事件。它适合回答“发生了什么”，例如一次订单创建失败的错误码、请求参数摘要、异常堆栈。"><meta property="og:title" content="日志、指标、Trace 三类信号 · 李杨的学习笔记"><meta property="og:description" content="日志是事件记录，数据模型通常是一条带时间戳和字段的事件。它适合回答“发生了什么”，例如一次订单创建失败的错误码、请求参数摘要、异常堆栈。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-046eb0b1372a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-046eb0b1372a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 03-配置与可观测性</p><h1>日志、指标、Trace 三类信号</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/03-%E9%85%8D%E7%BD%AE%E4%B8%8E%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7/02-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E4%B8%89%E7%B1%BB%E4%BF%A1%E5%8F%B7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">信号用途与数据模型</a></li><li><a href="#_4">架构与数据流</a></li><li><a href="#_5">示例</a></li><li><a href="#_6">典型工作流</a></li><li><a href="#_7">常见坑</a></li><li><a href="#_8">排障步骤</a></li><li><a href="#_9">练习</a></li><li><a href="#_10">检查清单</a></li><li><a href="#_11">前置知识与完成标准</a></li><li><a href="#_12">三类信号逐项拆解</a></li><li><a href="#_13">日志</a></li><li><a href="#_14">指标</a></li><li><a href="#trace_1">Trace</a></li><li><a href="#_15">何时选择哪类信号</a></li><li><a href="#_16">分步接入</a></li><li><a href="#_17">更细的架构与关联数据流</a></li><li><a href="#_18">从零可复现实验</a></li><li><a href="#_19">查询与配置逐段解释</a></li><li><a href="#_20">成本、安全、隐私、采样、基数与保留</a></li><li><a href="#_21">排障决策树</a></li><li><a href="#_22">分层练习与答案要点</a></li><li><a href="#_23">小结</a></li><li><a href="#_24">官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>区分日志、指标、Trace 的用途、成本和数据模型。</li>
+<li>理解三类信号如何通过上下文字段关联。</li>
+<li>掌握采集链路、采样策略和标签/基数风险。</li>
+<li>能为 C++ 后端服务设计基础观测方案。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<p>日志是事件记录，数据模型通常是一条带时间戳和字段的事件。它适合回答“发生了什么”，例如一次订单创建失败的错误码、请求参数摘要、异常堆栈。</p>
+<p>指标是按时间聚合的数值序列，数据模型通常是指标名加标签集合再加样本值。它适合回答“整体状态如何变化”，例如 QPS、错误率、P99 延迟、队列长度。</p>
+<p>Trace 是一次请求的因果路径，数据模型通常是 trace、span、span event、span attribute。它适合回答“一次请求经过了哪些服务，哪里慢或失败”。</p>
+<p>三者不是替代关系。一次典型排障会先看指标发现异常，再用 Trace 定位慢服务或失败依赖，最后用日志查看局部细节。</p>
+<span class="heading-anchor" id="信号用途与数据模型"></span><h2 id="_3">信号用途与数据模型</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>信号</th>
+<th>主要用途</th>
+<th>数据模型</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>日志</td>
+<td>解释离散事件和错误细节</td>
+<td>时间戳 + 级别 + 消息 + 字段</td>
+<td>细节丰富，便于审计</td>
+<td>成本高，查询依赖字段质量</td>
+</tr>
+<tr>
+<td>指标</td>
+<td>趋势、告警、容量分析</td>
+<td>metric name + labels + samples</td>
+<td>成本低，聚合快</td>
+<td>高基数会拖垮存储和查询</td>
+</tr>
+<tr>
+<td>Trace</td>
+<td>请求路径和因果关系</td>
+<td>trace id + spans + attributes</td>
+<td>跨服务定位直观</td>
+<td>采样后不一定覆盖所有请求</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="架构与数据流"></span><h2 id="_4">架构与数据流</h2>
+<pre class="mermaid">flowchart LR
+  A["业务服务"] --&gt; B["日志采集器"]
+  A --&gt; C["指标端点或 SDK"]
+  A --&gt; D["Trace SDK"]
+
+  B --&gt; E["日志后端"]
+  C --&gt; F["指标后端"]
+  D --&gt; G["Trace 后端"]
+
+  E --&gt; H["查询与告警"]
+  F --&gt; H
+  G --&gt; H
+</pre>
+<p>关联字段建议：</p>
+<ul>
+<li><code>service.name</code>：服务名。</li>
+<li><code>deployment.environment</code>：环境。</li>
+<li><code>service.version</code>：版本。</li>
+<li><code>service.instance.id</code>：实例 ID。</li>
+<li><code>trace_id</code> 和 <code>span_id</code>：日志与 Trace 关联。</li>
+<li><code>http.route</code>：低基数路由模板，例如 <code>/orders/{id}</code>。</li>
+<li><code>error.type</code> 或 <code>error_code</code>：错误分类。</li>
+</ul>
+<p>团队应维护一张跨后端字段映射表。OpenTelemetry 语义字段常用点号，例如 <code>service.name</code>；进入 Prometheus 或 Loki 时通常要转换成合法标签名或团队约定名，例如 <code>service.name</code> 映射为 <code>service</code> 或 <code>service_name</code>，<code>deployment.environment</code> 映射为 <code>env</code> 或 <code>deployment_environment</code>。关键不是某个名字天然正确，而是日志、指标、Trace、仪表盘和告警规则使用同一套映射。</p>
+<span class="heading-anchor" id="示例"></span><h2 id="_5">示例</h2>
+<p>结构化日志：</p>
+<pre><code class="language-json">{
+  "timestamp": "2026-08-31T09:00:00Z",
+  "level": "error",
+  "service.name": "order-service",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7",
+  "event": "payment_request_failed",
+  "order_id_hash": "b6f1",
+  "error_code": "PAYMENT_TIMEOUT"
+}
+</code></pre>
+<p>Prometheus 指标：</p>
+<pre><code class="language-text">http_server_requests_total{service="order-service",method="POST",route="/orders",status="500"} 17
+http_server_request_duration_seconds_bucket{service="order-service",route="/orders",le="0.5"} 1200
+</code></pre>
+<p>Trace span 属性：</p>
+<pre><code class="language-text">span.name = POST /orders
+trace_id = 4bf92f3577b34da6a3ce929d0e0e4736
+attributes:
+  service.name = order-service
+  http.method = POST
+  http.route = /orders
+  error.type = PAYMENT_TIMEOUT
+</code></pre>
+<p>C++ 接入路径：</p>
+<ul>
+<li>日志：spdlog、glog、Boost.Log 等输出 JSON 或 key-value 格式。</li>
+<li>指标：Prometheus C++ client、StatsD 客户端、OpenTelemetry Metrics SDK、服务网格指标。</li>
+<li>Trace：OpenTelemetry C++ SDK、gRPC/HTTP 中间件、sidecar 自动注入能力。</li>
+</ul>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_6">典型工作流</h2>
+<ol>
+<li>先定义统一资源字段：服务名、环境、版本、实例 ID。</li>
+<li>为入口请求生成或读取 Trace 上下文。</li>
+<li>在日志中写入 Trace ID 和错误分类，而不是只写自然语言。</li>
+<li>为关键路径增加 RED 指标：Rate、Errors、Duration。</li>
+<li>为资源增加 USE 指标：Utilization、Saturation、Errors。</li>
+<li>对 Trace 设置采样策略，保留错误请求或慢请求样本。</li>
+<li>在仪表盘里从错误率跳转到 Trace，再从 Trace 跳转到日志。</li>
+</ol>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_7">常见坑</h2>
+<ul>
+<li>指标标签放用户 ID、订单 ID、请求 ID，造成高基数。</li>
+<li>日志只有字符串消息，没有结构化字段，查询只能模糊匹配。</li>
+<li>Trace ID 没写入日志，导致三类信号无法串联。</li>
+<li>Span 命名包含具体 ID，例如 <code>GET /orders/123</code>，导致聚合失效。</li>
+<li>只采集成功路径，错误路径没有日志和 span status。</li>
+<li>告警直接基于单实例瞬时值，误报和漏报都严重。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_8">排障步骤</h2>
+<ol>
+<li>从指标确认影响面：哪些服务、路由、状态码、实例异常。</li>
+<li>查看部署、配置、流量是否在异常前后变化。</li>
+<li>用 Trace 查询慢请求或错误请求，定位失败 span。</li>
+<li>根据 Trace ID 查日志，读取错误码、依赖返回和本地上下文。</li>
+<li>检查标签基数和采样率，确认不是观测系统自身丢数据。</li>
+<li>修复后用同一组指标验证错误率和延迟恢复。</li>
+</ol>
+<span class="heading-anchor" id="练习"></span><h2 id="_9">练习</h2>
+<ol>
+<li>为 <code>POST /orders</code> 设计 3 条日志字段、3 个指标和 3 个 span 属性。</li>
+<li>判断这些标签是否适合放进指标：<code>user_id</code>、<code>http.route</code>、<code>region</code>、<code>request_id</code>。</li>
+<li>写一条排障路径：P99 延迟升高但错误率不变时如何定位。</li>
+<li>给 C++ 服务设计一个把 Trace ID 写入日志上下文的方案。</li>
+</ol>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_10">检查清单</h2>
+<ul>
+<li>日志、指标、Trace 的职责没有混用。</li>
+<li>三类信号共享服务名、环境、版本、实例 ID。</li>
+<li>日志包含 Trace ID、错误分类和关键业务上下文。</li>
+<li>指标标签保持低基数，避免用户级和请求级标签。</li>
+<li>Trace span 使用稳定名称和语义化属性。</li>
+<li>采样策略覆盖错误请求和慢请求。</li>
+<li>仪表盘支持从指标跳到 Trace 和日志。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h2 id="_11">前置知识与完成标准</h2>
+<p>前置知识：</p>
+<ul>
+<li>知道一次 HTTP/RPC 请求会经过入口、业务逻辑、依赖调用和返回响应。</li>
+<li>理解时间戳、字段、标签、聚合、采样和请求 ID。</li>
+<li>能区分单次事件、聚合趋势和跨服务因果链路。</li>
+</ul>
+<p>完成标准：</p>
+<ul>
+<li>能为一个接口同时设计日志字段、指标和 Trace span。</li>
+<li>能解释三类信号的数据模型、成本差异和关联字段。</li>
+<li>能判断故障定位时先看哪类信号，何时切换到另一类信号。</li>
+<li>能识别高基数、过度日志、过低采样和字段不一致造成的问题。</li>
+</ul>
+<span class="heading-anchor" id="三类信号逐项拆解"></span><h2 id="_12">三类信号逐项拆解</h2>
+<span class="heading-anchor" id="日志"></span><h3 id="_13">日志</h3>
+<p>原理：日志记录离散事件。每条日志是某个时间点发生的一件事，适合保留上下文、错误原因、审计证据和异常堆栈。</p>
+<p>数据模型：</p>
+<pre><code class="language-text">timestamp + observed_timestamp + severity + body/message + resource + attributes + trace_id + span_id
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>解释某次失败的业务原因，例如支付渠道返回 <code>UPSTREAM_TIMEOUT</code>。</li>
+<li>审计关键操作，例如配置发布、权限变更、订单状态迁移。</li>
+<li>保存异常堆栈、多行错误和输入摘要。</li>
+</ul>
+<p>边界：</p>
+<ul>
+<li>日志不适合直接计算全局 P99 或高频告警。</li>
+<li>自然语言日志难以稳定查询，生产应以结构化字段为主。</li>
+<li>明细日志成本最高，必须控制级别、采样、脱敏和保留周期。</li>
+</ul>
+<p>与相邻概念区别：日志回答“这次发生了什么”；事件审计更强调不可抵赖和合规；Trace span event 是某次 Trace 内的事件，不一定进入日志系统长期保留。</p>
+<span class="heading-anchor" id="指标"></span><h3 id="_14">指标</h3>
+<p>原理：指标把事件聚合为时间序列。一个指标名加一组标签形成一条序列，后端按时间保存样本，适合快速聚合、告警和容量分析。</p>
+<p>数据模型：</p>
+<pre><code class="language-text">metric_name + labels + timestamp + value
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>RED：请求速率、错误率、耗时分布。</li>
+<li>USE：资源使用率、饱和度、错误。</li>
+<li>SLI/SLO：可用性、延迟达标率、错误预算消耗。</li>
+</ul>
+<p>边界：</p>
+<ul>
+<li>指标会丢失单次请求细节。</li>
+<li>标签必须低基数；<code>user_id</code>、<code>request_id</code>、完整 URL、异常消息不应作为标签。</li>
+<li>Counter 要用 <code>rate()</code> 或 <code>increase()</code> 看变化，不能把累计值当瞬时值。</li>
+</ul>
+<p>与相邻概念区别：指标回答“整体状态如何变化”；日志聚合可以临时生成指标，但成本和稳定性通常不如原生指标。</p>
+<span class="heading-anchor" id="Trace"></span><h3 id="trace_1">Trace</h3>
+<p>原理：Trace 把一次请求拆成多个 span。每个 span 表示一个操作，带开始时间、持续时间、父子关系、状态和属性。上下文传播让跨服务调用共享同一个 Trace ID。</p>
+<p>数据模型：</p>
+<pre><code class="language-text">trace_id -&gt; span_id + parent_span_id + name + kind + start/end + status + attributes + events + links
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>还原一次请求经过哪些服务和依赖。</li>
+<li>定位慢点在入口、业务代码、数据库、缓存还是下游服务。</li>
+<li>分析扇出、重试、异步消息和跨服务错误传播。</li>
+</ul>
+<p>边界：</p>
+<ul>
+<li>Trace 通常采样，不保证每次请求都有样本。</li>
+<li>span 属性同样有基数风险，不能把大对象、明文 PII 或无限枚举放进去。</li>
+<li>没有上下文传播时，Trace 会断裂成多个局部片段。</li>
+</ul>
+<p>与相邻概念区别：Trace 回答“这次请求的因果路径是什么”；调用链拓扑是 Trace 聚合后的视图，不等于单次请求证据。</p>
+<span class="heading-anchor" id="何时选择哪类信号"></span><h2 id="_15">何时选择哪类信号</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>首选信号</th>
+<th>切换条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户报“下单慢”</td>
+<td>指标</td>
+<td>确认 P95/P99 异常后查 Trace</td>
+</tr>
+<tr>
+<td>单个订单失败</td>
+<td>日志</td>
+<td>有 Trace ID 时从 Trace 看跨服务路径</td>
+</tr>
+<tr>
+<td>新版本错误率升高</td>
+<td>指标</td>
+<td>按版本拆分后查错误 Trace 和日志</td>
+</tr>
+<tr>
+<td>数据不一致</td>
+<td>日志</td>
+<td>需要确认跨服务调用顺序时查 Trace</td>
+</tr>
+<tr>
+<td>容量不足</td>
+<td>指标</td>
+<td>需要确认热点请求路径时查 Trace</td>
+</tr>
+<tr>
+<td>安全审计</td>
+<td>日志</td>
+<td>只用指标无法满足审计证据</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="分步接入"></span><h2 id="_16">分步接入</h2>
+<ol>
+<li>先定义统一资源字段和命名规范，避免每个后端各用一套字段。</li>
+<li>给入口请求接入 Trace 上下文，保证日志能写入 <code>trace_id</code> 和 <code>span_id</code>。</li>
+<li>为入口和关键依赖增加 RED 指标，指标标签只保留低基数字段。</li>
+<li>把自然语言日志改成结构化日志，至少包含事件名、错误类型和资源字段。</li>
+<li>为关键业务步骤增加 span，并在错误路径设置 status 和错误属性。</li>
+<li>在仪表盘上建立“指标 -&gt; Trace -&gt; 日志”的跳转路径。</li>
+<li>评审采样、保留、脱敏和基数规则，再扩大到更多服务。</li>
+</ol>
+<span class="heading-anchor" id="更细的架构与关联数据流"></span><h2 id="_17">更细的架构与关联数据流</h2>
+<pre class="mermaid">flowchart TD
+  R["入口请求"] --&gt; C["上下文提取或创建 trace_id"]
+  C --&gt; S1["入口 span"]
+  S1 --&gt; M["记录 RED 指标"]
+  S1 --&gt; L["结构化日志写入 trace_id/span_id"]
+  S1 --&gt; D["下游调用注入 traceparent"]
+  D --&gt; S2["下游 span"]
+  L --&gt; LB["日志后端"]
+  M --&gt; MB["指标后端"]
+  S1 --&gt; TB["Trace 后端"]
+  S2 --&gt; TB
+  MB --&gt; G["仪表盘/告警"]
+  G --&gt; TB
+  TB --&gt; LB
+</pre>
+<p>统一字段映射：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>语义</th>
+<th>OTel 字段</th>
+<th>Prometheus/Loki 常见标签</th>
+<th>日志字段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>服务名</td>
+<td><code>service.name</code></td>
+<td><code>service</code> 或 <code>service_name</code></td>
+<td><code>service.name</code></td>
+</tr>
+<tr>
+<td>环境</td>
+<td><code>deployment.environment.name</code></td>
+<td><code>env</code></td>
+<td><code>deployment.environment.name</code></td>
+</tr>
+<tr>
+<td>路由</td>
+<td><code>http.route</code></td>
+<td><code>route</code></td>
+<td><code>http.route</code></td>
+</tr>
+<tr>
+<td>错误类型</td>
+<td><code>error.type</code></td>
+<td><code>error_type</code></td>
+<td><code>error.type</code></td>
+</tr>
+<tr>
+<td>Trace ID</td>
+<td><code>trace_id</code></td>
+<td>通常不做指标标签</td>
+<td><code>trace_id</code></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="从零可复现实验"></span><h2 id="_18">从零可复现实验</h2>
+<p>目标：用一个本地脚本手工生成三类信号，理解它们如何关联。</p>
+<pre><code class="language-bash">mkdir -p /tmp/obs-signals
+cat &gt;/tmp/obs-signals/app.log &lt;&lt;'LOG'
+{"ts":"2026-08-31T09:00:00Z","level":"error","service.name":"order-service","trace_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","span_id":"bbbbbbbbbbbbbbbb","event":"payment_failed","error.type":"UPSTREAM_TIMEOUT","http.route":"/orders"}
+LOG
+cat &gt;/tmp/obs-signals/metrics.prom &lt;&lt;'METRIC'
+http_server_requests_total{service="order-service",route="/orders",status="500"} 1
+http_server_request_duration_seconds_bucket{service="order-service",route="/orders",le="0.5"} 0
+http_server_request_duration_seconds_bucket{service="order-service",route="/orders",le="1"} 1
+http_server_request_duration_seconds_count{service="order-service",route="/orders"} 1
+http_server_request_duration_seconds_sum{service="order-service",route="/orders"} 0.8
+METRIC
+cat &gt;/tmp/obs-signals/trace.txt &lt;&lt;'TRACE'
+trace_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+span_id=bbbbbbbbbbbbbbbb
+name=POST /orders
+status=ERROR
+attribute.error.type=UPSTREAM_TIMEOUT
+TRACE
+</code></pre>
+<p>验证方法：</p>
+<pre><code class="language-bash">grep aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa /tmp/obs-signals/app.log
+grep http_server_requests_total /tmp/obs-signals/metrics.prom
+grep attribute.error.type /tmp/obs-signals/trace.txt
+</code></pre>
+<p>预期数据：</p>
+<ul>
+<li>日志和 Trace 使用同一个 <code>trace_id</code>。</li>
+<li>指标不包含 <code>trace_id</code>，只按服务、路由、状态码聚合。</li>
+<li><code>error.type</code> 同时出现在日志和 Trace，可用于跳转后确认原因。</li>
+</ul>
+<p>失败现象：</p>
+<ul>
+<li>日志没有 <code>trace_id</code>：从 Trace 无法跳转到具体日志。</li>
+<li>指标标签含 <code>request_id</code>：每个请求产生新序列，查询和存储成本爆炸。</li>
+<li>Trace 采样没保留错误请求：指标显示错误，但 Trace 后端没有样本。</li>
+</ul>
+<span class="heading-anchor" id="查询与配置逐段解释"></span><h2 id="_19">查询与配置逐段解释</h2>
+<p>指标查询：</p>
+<pre><code class="language-promql">sum by (service, route) (
+  rate(http_server_requests_total{status=~"5.."}[5m])
+)
+/
+sum by (service, route) (
+  rate(http_server_requests_total[5m])
+)
+</code></pre>
+<p>逐段解释：</p>
+<ul>
+<li><code>http_server_requests_total</code> 是 Counter，必须用 <code>rate(...[5m])</code> 转成每秒速率。</li>
+<li><code>{status=~"5.."}</code> 只选择 5xx。</li>
+<li><code>sum by (service, route)</code> 聚合实例维度，保留服务和路由维度。</li>
+<li>分子除以分母得到 5 分钟错误率。</li>
+</ul>
+<p>日志查询思路：</p>
+<pre><code class="language-text">service.name="order-service" AND error.type="UPSTREAM_TIMEOUT" AND trace_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+</code></pre>
+<p>逐段解释：</p>
+<ul>
+<li>先用服务名和时间范围缩小范围。</li>
+<li>再用错误类型定位同类失败。</li>
+<li>最后用 Trace ID 找单次请求上下文。</li>
+</ul>
+<p>Trace 查询思路：</p>
+<pre><code class="language-text">service.name = order-service
+span.name = POST /orders
+status = ERROR
+duration &gt; 500ms
+</code></pre>
+<p>逐段解释：</p>
+<ul>
+<li>服务名定位入口。</li>
+<li>span 名称必须是路由模板，不是具体 URL。</li>
+<li><code>status=ERROR</code> 找失败样本。</li>
+<li><code>duration</code> 找慢请求。</li>
+</ul>
+<span class="heading-anchor" id="成本、安全、隐私、采样、基数与保留"></span><h2 id="_20">成本、安全、隐私、采样、基数与保留</h2>
+<ul>
+<li>成本：日志按字节和索引收费最多；Trace 成本受 span 数和采样率影响；指标成本受时间序列数量影响。</li>
+<li>安全：日志和 Trace 属性中不要写密钥、Token、身份证号、手机号、完整银行卡号。</li>
+<li>隐私：用户标识应哈希化或分级访问；能用于重识别的字段要按隐私数据处理。</li>
+<li>采样：指标通常不采样；Trace 做头部采样、尾部采样或错误优先采样；日志可按级别或事件类型采样。</li>
+<li>标签基数：指标标签最低要求是可枚举、稳定、低数量；日志字段可高一些，但索引字段仍要控制；Trace 属性应避免无限枚举。</li>
+<li>保留：聚合指标可长期保留；明细日志短期热存，归档冷存；Trace 样本按排障窗口保留。</li>
+</ul>
+<span class="heading-anchor" id="排障决策树"></span><h2 id="_21">排障决策树</h2>
+<pre><code class="language-text">发现异常
+├─ 是趋势性问题吗？
+│  ├─ 是：先看指标，确认服务/路由/版本/实例影响面
+│  └─ 否：先查日志或用户提供的 Trace ID
+├─ 指标是否能定位到服务？
+│  ├─ 否：检查标签规范和仪表盘口径
+│  └─ 是：查错误或慢请求 Trace
+├─ Trace 是否完整？
+│  ├─ 否：检查上下文传播、异步边界、采样规则
+│  └─ 是：定位失败 span
+└─ 需要错误细节？
+   ├─ 是：用 trace_id/span_id 查日志
+   └─ 否：用指标验证恢复
+</code></pre>
+<span class="heading-anchor" id="分层练习与答案要点"></span><h2 id="_22">分层练习与答案要点</h2>
+<p>基础练习：判断 <code>user_id</code>、<code>route</code>、<code>status</code>、<code>request_id</code> 哪些适合做指标标签。</p>
+<p>答案要点：<code>route</code> 和 <code>status</code> 适合；<code>user_id</code>、<code>request_id</code> 高基数，不适合。</p>
+<p>进阶练习：P99 延迟升高但错误率不变，设计排障路径。</p>
+<p>答案要点：先按路由和实例拆指标；查慢 Trace；看慢 span 是数据库、缓存、下游还是本地 CPU；用日志确认是否有重试、限流或超时。</p>
+<p>综合练习：为 <code>POST /orders</code> 设计三类信号。</p>
+<p>答案要点：日志包含 <code>trace_id</code>、<code>order_id_hash</code>、<code>error.type</code>；指标包含请求总数和延迟 Histogram；Trace 包含入口 span、支付 span、库存 span，并在错误 span 标记 status 和错误类型。</p>
+<span class="heading-anchor" id="小结"></span><h2 id="_23">小结</h2>
+<p>日志、指标、Trace 是互补关系。指标负责发现和量化，Trace 负责还原路径，日志负责解释细节。三者能否协同，取决于统一资源字段、低基数设计、上下文传播、采样策略和跨后端跳转。</p>
+<span class="heading-anchor" id="官方延伸阅读"></span><h2 id="_24">官方延伸阅读</h2>
+<ul>
+<li>OpenTelemetry 日志数据模型：https://opentelemetry.io/docs/specs/otel/logs/data-model/</li>
+<li>OpenTelemetry 语义约定：https://opentelemetry.io/docs/concepts/semantic-conventions/</li>
+<li>OpenTelemetry Metrics 数据模型：https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/data-model.md</li>
+<li>OpenTelemetry 上下文传播：https://opentelemetry.io/docs/concepts/context-propagation/</li>
+<li>Prometheus 数据模型与查询基础：https://prometheus.io/docs/prometheus/latest/querying/basics/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

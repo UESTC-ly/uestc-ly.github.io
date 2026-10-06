@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-05 重排器评估、延迟与成本 · 李杨的学习笔记</title><meta name="description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
+提到第一位。但工程决策需要回答更完整的问题：它改善了哪些查询，又损害了哪些查询；
+第一阶段是否本来就包含正确证据；额外延迟与费用是多少；失败时系统怎样退化；权限、
+版本和无答案行为是否发生回归。"><meta property="og:title" content="08-05 重排器评估、延迟与成本 · 李杨的学习笔记"><meta property="og:description" content="重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
+提到第一位。但工程决策需要回答更完整的问题：它改善了哪些查询，又损害了哪些查询；
+第一阶段是否本来就包含正确证据；额外延迟与费用是多少；失败时系统怎样退化；权限、
+版本和无答案行为是否发生回归。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-7636bd047e21.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08-05 重排器评估、延迟与成本</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/05-reranker-evaluation-latency-and-cost.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">“感觉前几条更相关”不是完成条件</a></li><li><a href="#_2">第一步：定义任务和基线</a></li><li><a href="#_3">第二步：建立代表性查询集</a></li><li><a href="#_4">第三步：控制候选输入</a></li><li><a href="#_5">第四步：选择排序指标</a></li><li><a href="#recallk-precisionk">Recall@K 与 Precision@K</a></li><li><a href="#_6">首个相关结果的倒数名次</a></li><li><a href="#_7">带等级相关性的排名指标</a></li><li><a href="#_8">任务覆盖与无答案行为</a></li><li><a href="#_9">平均数之外必须看什么</a></li><li><a href="#_10">第五步：测量延迟</a></li><li><a href="#_11">第六步：计算成本与容量</a></li><li><a href="#_12">设计一张评估矩阵</a></li><li><a href="#_13">采用与停止条件</a></li><li><a href="#_14">安全与诚实边界</a></li><li><a href="#_15">评估方案练习</a></li><li><a href="#_16">自测</a></li><li><a href="#_17">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>08-05</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>55 分钟阅读，加 35 分钟评估方案练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 08-01 至 08-04；理解候选、相关性标注、Top-K 与多阶段预算</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真实模型、托管服务和负载实验可能产生计算与调用费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用固定候选表比较初排与重排，并填写本章评估矩阵</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>建立包含正例、困难负例、无答案和权限边界的离线查询集；</li>
+<li>选择能反映排序位置的指标，并保留逐查询证据；</li>
+<li>分开测量重排质量、阶段延迟、吞吐、失败和费用；</li>
+<li>用预先定义的接受条件决定采用、调整、回退或停止。</li>
+</ul>
+<span class="heading-anchor" id="“感觉前几条更相关”不是完成条件"></span><h2 id="_1">“感觉前几条更相关”不是完成条件</h2>
+<p>重排器很容易通过少数演示给人留下好印象：挑一个模型擅长的问题，结果恰好把正确候选
+提到第一位。但工程决策需要回答更完整的问题：它改善了哪些查询，又损害了哪些查询；
+第一阶段是否本来就包含正确证据；额外延迟与费用是多少；失败时系统怎样退化；权限、
+版本和无答案行为是否发生回归。</p>
+<p>因此，评估必须把重排器放在固定候选输入上与基线比较。若同时更换嵌入模型、切分、过滤、
+融合和重排器，即使最终指标变化，也难以知道原因。</p>
+<span class="heading-anchor" id="第一步：定义任务和基线"></span><h2 id="_2">第一步：定义任务和基线</h2>
+<p>先写清重排器负责的决定。例如：“在权限过滤后的 30 个候选中，把直接支持问题的现行
+条款排到前 5，并保留必要的多证据覆盖。”然后选择至少一个简单基线：</p>
+<ul>
+<li>沿用第一阶段原始顺序；</li>
+<li>使用现有融合顺序；</li>
+<li>使用可解释规则，例如精确编号命中加权；</li>
+<li>使用当前已部署重排器。</li>
+</ul>
+<p>没有基线，就无法判断复杂方法是否带来增量价值。基线也应使用同一候选输入、同一标注和
+同一过滤规则。</p>
+<span class="heading-anchor" id="第二步：建立代表性查询集"></span><h2 id="_3">第二步：建立代表性查询集</h2>
+<p>查询集应来自允许使用且经过脱敏的数据、经过审查的合成问题或两者组合。每条查询至少需要：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查询标识与文本</td>
+<td>可稳定复现，不在报告中泄露敏感信息</td>
+</tr>
+<tr>
+<td>查询分组</td>
+<td>例如编号、语义改写、多条件、跨语言、历史版本</td>
+</tr>
+<tr>
+<td>候选快照</td>
+<td>固定候选身份、内容版本、来源与允许范围</td>
+</tr>
+<tr>
+<td>相关性标签</td>
+<td>无关、部分相关、直接支持，或任务定义的等级</td>
+</tr>
+<tr>
+<td>必要证据组</td>
+<td>多证据回答必须覆盖哪些事实条件</td>
+</tr>
+<tr>
+<td>无答案状态</td>
+<td>当前允许语料是否根本无法支持回答</td>
+</tr>
+<tr>
+<td>标注说明</td>
+<td>判断理由、分歧和不确定性</td>
+</tr>
+</tbody>
+</table></div>
+<p>困难负例比随机无关文本更有诊断力，例如主题相同但版本过期、对象不同、否定关系相反或
+只包含关键词却不支持结论的候选。还应包含候选中没有正确证据的查询，用来确认重排器不会
+把“最像的一条”冒充充分证据。</p>
+<span class="heading-anchor" id="第三步：控制候选输入"></span><h2 id="_4">第三步：控制候选输入</h2>
+<p>评估重排器本身时，应冻结每条查询的候选列表。这样可以区分：</p>
+<ul>
+<li><strong>上游可达性：</strong> 正确证据是否进入重排输入；</li>
+<li><strong>重排质量：</strong> 进入输入后是否被提前；</li>
+<li><strong>下游使用：</strong> 提前后是否进入上下文并被回答正确使用。</li>
+</ul>
+<p>可以另做端到端实验，但不能用端到端结果替代阶段诊断。若候选输入里没有正确证据，应该
+标为上游失败，而不是给重排器一个无法完成的任务后再误读指标。</p>
+<span class="heading-anchor" id="第四步：选择排序指标"></span><h2 id="_5">第四步：选择排序指标</h2>
+<span class="heading-anchor" id="Recall@K 与 Precision@K"></span><h3 id="recallk-precisionk">Recall@K 与 Precision@K</h3>
+<p>Recall@K 检查前 K 是否保留应找回的相关证据，Precision@K 检查前 K 有多少候选相关。
+它们适合观察固定上下文位置，但需要结合多证据标签和查询分组解释。</p>
+<span class="heading-anchor" id="首个相关结果的倒数名次"></span><h3 id="_6">首个相关结果的倒数名次</h3>
+<p>若首个相关候选位于名次 <code>r</code>，其倒数名次是 <code>1/r</code>。对查询取平均可形成 MRR 类指标。
+它强调第一个相关结果尽早出现，但不检查第二、第三条必要证据是否同时存在。</p>
+<span class="heading-anchor" id="带等级相关性的排名指标"></span><h3 id="_7">带等级相关性的排名指标</h3>
+<p>当标签区分“直接支持”“部分相关”和“背景”时，可以使用考虑等级与位置折扣的指标，
+例如 nDCG 类指标。它依赖等级定义与理想顺序，不能用一个数字替代对标签质量的审查。</p>
+<span class="heading-anchor" id="任务覆盖与无答案行为"></span><h3 id="_8">任务覆盖与无答案行为</h3>
+<p>多证据问题需要检查必要证据组是否在预算内完整出现。无答案查询需要检查系统是否仍把
+某个候选强行排成看似充分证据。排序指标只衡量列表，最终仍需在后续章节评估回答忠实性、
+引用支持和拒答。</p>
+<span class="heading-anchor" id="平均数之外必须看什么"></span><h2 id="_9">平均数之外必须看什么</h2>
+<ul>
+<li>按查询类型、语言、部门、时间与风险等级分组；</li>
+<li>查看改善最大和退化最大的逐查询样例；</li>
+<li>区分正确候选未召回、被过滤和被重排压低；</li>
+<li>检查不同候选顺序下是否出现位置偏差；</li>
+<li>检查长文本截断、重复块和历史版本；</li>
+<li>记录标注者分歧，而不是强行制造不存在的确定性；</li>
+<li>对关键查询重复运行，观察非确定性输出。</li>
+</ul>
+<p>只有总体平均提高，不能证明每个重要查询组都可接受。接受条件应在看实验结果之前确定，
+并包括不允许退化的安全与业务边界。</p>
+<span class="heading-anchor" id="第五步：测量延迟"></span><h2 id="_10">第五步：测量延迟</h2>
+<p>重排阶段延迟至少应与端到端延迟分开记录。只报平均值会隐藏慢请求，通常还要观察不同
+分位位置、超时比例和失败分布。具体分位与目标由系统服务要求决定。</p>
+<p>记录条件包括：</p>
+<ul>
+<li>候选数量与每条候选长度；</li>
+<li>批量大小、并发度和队列等待；</li>
+<li>模型、硬件、部署区域与服务版本；</li>
+<li>冷启动、缓存与重试是否发生；</li>
+<li>输入截断和输出长度；</li>
+<li>成功、超时、限流、解析失败和回退的数量；</li>
+<li>单阶段与端到端计时边界。</li>
+</ul>
+<p>本地短样本测试不能证明生产负载延迟。外部服务表现也可能变化，报告必须带日期、版本和
+测量环境。</p>
+<span class="heading-anchor" id="第六步：计算成本与容量"></span><h2 id="_11">第六步：计算成本与容量</h2>
+<p>成本不只是一条请求的价格。完整预算可能包括：</p>
+<ul>
+<li>模型推理或外部 API 输入、输出费用；</li>
+<li>自托管计算设备、空闲容量和扩缩容；</li>
+<li>候选传输、序列化和跨区域网络；</li>
+<li>缓存、日志、指标和评估存储；</li>
+<li>超时重试、失败回放和人工复核；</li>
+<li>模型升级后的重新评估与运营维护。</li>
+</ul>
+<p>可以从“每天查询数 × 触发重排比例 × 每次候选量 × 单位处理成本”建立估算，但每一项都应
+标明数据来源和不确定性。不同服务的计费口径不同，不能把一个教学公式当作实际账单。</p>
+<p>容量评估还需观察峰值，而不只看日平均。若高峰时队列让延迟失控，可以减少候选、分批、
+按查询路由、使用更轻量模型或直接回退，但每种改变都需要重新检查质量。</p>
+<span class="heading-anchor" id="设计一张评估矩阵"></span><h2 id="_12">设计一张评估矩阵</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>候选输入</th>
+<th>排序质量</th>
+<th>延迟</th>
+<th>费用</th>
+<th>失败与回退</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基线顺序</td>
+<td>固定快照</td>
+<td>按查询组记录</td>
+<td>阶段与端到端</td>
+<td>记录口径</td>
+<td>无额外阶段</td>
+<td>待测</td>
+</tr>
+<tr>
+<td>交叉编码器候选</td>
+<td>同一快照</td>
+<td>同一指标</td>
+<td>同一环境</td>
+<td>同一周期</td>
+<td>超时回退基线</td>
+<td>待测</td>
+</tr>
+<tr>
+<td>LLM 重排候选</td>
+<td>同一快照</td>
+<td>加结构与稳定性检查</td>
+<td>含解析与重试</td>
+<td>含输入输出</td>
+<td>格式失败回退</td>
+<td>待测</td>
+</tr>
+</tbody>
+</table></div>
+<p>表中的“待测”不能在正文中提前改成“更好”。实验完成后，结论还应附数据集版本、运行
+命令、原始报告位置和已知限制。</p>
+<span class="heading-anchor" id="采用与停止条件"></span><h2 id="_13">采用与停止条件</h2>
+<p>一个重排方案可以要求同时满足：</p>
+<ul>
+<li>主要查询组的预定排序指标达到门槛；</li>
+<li>关键安全、权限、历史版本和无答案用例无不可接受回归；</li>
+<li>延迟分布、超时和吞吐符合服务预算；</li>
+<li>单位查询成本与峰值容量可承受；</li>
+<li>回退路径在故障条件下得到验证；</li>
+<li>模型、提示、解析器、候选与评估集都有版本记录；</li>
+<li>逐查询退化得到审查并有明确处置。</li>
+</ul>
+<p>若复杂方案只带来很小或不稳定的质量变化，却显著增加延迟、费用和故障面，保留简单基线
+可能是更合理的结论。评估的目的不是证明一定要上线重排器，而是支持可辩护的决定。</p>
+<span class="heading-anchor" id="安全与诚实边界"></span><h2 id="_14">安全与诚实边界</h2>
+<ul>
+<li>评估数据中的用户问题、候选正文和权限字段需要脱敏、授权与访问控制；</li>
+<li>日志应保留诊断身份和版本，但不应无边界复制敏感正文；</li>
+<li>评估环境不能绕过生产权限来制造更高召回率；</li>
+<li>离线相关性改善不能证明最终回答不会幻觉或引用错配；</li>
+<li>合成查询可以补足边界，但不能冒充真实流量分布；</li>
+<li>厂商、模型和价格会变化，任何可变结论都需要版本与日期。</li>
+</ul>
+<span class="heading-anchor" id="评估方案练习"></span><h2 id="_15">评估方案练习</h2>
+<p>为制度库写出 12 类查询中的至少 6 类：精确政策名、同义改写、多条件、多证据、历史版本、
+权限受限、无答案、否定关系、长候选、跨语言、重复块和恶意指令候选。为每类定义标注与
+不允许退化的行为。</p>
+<p>然后比较“保持初排”和“增加一个重排器”两种方案，列出质量指标、延迟记录、成本口径、
+失败回退和采用门槛。最后写出一个可能的停止结论，说明在什么证据下你会选择不上线。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_16">自测</h2>
+<ol>
+<li>为什么评估重排器时要冻结候选输入？</li>
+<li>MRR 类指标为什么不能证明多证据覆盖完整？</li>
+<li>为什么只看平均延迟和总体平均质量都可能误导？</li>
+<li>重排成本除了单次模型调用还包括什么？</li>
+<li>离线排序改善为什么不能证明最终回答一定更好？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_17">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文草稿，已给出评估与预算方法；未运行模型、负载或费用实验。</li>
+<li>代码与图表：参数扫描、报告生成、回退演练和评估矩阵实测为后续计划，尚未实现或验证。</li>
+<li>
+<p>摘要：<a href="n-62b953d2d353.html">08-05 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-2267a610577c.html">08-04 多阶段、Top-K、召回率与精确率</a></p>
+</li>
+<li>返回：<a href="n-5d4f0a9a34fa.html">08 重排索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

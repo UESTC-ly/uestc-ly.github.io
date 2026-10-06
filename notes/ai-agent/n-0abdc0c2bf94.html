@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09 认证与权限 · 李杨的学习笔记</title><meta name="description" content="记忆句： 先验票，再认人，最后判断能进哪扇门。"><meta property="og:title" content="09 认证与权限 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 先验票，再认人，最后判断能进哪扇门。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-0abdc0c2bf94.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-0abdc0c2bf94.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>09 认证与权限</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/09_%E8%AE%A4%E8%AF%81%E4%B8%8E%E6%9D%83%E9%99%90.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 为什么登录成功了，还不能随便访问接口？</a></li><li><a href="#2">2. 一次受保护的请求经过什么流程？</a></li><li><a href="#3-demo">3. 最小 demo：只看懂认证链条</a></li><li><a href="#4">4. 认证通过之后，权限应该在哪里判断？</a></li><li><a href="#5-tokenjwtoauth2">5. token、JWT、OAuth2 为什么不是同一个概念？</a></li><li><a href="#6">6. 合上笔记再回答</a></li><li><a href="#7">7. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>先验票，再认人，最后判断能进哪扇门。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 为什么登录成功了，还不能随便访问接口？"></span><h2 id="1">1. 为什么登录成功了，还不能随便访问接口？</h2>
+<p>假设任务系统里有小李和小王。小李登录后，把地址中的任务编号从自己的改成小王的。如果服务器只检查“有没有登录”，就可能把小王的数据交给小李。</p>
+<p>这里有两道不同的判断。<strong>认证</strong>判断“这份凭证能代表谁”；<strong>授权</strong>判断“这个人能对这个资源做什么”。认证成功只说明身份可信，不能推出拥有全部资源的访问权。实际业务里，授权常常需要同时看当前用户、资源所有者和操作类型，而不只是看一个 <code>is_admin</code> 字段。</p>
+<p>可以把 token 想成门票。拿着票来到检票口，不等于票是真的；票是真的，也不等于可以坐所有座位。这个类比的边界是：Bearer token 通常“谁拿到谁就能使用”，不一定像实名票那样自动核对持有人本人。因此它本身就是需要保护的凭证。</p>
+<span class="heading-anchor" id="2. 一次受保护的请求经过什么流程？"></span><h2 id="2">2. 一次受保护的请求经过什么流程？</h2>
+<p>客户端通常在请求头里携带 <code>Authorization: Bearer &lt;token&gt;</code>。服务器先从头部提取 token，再验证其有效性，找出对应用户，最后执行接口所需的权限判断。通过所有判断后，才进入业务操作。</p>
+<p>FastAPI 的 <code>HTTPBearer</code> 负责识别 Bearer 格式、提取凭证，并在接口文档中描述这种安全方式。<strong>它不负责证明 token 可信。</strong> 真正的认证需要应用自己的逻辑，例如查服务端会话，或验证身份系统签发的凭证。</p>
+<p>这正适合使用依赖注入：把“取得当前用户”写成依赖，路由通过 <code>Depends</code> 获得已经验证的用户。这样业务函数关注“为谁处理任务”，而不用每次重新抄一遍请求头解析代码。依赖抛出异常时，当前请求会提前失败，业务函数不会继续执行。</p>
+<span class="heading-anchor" id="3. 最小 demo：只看懂认证链条"></span><h2 id="3-demo">3. 最小 demo：只看懂认证链条</h2>
+<p>以下固定 token <strong>只用于本地理解流程</strong>，没有登录、签发、过期、撤销，也不构成生产认证方案。保存为 <code>main.py</code>，运行 <code>python -m uvicorn main:app --reload</code>。</p>
+<pre><code class="language-python">from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPBearer
+
+app = FastAPI()
+bearer = HTTPBearer(auto_error=False)
+
+def current_user(credentials=Depends(bearer)):
+    if credentials is None or credentials.credentials != "demo-token":
+        raise HTTPException(
+            401, "凭证缺失或无效", headers={"WWW-Authenticate": "Bearer"}
+        )
+    return {"id": 1, "name": "学习者"}
+
+@app.get("/me")
+def me(user=Depends(current_user)):
+    return user
+</code></pre>
+<p>这里使用传统的 <code>=Depends(...)</code> 写法压缩示例；它和前文 <code>Annotated[..., Depends(...)]</code> 表达的是同一种依赖关系。<code>auto_error=False</code> 让缺少或不符合预期的凭证交给依赖统一处理；读取 <code>.credentials</code> 取得的是去掉 <code>Bearer</code> 前缀后的内容。</p>
+<p>打开 <code>/docs</code>，先直接调用 <code>/me</code>：预期返回 401。再点 <strong>Authorize</strong>，只填入 <code>demo-token</code> 后重试：预期得到用户信息。把 token 改成其他内容会重新得到 401。这三个结果对应“未提供、已验证、验证失败”，没有实现资源授权。</p>
+<p>可选配套文件：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch09.py">demos/ch09.py</a>。它保留更明确的类型声明，与正文精简例不完全相同；可以用 <code>python -m uvicorn demos.ch09:app --reload</code> 启动。</p>
+<span class="heading-anchor" id="4. 认证通过之后，权限应该在哪里判断？"></span><h2 id="4">4. 认证通过之后，权限应该在哪里判断？</h2>
+<p>对于“查看我的任务”，先通过认证得到用户 ID，再取目标任务，比较任务的所有者与当前用户。对于“管理员删除任意任务”，还要判断角色或相应操作权限。检查应该在服务器端进行，前端隐藏按钮只是交互设计，不能替代服务器的授权。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>通常返回</th>
+<th>需要表达的意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>没有有效凭证</td>
+<td>401</td>
+<td>当前请求尚未建立可信身份</td>
+</tr>
+<tr>
+<td>身份有效，但没有所需权限</td>
+<td>403</td>
+<td>已经知道你是谁，但不允许此操作</td>
+</tr>
+<tr>
+<td>资源不存在</td>
+<td>404</td>
+<td>没有这个资源</td>
+</tr>
+</tbody>
+</table></div>
+<p>有些系统对无权访问的资源也返回 404，避免暴露资源是否存在。关键是采用一致的策略，而不是把每种失败都写成“登录失败”。</p>
+<span class="heading-anchor" id="5. token、JWT、OAuth2 为什么不是同一个概念？"></span><h2 id="5-tokenjwtoauth2">5. token、JWT、OAuth2 为什么不是同一个概念？</h2>
+<p><strong>Token 是凭证的统称，JWT 是一种 token 格式，OAuth2 是授权框架。</strong> 一个 token 可以是服务端数据库中随机字符串的索引，也可以采用 JWT 格式；“用了 token”并不等于“用了 JWT”或“实现了 OAuth2”。</p>
+<p>JWT 常通过签名帮助接收方判断内容是否被篡改，常见的签名 JWT 内容可被解码读取，因此不要把密码放进 payload。仅仅成功解码也不代表可信，还需要验证签名、有效期，以及应用要求的签发者和受众等条件。</p>
+<p>同样，<code>OAuth2PasswordBearer(tokenUrl="token")</code> 会声明获取 token 的地址并提取 Bearer token，但不会替你生成 <code>/token</code> 登录接口，更不会自动校验 JWT。这些工具帮你接通流程，身份规则仍需明确实现。</p>
+<p>真正的系统还要解决凭证如何安全签发、传输、保存和失效，以及用户被禁用后如何处理。先记住本章的边界：示例只演示“提取 → 验证 → 返回用户”，没有覆盖完整身份系统。</p>
+<span class="heading-anchor" id="6. 合上笔记再回答"></span><h2 id="6">6. 合上笔记再回答</h2>
+<ol>
+<li><strong>为什么 <code>HTTPBearer</code> 取出了字符串，还不能直接当作已登录？</strong> 因为格式正确不代表凭证真实有效，应用还没有完成验证。</li>
+<li><strong>为什么 <code>/tasks/{id}</code> 比 <code>/me</code> 多一道权限检查？</strong> 前者指定了某个资源，必须判断当前用户与这个资源的关系。</li>
+<li><strong>把权限写在前端够吗？</strong> 不够。客户端可以绕过界面直接发请求，服务器必须独立检查。</li>
+</ol>
+<span class="heading-anchor" id="7. 官方资料"></span><h2 id="7">7. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/security/first-steps/">Security First Steps：安全依赖负责什么</a> · <a href="https://fastapi.tiangolo.com/reference/security/">Security Reference：HTTPBearer 等工具</a> · <a href="https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/">OAuth2 与 JWT 教程</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06 同步异步与流式响应 · 李杨的学习笔记</title><meta name="description" content="记忆句： 异步利用等待，流式提前交付；二者都不会让计算凭空变快。"><meta property="og:title" content="06 同步异步与流式响应 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 异步利用等待，流式提前交付；二者都不会让计算凭空变快。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-1d9dfe63fea4.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-1d9dfe63fea4.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>06 同步异步与流式响应</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/06_%E5%90%8C%E6%AD%A5%E5%BC%82%E6%AD%A5%E4%B8%8E%E6%B5%81%E5%BC%8F%E5%93%8D%E5%BA%94.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 先分清“正在做”和“正在等”</a></li><li><a href="#2-async-await">2. async 和 await 各自做什么</a></li><li><a href="#3">3. 流式响应解决的是交付时机</a></li><li><a href="#4-demo">4. 最小 demo：每隔半秒生成一行</a></li><li><a href="#5">5. 四个边界决定是否真正理解</a></li><li><a href="#6">6. 合上笔记再回答</a></li><li><a href="#7">7. 可选配套与官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>异步利用等待，流式提前交付；二者都不会让计算凭空变快。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 先分清“正在做”和“正在等”"></span><h2 id="1">1. 先分清“正在做”和“正在等”</h2>
+<p>一个接口耗时 3 秒，原因可能完全不同：一种是远程服务 3 秒后才回复，本机大部分时间在等；另一种是本机连续计算 3 秒，CPU 一直在工作。异步主要处理前一种情况：既然当前请求暂时无法继续，就让执行机会留给其他已准备好的请求。</p>
+<p>可以类比餐厅点餐：等待厨房出菜时，服务员可以去接待别桌；但如果服务员正在亲手切菜，仅仅说一句“异步切菜”并不会让菜切得更快。类比的边界是，程序中的“去接待别桌”需要事件循环和支持异步的库配合，不是任何耗时函数都能自动让路。</p>
+<p><strong>并发</strong>强调多个任务可以交错推进；<strong>并行</strong>强调多个任务在同一时刻真正执行。异步程序可以在一个线程中实现并发，但不能据此推断 CPU 运算会并行，更不能把 <code>await</code> 理解成“开一个新线程”。</p>
+<span class="heading-anchor" id="2. async 和 await 各自做什么"></span><h2 id="2-async-await">2. async 和 await 各自做什么</h2>
+<p><code>async def</code> 声明协程函数，表示其中可以使用异步等待；它本身不是加速开关。<code>await</code> 用于等待可等待对象：当这个操作需要挂起等待时，事件循环便能安排其他任务；操作就绪后再恢复这里的执行。不是每次遇到 <code>await</code> 都必然暂停，如果结果已经就绪，可能直接继续。</p>
+<p>所以决定写法的关键是所调用的库。支持异步的 HTTP 客户端可以配合 <code>await</code>；只能同步阻塞的客户端，不会因为放进 <code>async def</code> 就改变行为。尤其是同步睡眠、同步网络请求、长时间纯 Python 循环，它们在事件循环线程中执行时，会拖住同一事件循环里的其他工作。<a href="https://fastapi.tiangolo.com/async/">FastAPI 的同步与异步说明</a></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>实际工作</th>
+<th>起步写法</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>支持异步等待的网络或数据库操作</td>
+<td><code>async def</code> 加 <code>await</code></td>
+<td>等待时可让出执行机会</td>
+</tr>
+<tr>
+<td>同步阻塞 I/O 库</td>
+<td>普通 <code>def</code> 路由</td>
+<td>FastAPI 在线程池中执行同步路由</td>
+</tr>
+<tr>
+<td>大量 CPU 计算</td>
+<td>评估进程池、独立服务或任务系统</td>
+<td>需要处理计算资源，而非仅改变函数声明</td>
+</tr>
+</tbody>
+</table></div>
+<p>线程池也是有限资源，同步接口多到一定程度仍会排队。反过来，异步接口也会受连接数、数据库能力和外部服务限流约束。“使用异步”不能代替容量判断。</p>
+<span class="heading-anchor" id="3. 流式响应解决的是交付时机"></span><h2 id="3">3. 流式响应解决的是交付时机</h2>
+<p>普通响应通常先生成完整结果再交给客户端；流式响应把结果看作陆续产生的片段，有一段就允许发送一段。例如生成一篇长回答时，用户可以先读到开头，不必等全文完成。这主要改善首段内容到达的时间，也能避免为了输出而把完整结果全部保存在内存中。</p>
+<p>流式和异步是两个维度。流式关注“分批交付”，异步关注“等待时如何调度”；同步生成器也可以用于流式响应。本章把两者放在一起，只为了用一个小例子同时观察“等待”和“逐段产出”。</p>
+<span class="heading-anchor" id="4. 最小 demo：每隔半秒生成一行"></span><h2 id="4-demo">4. 最小 demo：每隔半秒生成一行</h2>
+<p>将下面代码复制到 <code>main.py</code>，运行 <code>python -m uvicorn main:app --reload</code>。依赖安装见<a href="n-3bc10661bfbf.html">学习地图</a>；切换章节前用 <code>Ctrl+C</code> 停止上一章。</p>
+<pre><code class="language-python">import asyncio
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+
+app = FastAPI()
+
+@app.get("/stream")
+async def stream():
+    async def chunks():
+        for word in ["你好", "正在生成", "完成"]:
+            await asyncio.sleep(0.5)
+            yield word + "\n"
+    return StreamingResponse(chunks(), media_type="text/plain")
+</code></pre>
+<p>打开 <code>http://127.0.0.1:8000/docs</code>，执行 <code>GET /stream</code>，最终会得到三行文字，总等待约 1.5 秒。这里的异步睡眠只是模拟远程内容陆续到达，没有做真实网络请求。</p>
+<p>沿着程序读一遍：路由先构造 <code>StreamingResponse</code>；响应在发送过程中迭代 <code>chunks()</code>；每次等待完成，生成器用 <code>yield</code> 交出一行，然后再等待下一行。这里的 <code>yield</code> 是“生成下一段响应内容”，与上一章资源依赖中的 <code>yield</code> 用途不同，不能混为一谈。</p>
+<p>Swagger UI 可能等接收完成才统一显示内容，因此 <code>/docs</code> 适合验证最终结果，不适合证明每一段是否即时显示。需要观察到达节奏时，可以额外在终端运行 <code>curl -N http://127.0.0.1:8000/stream</code>；<code>-N</code> 只关闭 curl 自身缓冲，代理、网络和客户端仍可能合并片段。</p>
+<span class="heading-anchor" id="5. 四个边界决定是否真正理解"></span><h2 id="5">5. 四个边界决定是否真正理解</h2>
+<p><strong>直接调用的普通函数不会自动进线程池。</strong> FastAPI 会安排它自己调用的同步路由和同步依赖；但如果你在异步路由里直接调用一个同步辅助函数，这就是当前线程里的普通函数调用。辅助函数里的阻塞工作依然会阻塞事件循环。</p>
+<p><strong>一个 yield 不等于一个网络包。</strong> 应用交出的片段可能被网络合并，也可能在读取时被拆开。客户端应按约定的分隔符或消息协议解析，不能把一次读取就当作完整业务消息。</p>
+<p><strong>普通文本流、SSE、WebSocket 不能只按“都能逐步显示”来混用。</strong> 本例返回普通文本。SSE 是带事件格式的单向服务器推送，常用于浏览器接收事件；WebSocket 则提供持续双向通信。应先判断通信需求，再选择协议。<a href="https://fastapi.tiangolo.com/advanced/custom-response/">响应类型说明</a></p>
+<p><strong>已经发出的响应头不能撤回。</strong> 如果流发送到一半才失败，不能再把前面已发送的 200 改成 500。能提前完成的校验应提前做；流开始后的异常，需要按照客户端与服务端约定处理，例如中断或传递错误事件。</p>
+<span class="heading-anchor" id="6. 合上笔记再回答"></span><h2 id="6">6. 合上笔记再回答</h2>
+<ol>
+<li>把 <code>def</code> 改为 <code>async def</code>，同步数据库查询就变成异步了吗？没有，底层库的行为未改变。</li>
+<li>两个请求各等待 1 秒，为什么可能交错完成？等待真正挂起时，事件循环可调度另一个请求。</li>
+<li>流式响应一定缩短总计算时间吗？不一定，它主要让客户端更早拿到部分结果。</li>
+<li>在 <code>/docs</code> 中一次出现三行，是否足以证明服务端没用流式？不足以，展示端可能缓冲。</li>
+</ol>
+<span class="heading-anchor" id="7. 可选配套与官方资料"></span><h2 id="7">7. 可选配套与官方资料</h2>
+<p><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch06.py">demos/ch06.py</a> 是保留的更完整配套版本，另含独立等待接口，接口和时间参数可能与正文不同。正文只需掌握一个流式例子。</p>
+<p><a href="https://fastapi.tiangolo.com/async/">Async / Await</a> · <a href="https://fastapi.tiangolo.com/advanced/custom-response/">Custom Response</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

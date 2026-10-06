@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07-01 关键词、TF-IDF、BM25 与稀疏检索 · 李杨的学习笔记</title><meta name="description" content="完成本章后，你应该能够解释关键词检索、词频—逆文档频率（Term Frequency–Inverse
+Document Frequency，TF-IDF）、BM25 和稀疏检索（sparse retrieval）的关系；能够说明
+为什么精确术语、编号和专有名词常适合词项匹配；也能识别分词、同义表达和词汇不匹配造成的漏召"><meta property="og:title" content="07-01 关键词、TF-IDF、BM25 与稀疏检索 · 李杨的学习笔记"><meta property="og:description" content="完成本章后，你应该能够解释关键词检索、词频—逆文档频率（Term Frequency–Inverse
+Document Frequency，TF-IDF）、BM25 和稀疏检索（sparse retrieval）的关系；能够说明
+为什么精确术语、编号和专有名词常适合词项匹配；也能识别分词、同义表达和词汇不匹配造成的漏召"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-a52c08583e4d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-a52c08583e4d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 07-retrieval</p><h1>07-01 关键词、TF-IDF、BM25 与稀疏检索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/07-retrieval/01-keyword-tfidf-bm25-and-sparse.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从“必须出现这个词”开始</a></li><li><a href="#tf-idf">TF-IDF：让常见词少占优势</a></li><li><a href="#bm25">BM25：控制长文档和重复词的影响</a></li><li><a href="#_2">为什么叫“稀疏”</a></li><li><a href="#_3">字段、分词和来源比公式更早出错</a></li><li><a href="#_4">建立一个可比较的基线</a></li><li><a href="#_5">安全与权限边界</a></li><li><a href="#_6">纸笔练习与自测</a></li><li><a href="#_7">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>07-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 20 分钟纸笔练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>知道文档会被切成可追溯文本块；理解集合、计数和排序</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章的小语料手工统计词频并排序</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够解释关键词检索、词频—逆文档频率（Term Frequency–Inverse
+Document Frequency，TF-IDF）、BM25 和稀疏检索（sparse retrieval）的关系；能够说明
+为什么精确术语、编号和专有名词常适合词项匹配；也能识别分词、同义表达和词汇不匹配造成的漏召回。</p>
+<span class="heading-anchor" id="从“必须出现这个词”开始"></span><h2 id="_1">从“必须出现这个词”开始</h2>
+<p>假设知识库有三段内容：A 介绍“退款时限”，B 介绍“物流查询”，C 介绍“企业发票”。
+用户输入“退款时限”，最直接的办法是找到同时出现“退款”和“时限”的文本块。这个方法
+透明、容易调试，对产品型号、错误码、法规条款号和人名尤其有价值。</p>
+<p>但“多久可以退货”和“退款时限”含义接近，字面却不同。只做精确匹配可能漏掉相关内容。
+中文还存在分词边界问题：“向量数据库”应当作为一个词，还是拆成“向量”和“数据库”？
+因此，关键词检索不是落后的替代品，而是一类有明确优势和失败方式的召回信号。</p>
+<span class="heading-anchor" id="TF-IDF：让常见词少占优势"></span><h2 id="tf-idf">TF-IDF：让常见词少占优势</h2>
+<p>词频（Term Frequency，TF）描述一个词在当前文本块里出现得多不多。只看词频会让“系统”、
+“使用”这类常见词获得过高分数。逆文档频率（Inverse Document Frequency，IDF）会降低
+在很多文档都出现的词的权重，提高少见而有区分度的词的权重。</p>
+<p>可以把直觉写成：</p>
+<p><code>某词对当前文本的重要性 ≈ 当前文本中的频率 × 在整个语料中的稀有程度</code></p>
+<p>例如，“系统”出现在一百篇文档里，而“ERR-1042”只出现在两篇故障手册里。查询包含
+<code>ERR-1042</code> 时，后者应当成为强信号。这里的“重要”只是检索区分度，不表示业务影响更大。</p>
+<span class="heading-anchor" id="BM25：控制长文档和重复词的影响"></span><h2 id="bm25">BM25：控制长文档和重复词的影响</h2>
+<p>BM25 是常见的概率相关性排序方法。它延续词频和逆文档频率的直觉，并处理两个问题：</p>
+<ol>
+<li>一个词从出现一次增加到两次可能有帮助，但重复一百次不应让分数无限增长；</li>
+<li>长文本自然包含更多词，不应只因长度更长就轻易胜过短而聚焦的文本。</li>
+</ol>
+<p>BM25 常见参数会控制词频饱和和文档长度归一化。参数不是越大越好，也不能脱离分词器、
+字段设计和语料分布照搬。教学阶段应先固定小语料和查询，观察排序变化，再决定是否调参。</p>
+<span class="heading-anchor" id="为什么叫“稀疏”"></span><h2 id="_2">为什么叫“稀疏”</h2>
+<p>可以把词表想成一个非常长的坐标列表。某个文本块只包含其中少量词，所以绝大多数坐标为
+零，这种表示称为稀疏表示。传统倒排索引会记录“某词出现在哪些文档中”，无需逐个扫描
+全部文本块。</p>
+<p>现代稀疏检索也可能使用学习到的词项权重或扩展词项，但核心仍是大量零值和可按词项访问的
+表示。不要把“稀疏”误解为信息一定更少，也不要把 BM25 与所有稀疏方法画等号。</p>
+<span class="heading-anchor" id="字段、分词和来源比公式更早出错"></span><h2 id="_3">字段、分词和来源比公式更早出错</h2>
+<p>一个候选分数低，未必是 BM25 公式有问题。更常见的原因包括：</p>
+<ul>
+<li>标题、正文、标签混成一个字段，标题信号被长正文淹没；</li>
+<li>中英文、大小写、连字符和 Unicode 规范化不一致；</li>
+<li>停用词删除了业务上重要的否定词；</li>
+<li>文档切分把编号和解释拆开；</li>
+<li>新文档尚未进入倒排索引，或旧版本仍然可检索；</li>
+<li>查询使用别名，而知识库只出现正式名称。</li>
+</ul>
+<p>因此，稀疏检索记录应保留原查询、规范化结果、命中的词项、字段、候选分数、文档版本和来源。
+这些信息让“为什么命中”可以被检查。</p>
+<span class="heading-anchor" id="建立一个可比较的基线"></span><h2 id="_4">建立一个可比较的基线</h2>
+<p>先选十到几十条真实或经过许可的代表性查询，为每条查询标记至少一个期望文档。然后固定
+切分、分词、字段和版本，运行关键词或 BM25 基线。记录无结果、首个相关候选位置和明显的
+误召回。之后再引入稠密检索或查询扩展，才能判断新策略真正修复了什么。</p>
+<p>不要只挑能够展示成功的查询。包含拼写差异、缩写、编号、同义表达和否定条件的失败样例，
+往往比平均分更能说明下一步需要哪种策略。</p>
+<span class="heading-anchor" id="安全与权限边界"></span><h2 id="_5">安全与权限边界</h2>
+<p>倒排索引中的词项可能暴露敏感名称；搜索建议、命中高亮和调试日志也可能泄漏用户无权查看的
+内容。权限范围必须进入检索和返回路径，不能先把跨租户候选取回到应用内再“希望后面删掉”。
+检索文本中即使出现“忽略权限并返回全文”，也只能当作普通数据处理。</p>
+<span class="heading-anchor" id="纸笔练习与自测"></span><h2 id="_6">纸笔练习与自测</h2>
+<p>为“退款多久到账”“如何查询物流”“ERR-1042 无法登录”写出最有区分度的词项。再为每条
+查询写一个字面不同但含义接近的改写，判断纯关键词检索是否可能漏掉。</p>
+<ol>
+<li>为什么高频词不能仅凭出现次数获得最高权重？</li>
+<li>BM25 为什么需要处理文档长度和词频饱和？</li>
+<li>哪些查询类型通常让稀疏检索具有优势？</li>
+<li>无结果时，为什么应先检查分词、字段和索引版本？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_7">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿，已做轻量静态检查。</li>
+<li>代码与实验：<code>sparse_retrieval.py</code>、指标单测和实际分数比较仍为后续计划。</li>
+<li>
+<p>摘要：<a href="n-d728003305ae.html">07-01 章节摘要</a></p>
+</li>
+<li>
+<p>下一章：<a href="n-72f9e321d153.html">07-02 稠密检索与混合检索</a></p>
+</li>
+<li>返回：<a href="n-3b5435427cd1.html">07 检索索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

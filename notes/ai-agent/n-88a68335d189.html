@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09. 测试、格式化、静态检查与依赖管理 · 李杨的学习笔记</title><meta name="description" content="目标读者：希望让 AI Agent 代码可重复运行、可安全重构、可在 CI 中交付的 Python 学习者。"><meta property="og:title" content="09. 测试、格式化、静态检查与依赖管理 · 李杨的学习笔记"><meta property="og:description" content="目标读者：希望让 AI Agent 代码可重复运行、可安全重构、可在 CI 中交付的 Python 学习者。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-88a68335d189.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-88a68335d189.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python_ai_agent</p><h1>09. 测试、格式化、静态检查与依赖管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python_ai_agent/09_%E6%B5%8B%E8%AF%95%E6%A0%BC%E5%BC%8F%E5%8C%96%E9%9D%99%E6%80%81%E6%A3%80%E6%9F%A5%E4%B8%8E%E4%BE%9D%E8%B5%96%E7%AE%A1%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#0">0. 一个可复制的练习项目</a></li><li><a href="#1-pytest">1. pytest 基础</a></li><li><a href="#11">1.1 测试函数与断言</a></li><li><a href="#12-fixture">1.2 fixture：准备和复用测试上下文</a></li><li><a href="#13">1.3 参数化：一组输入覆盖多种边界</a></li><li><a href="#14">1.4 异常断言</a></li><li><a href="#15-mockmonkeypatch">1.5 mock、monkeypatch 与依赖注入</a></li><li><a href="#16-pytest">1.6 pytest 如何收集和报告测试</a></li><li><a href="#17-fixture-teardown">1.7 fixture 依赖图、生命周期和 teardown</a></li><li><a href="#18">1.8 参数化案例的可诊断性</a></li><li><a href="#19-monkeypatch-mock">1.9 monkeypatch 与 mock 的边界</a></li><li><a href="#2-agent">2. 异步测试与 Agent 测试分层</a></li><li><a href="#21-async">2.1 async 测试</a></li><li><a href="#22">2.2 分层策略</a></li><li><a href="#23-api-agent">2.3 API 和 Agent 测试的边界</a></li><li><a href="#24">2.4 测试金字塔与质量指标</a></li><li><a href="#25">2.5 测试配置与标记</a></li><li><a href="#3">3. 格式化与静态检查</a></li><li><a href="#31-ruff-black">3.1 Ruff 与 Black 的选择</a></li><li><a href="#32-mypypyright">3.2 mypy、Pyright 与类型检查</a></li><li><a href="#33-pyprojecttoml">3.3 pyproject.toml 质量配置示例</a></li><li><a href="#34">3.4 各质量工具的职责边界</a></li><li><a href="#35">3.5 渐进式类型检查和第三方边界</a></li><li><a href="#36-ci">3.6 格式化/静态检查的本地与 CI 分工</a></li><li><a href="#4-pre-commit-ci">4. pre-commit 与 CI 思路</a></li><li><a href="#41-pre-commit">4.1 pre-commit</a></li><li><a href="#42-ci">4.2 CI 最小门禁</a></li><li><a href="#5-python">5. Python 环境与依赖管理</a></li><li><a href="#51-venv-pip">5.1 venv 与 pip：标准库基础方案</a></li><li><a href="#52-requirementstxt">5.2 requirements.txt：安装清单而非完整项目元数据</a></li><li><a href="#53-pyprojecttoml">5.3 pyproject.toml：项目元数据与工具配置中心</a></li><li><a href="#54-poetryuv-conda">5.4 Poetry、uv 与 Conda 的定位和命令</a></li><li><a href="#6">6. 锁文件与可复现环境</a></li><li><a href="#61">6.1 依赖工作模型：声明、解析、安装、运行</a></li><li><a href="#62">6.2 完整选择矩阵</a></li><li><a href="#63">6.3 锁文件、约束文件和哈希</a></li><li><a href="#64">6.4 环境和依赖故障排查</a></li><li><a href="#7">7. 常见坑与排查清单</a></li><li><a href="#8">8. 练习题</a></li><li><a href="#81">8.1 练习提示与验收标准</a></li><li><a href="#_2">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标读者：希望让 AI Agent 代码可重复运行、可安全重构、可在 CI 中交付的 Python 学习者。</p>
+<p>本章命令不绑定某个工具版本。团队应在锁文件、安装说明和 CI 中固定经过验证的工具版本，而不是把版本号散落在教程命令里。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本章后，你应当能够：</p>
+<ol>
+<li>用 pytest 编写单元测试，掌握 fixture、参数化、异常断言、mock 和异步测试。</li>
+<li>按单元、集成、端到端等层次组织 Agent 测试，控制真实网络和模型调用的成本与不确定性。</li>
+<li>用 Ruff 或 Black 统一格式，用 Ruff、mypy 或 Pyright 发现静态问题，并理解工具职责边界。</li>
+<li>设计 pre-commit 和 CI 的质量门禁，让本地与流水线执行同一套命令。</li>
+<li>理解 <code>venv</code>、<code>pip</code>、<code>requirements.txt</code>、<code>pyproject.toml</code>、Poetry、uv 和 Conda 的定位。</li>
+<li>使用锁文件、约束 Python 版本、记录哈希和隔离环境，构建可复现的 Agent 开发环境。</li>
+</ol>
+<span class="heading-anchor" id="0. 一个可复制的练习项目"></span><h2 id="0">0. 一个可复制的练习项目</h2>
+<p>先在笔记项目根目录创建虚拟环境：</p>
+<pre><code class="language-bash">python3 --version
+python3 -m venv .venv
+source .venv/bin/activate                 # macOS/Linux
+# Windows PowerShell：.venv\Scripts\Activate.ps1
+python -m pip install pytest pytest-asyncio ruff mypy
+</code></pre>
+<p><code>pytest-asyncio</code> 只是让 pytest 能识别本章的 <code>@pytest.mark.asyncio</code>；如果团队采用 pytest-anyio 或框架自带插件，应按团队方案替换，不能同时无目的地堆叠插件。</p>
+<p>推荐练习布局：</p>
+<pre><code class="language-text">project-root/
+├── pyproject.toml
+├── src/
+│   └── agent_core/
+│       ├── __init__.py
+│       └── service.py
+└── tests/
+    ├── conftest.py
+    ├── test_service.py
+    └── test_async_service.py
+</code></pre>
+<p>若还未安装项目包，可在项目根目录执行 <code>python -m pip install -e .</code>；教学示例也可以暂时使用 <code>PYTHONPATH=src python -m pytest -q</code>（Windows PowerShell：<code>$env:PYTHONPATH = "src"; python -m pytest -q</code>）。</p>
+<span class="heading-anchor" id="1. pytest 基础"></span><h2 id="1-pytest">1. pytest 基础</h2>
+<span class="heading-anchor" id="1.1 测试函数与断言"></span><h3 id="11">1.1 测试函数与断言</h3>
+<p>pytest 会自动发现文件名为 <code>test_*.py</code> 或 <code>*_test.py</code>、函数名为 <code>test_*</code> 的测试。普通 Python <code>assert</code> 就能表达断言：</p>
+<pre><code class="language-python"># tests/test_basic.py
+def normalize_query(value: str) -&gt; str:
+    return " ".join(value.split()).lower()
+
+def test_normalize_query() -&gt; None:
+    assert normalize_query("  Python   Agent ") == "python agent"
+</code></pre>
+<p>运行命令（在项目根目录）：</p>
+<pre><code class="language-bash">python -m pytest -q
+python -m pytest tests/test_basic.py -q
+python -m pytest -k normalize -q
+</code></pre>
+<p>使用 <code>python -m pytest</code> 可以明确使用当前虚拟环境的 pytest，避免系统中另一个 <code>pytest</code> 可执行文件被误调用。</p>
+<span class="heading-anchor" id="1.2 fixture：准备和复用测试上下文"></span><h3 id="12-fixture">1.2 fixture：准备和复用测试上下文</h3>
+<p>fixture 是由 pytest 管理生命周期的依赖。它可以返回测试对象，亦可使用 <code>yield</code> 在测试后清理资源：</p>
+<pre><code class="language-python"># tests/conftest.py
+import pytest
+
+@pytest.fixture
+def sample_messages() -&gt; list[dict[str, str]]:
+    return [
+        {"role": "user", "content": "解释迭代器"},
+        {"role": "assistant", "content": "迭代器按需产生值。"},
+    ]
+
+@pytest.fixture
+def temp_config(tmp_path):
+    config_path = tmp_path / "agent.toml"
+    config_path.write_text("timeout = 10\n", encoding="utf-8")
+    yield config_path
+    # tmp_path 会由 pytest 自动清理；这里也可以关闭自建连接
+</code></pre>
+<p>测试中通过函数参数声明 fixture：</p>
+<pre><code class="language-python">def test_message_count(sample_messages: list[dict[str, str]]) -&gt; None:
+    assert len(sample_messages) == 2
+</code></pre>
+<p>常见 fixture 作用域：<code>function</code>（默认，每个测试一次）、<code>class</code>、<code>module</code>、<code>package</code>、<code>session</code>。作用域越大，复用越多，但状态污染风险越大；数据库连接、模型客户端等资源应显式清理。不要把所有 fixture 都设成 <code>session</code> 来“加速”，先测量并确认隔离性。</p>
+<p>pytest 自带 <code>tmp_path</code>、<code>monkeypatch</code>、<code>caplog</code>、<code>capsys</code> 等 fixture，优先复用它们。<code>conftest.py</code> 中的 fixture 会自动对所在目录及子目录可见，不需要手动导入。</p>
+<span class="heading-anchor" id="1.3 参数化：一组输入覆盖多种边界"></span><h3 id="13">1.3 参数化：一组输入覆盖多种边界</h3>
+<pre><code class="language-python">import pytest
+
+
+def normalize_query(value: str) -&gt; str:
+    return " ".join(value.split()).lower()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Python", "python"),
+        ("  AI   Agent ", "ai agent"),
+        ("", ""),
+    ],
+)
+def test_normalize_cases(raw: str, expected: str) -&gt; None:
+    assert normalize_query(raw) == expected
+</code></pre>
+<p>参数化适合纯函数和有限边界值。每个案例应能从报告中看出输入；必要时使用 <code>ids=["plain", "spaces", "empty"]</code> 命名案例。不要生成几百个几乎重复的案例让失败报告不可读。</p>
+<span class="heading-anchor" id="1.4 异常断言"></span><h3 id="14">1.4 异常断言</h3>
+<pre><code class="language-python">import pytest
+
+def parse_top_k(raw: str) -&gt; int:
+    value = int(raw)
+    if not 1 &lt;= value &lt;= 20:
+        raise ValueError("top_k 超出范围")
+    return value
+
+def test_parse_top_k_rejects_invalid_value() -&gt; None:
+    with pytest.raises(ValueError, match="超出范围"):
+        parse_top_k("0")
+</code></pre>
+<p><code>pytest.raises</code> 只断言异常类型容易过宽；业务重要时同时断言消息、错误码或异常属性。但不要把完整自然语言错误消息作为稳定 API，优先设计结构化错误字段。</p>
+<span class="heading-anchor" id="1.5 mock、monkeypatch 与依赖注入"></span><h3 id="15-mockmonkeypatch">1.5 mock、monkeypatch 与依赖注入</h3>
+<p>Agent 测试不能每次都调用真实模型、搜索引擎或付费 API。优先把外部能力作为依赖注入，再用 <code>unittest.mock</code> 替换：</p>
+<pre><code class="language-python"># src/agent_core/service.py
+from collections.abc import Callable
+
+class AgentService:
+    def __init__(self, model_call: Callable[[str], str]) -&gt; None:
+        self.model_call = model_call
+
+    def answer(self, question: str) -&gt; str:
+        prompt = f"请简洁回答：{question}"
+        return self.model_call(prompt)
+</code></pre>
+<pre><code class="language-python"># tests/test_service.py
+from unittest.mock import Mock
+
+from agent_core.service import AgentService
+
+def test_service_delegates_to_model() -&gt; None:
+    model_call = Mock(return_value="迭代器按需产生值。")
+    service = AgentService(model_call)
+
+    result = service.answer("什么是迭代器？")
+
+    assert result == "迭代器按需产生值。"
+    model_call.assert_called_once_with("请简洁回答：什么是迭代器？")
+</code></pre>
+<p>生产接口用 <code>Callable</code>/<code>Protocol</code> 表达，测试替身再使用 <code>AsyncMock</code>：</p>
+<pre><code class="language-python">from collections.abc import Awaitable, Callable
+from unittest.mock import AsyncMock
+
+import pytest
+
+class AsyncAgentService:
+    def __init__(self, model_call: Callable[[str], Awaitable[str]]) -&gt; None:
+        self.model_call = model_call
+
+    async def answer(self, question: str) -&gt; str:
+        return await self.model_call(question)
+
+@pytest.mark.asyncio
+async def test_async_model_call() -&gt; None:
+    model_call = AsyncMock(return_value="ok")
+    result = await AsyncAgentService(model_call).answer("hi")
+
+    assert result == "ok"
+    model_call.assert_awaited_once_with("hi")
+</code></pre>
+<p><code>monkeypatch</code> 适合临时替换环境变量、时间、模块属性：</p>
+<pre><code class="language-python">def test_reads_environment(monkeypatch) -&gt; None:
+    monkeypatch.setenv("AGENT_DEBUG", "1")
+    assert __import__("os").environ["AGENT_DEBUG"] == "1"
+</code></pre>
+<p>mock 的原则：mock 外部边界，不 mock 被测函数内部的每一步。测试“调用了几个私有方法”往往脆弱；测试输入、输出和关键副作用更有价值。</p>
+<span class="heading-anchor" id="1.6 pytest 如何收集和报告测试"></span><h3 id="16-pytest">1.6 pytest 如何收集和报告测试</h3>
+<p>pytest 启动时会从当前目录或命令行路径开始收集文件、类和函数。默认会查找 <code>test_*.py</code>/<code>*_test.py</code>，再查找 <code>test_</code> 开头的函数或方法；<code>Test</code> 开头的类通常不应定义自定义 <code>__init__</code>。可以先查看收集结果：</p>
+<pre><code class="language-bash"># 以下命令均在项目根目录执行，前置条件是当前环境已安装 pytest
+python -m pytest --collect-only -q
+python -m pytest tests/test_service.py::test_service_delegates_to_model -q
+</code></pre>
+<p>pytest 会重写测试函数中的 <code>assert</code>，失败时展示左右值、集合差异和表达式上下文。因此优先使用普通 <code>assert</code>，不要把所有断言都包成 <code>assert bool(...)</code> 或自定义字符串，后者会损失诊断信息：</p>
+<pre><code class="language-python">def test_answer_contains_text() -&gt; None:
+    answer = "迭代器按需产生值。"
+    assert "按需" in answer
+</code></pre>
+<p>测试收集阶段就会执行模块顶层导入；若导入时创建真实客户端、读取必需密钥或发网络请求，连 <code>--collect-only</code> 都会失败。把副作用放进 fixture、工厂或入口函数，测试只在需要时创建它们。</p>
+<span class="heading-anchor" id="1.7 fixture 依赖图、生命周期和 teardown"></span><h3 id="17-fixture-teardown">1.7 fixture 依赖图、生命周期和 teardown</h3>
+<p>fixture 可以依赖另一个 fixture，pytest 会按依赖图建立资源；测试结束后按相反顺序清理 <code>yield</code> fixture：</p>
+<pre><code class="language-python">from collections.abc import Iterator
+
+import pytest
+
+@pytest.fixture
+def connection() -&gt; Iterator[list[str]]:
+    state: list[str] = []
+    yield state
+    state.clear()  # teardown：断开连接、回滚事务或删除临时资源
+
+@pytest.fixture
+def repository(connection: list[str]) -&gt; list[str]:
+    connection.append("repository ready")
+    return connection
+
+def test_repository_is_isolated(repository: list[str]) -&gt; None:
+    assert repository == ["repository ready"]
+</code></pre>
+<p>若资源创建成功后中途失败，<code>yield</code> 之前的代码不会自动执行后半段清理；复杂资源可以用 <code>request.addfinalizer()</code> 在每个创建动作成功后立即注册清理。无论使用哪种方式，都要让 teardown 幂等，防止测试失败时二次清理又抛出异常。</p>
+<p>作用域的选择：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>作用域</th>
+<th>创建频率</th>
+<th>适合</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>function</code></td>
+<td>每个测试</td>
+<td>可变状态、临时目录、请求夹具</td>
+<td>创建开销较高</td>
+</tr>
+<tr>
+<td><code>class</code>/<code>module</code></td>
+<td>每个类/模块</td>
+<td>只读静态资源</td>
+<td>测试间共享状态</td>
+</tr>
+<tr>
+<td><code>session</code></td>
+<td>整个测试进程</td>
+<td>不可变 schema、昂贵只读客户端</td>
+<td>并行运行和清理更复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>Agent 测试通常把“模型响应序列”“工具注册表”设为函数级或返回副本，避免一个测试消耗了响应后影响下一个测试。<code>autouse=True</code> 只用于真正所有测试都需要的安全设置（如冻结时钟、清理环境），不要用它隐藏重要依赖。</p>
+<span class="heading-anchor" id="1.8 参数化案例的可诊断性"></span><h3 id="18">1.8 参数化案例的可诊断性</h3>
+<p>参数化不仅减少重复代码，也应让失败报告能指出具体业务情形：</p>
+<pre><code class="language-python">import pytest
+
+@pytest.mark.parametrize(
+    ("action", "allowed"),
+    [("search", True), ("delete", False)],
+    ids=["safe-search", "blocked-delete"],
+)
+def test_tool_allowlist(action: str, allowed: bool) -&gt; None:
+    allowlist = {"search", "weather"}
+    assert (action in allowlist) is allowed
+</code></pre>
+<p>多个参数之间应保持正交；如果每个案例都带不同 mock 配置，考虑拆成更小的测试或用工厂函数。随机生成数据时记录种子，失败案例必须能够重放。</p>
+<span class="heading-anchor" id="1.9 monkeypatch 与 mock 的边界"></span><h3 id="19-monkeypatch-mock">1.9 monkeypatch 与 mock 的边界</h3>
+<p><code>monkeypatch</code> 会在测试结束时自动恢复属性、字典、环境变量和当前目录；<code>Mock</code>/<code>AsyncMock</code> 记录调用并提供行为。两者都是隔离边界的手段，不是让错误测试“通过”的工具：</p>
+<pre><code class="language-python">import os
+from unittest.mock import patch
+
+def read_mode() -&gt; str:
+    return os.getenv("AGENT_MODE", "safe")
+
+def test_patch_environment(monkeypatch) -&gt; None:
+    monkeypatch.setenv("AGENT_MODE", "offline")
+    assert read_mode() == "offline"
+
+def test_patch_imported_function() -&gt; None:
+    with patch("os.getenv", return_value="test") as getenv:
+        assert read_mode() == "test"
+        getenv.assert_called_once_with("AGENT_MODE", "safe")
+</code></pre>
+<p>原则是“在哪里查找，就在哪里 patch”：如果 <code>service.py</code> 写了 <code>from os import getenv</code>，就应 patch <code>service.getenv</code>，而不是 patch <code>os.getenv</code>。对模型客户端优先使用依赖注入，只有无法控制的第三方全局函数才使用 patch。mock 的返回值、异常和调用次数应体现真实协议；过度指定内部调用顺序会让安全重构变成无意义的测试维护。</p>
+<span class="heading-anchor" id="2. 异步测试与 Agent 测试分层"></span><h2 id="2-agent">2. 异步测试与 Agent 测试分层</h2>
+<span class="heading-anchor" id="2.1 async 测试"></span><h3 id="21-async">2.1 async 测试</h3>
+<p>安装异步插件后，使用 <code>@pytest.mark.asyncio</code>（或团队选择的异步插件标记）：</p>
+<pre><code class="language-python">import asyncio
+
+import pytest
+
+async def fetch_stub(delay: float, value: str) -&gt; str:
+    await asyncio.sleep(delay)
+    return value
+
+@pytest.mark.asyncio
+async def test_concurrent_fetch() -&gt; None:
+    result = await asyncio.gather(
+        fetch_stub(0, "a"),
+        fetch_stub(0, "b"),
+    )
+    assert result == ["a", "b"]
+</code></pre>
+<p>异步测试中的常见错误是忘记 <code>await</code>，只断言 coroutine 对象存在；静态检查器和运行时警告都应纳入质量门禁。对超时逻辑使用短的确定性 fake clock 或极短延迟，不要让测试真的等待生产级超时。</p>
+<span class="heading-anchor" id="2.2 分层策略"></span><h3 id="22">2.2 分层策略</h3>
+<pre><code class="language-text">单元测试（最多）
+  纯函数、解析器、路由、状态机、提示词构造、重试决策
+  外部依赖全部 fake/mock，毫秒级、稳定
+
+集成测试
+  Pydantic/数据库/HTTP 客户端/队列/真实本地服务的边界
+  重点验证序列化、协议、迁移和配置，数量适中
+
+端到端测试（最少）
+  从 API 入口走到 Agent 编排和工具链
+  使用可控模型桩或录制响应，少量验证关键旅程
+
+线上评测/回归集
+  真实或脱敏任务集、质量指标、成本、延迟和安全拒答
+  与 pytest 单元测试分开管理，避免每次提交调用昂贵模型
+</code></pre>
+<p>Agent 特别要测试：工具参数拒绝未知字段、模型输出解析失败、工具超时/重试上限、重复工具调用、用户取消、权限边界、敏感信息脱敏、上下文过长时的降级行为。将供应商模型的随机性隔离在少量合同测试或离线评测中。</p>
+<span class="heading-anchor" id="2.3 API 和 Agent 测试的边界"></span><h3 id="23-api-agent">2.3 API 和 Agent 测试的边界</h3>
+<p>API 测试应验证公开协议，而不是重复测试 FastAPI/Starlette 本身。若项目使用 FastAPI，可使用其测试客户端（通常基于 HTTPX）；先执行 <code>python -m pip install fastapi httpx</code>，再在已配置应用的项目根目录运行下面的结构：</p>
+<pre><code class="language-python">from unittest.mock import AsyncMock
+
+from fastapi.testclient import TestClient
+
+from agent_core.api import create_app
+
+def test_answer_api_returns_contract() -&gt; None:
+    model_call = AsyncMock(return_value="ok")
+    with TestClient(create_app(model_call=model_call)) as client:
+        response = client.post("/answer", json={"question": "hi"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "ok"
+    model_call.assert_awaited_once()
+</code></pre>
+<p>这个示例假设项目提供 <code>create_app()</code> 和 <code>/answer</code> 协议，不能直接在本章的空目录运行；它的测试边界是“HTTP JSON → 应用依赖 → HTTP JSON”。在没有 FastAPI 项目时，可先用纯 Python service 测试代替，不要为了运行示例复制一个与真实应用不一致的假框架。</p>
+<p>Agent 编排测试应控制模型响应序列和工具副作用：</p>
+<pre><code class="language-python">from dataclasses import dataclass
+
+import pytest
+
+class FakeModel:
+    def __init__(self, responses: list[str]) -&gt; None:
+        self.responses = responses
+
+    async def complete(self, prompt: str) -&gt; str:
+        del prompt
+        if not self.responses:
+            raise AssertionError("模型响应被调用次数超过预期")
+        return self.responses.pop(0)
+
+@dataclass
+class FakeTool:
+    calls: list[str]
+
+    async def run(self, query: str) -&gt; str:
+        self.calls.append(query)
+        return f"result:{query}"
+
+@pytest.mark.asyncio
+async def test_agent_replays_deterministic_responses() -&gt; None:
+    model = FakeModel(["tool:search Python", "final:done"])
+    tool = FakeTool([])
+
+    first = await model.complete("step 1")
+    tool_result = await tool.run(first.removeprefix("tool:search "))
+    second = await model.complete(tool_result)
+
+    assert second == "final:done"
+    assert tool.calls == ["Python"]
+</code></pre>
+<p>该示例只演示“可重放的假模型和假工具”，并不实现完整 Agent 循环；完整项目应进一步断言步数上限、工具白名单、参数验证、超时、取消、错误分类和结果大小。评测集、真实模型和端到端测试应作为独立任务运行，不能让每个 PR 都依赖网络和随机模型。</p>
+<span class="heading-anchor" id="2.4 测试金字塔与质量指标"></span><h3 id="24">2.4 测试金字塔与质量指标</h3>
+<p>测试金字塔的重点是反馈速度和不确定性，而不是机械规定比例：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>依赖</th>
+<th>反馈</th>
+<th>典型断言</th>
+<th>维护策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单元</td>
+<td>无网络/真实模型</td>
+<td>毫秒到秒</td>
+<td>状态转换、解析、限流、提示词构造</td>
+<td>数量最多，输入边界全面</td>
+</tr>
+<tr>
+<td>集成</td>
+<td>本地数据库/HTTP stub/真实序列化</td>
+<td>秒级</td>
+<td>schema、事务、SDK 协议、生命周期</td>
+<td>资源隔离，固定服务版本</td>
+</tr>
+<tr>
+<td>API 合约</td>
+<td>ASGI app/测试客户端</td>
+<td>秒级</td>
+<td>状态码、响应模型、错误格式</td>
+<td>只断言公开协议</td>
+</tr>
+<tr>
+<td>端到端</td>
+<td>多个真实组件或可控替身</td>
+<td>较慢</td>
+<td>关键用户旅程、工具编排</td>
+<td>数量少，失败证据完整</td>
+</tr>
+<tr>
+<td>离线评测</td>
+<td>脱敏任务集、模型服务</td>
+<td>分钟或更久</td>
+<td>质量、安全、成本、延迟</td>
+<td>独立预算和回归阈值</td>
+</tr>
+</tbody>
+</table></div>
+<p>覆盖率是发现盲点的信号，不是质量的充分条件。Agent 代码即使达到很高行覆盖率，也可能没有覆盖“模型输出畸形”“权限拒绝后不执行工具”“取消后释放连接”等行为。优先为风险和契约写测试，并在 CI 中记录覆盖率趋势而非追求单一数字。</p>
+<span class="heading-anchor" id="2.5 测试配置与标记"></span><h3 id="25">2.5 测试配置与标记</h3>
+<p>可以在 <code>pyproject.toml</code> 中声明测试路径和标记：</p>
+<pre><code class="language-toml">[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "unit: fast isolated tests",
+    "integration: tests requiring a local/external service",
+    "e2e: end-to-end journeys",
+]
+</code></pre>
+<p>用标记选择测试：</p>
+<pre><code class="language-bash">python -m pytest -m unit -q
+python -m pytest -m "not e2e" -q
+</code></pre>
+<span class="heading-anchor" id="3. 格式化与静态检查"></span><h2 id="3">3. 格式化与静态检查</h2>
+<span class="heading-anchor" id="3.1 Ruff 与 Black 的选择"></span><h3 id="31-ruff-black">3.1 Ruff 与 Black 的选择</h3>
+<ul>
+<li><strong>Ruff</strong>：一个速度很快的工具，能做 lint（<code>ruff check</code>）和格式化（<code>ruff format</code>），也能执行部分自动修复。</li>
+<li><strong>Black</strong>：专注于统一代码格式，生态成熟、规则少。</li>
+<li>选择 Ruff formatter 或 Black formatter 其中一个作为唯一格式化器。不要让两者交替改写同一文件。</li>
+</ul>
+<p>常用命令均在项目根目录执行：</p>
+<pre><code class="language-bash">ruff check .                    # 只报告 lint 问题
+ruff check . --fix              # 自动修复安全规则，修改前先看 diff
+ruff format --check .           # CI 中只检查，不修改
+ruff format .                   # 本地格式化
+
+# 如果团队选 Black：
+black --check .
+black .
+</code></pre>
+<p>建议先通过格式化，再处理 lint 和类型问题。自动修复不是无条件安全：执行后检查 <code>git diff</code>，尤其是导入排序、可变默认值和异常捕获规则。</p>
+<span class="heading-anchor" id="3.2 mypy、Pyright 与类型检查"></span><h3 id="32-mypypyright">3.2 mypy、Pyright 与类型检查</h3>
+<p>类型检查器读取标注，不会执行所有业务路径：</p>
+<pre><code class="language-bash">mypy src tests
+# 或者使用团队选择的 Pyright：
+pyright
+</code></pre>
+<p><code>pyproject.toml</code> 中可从较温和的设置逐步提高严格度：</p>
+<pre><code class="language-toml">[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests"]
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+</code></pre>
+<p>Pyright 也可用 <code>pyproject.toml</code> 或 <code>pyrightconfig.json</code> 配置，具体格式按所选工具文档执行。不要为了“全绿”到处加 <code># type: ignore</code>；每个忽略都应有原因，最好限制到具体错误码：</p>
+<pre><code class="language-python">value = third_party_object.value  # type: ignore[attr-defined]  # 上游暂缺类型存根
+</code></pre>
+<p>静态检查和测试互补：类型检查找不到所有运行时错误，测试也无法覆盖所有类型组合。对边界模型，使用 Pydantic 等运行时校验；对内部逻辑，优先让类型检查器表达不变量。</p>
+<span class="heading-anchor" id="3.3 pyproject.toml 质量配置示例"></span><h3 id="33-pyprojecttoml">3.3 <code>pyproject.toml</code> 质量配置示例</h3>
+<p>下面只展示项目级配置思路；规则数量应从项目实际问题出发：</p>
+<pre><code class="language-toml">[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+</code></pre>
+<p>若采用 Black，删除或不启用 Ruff formatter 部分，并让 CI 只检查 Black。<code>target-version</code> 应与项目最低支持的 Python 版本一致；不要仅根据本机版本设置。</p>
+<span class="heading-anchor" id="3.4 各质量工具的职责边界"></span><h3 id="34">3.4 各质量工具的职责边界</h3>
+<p>把工具问题分成不同类别，能减少“让一个工具做所有事”的误解：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具/阶段</th>
+<th>主要回答的问题</th>
+<th>会修改源码吗</th>
+<th>典型门禁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ruff lint</td>
+<td>导入、未使用变量、危险写法和部分风格是否有问题？</td>
+<td><code>--fix</code> 时可能</td>
+<td><code>ruff check .</code></td>
+</tr>
+<tr>
+<td>Ruff formatter / Black</td>
+<td>格式是否统一？</td>
+<td>formatter 命令会</td>
+<td><code>--check</code>/<code>--check .</code></td>
+</tr>
+<tr>
+<td>mypy / Pyright</td>
+<td>标注、调用关系和返回类型是否一致？</td>
+<td>通常不会</td>
+<td><code>mypy src tests</code> 或 <code>pyright</code></td>
+</tr>
+<tr>
+<td>pytest</td>
+<td>在选定输入和环境下，行为是否符合契约？</td>
+<td>不应修改源码</td>
+<td><code>python -m pytest</code></td>
+</tr>
+<tr>
+<td>pre-commit</td>
+<td>提交前是否运行了本地快速门禁？</td>
+<td>hook 可能修复格式</td>
+<td><code>pre-commit run --all-files</code></td>
+</tr>
+<tr>
+<td>CI</td>
+<td>干净环境是否可安装、检查、测试和构建？</td>
+<td>不应偷偷改工作区</td>
+<td>固定命令序列</td>
+</tr>
+</tbody>
+</table></div>
+<p>Ruff 的 lint 规则和格式化器不是同一件事：<code>ruff check --fix</code> 处理部分规则修复，<code>ruff format</code> 负责排版。Black 只负责格式化，不代替完整 lint 或类型检查。mypy 与 Pyright 都是静态分析器，但推断策略、配置和第三方类型支持可能不同；团队应选一个主门禁，避免开发者本地和 CI 得到互相矛盾的结论。</p>
+<span class="heading-anchor" id="3.5 渐进式类型检查和第三方边界"></span><h3 id="35">3.5 渐进式类型检查和第三方边界</h3>
+<p>已有脚本可以按模块逐步加类型，而不是一次把全仓库改成严格模式：</p>
+<pre><code class="language-toml">[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests"]
+check_untyped_defs = true
+disallow_untyped_defs = false
+warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["some_untyped_dependency.*"]
+ignore_missing_imports = true
+</code></pre>
+<p><code>ignore_missing_imports</code> 只说明“没有类型存根”，不代表库行为安全；对重要 SDK 应寻找官方或社区类型包、自己写最小 <code>Protocol</code>，并用集成测试锁定边界。把 <code>Any</code> 限制在适配层，转换后再返回精确类型：</p>
+<pre><code class="language-python">from typing import Any
+
+def parse_provider_payload(raw: Any) -&gt; dict[str, str]:
+    if not isinstance(raw, dict):
+        raise TypeError("供应商响应必须是字典")
+    name = raw.get("name")
+    if not isinstance(name, str):
+        raise ValueError("响应缺少字符串 name")
+    return {"name": name}
+</code></pre>
+<span class="heading-anchor" id="3.6 格式化/静态检查的本地与 CI 分工"></span><h3 id="36-ci">3.6 格式化/静态检查的本地与 CI 分工</h3>
+<p>本地开发可以使用会修改文件的命令获得快速反馈：</p>
+<pre><code class="language-bash"># 项目根目录；已安装 ruff、pytest、mypy
+ruff format .
+ruff check . --fix
+mypy src tests
+python -m pytest -m unit -q
+</code></pre>
+<p>CI 应使用只检查、不修改的命令：</p>
+<pre><code class="language-bash">ruff format --check .
+ruff check .
+mypy src tests
+python -m pytest -m "not e2e" -q
+</code></pre>
+<p>若 CI 需要自动生成格式化补丁，应把补丁作为明确 artifact，而不是让工作区被悄悄改写。开发者本地可以安装 pre-commit，但 CI 仍应直接执行核心命令，避免 hook 配置缺失时绕过门禁。</p>
+<span class="heading-anchor" id="4. pre-commit 与 CI 思路"></span><h2 id="4-pre-commit-ci">4. pre-commit 与 CI 思路</h2>
+<span class="heading-anchor" id="4.1 pre-commit"></span><h3 id="41-pre-commit">4.1 pre-commit</h3>
+<p>pre-commit 在本地提交前运行轻量检查，可减少明显问题进入仓库。先进入（或初始化）Git 仓库、安装项目开发依赖并创建配置文件，再安装 hook。</p>
+<p>一个不写死第三方版本、使用当前环境命令的本地 hook 示例：</p>
+<pre><code class="language-yaml"># .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+      - id: pytest-unit
+        name: pytest unit
+        entry: python -m pytest -m unit -q
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+</code></pre>
+<p>团队若使用远程 hook，应在实际项目中锁定 <code>rev</code>/提交哈希，并定期升级；本笔记不伪造版本号。若开发者没有安装 Ruff 或 pytest，<code>language: system</code> 会失败，因此 onboarding 文档必须先安装开发依赖。</p>
+<p>配置保存后再执行：</p>
+<pre><code class="language-bash">python -m pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+</code></pre>
+<span class="heading-anchor" id="4.2 CI 最小门禁"></span><h3 id="42-ci">4.2 CI 最小门禁</h3>
+<p>CI 应在干净环境执行，而不是相信开发者工作区状态。安装命令必须与项目采用的依赖管理路径一致，三种常见路径择一执行：</p>
+<pre><code class="language-bash"># pip 项目：constraints.txt 是已提交并经过验证的约束文件
+python -m pip install -c constraints.txt -e ".[dev]"
+
+# Poetry 项目
+poetry install --sync
+
+# uv 项目
+uv sync --locked
+</code></pre>
+<p>安装完成后运行统一门禁：</p>
+<pre><code class="language-bash">ruff format --check .
+ruff check .
+mypy src tests
+python -m pytest -m "not e2e" -q
+</code></pre>
+<p>推荐将快速检查放在前面，把耗时的集成/端到端测试放在后面。CI 还应：</p>
+<ul>
+<li>明确支持的 Python 版本矩阵；</li>
+<li>使用锁文件或约束文件安装依赖；</li>
+<li>不把真实 API key 写进日志，外部凭证从 CI Secret 注入；</li>
+<li>对模型/工具集成测试使用可控服务或录制数据，并设置超时；</li>
+<li>缓存包下载目录，但不要缓存会隐藏依赖变化的虚拟环境；</li>
+<li>输出测试报告、覆盖率和 lint/typecheck 结果；</li>
+<li>合并前阻止格式化、类型检查和关键测试失败。</li>
+</ul>
+<span class="heading-anchor" id="5. Python 环境与依赖管理"></span><h2 id="5-python">5. Python 环境与依赖管理</h2>
+<span class="heading-anchor" id="5.1 venv 与 pip：标准库基础方案"></span><h3 id="51-venv-pip">5.1 <code>venv</code> 与 <code>pip</code>：标准库基础方案</h3>
+<p>创建、激活和退出环境：</p>
+<pre><code class="language-bash">python3 -m venv .venv
+source .venv/bin/activate                 # macOS/Linux
+# Windows PowerShell：.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install pydantic pytest
+python -m pip list
+deactivate
+</code></pre>
+<p>不要把 <code>.venv/</code> 提交到 Git；加入 <code>.gitignore</code>。始终使用 <code>python -m pip</code>，这样 pip 与当前 Python 解释器一致。</p>
+<span class="heading-anchor" id="5.2 requirements.txt：安装清单而非完整项目元数据"></span><h3 id="52-requirementstxt">5.2 <code>requirements.txt</code>：安装清单而非完整项目元数据</h3>
+<p>简单脚本可以维护：</p>
+<pre><code class="language-text"># requirements.txt
+pydantic
+httpx
+</code></pre>
+<p>安装与导出：</p>
+<pre><code class="language-bash">python -m pip install -r requirements.txt
+python -m pip freeze &gt; requirements-lock.txt
+</code></pre>
+<p><code>pip freeze</code> 反映当前环境中已安装的全部包，可能包含间接依赖和无关工具；它适合快速冻结环境，不等于经过审查的依赖声明。生产部署需要区分直接依赖、开发依赖和平台约束，并在构建中验证锁定结果。</p>
+<span class="heading-anchor" id="5.3 pyproject.toml：项目元数据与工具配置中心"></span><h3 id="53-pyprojecttoml">5.3 <code>pyproject.toml</code>：项目元数据与工具配置中心</h3>
+<p>现代项目将直接依赖、Python 约束和工具配置集中到 <code>pyproject.toml</code>：</p>
+<pre><code class="language-toml">[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-core"
+version = "0.1.0"
+requires-python = "&gt;=3.11"
+dependencies = [
+    "pydantic",
+    "pydantic-settings",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+</code></pre>
+<p>开发安装：</p>
+<pre><code class="language-bash">python -m pip install -e ".[dev]"
+</code></pre>
+<p>实际项目也可以使用 Hatch、setuptools、Poetry、uv 等构建/依赖工作流；关键是避免同时让多个工具写入同一依赖来源，造成“声明在 A、锁在 B、CI 却用 C”的漂移。</p>
+<span class="heading-anchor" id="5.4 Poetry、uv 与 Conda 的定位和命令"></span><h3 id="54-poetryuv-conda">5.4 Poetry、uv 与 Conda 的定位和命令</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>主要定位</th>
+<th>适合场景</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>venv</code> + <code>pip</code></td>
+<td>Python 标准库环境隔离与安装</td>
+<td>小型库、教学、最少工具链</td>
+<td>需自行组织锁定和开发依赖</td>
+</tr>
+<tr>
+<td>Poetry</td>
+<td>项目元数据、依赖解析、虚拟环境、锁文件</td>
+<td>想要统一项目工作流的 Python 应用/库</td>
+<td>团队应统一 Poetry 配置与锁文件提交策略</td>
+</tr>
+<tr>
+<td>uv</td>
+<td>高速 Python 环境、依赖解析、项目/脚本工作流</td>
+<td>追求快速安装、现代 <code>pyproject</code> 工作流</td>
+<td>命令和锁文件由 uv 管理，不要混用另一套解析器写锁</td>
+</tr>
+<tr>
+<td>Conda</td>
+<td>Python + 非 Python 原生库的环境和渠道管理</td>
+<td>科学计算、CUDA/系统库、跨语言二进制依赖</td>
+<td>纯 Python Web 服务不一定需要；注意渠道一致性</td>
+</tr>
+</tbody>
+</table></div>
+<p>常见 Poetry 命令（在项目根目录）：</p>
+<pre><code class="language-bash">poetry init
+poetry add pydantic
+poetry add --group dev pytest ruff mypy
+poetry install
+poetry run pytest
+poetry lock
+</code></pre>
+<p>常见 uv 命令：</p>
+<pre><code class="language-bash">uv init
+uv venv
+uv add pydantic
+uv add --dev pytest ruff mypy
+uv sync
+uv run pytest
+uv lock
+</code></pre>
+<p><code>uv add --dev ...</code> 通常写入 <code>[dependency-groups].dev</code>，由 <code>uv sync</code>/<code>uv run</code> 管理；它与 <code>[project.optional-dependencies].dev</code> 这种可被 <code>pip install -e ".[dev]"</code> 安装的 extra 不是同一机制。选定 uv 项目路径后，应让 uv 成为依赖声明、锁定、同步和运行的统一入口。</p>
+<p>常见 Conda 命令：</p>
+<pre><code class="language-bash">conda create -n agent-python python=3.11
+conda activate agent-python
+conda install numpy pandas
+python -m pip install pydantic pytest
+conda env export &gt; environment.yml
+</code></pre>
+<p>完整 <code>conda env export</code> 会保留 <code>pip</code> 小节，但结果也更依赖当前平台。<code>--from-history</code> 更精简、较便于跨平台，却通常不会保留前面通过 pip 安装的包；若选择它，必须在 <code>environment.yml</code> 的 <code>pip:</code> 小节显式维护这些依赖。团队应在目标平台实际重建并测试导出文件。</p>
+<p>选择原则：</p>
+<ol>
+<li>团队已有稳定工具时优先保持一致，不因流行度切换。</li>
+<li>纯 Python Agent 服务可从 <code>venv</code>+pip、Poetry 或 uv 中选一套；需要复杂原生库/科学计算时再考虑 Conda。</li>
+<li>依赖的来源、解析器、锁文件和 CI 安装命令必须配套；不要用 <code>pip install</code> 修改 Poetry/uv 管理的环境后直接提交锁文件。</li>
+<li>CLI 速度不是唯一指标，还要考虑团队熟悉度、私有索引、平台支持、缓存和部署方式。</li>
+</ol>
+<span class="heading-anchor" id="6. 锁文件与可复现环境"></span><h2 id="6">6. 锁文件与可复现环境</h2>
+<p>“可复现”不是简单地写一个版本号，而是让相同项目输入在目标平台得到经过验证的依赖集合。至少应明确：</p>
+<ul>
+<li>支持的 Python 版本范围和操作系统/架构；</li>
+<li>直接依赖与开发依赖的分组；</li>
+<li>解析后的间接依赖、版本范围、来源与哈希（工具支持时）；</li>
+<li>Poetry 的 <code>poetry.lock</code> 或 uv 的锁文件等单一事实来源；</li>
+<li>原生库、GPU 驱动、系统包等 Python 之外的前置条件；</li>
+<li>CI 和生产镜像使用的安装命令。</li>
+</ul>
+<p>典型流程：</p>
+<pre><code class="language-text">修改 pyproject.toml 的直接依赖
+        ↓
+使用项目选定的工具重新解析/更新锁文件
+        ↓
+在干净环境按锁文件安装
+        ↓
+运行 lint、类型检查、测试和启动冒烟
+        ↓
+提交声明文件 + 锁文件
+</code></pre>
+<p>不要随意删除锁文件来“解决冲突”。先确认是 Python 版本、平台 wheel、私有索引、上游约束还是实际不兼容，再在分支中更新并运行完整门禁。安全更新应有依赖变更记录和回归测试；线上 Agent 还应关注模型 SDK、HTTP 客户端和解析器的行为变化。</p>
+<span class="heading-anchor" id="6.1 依赖工作模型：声明、解析、安装、运行"></span><h3 id="61">6.1 依赖工作模型：声明、解析、安装、运行</h3>
+<p>依赖管理工具通常把四件事连接起来，但它们不是同一个动作：</p>
+<pre><code class="language-text">pyproject.toml / requirements.in  —— 声明直接依赖和 Python 约束
+                 ↓ 解析
+lock 文件/constraints              —— 记录可安装的完整依赖图
+                 ↓ 安装
+虚拟环境/Conda 环境                 —— 真实解释器和 site-packages
+                 ↓ 运行
+uv run / poetry run / python -m ... —— 使用该环境执行程序
+</code></pre>
+<p>“声明 <code>httpx</code>”不等于“当前环境已经安装了 <code>httpx</code>”；“当前环境能导入”也不等于另一个人能重建它。每次变更依赖都应确认四个问题：</p>
+<ol>
+<li>它是运行时依赖还是开发/评测依赖？</li>
+<li>直接依赖的版本范围是否有理由，是否允许安全更新？</li>
+<li>解析器和锁文件是否已更新，是否记录平台差异？</li>
+<li>干净环境安装后，最小导入、测试和启动是否通过？</li>
+</ol>
+<span class="heading-anchor" id="6.2 完整选择矩阵"></span><h3 id="62">6.2 完整选择矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求/约束</th>
+<th>推荐起点</th>
+<th>选择理由</th>
+<th>需要额外确认</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只学习 Python、依赖很少</td>
+<td><code>venv</code> + <code>pip</code></td>
+<td>标准库、概念少、容易理解</td>
+<td>如何区分直接/间接依赖，如何冻结</td>
+</tr>
+<tr>
+<td>发布 Python 库</td>
+<td><code>pyproject.toml</code> + 构建后端 + pip/uv</td>
+<td>元数据、构建和消费者安装清晰</td>
+<td>支持的 Python 范围、build isolation、类型包</td>
+</tr>
+<tr>
+<td>应用想要统一依赖/脚本/锁文件</td>
+<td>Poetry</td>
+<td>项目命令和分组依赖集中管理</td>
+<td>团队是否统一 Poetry，私有索引和 CI 安装方式</td>
+</tr>
+<tr>
+<td>追求高速解析、现代项目工作流</td>
+<td>uv</td>
+<td>环境、依赖、锁和运行命令一体化且快</td>
+<td>不要与另一工具共同写同一锁文件</td>
+</tr>
+<tr>
+<td>NumPy/Pandas/CUDA/系统库复杂</td>
+<td>Conda + pip（按边界分工）</td>
+<td>能管理非 Python 二进制依赖</td>
+<td>渠道一致性、平台构建和 pip/conda 安装顺序</td>
+</tr>
+<tr>
+<td>生产镜像必须极小</td>
+<td>项目锁文件 + 构建阶段安装</td>
+<td>把编译/缓存与运行镜像分离</td>
+<td>wheel 可用性、系统库和启动冒烟</td>
+</tr>
+<tr>
+<td>离线/受限网络</td>
+<td>lock/缓存/私有镜像</td>
+<td>预下载并校验依赖</td>
+<td>认证、哈希、平台 wheel 和缓存失效策略</td>
+</tr>
+</tbody>
+</table></div>
+<p>无论选哪一列，最终应只保留一条“官方路径”：例如“修改 <code>pyproject.toml</code> → 用 uv 更新 <code>uv.lock</code> → CI 用 <code>uv sync</code>”。不要同时提交 <code>poetry.lock</code>、<code>uv.lock</code> 和一份未经说明的 <code>requirements-lock.txt</code>，否则维护者无法知道哪一份才是事实来源。</p>
+<span class="heading-anchor" id="6.3 锁文件、约束文件和哈希"></span><h3 id="63">6.3 锁文件、约束文件和哈希</h3>
+<ul>
+<li><strong>锁文件</strong>通常来自项目依赖工具，记录完整解析结果，使开发、CI 和部署趋于一致。</li>
+<li><strong>约束文件（constraints）</strong>限制某些包的版本，但不一定声明项目需要哪些直接依赖。</li>
+<li><strong>requirements.txt</strong> 可以是高层声明，也可以是冻结结果；文件名本身不能说明是否完整锁定。</li>
+<li>支持哈希时，校验下载包的内容可降低供应链风险，但仍要从可信索引获取并审查更新来源。</li>
+</ul>
+<p>锁文件不是永久不变：升级 Python、操作系统、架构或索引后，可能需要重新解析。提交锁文件时应在目标平台或兼容矩阵中安装验证；若锁文件包含平台分支，不能只在开发者笔记本上确认。</p>
+<span class="heading-anchor" id="6.4 环境和依赖故障排查"></span><h3 id="64">6.4 环境和依赖故障排查</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>优先检查</th>
+<th>常见修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ModuleNotFoundError</code></td>
+<td><code>python -m pip --version</code>、当前解释器和激活状态</td>
+<td>激活正确环境，使用 <code>python -m pip install</code> 或项目同步命令</td>
+</tr>
+<tr>
+<td>本地能跑、CI 失败</td>
+<td>是否依赖未声明的全局包/工作区路径</td>
+<td>干净环境安装，提交直接依赖和锁文件</td>
+</tr>
+<tr>
+<td><code>pip</code> 与 Poetry/uv 结果不一致</td>
+<td>是否混用解析器修改环境/锁文件</td>
+<td>选择项目主工具，删除临时环境后按主路径重建</td>
+</tr>
+<tr>
+<td>安装原生包失败</td>
+<td>Python/OS/架构是否有 wheel，系统编译器是否存在</td>
+<td>使用受支持组合、预构建 wheel 或评估 Conda</td>
+</tr>
+<tr>
+<td>锁文件冲突</td>
+<td>Python 约束、平台标记、私有索引和上游冲突</td>
+<td>读解析器错误，最小化更新并跑完整门禁</td>
+</tr>
+<tr>
+<td>测试 import 失败</td>
+<td><code>src</code> 是否安装、pytest 启动目录和 editable 安装</td>
+<td><code>python -m pip install -e .</code>，从项目根运行</td>
+</tr>
+<tr>
+<td>运行了错误的工具版本</td>
+<td>按工具检查：<code>python -m pytest --version</code>、<code>ruff --version</code>、<code>uv --version</code>、<code>poetry --version</code>，并对照 lock/CI 记录</td>
+<td>重新同步环境，避免依赖 PATH 中的全局命令</td>
+</tr>
+</tbody>
+</table></div>
+<p>排查顺序应是“确认解释器 → 确认项目路径 → 确认声明 → 确认锁 → 重建干净环境”，不要先在现有环境里不断升级/降级包，把问题变成无法解释的混合状态。</p>
+<span class="heading-anchor" id="7. 常见坑与排查清单"></span><h2 id="7">7. 常见坑与排查清单</h2>
+<ol>
+<li><strong>在错误解释器中安装包。</strong> 用 <code>python -m pip --version</code> 与 <code>python --version</code> 检查它们是否属于同一环境。</li>
+<li><strong>混用依赖管理工具。</strong> Poetry/uv 的项目不要让 CI 随意 <code>pip install -U</code> 后再声称可复现。</li>
+<li><strong>提交 <code>.venv</code>。</strong> 虚拟环境含平台路径和大量生成文件，应加入 <code>.gitignore</code>，提交声明与锁文件。</li>
+<li><strong>只运行本地通过的测试。</strong> CI 必须从干净环境安装并执行同一套命令，避免依赖隐藏在开发者机器上。</li>
+<li><strong>测试真实模型和网络。</strong> 单元测试应 mock/fake 外部服务；集成测试设置超时、预算和隔离凭证。</li>
+<li><strong>fixture 状态泄漏。</strong> 过大的 fixture 作用域会让前一个测试污染后一个测试；优先使用函数级作用域。</li>
+<li><strong>异步测试忘记 <code>await</code>。</strong> 使用异步插件、类型检查和运行时 warning 检查 coroutine 未等待问题。</li>
+<li><strong>mock 太深。</strong> mock 私有实现细节会让重构导致大量无价值失败；mock 依赖边界，断言外部契约。</li>
+<li><strong><code>pytest.raises(Exception)</code> 过宽。</strong> 断言具体异常类型和关键结构，避免错误路径误通过。</li>
+<li><strong>两个格式化器互相改写。</strong> Ruff formatter 与 Black 选一个；CI 只检查被选中的格式。</li>
+<li><strong>到处加 <code>type: ignore</code>。</strong> 优先补标注、安装类型存根或修正设计；忽略项要有具体错误码和理由。</li>
+<li><strong>自动修复后不看 diff。</strong> <code>ruff check --fix</code> 可能重排导入或改变代码；先审查再提交。</li>
+<li><strong>静态检查替代不了运行时验证。</strong> 类型标注不能验证 LLM JSON、环境变量或 HTTP payload，边界使用 Pydantic 等校验。</li>
+<li><strong>锁文件过时。</strong> 修改直接依赖后要重新解析并在干净环境安装，不能只编辑 <code>pyproject.toml</code>。</li>
+<li><strong>把密钥放到测试/CI 配置。</strong> 使用 Secret、环境变量和脱敏日志；测试默认使用假凭证。</li>
+<li><strong>端到端测试不稳定。</strong> 限制随机性、冻结时间、使用录制或本地 stub；失败时保留可诊断证据。</li>
+</ol>
+<span class="heading-anchor" id="8. 练习题"></span><h2 id="8">8. 练习题</h2>
+<ol>
+<li>为一个 <code>normalize_query</code> 函数写普通测试和 <code>parametrize</code> 测试，覆盖空字符串、连续空白、Unicode 文本和异常输入。</li>
+<li>写一个 fixture 创建临时 Agent 配置文件，再用 <code>tmp_path</code> 验证文件内容；确认多个测试之间文件互不影响。</li>
+<li>为会抛出自定义异常的工具函数写 <code>pytest.raises</code> 测试，同时断言异常消息或错误属性，不要捕获过宽。</li>
+<li>为模型客户端注入一个 <code>Mock</code>，验证 Agent 调用参数和调用次数；再把它替换成 <code>AsyncMock</code> 编写异步测试。</li>
+<li>给 Agent 的工具路由添加参数化测试，覆盖合法工具、未知工具、参数校验失败、超时和重试上限。</li>
+<li>将测试按 <code>unit</code>、<code>integration</code>、<code>e2e</code> 标记，运行“只跑单元”和“排除端到端”两条命令，并说明每层的外部依赖。</li>
+<li>在一个小项目中同时运行 <code>ruff format --check</code>、<code>ruff check</code> 和 mypy；故意引入格式、未使用导入和返回值类型错误，再逐个修复。</li>
+<li>创建本地 pre-commit hook，在提交前运行 Ruff 和单元测试；检查 hook 失败时是否阻止提交。</li>
+<li>用 <code>venv</code> 创建干净环境，写 <code>pyproject.toml</code> 的开发依赖，执行 <code>pip install -e ".[dev]"</code> 并运行完整测试。</li>
+<li>分别用 Poetry 或 uv 初始化同一小项目，比较依赖声明、锁文件、运行测试和导出/同步环境的命令，最后选一套作为团队约定。</li>
+<li>为 Agent 项目写一份 CI 命令清单，要求在干净环境按锁文件安装，依次执行格式、lint、类型检查、单元测试和集成测试。</li>
+<li>列出一个“可复现环境”检查表：Python 版本、操作系统、直接依赖、锁文件、系统库、密钥注入和测试命令，找出其中最容易被忽略的三项。</li>
+</ol>
+<span class="heading-anchor" id="8.1 练习提示与验收标准"></span><h3 id="81">8.1 练习提示与验收标准</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>练习</th>
+<th>提示</th>
+<th>最低验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>先列出输入等价类，再为每类命名参数化 ID</td>
+<td>正常、边界、非法输入都有案例；失败报告能看出具体情形</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>tmp_path</code> 负责路径隔离，fixture 的 <code>yield</code> 负责清理</td>
+<td>测试可重复运行；一个测试创建的内容不会影响另一个测试</td>
+</tr>
+<tr>
+<td>3</td>
+<td>只捕获业务异常，使用 <code>match</code> 或属性断言</td>
+<td>错误类型过宽时测试会失败；关键错误信息可诊断</td>
+</tr>
+<tr>
+<td>4</td>
+<td>模型客户端通过构造函数注入；异步依赖用 <code>AsyncMock</code></td>
+<td>断言参数、await 次数和返回值；测试不触网、不消耗真实额度</td>
+</tr>
+<tr>
+<td>5</td>
+<td>把每个工具动作和失败类别当作独立状态</td>
+<td>白名单、解析、超时、重试上限均有测试，重试不会无限循环</td>
+</tr>
+<tr>
+<td>6</td>
+<td>用 marker 表达依赖和成本，而不是用文件名猜</td>
+<td>可分别运行 unit/integration/e2e；默认 PR 不调用昂贵外部服务</td>
+</tr>
+<tr>
+<td>7</td>
+<td>先 format，再 lint，再类型检查，再测试</td>
+<td>CI 和本地命令一致；没有用无理由 <code>ignore</code> 掩盖错误</td>
+</tr>
+<tr>
+<td>8</td>
+<td>local pre-commit hook 只做快速、确定性检查</td>
+<td>hook 失败阻止提交，自动修复后工作区 diff 可审查</td>
+</tr>
+<tr>
+<td>9</td>
+<td>只在激活环境中执行 <code>python -m pip</code>，确认安装来源</td>
+<td>新环境可安装 dev extras，并能从项目根目录发现测试</td>
+</tr>
+<tr>
+<td>10</td>
+<td>比较工具的声明文件、锁文件和运行命令</td>
+<td>记录解析器、同步命令、锁文件和 CI 约定，不混用两套主工具</td>
+</tr>
+<tr>
+<td>11</td>
+<td>先写命令清单，再加入缓存、凭证和平台矩阵</td>
+<td>干净环境可安装；失败步骤明确；凭证不出现在日志</td>
+</tr>
+<tr>
+<td>12</td>
+<td>区分 Python 包、系统库、平台 wheel 和 Secret</td>
+<td>检查表覆盖重建所需全部输入，而非只列一份 requirements</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="小结"></span><h2 id="_2">小结</h2>
+<ul>
+<li>pytest 用 fixture 管理上下文、<code>parametrize</code> 覆盖案例、<code>raises</code> 验证异常、<code>Mock</code>/<code>AsyncMock</code> 隔离外部依赖；Agent 测试应按单元、集成、端到端分层。</li>
+<li>异步测试必须真正等待 coroutine；模型、网络、时间和随机性要可控，否则测试会慢、贵且不稳定。</li>
+<li>Ruff 与 Black 负责格式/lint，mypy 或 Pyright 负责静态类型；格式化器选一个，静态检查不能替代运行时数据验证。</li>
+<li>pre-commit 提供本地快速反馈，CI 在干净环境执行同一门禁，并输出可诊断结果。</li>
+<li><code>venv</code>+pip 是基础方案，Poetry 和 uv 提供项目/锁文件工作流，Conda 适合非 Python/科学计算依赖；项目应选择一套主工具并保持声明、锁文件和 CI 命令一致。</li>
+<li>可复现环境需要 Python/平台约束、锁文件、依赖哈希（工具支持时）、系统前置条件和干净安装验证，不能只依靠一份随意生成的 <code>pip freeze</code>。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-韧性工程：限流、熔断、降级 · 李杨的学习笔记</title><meta name="description" content="本章关注跨服务调用链的故障扩散控制；单服务内的启动关闭、信号处理和连接排空见 生命周期与服务韧性 。"><meta property="og:title" content="03-韧性工程：限流、熔断、降级 · 李杨的学习笔记"><meta property="og:description" content="本章关注跨服务调用链的故障扩散控制；单服务内的启动关闭、信号处理和连接排空见 生命周期与服务韧性 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-37e7c300537e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-37e7c300537e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>03-韧性工程：限流、熔断、降级</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/03-%E9%9F%A7%E6%80%A7%E5%B7%A5%E7%A8%8B-%E9%99%90%E6%B5%81%E7%86%94%E6%96%AD%E9%99%8D%E7%BA%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">三类保护手段</a></li><li><a href="#_4">令牌桶与漏桶</a></li><li><a href="#_5">并发限制与自适应保护</a></li><li><a href="#_6">熔断状态机</a></li><li><a href="#_7">重试预算与雪崩放大</a></li><li><a href="#_8">隔离与背压</a></li><li><a href="#_9">观测指标与告警</a></li><li><a href="#_10">工程实践/案例</a></li><li><a href="#_11">常见误区</a></li><li><a href="#_12">自测题</a></li><li><a href="#_13">实践任务</a></li><li><a href="#_14">延伸阅读</a></li></ul></details><article class="note-content">
+<p>本章关注跨服务调用链的故障扩散控制；单服务内的启动关闭、信号处理和连接排空见<a href="n-5367b06eb274.html">生命周期与服务韧性</a>。</p>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解限流、熔断、降级分别解决什么问题。</li>
+<li>掌握令牌桶、漏桶、并发限制、熔断状态机和隔离策略。</li>
+<li>能设计防雪崩、防过载、防故障扩散的调用保护。</li>
+<li>能区分理论上可保证的约束、工程假设和实现取舍。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="三类保护手段"></span><h3 id="_3">三类保护手段</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>目标</th>
+<th>触发依据</th>
+<th>输出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>限流</td>
+<td>控制入口流量或资源消耗</td>
+<td>QPS、并发数、令牌数</td>
+<td>拒绝、排队、削峰</td>
+</tr>
+<tr>
+<td>熔断</td>
+<td>下游异常时快速失败</td>
+<td>错误率、超时率、慢调用比例</td>
+<td>打开、半开、关闭</td>
+</tr>
+<tr>
+<td>降级</td>
+<td>保住核心链路</td>
+<td>业务优先级、依赖状态</td>
+<td>默认值、缓存值、关闭非核心功能</td>
+</tr>
+</tbody>
+</table></div>
+<p>理论保证：限流只能限制进入系统的请求量，不能保证每个请求成功；熔断只能减少继续调用故障依赖的压力，不能修复依赖。</p>
+<p>工程假设：指标采样窗口能代表当前状态，错误分类准确，降级结果业务可接受。</p>
+<p>实现取舍：保护越激进，误杀越多；保护越保守，故障扩散风险越高。</p>
+<span class="heading-anchor" id="令牌桶与漏桶"></span><h3 id="_4">令牌桶与漏桶</h3>
+<p>令牌桶允许一定突发流量：</p>
+<pre class="mermaid">flowchart LR
+  A["按速率生成令牌"] --&gt; B["令牌桶"]
+  C["请求"] --&gt; D{有令牌?}
+  B --&gt; D
+  D -- 是 --&gt; E["放行并消耗令牌"]
+  D -- 否 --&gt; F["拒绝或排队"]
+</pre>
+<p>漏桶以固定速率流出，强调平滑处理：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>特点</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>令牌桶</td>
+<td>支持突发，平均速率受控</td>
+<td>API 网关、用户级限流</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>输出平滑，突发被排队或丢弃</td>
+<td>写入后端、异步处理</td>
+</tr>
+<tr>
+<td>固定窗口</td>
+<td>实现简单</td>
+<td>粗粒度限流</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>边界更平滑</td>
+<td>用户、租户、IP 限流</td>
+</tr>
+<tr>
+<td>并发限制</td>
+<td>控制同时执行数量</td>
+<td>数据库、线程池、外部依赖</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="并发限制与自适应保护"></span><h3 id="_5">并发限制与自适应保护</h3>
+<p>QPS 限流控制进入速率，并发限制控制系统内同时执行的工作量。对于慢依赖，QPS 不高也可能把线程池、连接池和队列占满；此时并发上限比单纯 QPS 更直接。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>限制对象</th>
+<th>常见配置</th>
+<th>失败模式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户/IP</td>
+<td>每分钟请求数、突发桶容量</td>
+<td>误伤 NAT 或代理后用户</td>
+</tr>
+<tr>
+<td>租户</td>
+<td>租户级 QPS/并发</td>
+<td>大客户被限需要配额治理</td>
+</tr>
+<tr>
+<td>接口</td>
+<td>写接口、重接口单独限流</td>
+<td>全局限流掩盖热点接口</td>
+</tr>
+<tr>
+<td>下游依赖</td>
+<td>每依赖连接/并发上限</td>
+<td>慢依赖拖垮调用方</td>
+</tr>
+<tr>
+<td>任务队列</td>
+<td>队列长度、消费速率</td>
+<td>无限积压导致恢复更慢</td>
+</tr>
+</tbody>
+</table></div>
+<p>自适应限流会根据延迟、错误率、队列长度或 CPU 动态调整阈值。它能更快响应过载，但要设置最小/最大边界和回退策略，避免短期指标抖动引起限流振荡。</p>
+<span class="heading-anchor" id="熔断状态机"></span><h3 id="_6">熔断状态机</h3>
+<pre class="mermaid">stateDiagram-v2
+  [*] --&gt; Closed
+  Closed --&gt; Open: 错误率/超时率超过阈值
+  Open --&gt; HalfOpen: 冷却时间到
+  HalfOpen --&gt; Closed: 探测请求成功
+  HalfOpen --&gt; Open: 探测请求失败
+</pre>
+<p>熔断要点：</p>
+<ul>
+<li>只对明确可归因于下游或资源耗尽的错误计数。</li>
+<li>使用滑动窗口，避免单点尖峰永久影响状态。</li>
+<li>半开只放少量探测请求，避免恢复瞬间又被压垮。</li>
+<li>熔断结果要进入日志、指标和告警。</li>
+</ul>
+<span class="heading-anchor" id="重试预算与雪崩放大"></span><h3 id="_7">重试预算与雪崩放大</h3>
+<p>重试会提高短暂网络抖动下的成功率，也会把流量放大到故障下游。若 3 层调用每层都最多重试 2 次，最坏情况下底层可能承受 <code>3 * 3 * 3 = 27</code> 倍请求尝试。工程上要设置重试预算：限制某个时间窗口内由重试产生的额外请求比例，并使用 jitter 避免同步重试。</p>
+<p>失败时序：</p>
+<pre><code class="language-text">T1: 库存服务 P99 升高
+T2: 上游请求超时，开始重试
+T3: 重试流量进一步占满库存线程池
+T4: 熔断打开，上游快速失败或降级
+T5: 冷却后半开探测，成功才逐步恢复
+</code></pre>
+<p>可重试错误必须分类：连接失败、临时 503、明确未执行可以重试；业务校验失败、非幂等写、服务端状态未知通常不能盲目重试。</p>
+<span class="heading-anchor" id="隔离与背压"></span><h3 id="_8">隔离与背压</h3>
+<p>隔离是防止一个依赖耗尽共享资源：</p>
+<ul>
+<li>线程池隔离：不同依赖使用独立执行资源。</li>
+<li>连接池隔离：避免慢依赖占满全局连接。</li>
+<li>队列隔离：不同优先级使用不同队列。</li>
+<li>舱壁模式：一个模块故障不影响其他模块。</li>
+</ul>
+<p>背压是下游处理不过来时让上游减速或失败，而不是无限排队。</p>
+<span class="heading-anchor" id="观测指标与告警"></span><h3 id="_9">观测指标与告警</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>限流</td>
+<td>放行数、拒绝数、排队时长、令牌耗尽率</td>
+</tr>
+<tr>
+<td>熔断</td>
+<td>open/half-open 次数、探测成功率、熔断持续时间</td>
+</tr>
+<tr>
+<td>降级</td>
+<td>降级命中率、缓存兜底命中率、用户影响面</td>
+</tr>
+<tr>
+<td>隔离</td>
+<td>线程池活跃数、队列长度、连接池等待、bulkhead 拒绝</td>
+</tr>
+<tr>
+<td>重试</td>
+<td>重试尝试数、重试成功率、重试预算消耗</td>
+</tr>
+</tbody>
+</table></div>
+<p>告警不要只报“熔断打开”。更有价值的是关联上游 QPS、下游错误、限流拒绝、业务成功率和 error budget 燃烧速度，判断是保护机制正常止血，还是保护阈值配置错误。</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_10">工程实践/案例</h2>
+<p>活动秒杀系统可以分层保护：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>保护</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CDN/网关</td>
+<td>IP/用户/接口限流，静态资源缓存</td>
+</tr>
+<tr>
+<td>应用层</td>
+<td>令牌桶、热点商品队列、非核心依赖降级</td>
+</tr>
+<tr>
+<td>库存层</td>
+<td>预扣库存、单商品并发限制、幂等扣减</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>连接池上限、慢查询保护、写入削峰</td>
+</tr>
+</tbody>
+</table></div>
+<p>降级策略要按业务价值排序：商品主信息和库存是核心；推荐、评价摘要、相似商品可以返回缓存或空结果；埋点失败不应阻塞主链路。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_11">常见误区</h2>
+<ul>
+<li>
+<p>误区：限流就是拒绝请求。<br/>
+  修正：限流可以拒绝、排队、削峰、动态调参，关键是保护资源边界。</p>
+</li>
+<li>
+<p>误区：熔断阈值越低越安全。<br/>
+  修正：阈值过低会导致误熔断，降低正常可用性。</p>
+</li>
+<li>
+<p>误区：降级就是返回假数据。<br/>
+  修正：降级必须是业务允许的退化结果，例如缓存、默认值、隐藏模块。</p>
+</li>
+<li>
+<p>误区：队列能解决过载。<br/>
+  修正：无限队列会把过载变成延迟爆炸和内存耗尽。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_12">自测题</h2>
+<ol>
+<li>令牌桶为什么比漏桶更适合允许短时突发？</li>
+<li>熔断半开状态为什么不能直接放开全部流量？</li>
+<li>限流、熔断、降级分别发生在调用链的什么位置？</li>
+<li>为什么要把限流拒绝也纳入指标和告警？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_13">实践任务</h2>
+<p>为一个“用户下单接口”设计三级保护：入口限流、库存服务熔断、推荐服务降级。写出触发条件、返回结果、监控指标和恢复条件。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_14">延伸阅读</h2>
+<ul>
+<li><a href="https://sre.google/sre-book/table-of-contents/">Google SRE Book</a>：Handling Overload、Addressing Cascading Failures。</li>
+<li><a href="https://www.envoyproxy.io/docs/envoy/latest/">Envoy 官方文档</a>：circuit breakers、outlier detection、rate limit。</li>
+<li><a href="https://github.com/Netflix/Hystrix/wiki">Netflix Hystrix Wiki</a>，用于理解熔断和隔离思想；项目状态和生产选型需另行评估。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>主从、哨兵与 Cluster · 李杨的学习笔记</title><meta name="description" content="主从复制用于数据副本和读扩展；Sentinel 负责监控、选主和通知；Cluster 通过 16384 个 hash slot 做数据分片并提供高可用。它们解决的是可用性和扩展性，不等于强一致复制。"><meta property="og:title" content="主从、哨兵与 Cluster · 李杨的学习笔记"><meta property="og:description" content="主从复制用于数据副本和读扩展；Sentinel 负责监控、选主和通知；Cluster 通过 16384 个 hash slot 做数据分片并提供高可用。它们解决的是可用性和扩展性，不等于强一致复制。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-aaf0be5e55d1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-aaf0be5e55d1.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>主从、哨兵与 Cluster</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/06-%E4%B8%BB%E4%BB%8E%E5%93%A8%E5%85%B5%E4%B8%8ECluster.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#backlog">复制 backlog、全量同步和增量同步</a></li><li><a href="#sentinel-failover">Sentinel failover 控制流程</a></li><li><a href="#cluster-slotredirect-reshard">Cluster slot、redirect 和 reshard</a></li><li><a href="#_4">观测指标</a></li><li><a href="#_5">常见误区</a></li><li><a href="#_6">自测题</a></li><li><a href="#_7">实践任务</a></li><li><a href="#_8">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解复制、哨兵故障转移和 Cluster 分片的职责。</li>
+<li>能解释复制延迟、故障切换窗口、slot 迁移和跨 slot 限制。</li>
+<li>掌握读写分离和高可用架构的常见风险。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>主从复制用于数据副本和读扩展；Sentinel 负责监控、选主和通知；Cluster 通过 16384 个 hash slot 做数据分片并提供高可用。它们解决的是可用性和扩展性，不等于强一致复制。</p>
+<pre class="mermaid">flowchart TD
+  Client --&gt; Sentinel
+  Sentinel --&gt; Master[(Master)]
+  Master --&gt; Replica1[(Replica)]
+  Master --&gt; Replica2[(Replica)]
+  Client --&gt; C1["Cluster Node A"]
+  Client --&gt; C2["Cluster Node B"]
+  Client --&gt; C3["Cluster Node C"]
+</pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>架构</th>
+<th>解决问题</th>
+<th>主要限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主从复制</td>
+<td>读扩展、数据副本</td>
+<td>异步复制可能丢数据</td>
+</tr>
+<tr>
+<td>Sentinel</td>
+<td>自动故障转移</td>
+<td>切换期间短暂不可用或写入失败</td>
+</tr>
+<tr>
+<td>Cluster</td>
+<td>水平分片、高可用</td>
+<td>多 Key 跨 slot 操作受限</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<p>Cluster 多 Key 操作要使用 hash tag 保证落在同一 slot：</p>
+<pre><code class="language-text">cart:{user42}:items
+cart:{user42}:coupon
+</code></pre>
+<p>读副本前要评估复制延迟。对“刚写后立即读”的请求，如果读到副本，可能出现短暂旧数据。关键读路径应读主库，或使用业务版本号处理旧值。</p>
+<span class="heading-anchor" id="复制 backlog、全量同步和增量同步"></span><h3 id="backlog">复制 backlog、全量同步和增量同步</h3>
+<p>Redis 复制默认按异步复制理解。主节点维护 replication offset 和一段 backlog 缓冲；副本断线重连时携带已处理 offset，请求 <code>PSYNC</code>。如果主节点 backlog 仍保留缺失的复制流，可以增量同步；否则需要全量同步，由主节点生成 RDB 并传给副本，再补发期间积累的写命令。</p>
+<pre class="mermaid">sequenceDiagram
+  participant M as Master
+  participant B as Backlog
+  participant R as Replica
+  M-&gt;&gt;B: append replication stream
+  R--xM: network break
+  M-&gt;&gt;B: keep recent stream
+  R-&gt;&gt;M: PSYNC replid offset
+  alt backlog covers gap
+    M-&gt;&gt;R: partial resync
+  else backlog missing
+    M-&gt;&gt;R: full sync RDB + buffered commands
+  end
+</pre>
+<p>工程配置思路：</p>
+<ul>
+<li>backlog 太小会让短暂断线也变全量同步，放大 fork、网络和磁盘压力。</li>
+<li>大实例全量同步会冲击主节点和副本，扩容或重建副本要错峰。</li>
+<li>副本可用于读扩展，但读旧值、复制中断和加载 RDB 阻塞都要纳入 SLA。</li>
+</ul>
+<span class="heading-anchor" id="Sentinel failover 控制流程"></span><h3 id="sentinel-failover">Sentinel failover 控制流程</h3>
+<p>Sentinel 负责监控主节点、主观下线、客观下线、选举 leader Sentinel、挑选副本晋升、通知其他副本改挂新主，并让客户端刷新主节点地址。它提高可用性，但切换期间会有写失败、连接断开、旧主隔离后恢复等窗口。</p>
+<pre class="mermaid">flowchart TD
+  Detect["Sentinel ping 失败"] --&gt; SDOWN["主观下线"]
+  SDOWN --&gt; Quorum{达到 quorum?}
+  Quorum --&gt;|是| ODOWN["客观下线"]
+  ODOWN --&gt; Elect["Sentinel leader 选举"]
+  Elect --&gt; Promote["选择 replica 晋升"]
+  Promote --&gt; Reconf["其他 replica 复制新主"]
+  Reconf --&gt; Notify["客户端刷新拓扑"]
+</pre>
+<p>失败窗口：</p>
+<ul>
+<li>旧主接受了未复制写入后宕机，晋升副本缺少这部分数据。</li>
+<li>客户端连接池未及时刷新，继续向旧地址写入失败或写到恢复后的旧主。</li>
+<li>网络分区导致短暂双主视角，业务需要幂等、版本或 fencing 兜底。</li>
+</ul>
+<span class="heading-anchor" id="Cluster slot、redirect 和 reshard"></span><h3 id="cluster-slotredirect-reshard">Cluster slot、redirect 和 reshard</h3>
+<p>Redis Cluster 把 key 映射到 16384 个 hash slot，每个 slot 由某个主分片负责。客户端可以请求任意节点；节点发现 slot 不归自己时返回 <code>MOVED</code>，客户端应更新 slot cache 并重试。reshard 迁移期间还可能出现 <code>ASK</code>，客户端应对单次请求发 <code>ASKING</code> 后访问目标节点。</p>
+<pre><code class="language-text">GET user:42
+-MOVED 8000 10.0.0.2:6379
+</code></pre>
+<p>多 key 命令只有在所有 key 属于同一 slot 时才可执行。hash tag 可以强制同一业务对象落同 slot：</p>
+<pre><code class="language-text">order:{42}:base
+order:{42}:items
+order:{42}:lock
+</code></pre>
+<p>不要滥用 hash tag。把大量热 key 固定到同一 tag 会破坏分片均衡，让 Cluster 退化成单分片热点。</p>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_4">观测指标</h3>
+<ul>
+<li><code>INFO replication</code>：主节点复制 offset、各 connected replica 的 offset/lag/link status 等；具体字段名按当前 Redis 版本和主从视角确认。</li>
+<li>backlog 命中/全量同步次数：判断断线恢复成本。</li>
+<li>Sentinel 事件：<code>+sdown</code>、<code>+odown</code>、<code>+switch-master</code>。</li>
+<li>Cluster：slot 覆盖完整性、<code>MOVED/ASK</code> 数量、迁移中 slot、各分片 key 数和 QPS。</li>
+<li>客户端：拓扑刷新次数、重连次数、命令重试和超时分布。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_5">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>有副本就不会丢数据</td>
+<td>Redis 复制通常是异步的，主节点故障可能丢失未复制写入</td>
+</tr>
+<tr>
+<td>Sentinel 能防所有故障</td>
+<td>客户端重连、DNS、连接池刷新都需要配合</td>
+</tr>
+<tr>
+<td>Cluster 可以任意扩展单 Key 性能</td>
+<td>单 Key 仍只在一个分片上</td>
+</tr>
+<tr>
+<td>hash tag 可以随便用</td>
+<td>过度使用会让大量 Key 聚集到同一 slot</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_6">自测题</h2>
+<ol>
+<li>Cluster 为什么限制跨 slot 多 Key 操作？</li>
+<li>主从复制延迟会如何影响缓存读路径？</li>
+<li>Sentinel 切换后客户端需要具备什么能力？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_7">实践任务</h2>
+<ul>
+<li>设计一组订单缓存 Key，使同一订单相关 Key 落到同一 slot。</li>
+<li>写出 Redis 主节点故障时客户端可能遇到的错误和重试策略。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_8">延伸阅读</h2>
+<ul>
+<li>Redis replication：https://redis.io/docs/latest/operate/oss_and_stack/management/replication/</li>
+<li>Redis Sentinel：https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/</li>
+<li>Redis Cluster：https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

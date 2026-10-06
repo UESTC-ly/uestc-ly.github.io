@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>AI 异步任务实践篇 · 李杨的学习笔记</title><meta name="description" content="AI 任务通常耗时长、资源贵、失败模式复杂。前端提交任务后立即返回任务 ID，后端通过 MQ 调度 worker，结果写入数据库或对象存储，用户轮询或通过通知获取状态。"><meta property="og:title" content="AI 异步任务实践篇 · 李杨的学习笔记"><meta property="og:description" content="AI 任务通常耗时长、资源贵、失败模式复杂。前端提交任务后立即返回任务 ID，后端通过 MQ 调度 worker，结果写入数据库或对象存储，用户轮询或通过通知获取状态。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fc262f4d52a9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fc262f4d52a9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 04-消息队列</p><h1>AI 异步任务实践篇</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/04-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97/05-AI%E5%BC%82%E6%AD%A5%E4%BB%BB%E5%8A%A1%E5%AE%9E%E8%B7%B5.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#_4">文档解析任务流</a></li><li><a href="#embedding">Embedding 批处理</a></li><li><a href="#gpu">GPU 背压</a></li><li><a href="#_5">批推理和评测队列</a></li><li><a href="#worker">Worker 幂等伪代码</a></li><li><a href="#_6">观测指标</a></li><li><a href="#_7">常见误区</a></li><li><a href="#_8">自测题</a></li><li><a href="#_9">实践任务</a></li><li><a href="#_10">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握 AI 推理、批处理、向量化、视频处理等长任务的异步队列设计。</li>
+<li>能设计任务状态机、幂等提交、取消、重试和结果存储。</li>
+<li>理解 GPU/模型服务是稀缺资源，队列必须具备背压和优先级控制。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>AI 任务通常耗时长、资源贵、失败模式复杂。前端提交任务后立即返回任务 ID，后端通过 MQ 调度 worker，结果写入数据库或对象存储，用户轮询或通过通知获取状态。</p>
+<pre class="mermaid">sequenceDiagram
+  participant U as User
+  participant API
+  participant MQ
+  participant W as AI Worker
+  participant S as Storage
+  U-&gt;&gt;API: submit job
+  API-&gt;&gt;MQ: enqueue job
+  API--&gt;&gt;U: job_id
+  W-&gt;&gt;MQ: consume
+  W-&gt;&gt;S: write result
+  W-&gt;&gt;API: update status
+</pre>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<p>任务状态机：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PENDING</code></td>
+<td>已创建，等待调度</td>
+</tr>
+<tr>
+<td><code>RUNNING</code></td>
+<td>Worker 已开始处理</td>
+</tr>
+<tr>
+<td><code>SUCCEEDED</code></td>
+<td>结果可用</td>
+</tr>
+<tr>
+<td><code>FAILED_RETRYABLE</code></td>
+<td>可重试失败</td>
+</tr>
+<tr>
+<td><code>FAILED_FINAL</code></td>
+<td>不再自动重试</td>
+</tr>
+<tr>
+<td><code>CANCELLED</code></td>
+<td>用户或系统取消</td>
+</tr>
+</tbody>
+</table></div>
+<p>消息体示例：</p>
+<pre><code class="language-json">{
+  "job_id": "job_42",
+  "tenant_id": "tenant_a",
+  "model": "embedding",
+  "input_uri": "s3://bucket/input/42.json",
+  "idempotency_key": "tenant_a:req_1001",
+  "priority": "normal"
+}
+</code></pre>
+<span class="heading-anchor" id="文档解析任务流"></span><h3 id="_4">文档解析任务流</h3>
+<p>文档解析通常包括上传、杀毒/格式识别、OCR/版面分析、结构化抽取、质检和索引。每一步都可能耗时长且失败原因不同，所以任务表要记录阶段状态，而不是只依赖 MQ offset。</p>
+<pre class="mermaid">stateDiagram-v2
+  [*] --&gt; UPLOADED
+  UPLOADED --&gt; PARSING
+  PARSING --&gt; OCR
+  OCR --&gt; EXTRACTING
+  EXTRACTING --&gt; INDEXING
+  INDEXING --&gt; SUCCEEDED
+  PARSING --&gt; FAILED_RETRYABLE
+  OCR --&gt; FAILED_FINAL
+  FAILED_RETRYABLE --&gt; PARSING: retry
+</pre>
+<p>消息只传 URI 和参数：</p>
+<pre><code class="language-json">{
+  "job_id": "doc_9001",
+  "stage": "OCR",
+  "input_uri": "s3://docs/raw/9001.pdf",
+  "output_prefix": "s3://docs/parsed/9001/",
+  "schema_version": 2
+}
+</code></pre>
+<span class="heading-anchor" id="Embedding 批处理"></span><h3 id="embedding">Embedding 批处理</h3>
+<p>Embedding 任务适合批量合并：小文本单条推理会浪费 GPU/CPU，过大 batch 又会导致显存溢出和尾延迟升高。队列消费者可以先拉取一批任务，按模型、租户、长度桶分组，再调用模型服务。</p>
+<pre><code class="language-pseudo">records = poll(max_records=500, max_wait=100ms)
+groups = group_by(records, model, tenant, length_bucket)
+for group in groups:
+    batch = fit_by_token_budget(group, max_tokens, max_items)
+    result = embedding_model(batch.inputs)
+    write_vectors_idempotently(batch.ids, result)
+    commit_offsets_after_db_commit(batch)
+</code></pre>
+<p>幂等键应绑定 <code>tenant_id + document_id + chunk_id + model_version</code>。模型版本变化时不要覆盖旧向量，先写新 namespace，再切检索配置。</p>
+<span class="heading-anchor" id="GPU 背压"></span><h3 id="gpu">GPU 背压</h3>
+<p>GPU 是稀缺资源，队列必须能表达背压。没有背压时，API 层会不断接受任务，MQ lag 看似只是排队，实际用户等待时间已经不可控。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPU 利用率高且 queue lag 增长</td>
+<td>计算资源不足</td>
+<td>扩 GPU worker、降级低优先级</td>
+</tr>
+<tr>
+<td>显存 OOM 增加</td>
+<td>batch 太大或输入异常</td>
+<td>降 batch/token 上限，隔离超长输入</td>
+</tr>
+<tr>
+<td>单租户占用过高</td>
+<td>公平性风险</td>
+<td>租户级限流和配额</td>
+</tr>
+<tr>
+<td>结果写入慢</td>
+<td>存储瓶颈</td>
+<td>批量写、异步落盘、限速推理</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-text">max_inflight_batches = gpu_count * streams_per_gpu
+admission_rate &lt;= completed_jobs_per_sec * safety_factor
+expected_wait_seconds ~= queued_jobs / completed_jobs_per_sec
+</code></pre>
+<span class="heading-anchor" id="批推理和评测队列"></span><h3 id="_5">批推理和评测队列</h3>
+<p>批推理通常要求吞吐优先，可以接受分钟级延迟；在线推理队列要求尾延迟优先，batch 等待时间必须很短。评测任务还要保存数据集版本、prompt/model 版本、指标配置和随机种子，否则结果不可复现。</p>
+<pre><code class="language-sql">CREATE TABLE ai_job (
+  job_id VARCHAR(64) PRIMARY KEY,
+  tenant_id VARCHAR(64) NOT NULL,
+  job_type VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) UNIQUE,
+  model_version VARCHAR(64),
+  input_uri TEXT NOT NULL,
+  output_uri TEXT,
+  attempt INT NOT NULL DEFAULT 0,
+  worker_id VARCHAR(64),
+  lease_version BIGINT NOT NULL DEFAULT 0,
+  lease_expires_at TIMESTAMP,
+  last_heartbeat_at TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL
+);
+</code></pre>
+<span class="heading-anchor" id="Worker 幂等伪代码"></span><h3 id="worker">Worker 幂等伪代码</h3>
+<pre><code class="language-pseudo">record = poll()
+begin transaction
+claimed = update ai_job
+  set status="RUNNING", attempt=attempt+1,
+      worker_id=this_worker, lease_version=lease_version+1,
+      lease_expires_at=now()+lease_duration, last_heartbeat_at=now()
+  where job_id=record.job_id
+    and (status in ["NEW", "RETRY_WAIT"]
+         or (status="RUNNING" and lease_expires_at &lt; now()))
+if affected_rows(claimed) == 0:
+    job = select ai_job where job_id = record.job_id
+    commit
+    if job.status in ["SUCCEEDED", "FAILED_FINAL", "CANCELLED"]: ack
+    else: retry_later
+    return
+my_lease_version = claimed.lease_version
+commit
+
+try:
+    output_uri = run_model(record.input_uri)
+    begin transaction
+    update ai_job set status="SUCCEEDED", output_uri=output_uri
+      where job_id=record.job_id and status="RUNNING"
+        and worker_id=this_worker and lease_version=my_lease_version
+    if affected_rows == 0: discard_late_result_and_retry_or_stop()
+    commit
+    ack
+except Retryable as e:
+    mark_retryable(e); nack_or_retry_topic()
+except Fatal as e:
+    mark_failed_final(e); ack
+</code></pre>
+<p>长任务要周期性续租，续租同样校验 <code>worker_id + lease_version</code>。租约到期后旧 worker 可能仍在运行；最终条件更新相当于 fencing，阻止旧租约的迟到结果覆盖新 worker 的结果。若推理已经对外部系统产生不可回滚副作用，仍需由外部落点执行幂等或版本校验。</p>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_6">观测指标</h3>
+<ul>
+<li>API：提交 QPS、拒绝率、幂等命中率、任务创建延迟。</li>
+<li>MQ：按 job_type/priority 的 lag、最老消息年龄、重试次数。</li>
+<li>Worker：模型加载时间、batch 大小、token 数、推理耗时、OOM。</li>
+<li>GPU：利用率、显存、排队 batch、失败 batch。</li>
+<li>结果：成功率、最终失败原因、取消耗时、评测指标漂移。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_7">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AI 任务失败直接重试即可</td>
+<td>显存不足、输入非法、模型超时要分类处理</td>
+</tr>
+<tr>
+<td>结果可以放在消息里</td>
+<td>大结果应放对象存储，消息只传 URI 和元数据</td>
+</tr>
+<tr>
+<td>GPU worker 越多越好</td>
+<td>需要按显存、模型加载、批大小和吞吐做容量规划</td>
+</tr>
+<tr>
+<td>取消任务只删消息</td>
+<td>正在运行的任务还需要协作式取消和状态校验</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_8">自测题</h2>
+<ol>
+<li>AI 异步任务为什么要用任务表而不是只依赖 MQ offset？</li>
+<li>如何避免用户重复提交导致重复扣费？</li>
+<li>大文件输入输出为什么应放对象存储？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_9">实践任务</h2>
+<ul>
+<li>为“批量生成 embedding”设计 Topic、任务表、对象存储路径和失败重试策略。</li>
+<li>写一个 worker 伪代码，要求支持幂等、状态更新、结果 URI 和错误分类。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_10">延伸阅读</h2>
+<ul>
+<li>Kafka documentation：https://kafka.apache.org/documentation/</li>
+<li>OpenTelemetry messaging semantic conventions：https://opentelemetry.io/docs/specs/semconv/messaging/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

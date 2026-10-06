@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04-03 语义、父子与小块召回大块 · 李杨的学习笔记</title><meta name="description" content="用户问“定制商品能否无理由退货”。一个只包含“定制商品不适用无理由退货”的短块很容易与
+问题匹配，但回答还可能需要同一小节中的质量问题例外、申请入口和生效日期。把整个章节作为
+检索单位又会混入标准商品和维修政策。"><meta property="og:title" content="04-03 语义、父子与小块召回大块 · 李杨的学习笔记"><meta property="og:description" content="用户问“定制商品能否无理由退货”。一个只包含“定制商品不适用无理由退货”的短块很容易与
+问题匹配，但回答还可能需要同一小节中的质量问题例外、申请入口和生效日期。把整个章节作为
+检索单位又会混入标准商品和维修政策。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-b3e8dbb60769.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-b3e8dbb60769.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 04-chunking</p><h1>04-03 语义、父子与小块召回大块</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/04-chunking/03-semantic-parent-child-and-small-to-big.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">检索需要小，理解需要大</a></li><li><a href="#_2">语义切分</a></li><li><a href="#_3">父子切分</a></li><li><a href="#_4">什么是“小块召回大块”</a></li><li><a href="#_5">一条完整的数据流</a></li><li><a href="#_6">父块应该多大</a></li><li><a href="#_7">语义方法何时值得尝试</a></li><li><a href="#_8">工程与安全边界</a></li><li><a href="#_9">纸面练习</a></li><li><a href="#_10">自测</a></li><li><a href="#_11">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>04-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>进阶</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 25 分钟方案设计</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 <a href="n-2ade56708b86.html">04-02 结构感知与递归切分</a>；知道检索候选与最终上下文是不同阶段</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真正运行语义切分可能产生嵌入计算费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>根据主题变化手工标边界，并设计父块与子块标识</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释语义切分如何寻找主题变化，而不是只数长度；</li>
+<li>区分父子切分、小块召回大块和普通重叠；</li>
+<li>设计子块命中后回取父块的标识与权限约束；</li>
+<li>判断增加方法复杂度是否有实验依据。</li>
+</ul>
+<span class="heading-anchor" id="检索需要小，理解需要大"></span><h2 id="_1">检索需要小，理解需要大</h2>
+<p>用户问“定制商品能否无理由退货”。一个只包含“定制商品不适用无理由退货”的短块很容易与
+问题匹配，但回答还可能需要同一小节中的质量问题例外、申请入口和生效日期。把整个章节作为
+检索单位又会混入标准商品和维修政策。</p>
+<p>这形成一个常见张力：小块通常更聚焦，大块通常保留更多上下文。语义切分和父子方案用不同
+方式处理这个张力，但都不是免费提升；它们增加计算、存储、配置和排障难度。</p>
+<span class="heading-anchor" id="语义切分"></span><h2 id="_2">语义切分</h2>
+<p>语义切分（semantic chunking）尝试在主题明显变化的位置建立边界。常见思路是先取得连续句子
+或小段的向量表示，再比较相邻窗口的相似程度；相似度明显下降的位置可能是主题切换点。</p>
+<p>直觉上，一段从“退货条件”转向“退款到账时间”时，含义变化可能比普通相邻句更大。语义方法
+有机会找到没有标题或空行的隐含边界。</p>
+<p>但“相似度下降”不天然等于正确边界：</p>
+<ul>
+<li>例外条款可能用完全不同的词，却必须与主规则保持相邻；</li>
+<li>列表项彼此相似，却属于不同产品条件；</li>
+<li>对话中的提问和回答语义不同，但不能拆散；</li>
+<li>嵌入模型、窗口大小和阈值改变都会影响结果；</li>
+<li>计算每个句子的表示会增加索引时间与费用。</li>
+</ul>
+<p>因此语义切分应与长度和结构约束结合。一个可测试策略是：先在同一结构节点内寻找语义边界，
+再用最小和最大长度阻止极碎或超长块。阈值应通过数据确定，不能把某个示例数字写成通用标准。</p>
+<span class="heading-anchor" id="父子切分"></span><h2 id="_3">父子切分</h2>
+<p>父子切分（parent-child chunking）同时保存两种粒度：</p>
+<ul>
+<li><strong>父块：</strong> 较大的完整章节、段落组或业务单元，负责提供阅读上下文；</li>
+<li><strong>子块：</strong> 从父块中切出的较小检索单元，负责提高匹配聚焦度。</li>
+</ul>
+<p>每个子块至少保存 <code>child_id</code>、<code>parent_id</code>、原文位置、来源版本和权限信息。查询先在子块集合中
+检索，命中后再根据 <code>parent_id</code> 取得父块。父块不是由模型临时补写，而是可追踪的原文范围。</p>
+<p>例如父块是“退货政策 &gt; 不适用范围”，包含定制商品规则、质量问题例外和申请流程；三个子块
+分别覆盖这三项。查询命中定制商品子块后，系统回取父块，最终上下文便保留例外与后续动作。</p>
+<span class="heading-anchor" id="什么是“小块召回大块”"></span><h2 id="_4">什么是“小块召回大块”</h2>
+<p>小块召回大块（small-to-big retrieval）描述查询阶段的行为：用较小单元取得相关性信号，再把
+更大的关联范围放入最终上下文。父子切分是常见实现，但“大块”也可以是命中块周围的窗口、
+完整表格或同一会话片段。</p>
+<p>它与普通重叠不同。重叠是在索引时让相邻块复制一部分文本；小块召回大块则在查询后沿显式
+关系扩展上下文。两者都可能重复信息，但可观察点和失败方式不同。</p>
+<p>扩展不能无上限。多个子块可能指向同一父块，应去重；多个父块合计可能超过上下文预算，需要
+排序、裁剪或拒绝扩展。裁剪时仍要保存为什么选入或丢弃某个范围。</p>
+<span class="heading-anchor" id="一条完整的数据流"></span><h2 id="_5">一条完整的数据流</h2>
+<p>以父子方案为例：</p>
+<ol>
+<li>解析原文，确定稳定的父块边界；</li>
+<li>在父块内部生成更小的子块；</li>
+<li>为父块和子块保存来源、版本、偏移与权限；</li>
+<li>只对用于检索的表示建立对应索引；</li>
+<li>查询得到子块候选及分数；</li>
+<li>对候选执行权限过滤，再解析父块关系；</li>
+<li>去重父块并按上下文预算选择；</li>
+<li>记录子块命中、父块扩展和最终上下文之间的映射。</li>
+</ol>
+<p>第 6 步的具体顺序要结合系统设计，但最终必须保证用户无权访问的父块不会进入上下文。不能
+只检查子块权限，因为父块可能包含更广范围的敏感内容。</p>
+<span class="heading-anchor" id="父块应该多大"></span><h2 id="_6">父块应该多大</h2>
+<p>父块大小取决于回答所需的完整业务单元，而不是固定页数。政策的一个小节、代码的一个函数、
+表格连同表头、对话的一段问题解决过程，都可能成为父块。</p>
+<p>判断父块可用性的两个问题是：命中其中任一子块时，整个父块是否仍与查询大致相关；父块进入
+上下文后，是否会挤掉其他必要证据。如果答案经常是否定的，应缩小父块或设计更精确的扩展
+范围。</p>
+<p>父块也不应跨越版本、租户或权限边界。为了“上下文完整”合并不同权限内容，会制造比检索
+质量更严重的安全问题。</p>
+<span class="heading-anchor" id="语义方法何时值得尝试"></span><h2 id="_7">语义方法何时值得尝试</h2>
+<p><strong>建议：</strong> 先建立固定长度或结构感知基线，再在以下现象出现时尝试语义方法：</p>
+<ul>
+<li>文档缺少可靠结构，主题在长段落中自然变化；</li>
+<li>基线频繁把互不相关的主题放入同一块；</li>
+<li>有固定查询集和相关性标签可用于比较；</li>
+<li>索引成本、延迟和复现复杂度在可接受范围内。</li>
+</ul>
+<p>如果问题主要来自解析错序、权限元数据缺失或旧版本未删除，语义切分不会修复根因。</p>
+<span class="heading-anchor" id="工程与安全边界"></span><h2 id="_8">工程与安全边界</h2>
+<p>父子关系必须随文档更新同步删除或重建。若子块更新而父块仍是旧版，系统可能召回新规则却
+扩展到旧上下文。建议把切分配置、表示模型版本和文档版本都记录在索引记录中。</p>
+<p>语义相似度是模型对文本的数值表示，不是事实正确性或安全级别。恶意内容可能与查询高度相关；
+来源准入、权限过滤和不可信文本隔离仍是独立控制。调试父子扩展时也要避免把完整敏感父块写入
+普通日志。</p>
+<span class="heading-anchor" id="纸面练习"></span><h2 id="_9">纸面练习</h2>
+<p>为“退货政策”设计一个父块和三个子块。给它们写出示意标识、标题路径和权限字段。然后回答：</p>
+<ol>
+<li>查询命中两个子块时，父块应该进入上下文几次？</li>
+<li>子块允许访问、父块包含受限附录时，应如何处理？</li>
+<li>父块超过剩余上下文预算时，需要记录哪些选择证据？</li>
+</ol>
+<p>这是一项数据结构与流程设计，不代表相应索引已经实现。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_10">自测</h2>
+<ol>
+<li>语义切分与结构感知切分分别依赖什么信号？</li>
+<li>为什么主题变化点不一定是正确块边界？</li>
+<li>父块和子块分别承担什么角色？</li>
+<li>小块召回大块与重叠有什么不同？</li>
+<li>为什么权限检查不能只停留在子块？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_11">本章状态与导航</h2>
+<ul>
+<li>章节状态：首批教学正文，已做轻量静态检查；语义切分和父子检索均为设计说明。</li>
+<li>费用边界：运行语义切分可能需要额外表示计算，具体成本取决于所选实现与数据规模。</li>
+<li>安全边界：相关性不代表可信或授权，父块扩展必须重新满足权限与预算约束。</li>
+<li>
+<p>摘要：<a href="n-2f77fb379f0b.html">04-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-2ade56708b86.html">04-02 结构感知与递归切分</a></p>
+</li>
+<li>下一章：<a href="n-8b95aacbed86.html">04-04 表格、代码与对话切分</a></li>
+<li>返回：<a href="n-6c8772db7ffa.html">04 文本切分索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

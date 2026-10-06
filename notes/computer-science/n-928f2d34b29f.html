@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-可观测性：链路追踪与故障定位 · 李杨的学习笔记</title><meta name="description" content="理论保证：观测数据不能自动证明根因，只能提供证据链。"><meta property="og:title" content="08-可观测性：链路追踪与故障定位 · 李杨的学习笔记"><meta property="og:description" content="理论保证：观测数据不能自动证明根因，只能提供证据链。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-928f2d34b29f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-928f2d34b29f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>08-可观测性：链路追踪与故障定位</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/08-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7-%E9%93%BE%E8%B7%AF%E8%BF%BD%E8%B8%AA%E4%B8%8E%E6%95%85%E9%9A%9C%E5%AE%9A%E4%BD%8D.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">三大支柱</a></li><li><a href="#trace">日志、指标、Trace 的关联</a></li><li><a href="#trace_1">Trace 上下文传播</a></li><li><a href="#slo-error-budget">SLO 与 error budget</a></li><li><a href="#red-use">RED 与 USE</a></li><li><a href="#sli">SLI 设计和告警窗口</a></li><li><a href="#_4">工程实践/案例</a></li><li><a href="#_5">日志字段建议</a></li><li><a href="#_6">系统化排障模板</a></li><li><a href="#_7">决策表</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解日志、指标、链路追踪各自回答的问题。</li>
+<li>掌握 trace id、span、上下文传播和跨服务关联。</li>
+<li>能用 SLO、error budget、RED/USE 指标定位故障。</li>
+<li>能设计故障定位路径，而不是只堆监控面板。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="三大支柱"></span><h3 id="_3">三大支柱</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>回答的问题</th>
+<th>典型字段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>日志</td>
+<td>某个事件发生了什么</td>
+<td>trace_id、user_id、order_id、error_code</td>
+</tr>
+<tr>
+<td>指标</td>
+<td>系统整体趋势如何</td>
+<td>QPS、错误率、P99、队列长度</td>
+</tr>
+<tr>
+<td>链路追踪</td>
+<td>请求经过了哪些服务，耗时在哪里</td>
+<td>trace、span、parent span、duration</td>
+</tr>
+</tbody>
+</table></div>
+<p>理论保证：观测数据不能自动证明根因，只能提供证据链。</p>
+<p>工程假设：时钟误差可接受，上下文传播完整，采样策略没有漏掉关键异常。</p>
+<p>实现取舍：全量 trace 成本高，采样会降低细节；日志过多影响性能，过少无法定位。</p>
+<span class="heading-anchor" id="日志、指标、Trace 的关联"></span><h3 id="trace">日志、指标、Trace 的关联</h3>
+<pre class="mermaid">flowchart TD
+  A["告警: 下单 P99 升高"] --&gt; B["指标定位: 哪个接口/依赖"]
+  B --&gt; C["Trace 查看慢 span"]
+  C --&gt; D["用 trace_id 查日志"]
+  D --&gt; E["定位错误码/SQL/下游响应"]
+  E --&gt; F["修复或降级"]
+</pre>
+<p>关联关键是统一上下文：</p>
+<ul>
+<li>入口生成 trace id。</li>
+<li>RPC、MQ、异步任务传播 trace id。</li>
+<li>日志必须带 trace id 和关键业务 id。</li>
+<li>指标标签要克制，避免 user_id 等高基数字段。</li>
+<li>错误码要稳定，便于聚合和检索。</li>
+</ul>
+<span class="heading-anchor" id="Trace 上下文传播"></span><h3 id="trace_1">Trace 上下文传播</h3>
+<p>Trace 的难点不在生成 ID，而在跨边界传播。HTTP 可通过请求头传播，RPC 通过 metadata，MQ 通过 message headers，异步任务通过任务记录或 outbox 事件字段继续传递。</p>
+<pre><code class="language-text">HTTP ingress
+  -&gt; traceparent/request-id
+  -&gt; RPC metadata
+  -&gt; MQ headers
+  -&gt; async worker span link
+  -&gt; logs include trace_id/span_id/business_id
+</code></pre>
+<p>异步链路不一定是严格 parent-child，也可以用 span link 表示“由某个事件触发”。采样策略要保留错误、慢请求和关键业务流量；纯固定比例采样可能漏掉低频严重问题。</p>
+<span class="heading-anchor" id="SLO 与 error budget"></span><h3 id="slo-error-budget">SLO 与 error budget</h3>
+<p>SLO 是服务对用户体验的目标，例如“99.9% 的下单请求在 300ms 内成功返回”。error budget 是允许失败的预算。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SLI</td>
+<td>可测量指标，例如成功率、延迟</td>
+</tr>
+<tr>
+<td>SLO</td>
+<td>目标值，例如 99.9% 成功率</td>
+</tr>
+<tr>
+<td>SLA</td>
+<td>对外承诺，通常带补偿条款</td>
+</tr>
+<tr>
+<td>Error budget</td>
+<td><code>1 - SLO</code> 对应的可失败空间</td>
+</tr>
+</tbody>
+</table></div>
+<p>error budget 的价值是把可靠性和迭代速度连接起来：预算充足时可以发布；预算燃烧过快时，应暂停高风险变更，优先修复可靠性问题。</p>
+<span class="heading-anchor" id="RED 与 USE"></span><h3 id="red-use">RED 与 USE</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>适用对象</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RED</td>
+<td>请求型服务</td>
+<td>Rate、Errors、Duration</td>
+</tr>
+<tr>
+<td>USE</td>
+<td>资源型组件</td>
+<td>Utilization、Saturation、Errors</td>
+</tr>
+</tbody>
+</table></div>
+<p>请求慢时先看 RED：请求量是否突增、错误率是否上升、P95/P99 是否劣化。资源异常时看 USE：CPU、内存、磁盘、网络、连接池、线程池是否饱和。</p>
+<span class="heading-anchor" id="SLI 设计和告警窗口"></span><h3 id="sli">SLI 设计和告警窗口</h3>
+<p>SLI 应贴近用户体验，而不是只贴近机器状态。例如“下单接口 HTTP 200”不等于下单成功，还要看业务状态、支付确认和库存结果。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>服务</th>
+<th>推荐 SLI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API 服务</td>
+<td>成功率、P95/P99 延迟、可用请求数</td>
+</tr>
+<tr>
+<td>MQ 消费</td>
+<td>消费延迟、积压最大年龄、处理成功率</td>
+</tr>
+<tr>
+<td>搜索服务</td>
+<td>查询成功率、P99、无结果率、相关性人工样本</td>
+</tr>
+<tr>
+<td>对象上传</td>
+<td>上传完成率、checksum 失败率、未完成 multipart 数</td>
+</tr>
+</tbody>
+</table></div>
+<p>告警通常需要多窗口：短窗口发现快速事故，长窗口过滤抖动。error budget burn rate 可以把“错误率高但持续时间短”和“错误率中等但持续消耗预算”区分开。</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_4">工程实践/案例</h2>
+<p>“用户反馈下单慢”的定位路径：</p>
+<ol>
+<li>查 SLO 面板，确认是全局慢、局部慢还是单用户慢。</li>
+<li>按地域、版本、机房、实例分组查看 P99。</li>
+<li>打开慢请求 trace，定位耗时最长 span。</li>
+<li>用 trace id 查询相关服务日志。</li>
+<li>检查下游依赖指标：数据库慢查询、缓存命中率、MQ 堆积、连接池等待。</li>
+<li>关联最近发布、配置变更、流量活动。</li>
+<li>先止血：限流、熔断、降级、回滚、扩容。</li>
+<li>再根因：代码缺陷、索引缺失、容量不足、依赖故障。</li>
+</ol>
+<span class="heading-anchor" id="日志字段建议"></span><h3 id="_5">日志字段建议</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>timestamp</td>
+<td>时间排序</td>
+</tr>
+<tr>
+<td>level</td>
+<td>严重程度</td>
+</tr>
+<tr>
+<td>service</td>
+<td>服务名</td>
+</tr>
+<tr>
+<td>instance</td>
+<td>实例</td>
+</tr>
+<tr>
+<td>trace_id/span_id</td>
+<td>链路关联</td>
+</tr>
+<tr>
+<td>request_id</td>
+<td>请求关联</td>
+</tr>
+<tr>
+<td>user_id/order_id</td>
+<td>业务定位</td>
+</tr>
+<tr>
+<td>error_code</td>
+<td>聚合分析</td>
+</tr>
+<tr>
+<td>latency_ms</td>
+<td>单次耗时</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="系统化排障模板"></span><h3 id="_6">系统化排障模板</h3>
+<pre><code class="language-text">1. 定义现象: 哪个 SLI 变坏，影响多大，何时开始
+2. 切分范围: 地域、版本、实例、租户、接口、依赖
+3. 找变化点: 发布、配置、流量、数据、依赖状态
+4. 追请求链: trace 慢 span -&gt; 日志 -&gt; 下游指标
+5. 先止血: 回滚、限流、熔断、降级、扩容、切流
+6. 再修复: 根因、补偿、回放、回归测试
+7. 复盘固化: 告警、仪表盘、runbook、演练
+</code></pre>
+<span class="heading-anchor" id="决策表"></span><h3 id="_7">决策表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>优先检查</th>
+<th>常见动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P99 升高，错误率正常</td>
+<td>慢 span、连接池等待、GC、DB 慢查询</td>
+<td>扩容、限流、索引修复</td>
+</tr>
+<tr>
+<td>错误率突增</td>
+<td>版本、依赖 5xx、配置变更</td>
+<td>回滚、熔断、切流</td>
+</tr>
+<tr>
+<td>MQ 积压</td>
+<td>消费速率、死信、下游延迟</td>
+<td>扩消费者、暂停生产、修复毒消息</td>
+</tr>
+<tr>
+<td>单租户异常</td>
+<td>租户标签、数据倾斜、限流</td>
+<td>单租户隔离、配额调整</td>
+</tr>
+<tr>
+<td>指标正常但用户报错</td>
+<td>前端/网关日志、业务错误码、采样盲区</td>
+<td>增加埋点和日志字段</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<ul>
+<li>
+<p>误区：有日志就等于可观测。<br/>
+  修正：没有指标和 trace，日志很难回答“影响面”和“瓶颈在哪”。</p>
+</li>
+<li>
+<p>误区：所有字段都打进指标标签。<br/>
+  修正：高基数字段会导致指标系统成本和查询压力暴涨。</p>
+</li>
+<li>
+<p>误区：平均延迟正常就没问题。<br/>
+  修正：用户体验常由 P95/P99 长尾决定。</p>
+</li>
+<li>
+<p>误区：采样 trace 足够定位所有问题。<br/>
+  修正：低频严重错误可能被采样漏掉，应对错误请求提高采样率。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>日志、指标、Trace 分别适合回答什么问题？</li>
+<li>为什么指标标签不能放 user_id？</li>
+<li>SLO 和 SLA 的区别是什么？</li>
+<li>如果 P99 升高但平均值不变，可能说明什么？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<p>为“订单服务”设计一套可观测性方案。要求列出 10 个核心指标、关键日志字段、trace 跨 HTTP/RPC/MQ 的传播方式，以及 3 条告警规则。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li><a href="https://opentelemetry.io/docs/">OpenTelemetry 官方文档</a>。</li>
+<li><a href="https://sre.google/sre-book/table-of-contents/">Google SRE Book</a>：Monitoring Distributed Systems、Service Level Objectives。</li>
+<li>Brendan Gregg：<a href="https://www.brendangregg.com/usemethod.html">USE Method</a>。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

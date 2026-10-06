@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07-虚拟内存与页面置换 · 李杨的学习笔记</title><meta name="description" content="上一章介绍了虚拟地址、物理地址以及页表。本章继续回答几个更具体的问题："><meta property="og:title" content="07-虚拟内存与页面置换 · 李杨的学习笔记"><meta property="og:description" content="上一章介绍了虚拟地址、物理地址以及页表。本章继续回答几个更具体的问题："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-ece98b368a8d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-ece98b368a8d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>07-虚拟内存与页面置换</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/07-%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E4%B8%8E%E9%A1%B5%E9%9D%A2%E7%BD%AE%E6%8D%A2.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">一、虚拟内存和物理内存的关系</a></li><li><a href="#_3">二、按需分页</a></li><li><a href="#21">2.1 基本思想</a></li><li><a href="#22">2.2 一次合法缺页的处理流程</a></li><li><a href="#23">2.3 按需分页的优点和代价</a></li><li><a href="#_4">三、缺页异常的类型</a></li><li><a href="#31">3.1 合法的匿名页缺页</a></li><li><a href="#32">3.2 文件映射缺页</a></li><li><a href="#33">3.3 写时复制缺页</a></li><li><a href="#34">3.4 页面被换出后的缺页</a></li><li><a href="#35">3.5 非法访问</a></li><li><a href="#minor-fault-major-fault">四、minor fault 和 major fault</a></li><li><a href="#41-minor-fault">4.1 minor fault</a></li><li><a href="#42-major-fault">4.2 major fault</a></li><li><a href="#43-major-fault">4.3 为什么 major fault 很慢</a></li><li><a href="#44">4.4 观察缺页指标时要注意</a></li><li><a href="#cow">五、写时复制 COW</a></li><li><a href="#51-cow">5.1 COW 的核心思想</a></li><li><a href="#52-cow">5.2 COW 的处理过程</a></li><li><a href="#53-cow">5.3 COW 的优点</a></li><li><a href="#54-cow">5.4 COW 的隐藏成本</a></li><li><a href="#_5">六、页面置换</a></li><li><a href="#61">6.1 为什么需要页面置换</a></li><li><a href="#62-opt">6.2 理想算法 OPT</a></li><li><a href="#63-fifo">6.3 FIFO</a></li><li><a href="#64-lru">6.4 LRU</a></li><li><a href="#65-clock">6.5 Clock</a></li><li><a href="#66">6.6 真实系统考虑的因素</a></li><li><a href="#_6">七、工作集</a></li><li><a href="#71">7.1 定义</a></li><li><a href="#72">7.2 工作集和性能的关系</a></li><li><a href="#73-rss">7.3 工作集不等于 RSS</a></li><li><a href="#_7">八、内存抖动</a></li><li><a href="#81">8.1 什么是内存抖动</a></li><li><a href="#82">8.2 典型表现</a></li><li><a href="#83-cpu">8.3 为什么 CPU 可能不高</a></li><li><a href="#84">8.4 如何缓解抖动</a></li><li><a href="#oom">九、OOM</a></li><li><a href="#91-oom">9.1 系统级 OOM</a></li><li><a href="#92-cgroup-oom">9.2 cgroup 或容器环境中的 OOM</a></li><li><a href="#93-oom">9.3 OOM 排查清单</a></li><li><a href="#swap">十、swap 的作用和风险</a></li><li><a href="#101-swap">10.1 swap 是什么</a></li><li><a href="#102-swap">10.2 swap 的作用</a></li><li><a href="#103-swap">10.3 swap 的风险</a></li><li><a href="#mmap">十一、mmap 与缺页</a></li><li><a href="#111-mmap">11.1 mmap 不等于文件已全部读入内存</a></li><li><a href="#112">11.2 顺序访问和随机访问</a></li><li><a href="#113">11.3 文件映射的回收</a></li><li><a href="#_8">十二、缺页和延迟尖峰</a></li><li><a href="#121">12.1 为什么服务启动预热有用</a></li><li><a href="#122">12.2 低延迟服务的常见措施</a></li><li><a href="#oom_1">十三、容器 OOM 为什么容易误判</a></li><li><a href="#1-oom">误区 1：宿主机还有内存，所以容器不应该 OOM</a></li><li><a href="#2-free">误区 2：只看容器内的 free</a></li><li><a href="#3-rss">误区 3：只看主进程 RSS</a></li><li><a href="#_9">推荐排查信息</a></li><li><a href="#_10">十四、实践任务</a></li><li><a href="#141">14.1 观察整体内存和换页活动</a></li><li><a href="#142">14.2 查看内存分类</a></li><li><a href="#143">14.3 查看进程状态</a></li><li><a href="#144">14.4 统计某个命令的缺页</a></li><li><a href="#145">14.5 设计一个简单实验</a></li><li><a href="#_11">十五、自测题</a></li><li><a href="#1">1. 缺页异常为什么不一定是错误？</a></li><li><a href="#2-cow-fork">2. COW 为什么能优化 fork？</a></li><li><a href="#3-major-fault-minor-fault">3. major fault 为什么比 minor fault 慢？</a></li><li><a href="#4">4. 什么是工作集？</a></li><li><a href="#5-cpu">5. 内存抖动时为什么 CPU 可能不高？</a></li><li><a href="#6-swap">6. swap 使用量不为零是否一定说明系统有问题？</a></li><li><a href="#7-oom">7. 为什么容器可能在宿主机还有空闲内存时 OOM？</a></li><li><a href="#_12">十六、常见误区总结</a></li><li><a href="#1-page-fault-bug">误区 1：所有 page fault 都是程序 bug</a></li><li><a href="#2">误区 2：缺页次数越少，程序一定越快</a></li><li><a href="#3">误区 3：虚拟内存申请成功就代表物理内存已经占用</a></li><li><a href="#4-swap">误区 4：关闭 swap 就能解决所有内存问题</a></li><li><a href="#5">误区 5：给进程更多线程可以缓解抖动</a></li><li><a href="#_13">十七、思维导图</a></li><li><a href="#1_1">1. 缺页异常处理</a></li><li><a href="#2-cow">2. COW 写时复制</a></li><li><a href="#3_1">3. 内存压力链路</a></li><li><a href="#_14">十八、全章总结</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>上一章介绍了虚拟地址、物理地址以及页表。本章继续回答几个更具体的问题：</p>
+<ul>
+<li>程序启动时，为什么不需要把全部代码和数据一次性装入物理内存？</li>
+<li>CPU 访问一个尚未映射的虚拟页时，操作系统究竟做了什么？</li>
+<li>为什么缺页异常不一定表示程序出错？</li>
+<li><code>minor fault</code> 和 <code>major fault</code> 有什么区别，为什么后者可能造成严重延迟？</li>
+<li><code>fork</code> 为什么可以很快完成，写时复制又会带来什么隐藏成本？</li>
+<li>物理内存不足时，操作系统如何选择要换出的页面？</li>
+<li>工作集、swap、内存抖动和 OOM 之间有什么关系？</li>
+</ul>
+<p>本章的核心结论是：<strong>虚拟内存把“地址空间”和“物理内存驻留”解耦了；页面可以按需进入内存，也可以在压力下被换出。缺页不等于错误，真正需要判断的是缺页是否合法、是否需要磁盘 I/O，以及它是否频繁到影响性能。</strong></p>
+<hr/>
+<span class="heading-anchor" id="一、虚拟内存和物理内存的关系"></span><h2 id="_2">一、虚拟内存和物理内存的关系</h2>
+<p>进程看到的是自己的虚拟地址空间，而不是物理内存的直接布局。CPU 执行内存访问时，通常经历如下过程：</p>
+<pre><code class="language-text">虚拟地址
+  → MMU 根据页表进行地址转换
+  → 得到物理地址
+  → 访问物理内存中的页面
+</code></pre>
+<p>虚拟地址通常可以拆成两部分：</p>
+<pre><code class="language-text">虚拟地址 = 虚拟页号 + 页内偏移
+</code></pre>
+<p>页表负责把虚拟页号映射到物理页框，页内偏移在转换过程中保持不变。例如，假设页面大小为 4 KiB：</p>
+<pre><code class="language-text">虚拟地址 = [虚拟页号][12 位页内偏移]
+物理地址 = [物理页框号][12 位页内偏移]
+</code></pre>
+<p>页表项除了记录物理页框号，还会记录访问权限和状态信息，例如：</p>
+<ul>
+<li><code>Present/Valid</code>：该页面当前是否有有效的物理映射。</li>
+<li><code>Read/Write</code>：是否允许写入。</li>
+<li><code>User/Supervisor</code>：用户态是否可以访问。</li>
+<li><code>Accessed/Referenced</code>：近期是否被访问过，页面置换算法会参考它。</li>
+<li><code>Dirty</code>：页面内容是否被修改过，换出前通常需要写回。</li>
+<li><code>COW</code> 或类似标记：该页面是否处于写时复制状态。</li>
+</ul>
+<p>为了避免每次访问都完整遍历页表，处理器还会使用 TLB 缓存近期的地址转换结果。TLB 命中时，地址转换很快；TLB 未命中时，需要进行页表遍历。如果页表项本身无效或权限不允许，CPU 会触发缺页异常或保护异常，由内核进一步处理。</p>
+<hr/>
+<span class="heading-anchor" id="二、按需分页"></span><h2 id="_3">二、按需分页</h2>
+<span class="heading-anchor" id="2.1 基本思想"></span><h3 id="21">2.1 基本思想</h3>
+<p>程序启动时，内核通常不会把可执行文件、动态库、堆和栈的全部内容都立即读入物理内存。它会先建立一个虚拟地址空间，并记录每一段区域的来源和访问权限：</p>
+<ul>
+<li>代码段通常来自可执行文件或动态库，权限为可读、可执行。</li>
+<li>数据段可能来自文件，也可能在运行时被修改。</li>
+<li>堆用于动态内存分配，通常是匿名内存，不对应某个普通文件。</li>
+<li>栈用于保存函数调用帧和局部变量，也通常是匿名内存。</li>
+<li><code>mmap</code> 区域可以映射文件，也可以申请匿名内存。</li>
+</ul>
+<p>只有当程序真正访问某个页面时，内核才根据该页面的类型分配物理页、从文件读取内容，或者建立已有物理页的映射。这种机制叫作<strong>按需分页</strong>（Demand Paging）。</p>
+<p>可以把它理解为“访问时才配货”：程序可以先拥有一个很大的虚拟地址空间，但只有实际用到的页面才需要占用物理内存。</p>
+<span class="heading-anchor" id="2.2 一次合法缺页的处理流程"></span><h3 id="22">2.2 一次合法缺页的处理流程</h3>
+<pre><code class="language-text">程序访问虚拟地址
+  → MMU 查询 TLB 和页表
+  → 发现页表项无效，或页面不在物理内存中
+  → CPU 触发缺页异常
+  → CPU 切换到内核的异常处理流程
+  → 内核判断地址是否属于进程合法的内存区域
+  → 检查本次访问是否符合权限
+  → 确定页面来源和处理方式
+      ├─ 分配新的匿名物理页
+      ├─ 从文件或动态库读入页面
+      ├─ 从交换区读回页面
+      └─ 处理写时复制，创建页面副本
+  → 更新页表和相关缓存
+  → 返回用户态
+  → 重新执行导致异常的那条指令
+</code></pre>
+<p>重新执行并不是从头运行程序，而是让产生异常的内存访问在映射建立后再次执行。对程序来说，这个过程通常是透明的。</p>
+<span class="heading-anchor" id="2.3 按需分页的优点和代价"></span><h3 id="23">2.3 按需分页的优点和代价</h3>
+<p><strong>优点：</strong></p>
+<ol>
+<li><strong>减少启动时间</strong>：启动时不用读取暂时不会执行的代码和数据。</li>
+<li><strong>节省物理内存</strong>：多个进程可以只驻留各自工作集中的页面。</li>
+<li><strong>支持稀疏地址空间</strong>：虚拟地址空间可以很大，但未访问的区域不必对应物理页。</li>
+<li><strong>便于共享文件页</strong>：多个进程映射同一动态库时，可以共享同一份只读物理页面。</li>
+<li><strong>便于实现内存映射文件和写时复制</strong>。</li>
+</ol>
+<p><strong>代价：</strong></p>
+<ol>
+<li>第一次访问页面会产生缺页处理开销。</li>
+<li>如果页面需要从磁盘读取，会出现很高的 I/O 延迟。</li>
+<li>页面置换、回收和写回会增加内核管理成本。</li>
+<li>工作集超过可用内存时，可能出现频繁换页和内存抖动。</li>
+</ol>
+<p>因此，按需分页不是“没有成本”，而是把成本从程序启动阶段延迟到了页面第一次被访问或内存压力发生的时刻。</p>
+<hr/>
+<span class="heading-anchor" id="三、缺页异常的类型"></span><h2 id="_4">三、缺页异常的类型</h2>
+<p>缺页异常（Page Fault）是 CPU 通知内核“这次内存访问无法直接完成”的机制。它可能代表一次正常的延迟加载，也可能代表真正的非法访问。</p>
+<span class="heading-anchor" id="3.1 合法的匿名页缺页"></span><h3 id="31">3.1 合法的匿名页缺页</h3>
+<p>例如，程序调用内存分配器申请了一大块堆内存。分配器可能先返回一段虚拟地址，但内核并不会立即为每一个页面分配物理页。</p>
+<p>当程序第一次写入其中某个页面时：</p>
+<pre><code class="language-text">第一次写入堆页面
+  → 页表中还没有有效物理映射
+  → 触发缺页异常
+  → 内核分配一个物理页
+  → 必要时清零该页面，避免泄露其他进程的数据
+  → 更新页表并恢复执行
+</code></pre>
+<p>这是合法缺页。类似情况也可能发生在栈向下增长、匿名 <code>mmap</code> 区域首次使用等场景。</p>
+<span class="heading-anchor" id="3.2 文件映射缺页"></span><h3 id="32">3.2 文件映射缺页</h3>
+<p>代码段、动态库、普通文件映射区域通常有文件作为后备存储。第一次访问某个页面时，内核可以：</p>
+<ol>
+<li>找到该虚拟地址对应的文件偏移。</li>
+<li>查看页面缓存中是否已经有该文件页。</li>
+<li>如果页面缓存中已有，只需建立当前进程的映射，通常属于 <code>minor fault</code>。</li>
+<li>如果页面不在内存中，从文件读取页面，通常属于 <code>major fault</code>。</li>
+<li>更新页表并重新执行原指令。</li>
+</ol>
+<p>文件页被回收后，若内容未修改，通常可以直接丢弃，未来需要时再从文件读取；这也是文件页和匿名页在回收策略上的重要区别。</p>
+<span class="heading-anchor" id="3.3 写时复制缺页"></span><h3 id="33">3.3 写时复制缺页</h3>
+<p><code>fork</code> 创建子进程后，父子进程一开始可以共享相同的物理页面。为了防止一方修改影响另一方，内核会把共享页面标记为只读，并记录它们处于 COW 状态。</p>
+<p>某一方尝试写入时：</p>
+<pre><code class="language-text">父子进程共享物理页
+  → 页表将共享页标记为只读/COW
+  → 某一方执行写操作
+  → CPU 发现写权限不足，触发缺页异常
+  → 内核分配新物理页并复制旧内容
+  → 修改写入方的页表，使其指向新页并允许写入
+  → 另一方继续使用旧页面
+</code></pre>
+<p>这种缺页不是非法访问，而是内核实现写时复制的正常步骤。</p>
+<span class="heading-anchor" id="3.4 页面被换出后的缺页"></span><h3 id="34">3.4 页面被换出后的缺页</h3>
+<p>页面可能曾经在物理内存中，但在内存压力下被换到 swap 或其他后备存储。之后进程再次访问该页面时，页表显示它不在当前内存中，内核需要将其读回并重新建立映射。</p>
+<p>这种情况通常需要 I/O，因此可能是代价较高的 <code>major fault</code>。</p>
+<span class="heading-anchor" id="3.5 非法访问"></span><h3 id="35">3.5 非法访问</h3>
+<p>以下情况可能导致无法恢复的错误：</p>
+<ul>
+<li>解引用空指针。</li>
+<li>访问未映射的地址区域。</li>
+<li>数组越界并跨入不可访问区域。</li>
+<li>向只读页面写入，且该页面不是可处理的 COW 页面。</li>
+<li>用户态代码访问仅允许内核访问的页面。</li>
+<li>访问已经释放或撤销映射的区域。</li>
+</ul>
+<p>内核判断该访问不合法时，通常会向进程发送 <code>SIGSEGV</code> 等信号，进程可能终止并生成 core dump。需要注意：<strong>触发了 page fault 并不自动等于段错误；是否能够恢复取决于地址是否合法、访问权限是否正确以及页面是否有可用的后备来源。</strong></p>
+<hr/>
+<span class="heading-anchor" id="四、minor fault 和 major fault"></span><h2 id="minor-fault-major-fault">四、minor fault 和 major fault</h2>
+<span class="heading-anchor" id="4.1 minor fault"></span><h3 id="41-minor-fault">4.1 minor fault</h3>
+<p><code>minor fault</code>（轻微缺页）通常表示内核不需要从磁盘读取页面。常见情况包括：</p>
+<ul>
+<li>页面已经在物理内存或页面缓存中，只是当前进程尚未建立映射。</li>
+<li>访问匿名页时，内核只需分配一个已准备好的物理页。</li>
+<li>发生写时复制，页面内容来自内存中的已有页面。</li>
+<li>页表层级尚未建立，但页面内容已经可直接获得。</li>
+</ul>
+<p>虽然 minor fault 比 major fault 快很多，但它仍然需要进入内核、检查异常原因、修改页表，并可能引起 TLB 相关操作。高频 minor fault 也可能增加 CPU 开销。</p>
+<span class="heading-anchor" id="4.2 major fault"></span><h3 id="42-major-fault">4.2 major fault</h3>
+<p><code>major fault</code>（重大缺页）通常需要真正的存储 I/O，例如：</p>
+<ul>
+<li>从可执行文件、动态库或 <code>mmap</code> 文件读入页面。</li>
+<li>从 swap 读回匿名页面。</li>
+<li>页面不在页面缓存中，需要访问磁盘或其他慢速后备存储。</li>
+</ul>
+<p>典型流程是：</p>
+<pre><code class="language-text">发生缺页
+  → 内核找到页面的后备存储位置
+  → 分配或回收一个物理页框
+  → 发起文件或交换区读取
+  → 当前进程可能睡眠等待 I/O 完成
+  → I/O 完成后更新页表
+  → 重新执行原指令
+</code></pre>
+<span class="heading-anchor" id="4.3 为什么 major fault 很慢"></span><h3 id="43-major-fault">4.3 为什么 major fault 很慢</h3>
+<p>major fault 的开销不仅是一次函数调用，而可能包括：</p>
+<ul>
+<li>块设备或网络存储访问。</li>
+<li>I/O 队列等待。</li>
+<li>文件系统元数据处理。</li>
+<li>页面分配和回收。</li>
+<li>其他进程对同一页面的竞争。</li>
+<li>存储设备自身的寻道、闪存延迟或队列拥塞。</li>
+</ul>
+<p>因此，一个平时只需要微秒级处理的请求，如果在关键路径上触发 major fault，可能突然变成毫秒级甚至更高的延迟，形成明显的尾延迟尖峰。</p>
+<span class="heading-anchor" id="4.4 观察缺页指标时要注意"></span><h3 id="44">4.4 观察缺页指标时要注意</h3>
+<p>工具统计的 <code>page-faults</code>、<code>minor-faults</code> 和 <code>major-faults</code> 口径可能不同，不能只看一个数字下结论。分析时应结合：</p>
+<ul>
+<li>缺页发生频率与请求量的关系。</li>
+<li>major fault 是否集中在启动、预热还是稳定运行阶段。</li>
+<li>磁盘 I/O、swap in/out 是否同步升高。</li>
+<li>进程 RSS、文件页缓存和 cgroup 内存使用量。</li>
+<li>延迟尖峰是否与缺页事件在时间上对应。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="五、写时复制 COW"></span><h2 id="cow">五、写时复制 COW</h2>
+<span class="heading-anchor" id="5.1 COW 的核心思想"></span><h3 id="51-cow">5.1 COW 的核心思想</h3>
+<p>写时复制（Copy-on-Write，COW）是一种“先共享、写入时再复制”的优化。</p>
+<p>如果父进程和子进程在 <code>fork</code> 后立刻各自复制全部内存，创建进程会非常慢，并且会产生大量不必要的复制，因为很多页面可能永远不会被修改。COW 让父子进程先共享物理页面，只有真正发生写入时才复制对应页面。</p>
+<pre><code class="language-text">fork 前：父进程 → 页面 A
+
+fork 后：父进程 ─┐
+                 ├→ 共享页面 A（只读/COW）
+       子进程 ───┘
+
+子进程写入后：
+父进程 → 页面 A
+子进程 → 页面 B（A 的副本）
+</code></pre>
+<span class="heading-anchor" id="5.2 COW 的处理过程"></span><h3 id="52-cow">5.2 COW 的处理过程</h3>
+<ol>
+<li><code>fork</code> 创建子进程的地址空间描述和页表结构。</li>
+<li>父子页表暂时指向相同的物理页。</li>
+<li>共享页面被标记为只读或 COW，并增加引用计数。</li>
+<li>任一方执行写操作时触发缺页异常。</li>
+<li>内核检查该页面确实是合法的 COW 页面。</li>
+<li>分配新的物理页，将旧页面内容复制过去。</li>
+<li>更新写入方的页表，使其指向新页面并获得写权限。</li>
+<li>减少旧页面的引用计数；如果只剩一方使用，后续可以恢复普通写权限。</li>
+</ol>
+<span class="heading-anchor" id="5.3 COW 的优点"></span><h3 id="53-cow">5.3 COW 的优点</h3>
+<ul>
+<li><code>fork</code> 初始阶段速度快。</li>
+<li>没有被修改的页面可以长期共享，节省内存。</li>
+<li>适合 <code>fork</code> 后马上执行 <code>exec</code> 的场景，因为旧地址空间可能很快被新程序替换。</li>
+<li>减少不必要的数据复制和内存带宽消耗。</li>
+</ul>
+<span class="heading-anchor" id="5.4 COW 的隐藏成本"></span><h3 id="54-cow">5.4 COW 的隐藏成本</h3>
+<p>COW 把复制成本推迟到了第一次写入。延迟复制并不等于没有复制，可能出现以下问题：</p>
+<ul>
+<li>大量写入会触发大量页面复制。</li>
+<li>复制页面需要 CPU 时间和内存带宽。</li>
+<li>父子进程同时存在时，内存峰值可能接近原内存加上被修改页面的副本。</li>
+<li>写入分布越分散，触发复制的页面数量可能越多。</li>
+<li>页面复制会带来新的内存分配、页表更新和缓存失效开销。</li>
+</ul>
+<p>Redis 后台持久化是典型案例。Redis 主进程 <code>fork</code> 子进程执行持久化时，父子进程起初共享数据页；父进程继续处理写请求，写到某个共享页面时就会触发 COW。写入量较大时，实际内存峰值可能显著高于平时的 RSS，因此生产环境需要为 COW 预留余量。</p>
+<hr/>
+<span class="heading-anchor" id="六、页面置换"></span><h2 id="_5">六、页面置换</h2>
+<span class="heading-anchor" id="6.1 为什么需要页面置换"></span><h3 id="61">6.1 为什么需要页面置换</h3>
+<p>物理内存容量有限。当进程需要新的物理页，但当前没有足够的空闲页框时，内核需要回收或置换某些页面：</p>
+<pre><code class="language-text">需要新页面
+  → 没有足够空闲页框
+  → 选择一个或多个牺牲页面
+  → 必要时将脏页面写回后备存储
+  → 释放页框
+  → 装入新页面
+  → 更新页表
+</code></pre>
+<p>被选择换出的页面称为牺牲页（victim page）。如果页面是干净的文件页，通常可以直接丢弃，因为文件本身仍然保存着原内容；如果页面是匿名页或被修改过的文件页，通常需要写入 swap 或原文件后备存储。</p>
+<span class="heading-anchor" id="6.2 理想算法 OPT"></span><h3 id="62-opt">6.2 理想算法 OPT</h3>
+<p>OPT（Optimal Replacement）每次选择未来最长时间不会被访问的页面换出。它能得到理论上的最低缺页次数，因此常用来评价其他算法。</p>
+<p>问题是，操作系统无法准确知道进程未来的访问序列，所以 OPT 不能直接用于真实系统，只能用于教学、模拟和算法对比。</p>
+<span class="heading-anchor" id="6.3 FIFO"></span><h3 id="63-fifo">6.3 FIFO</h3>
+<p>FIFO（First-In, First-Out）按照页面进入内存的时间排序，每次淘汰最早进入的页面。</p>
+<p><strong>优点：</strong>实现简单，维护成本低。</p>
+<p><strong>问题：</strong>页面进入内存很早，不代表现在不重要。一个长期活跃的热点页可能因为“年龄大”而被淘汰。FIFO 还可能出现 Belady 异常：增加物理页框后，缺页次数反而增加。</p>
+<span class="heading-anchor" id="6.4 LRU"></span><h3 id="64-lru">6.4 LRU</h3>
+<p>LRU（Least Recently Used）淘汰最近最少使用的页面，基于局部性原理：最近使用过的页面，短期内再次使用的概率较高；长时间未使用的页面，近期再次使用的概率相对较低。</p>
+<p><strong>优点：</strong>理论上能较好利用程序的时间局部性。</p>
+<p><strong>问题：</strong>精确记录每次访问顺序的成本很高。现代硬件通常不会为操作系统提供一个可直接使用的完整访问时间序列，因此真实系统多采用近似 LRU 的策略。</p>
+<span class="heading-anchor" id="6.5 Clock"></span><h3 id="65-clock">6.5 Clock</h3>
+<p>Clock 算法使用环形队列和访问位近似 LRU：</p>
+<ol>
+<li>页面放在一个环形结构中。</li>
+<li>页面被访问时，硬件或内核将访问位设为 1。</li>
+<li>置换指针扫描页面。</li>
+<li>如果访问位为 1，就清零并跳过，表示给它一次机会。</li>
+<li>如果访问位为 0，就优先选择它作为牺牲页。</li>
+</ol>
+<p>Clock 不需要精确维护完整的访问顺序，工程实现成本较低。许多实际系统会在类似思想的基础上结合多级 LRU、活跃/非活跃链表以及不同页面类型进行管理。</p>
+<span class="heading-anchor" id="6.6 真实系统考虑的因素"></span><h3 id="66">6.6 真实系统考虑的因素</h3>
+<p>真实的页面回收通常不只看“最近是否访问”，还会考虑：</p>
+<ul>
+<li>页面是否为脏页，换出是否需要写 I/O。</li>
+<li>页面是匿名页还是文件页。</li>
+<li>页面是否被多个进程共享。</li>
+<li>页面是否属于内核、DMA 或其他不能直接回收的区域。</li>
+<li>进程或容器的 cgroup 限制。</li>
+<li>NUMA 节点之间的内存分布。</li>
+<li>页面回收会不会破坏文件缓存的有效性。</li>
+<li>哪个进程、哪个内存控制组应该承担回收压力。</li>
+</ul>
+<p>因此，面试中可以说“实际系统使用近似 LRU 的策略”，但不要简单理解成内核维护一个绝对精确的全局 LRU 链表。</p>
+<hr/>
+<span class="heading-anchor" id="七、工作集"></span><h2 id="_6">七、工作集</h2>
+<span class="heading-anchor" id="7.1 定义"></span><h3 id="71">7.1 定义</h3>
+<p>工作集（Working Set）是进程在某个时间窗口内实际活跃访问的页面集合。它不是进程所有已经分配的虚拟内存，而是近期真正参与计算的那部分页面。</p>
+<p>可以用一个抽象表达式表示：</p>
+<pre><code class="language-text">W(t, Δ) = 在时间窗口 [t - Δ, t] 内被访问过的页面集合
+</code></pre>
+<p>其中：</p>
+<ul>
+<li><code>t</code> 是当前时刻。</li>
+<li><code>Δ</code> 是观察窗口大小。</li>
+<li><code>W(t, Δ)</code> 是该窗口内的工作集。</li>
+</ul>
+<p>不同程序的工作集差异很大：</p>
+<ul>
+<li>顺序扫描程序的工作集可能较小，但访问页面持续变化。</li>
+<li>数据库随机访问程序的工作集可能由索引页、热点数据页和查询中间结果组成。</li>
+<li>编译器可能在不同阶段使用不同的工作集。</li>
+<li>一个拥有很大堆空间的程序，实际工作集可能远小于其虚拟地址空间。</li>
+</ul>
+<span class="heading-anchor" id="7.2 工作集和性能的关系"></span><h3 id="72">7.2 工作集和性能的关系</h3>
+<p>如果所有并发进程的工作集总量能够放进可用物理内存，程序通常可以稳定运行，缺页主要发生在冷启动、访问新数据或正常缓存淘汰时。</p>
+<p>如果工作集总量长期超过可用物理内存，系统就会不断在不同进程的页面之间搬运：</p>
+<pre><code class="language-text">工作集总量 ≤ 可用物理内存
+  → 页面大多能够驻留
+  → 缺页较少
+  → 运行较稳定
+
+工作集总量 &gt; 可用物理内存
+  → 页面不断被淘汰
+  → 很快又被访问并换入
+  → 缺页和 I/O 增加
+  → 可能进入内存抖动
+</code></pre>
+<span class="heading-anchor" id="7.3 工作集不等于 RSS"></span><h3 id="73-rss">7.3 工作集不等于 RSS</h3>
+<p>RSS（Resident Set Size）表示进程当前驻留在物理内存中的页面规模，但它不完全等于工作集：</p>
+<ul>
+<li>RSS 中可能包含近期不会再访问的冷页面。</li>
+<li>共享库页面可能同时计入多个进程，但物理页只有一份。</li>
+<li>工作集取决于观察窗口，窗口不同，结果也不同。</li>
+<li>一些页面虽然在 RSS 中，但很快会被回收；另一些刚被换出、很快还会再次使用的页面则不在当前 RSS 中。</li>
+</ul>
+<p>因此，排查内存问题时不能只问“进程占了多少 RSS”，还要问“哪些页面是真正活跃的，以及所有进程的活跃集合是否超过了可用内存”。</p>
+<hr/>
+<span class="heading-anchor" id="八、内存抖动"></span><h2 id="_7">八、内存抖动</h2>
+<span class="heading-anchor" id="8.1 什么是内存抖动"></span><h3 id="81">8.1 什么是内存抖动</h3>
+<p>内存抖动（Thrashing）是极端内存压力下的状态：程序访问页面，页面不在内存，系统把它换入；为了腾出页框，系统又换出其他页面；程序很快再次访问刚被换出的页面，于是换页循环不断发生。</p>
+<pre><code class="language-text">访问页面 A
+  → A 不在内存，换入 A
+  → 为腾空间，换出页面 B
+  → 程序访问 B
+  → 换入 B，又换出页面 A
+  → 程序再次访问 A
+  → 反复循环
+</code></pre>
+<span class="heading-anchor" id="8.2 典型表现"></span><h3 id="82">8.2 典型表现</h3>
+<ul>
+<li>系统整体响应非常慢，甚至像“死机”。</li>
+<li>CPU 利用率可能不高，因为进程大量时间在等待存储 I/O。</li>
+<li>load average 可能很高，因为大量任务处于不可中断睡眠或等待状态。</li>
+<li>swap in/out 持续明显。</li>
+<li>磁盘 I/O 使用率高，随机 I/O 尤其突出。</li>
+<li>major fault 数量增加。</li>
+<li>应用吞吐量下降，尾延迟上升。</li>
+<li>增加线程通常不能解决问题，反而可能扩大总工作集。</li>
+</ul>
+<span class="heading-anchor" id="8.3 为什么 CPU 可能不高"></span><h3 id="83-cpu">8.3 为什么 CPU 可能不高</h3>
+<p>抖动时，瓶颈不是计算，而是页面访问所需的存储 I/O：</p>
+<pre><code class="language-text">CPU 发起访问
+  → 发生 major fault
+  → 进程睡眠等待页面读入
+  → CPU 去运行其他任务或暂时空闲
+  → 页面到达后，进程只执行少量代码又触发下一次缺页
+</code></pre>
+<p>所以“CPU 不高”并不能证明系统没有压力。需要同时查看内存、swap、I/O 等指标。</p>
+<span class="heading-anchor" id="8.4 如何缓解抖动"></span><h3 id="84">8.4 如何缓解抖动</h3>
+<ul>
+<li>降低并发度，让每个进程获得更多内存。</li>
+<li>限制单个进程或容器的内存使用。</li>
+<li>减小缓存、批处理规模和查询中间结果。</li>
+<li>优化访问局部性，减少随机访问。</li>
+<li>避免不必要的数据复制，尤其关注 COW 和大对象复制。</li>
+<li>增加物理内存，或将工作负载拆分到更多节点。</li>
+<li>对延迟敏感服务进行预热，减少正式请求触发 major fault。</li>
+<li>结合监控确认是内存不足，而不是单纯的文件缓存或短时冷启动。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="九、OOM"></span><h2 id="oom">九、OOM</h2>
+<span class="heading-anchor" id="9.1 系统级 OOM"></span><h3 id="91-oom">9.1 系统级 OOM</h3>
+<p>当系统无法为新的内存请求找到可用物理页，并且回收、压缩或 swap 等手段都无法缓解时，内核可能触发 OOM Killer。它会选择一个或多个进程终止，以释放内存，让系统恢复运行。</p>
+<p>被选择的进程不一定是“申请内存最多”的进程。内核会综合考虑进程规模、可回收程度、权限和 OOM 调整分数等因素。不同内核版本和配置下，具体选择策略可能不同。</p>
+<span class="heading-anchor" id="9.2 cgroup 或容器环境中的 OOM"></span><h3 id="92-cgroup-oom">9.2 cgroup 或容器环境中的 OOM</h3>
+<p>容器通常受 cgroup 内存上限约束。即使宿主机还有大量空闲内存，只要容器达到自己的 <code>memory.max</code>，容器内的进程仍可能被 cgroup OOM 终止。</p>
+<p>因此，容器内看到的虚拟地址空间、宿主机剩余内存和容器可用内存不是同一个概念。排查时要区分：</p>
+<pre><code class="language-text">宿主机总内存
+  ≠ 容器 cgroup 的内存上限
+  ≠ 进程虚拟地址空间大小
+  ≠ 进程实际 RSS
+</code></pre>
+<span class="heading-anchor" id="9.3 OOM 排查清单"></span><h3 id="93-oom">9.3 OOM 排查清单</h3>
+<p>排查 OOM 时，应同时查看以下信息：</p>
+<ol>
+<li><strong>内核日志或系统日志</strong>：确认是否有 OOM Killer 记录，以及最终杀死了哪个进程。</li>
+<li><strong>cgroup 内存事件</strong>：重点查看 <code>memory.current</code>、<code>memory.max</code>、<code>memory.events</code> 等信息。</li>
+<li><strong>进程 RSS 和映射详情</strong>：区分匿名内存、文件映射、共享库和线程栈。</li>
+<li><strong>page cache</strong>：文件缓存可能占用内存，但它通常具有可回收性，不能简单等同于泄漏。</li>
+<li><strong>swap 使用和换入换出速率</strong>：确认是否经历过严重内存压力。</li>
+<li><strong>语言运行时内存</strong>：例如堆外内存、线程栈、JIT、内存分配器缓存等可能不体现在业务对象统计中。</li>
+<li><strong>COW 内存峰值</strong>：检查 <code>fork</code>、备份、持久化期间是否出现临时复制。</li>
+<li><strong>内存增长曲线</strong>：区分短时峰值、持续泄漏和工作集逐步扩大。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="十、swap 的作用和风险"></span><h2 id="swap">十、swap 的作用和风险</h2>
+<span class="heading-anchor" id="10.1 swap 是什么"></span><h3 id="101-swap">10.1 swap 是什么</h3>
+<p>swap 是物理内存之外的后备存储空间，可以是磁盘分区或 swap 文件。内核可以将暂时不活跃的匿名页面写入 swap，从而释放物理页框。</p>
+<p>对匿名页来说，swap 常常是必要的后备位置；对干净的文件页来说，文件本身就是后备存储，内核可以在需要时直接丢弃并重新从文件读入。</p>
+<span class="heading-anchor" id="10.2 swap 的作用"></span><h3 id="102-swap">10.2 swap 的作用</h3>
+<ul>
+<li>让冷页面暂时离开物理内存。</li>
+<li>缓解短时间的内存峰值。</li>
+<li>提高内存利用率，让更多文件缓存或活跃页面留在内存中。</li>
+<li>在某些场景下避免系统过早触发 OOM。</li>
+</ul>
+<span class="heading-anchor" id="10.3 swap 的风险"></span><h3 id="103-swap">10.3 swap 的风险</h3>
+<p>swap 的主要问题不是“存在”，而是<strong>活跃工作集被持续换入换出</strong>。磁盘或其他后备存储通常比内存慢很多，持续 swap 可能导致：</p>
+<ul>
+<li>major fault 增多。</li>
+<li>请求延迟大幅增加。</li>
+<li>系统 I/O 队列堆积。</li>
+<li>内存抖动。</li>
+<li>应用吞吐量下降。
+。</li>
+</ul>
+<p>所以“swap 使用量非零”不一定代表故障；更重要的是观察：</p>
+<ul>
+<li>swap 使用量是否持续增长。</li>
+<li>swap in/out 是否持续发生。</li>
+<li>major fault 是否同步增加。</li>
+<li>业务延迟和吞吐是否恶化。</li>
+</ul>
+<p>可以把 swap 看作一种缓冲和后备机制，而不是可以无限扩展的内存。<strong>swap 不是坏东西，坏的是工作集长期大于物理内存而导致持续换页。</strong></p>
+<hr/>
+<span class="heading-anchor" id="十一、mmap 与缺页"></span><h2 id="mmap">十一、mmap 与缺页</h2>
+<span class="heading-anchor" id="11.1 mmap 不等于文件已全部读入内存"></span><h3 id="111-mmap">11.1 mmap 不等于文件已全部读入内存</h3>
+<p>调用 <code>mmap</code> 后，内核主要是建立虚拟地址范围与文件偏移之间的关系，并不意味着文件内容已经全部加载到物理内存。</p>
+<pre><code class="language-text">mmap 文件
+  → 建立虚拟地址区域和文件的映射关系
+  → 程序访问某个页面
+  → 发生缺页
+  → 页面缓存中有该页：直接建立映射
+  → 页面缓存中没有该页：从文件读入后建立映射
+</code></pre>
+<p>这使得程序可以像访问内存一样访问文件，而不必显式调用 <code>read</code> 将全部内容复制到用户缓冲区。</p>
+<span class="heading-anchor" id="11.2 顺序访问和随机访问"></span><h3 id="112">11.2 顺序访问和随机访问</h3>
+<ul>
+<li><strong>顺序访问</strong>：内核和存储设备更容易预测后续访问，可能触发预读，减少单次访问的等待。</li>
+<li><strong>随机访问</strong>：访问位置分散，预读命中率低，更容易产生大量页面读取和 major fault。</li>
+</ul>
+<p>但是，<code>mmap</code> 是否更快不能一概而论，还取决于文件大小、访问模式、缓存命中率、页面修改情况、I/O 模式和应用生命周期。</p>
+<span class="heading-anchor" id="11.3 文件映射的回收"></span><h3 id="113">11.3 文件映射的回收</h3>
+<p>只读或干净的文件页可以在内存压力下被回收，未来访问时重新从文件加载。被修改的共享映射页可能需要写回文件；私有映射在写入时通常会产生私有副本，不应简单理解为直接修改原文件。</p>
+<hr/>
+<span class="heading-anchor" id="十二、缺页和延迟尖峰"></span><h2 id="_8">十二、缺页和延迟尖峰</h2>
+<span class="heading-anchor" id="12.1 为什么服务启动预热有用"></span><h3 id="121">12.1 为什么服务启动预热有用</h3>
+<p>服务刚启动时，以下内容可能还没有真正驻留在物理内存中：</p>
+<ul>
+<li>可执行文件代码页。</li>
+<li>动态库代码页和数据页。</li>
+<li>配置文件。</li>
+<li>模型文件或规则文件。</li>
+<li>运行时元数据。</li>
+<li>JIT 编译结果。</li>
+<li>业务缓存和连接池。</li>
+</ul>
+<p>如果第一批正式请求直接访问这些内容，便可能同时触发页面加载、动态初始化、JIT 编译和缓存填充，导致启动后的前几个请求延迟很高。</p>
+<p>预热的做法是：在正式接收流量前，主动执行关键路径、加载关键配置和访问热点数据，使必要的页面和缓存提前准备好。它并不能消除所有缺页，只是把可预测的冷启动成本从用户请求路径移到了上线前阶段。</p>
+<span class="heading-anchor" id="12.2 低延迟服务的常见措施"></span><h3 id="122">12.2 低延迟服务的常见措施</h3>
+<ul>
+<li>启动阶段主动预热关键代码路径和数据。</li>
+<li>适当使用 <code>mlock</code> 或运行时提供的锁内存机制，但必须注意内存上限和系统配置。</li>
+<li>避免在请求路径中首次加载大型文件或模型。</li>
+<li>控制工作集大小，减少随机内存访问。</li>
+<li>监控 major fault 与 P99/P999 延迟的相关性。</li>
+<li>对容器设置合理的内存预留和限制，避免在上限附近运行。</li>
+</ul>
+<p>锁定内存、关闭 swap 或强行增加缓存并不是万能方案。它们可能减少换页，却也可能使系统失去回收空间，最终更快触发 OOM，必须结合工作负载评估。</p>
+<hr/>
+<span class="heading-anchor" id="十三、容器 OOM 为什么容易误判"></span><h2 id="oom_1">十三、容器 OOM 为什么容易误判</h2>
+<p>容器中的进程可能拥有很大的虚拟地址空间，但这不代表它可以无限使用物理内存。常见误区包括：</p>
+<span class="heading-anchor" id="误区 1：宿主机还有内存，所以容器不应该 OOM"></span><h3 id="1-oom">误区 1：宿主机还有内存，所以容器不应该 OOM</h3>
+<p>错误。cgroup 限制是独立的，容器达到 <code>memory.max</code> 后，可以在宿主机仍有空闲内存时触发 cgroup OOM。</p>
+<span class="heading-anchor" id="误区 2：只看容器内的 free"></span><h3 id="2-free">误区 2：只看容器内的 <code>free</code></h3>
+<p><code>free</code> 反映的是容器视角或命名空间视角下的部分信息，不能替代 cgroup 统计。应查看对应 cgroup 的当前使用量、上限和事件计数。</p>
+<span class="heading-anchor" id="误区 3：只看主进程 RSS"></span><h3 id="3-rss">误区 3：只看主进程 RSS</h3>
+<p>容器内所有进程、线程栈、共享内存、page cache、内存映射和运行时堆外内存都可能计入 cgroup 使用量。只看一个主进程的 RSS 可能漏掉重要部分。</p>
+<span class="heading-anchor" id="推荐排查信息"></span><h3 id="_9">推荐排查信息</h3>
+<pre><code class="language-text">memory.current   当前 cgroup 内存使用量
+memory.max       cgroup 内存上限
+memory.events    oom、oom_kill 等事件
+进程 RSS/匿名内存/文件映射
+page cache 与共享内存
+swap 使用和 major fault
+</code></pre>
+<p>结论是：<strong>容器 OOM 排查必须以 cgroup 视角为主，再结合容器内所有进程和内核日志分析。</strong></p>
+<hr/>
+<span class="heading-anchor" id="十四、实践任务"></span><h2 id="_10">十四、实践任务</h2>
+<p>以下命令用于从不同角度观察缺页、内存和 I/O。具体字段名称会因操作系统和工具版本略有差异。</p>
+<span class="heading-anchor" id="14.1 观察整体内存和换页活动"></span><h3 id="141">14.1 观察整体内存和换页活动</h3>
+<pre><code class="language-bash">vmstat 1
+</code></pre>
+<p>重点关注：</p>
+<ul>
+<li><code>free</code>：空闲内存变化。</li>
+<li><code>si</code>：swap in，页面从交换区读入内存的速率。</li>
+<li><code>so</code>：swap out，页面写入交换区的速率。</li>
+<li><code>r</code>：可运行任务数量。</li>
+<li><code>b</code>：处于阻塞状态的任务数量。</li>
+<li><code>wa</code>：CPU 等待 I/O 的时间比例。</li>
+</ul>
+<p>如果 <code>si</code>、<code>so</code>、<code>wa</code> 长时间较高，同时应用延迟恶化，应重点怀疑内存压力或抖动。</p>
+<span class="heading-anchor" id="14.2 查看内存分类"></span><h3 id="142">14.2 查看内存分类</h3>
+<pre><code class="language-bash">cat /proc/meminfo | head
+</code></pre>
+<p>可以进一步查看完整内容，重点理解：</p>
+<ul>
+<li><code>MemAvailable</code> 与 <code>MemFree</code> 的区别。</li>
+<li><code>Cached</code>、<code>SReclaimable</code> 等可回收缓存。</li>
+<li><code>SwapTotal</code>、<code>SwapFree</code>。</li>
+<li><code>AnonPages</code> 与 <code>Mapped</code>。</li>
+<li><code>Dirty</code> 和 <code>Writeback</code>。</li>
+</ul>
+<p><code>MemFree</code> 很低不一定代表内存耗尽，因为 Linux 会积极利用空闲内存做 page cache。判断压力时通常更应该关注 <code>MemAvailable</code>、回收活动和业务表现。</p>
+<span class="heading-anchor" id="14.3 查看进程状态"></span><h3 id="143">14.3 查看进程状态</h3>
+<pre><code class="language-bash">cat /proc/&lt;pid&gt;/stat
+</code></pre>
+<p>还可以结合：</p>
+<pre><code class="language-bash">cat /proc/&lt;pid&gt;/status
+cat /proc/&lt;pid&gt;/smaps_rollup
+cat /proc/&lt;pid&gt;/maps
+</code></pre>
+<p>观察进程的虚拟地址空间、RSS、匿名页、文件映射和共享内存等信息。读取这些文件时应将 <code>&lt;pid&gt;</code> 替换为实际进程号。</p>
+<span class="heading-anchor" id="14.4 统计某个命令的缺页"></span><h3 id="144">14.4 统计某个命令的缺页</h3>
+<pre><code class="language-bash">perf stat -e page-faults,minor-faults,major-faults &lt;command&gt;
+</code></pre>
+<p>可以比较以下实验：</p>
+<ol>
+<li>第一次运行一个较大的程序。</li>
+<li>立即再次运行同一个程序。</li>
+<li>顺序读取一个文件。</li>
+<li>随机读取同一个文件。</li>
+<li>在内存充足和内存受限环境中分别运行。</li>
+</ol>
+<p>观察缺页次数、major fault 和运行时间的变化，并思考页面缓存和预热对结果的影响。</p>
+<span class="heading-anchor" id="14.5 设计一个简单实验"></span><h3 id="145">14.5 设计一个简单实验</h3>
+<p>可以写一个小程序逐页访问一块较大的内存：</p>
+<ul>
+<li>第一次只读或写每个页面，记录运行时间。</li>
+<li>第二次以相同顺序访问，比较缺页和缓存命中情况。</li>
+<li>增大访问区域，使其超过可用内存，观察是否出现 swap 和抖动。</li>
+<li>改变访问步长，比较顺序访问和随机访问的差异。</li>
+</ul>
+<p>实验时应避免在生产环境中制造内存压力，并记录测试机器的内存大小、swap 配置和文件系统类型，否则结果不容易复现。</p>
+<hr/>
+<span class="heading-anchor" id="十五、自测题"></span><h2 id="_11">十五、自测题</h2>
+<span class="heading-anchor" id="1. 缺页异常为什么不一定是错误？"></span><h3 id="1">1. 缺页异常为什么不一定是错误？</h3>
+<p>因为缺页异常只是表示当前访问无法直接通过现有页表完成。若地址属于合法的虚拟内存区域，内核可以分配匿名页、从文件或 swap 读入页面、建立页面缓存映射，或者执行 COW 复制，处理完成后程序可以继续运行。</p>
+<span class="heading-anchor" id="2. COW 为什么能优化 fork？"></span><h3 id="2-cow-fork">2. COW 为什么能优化 fork？</h3>
+<p>因为父子进程在没有写入之前可以共享物理页面，不需要立即复制整个地址空间。只有发生写入的页面才复制，从而减少 <code>fork</code> 的初始时间和内存消耗，特别适合 <code>fork</code> 后很快 <code>exec</code> 的场景。</p>
+<span class="heading-anchor" id="3. major fault 为什么比 minor fault 慢？"></span><h3 id="3-major-fault-minor-fault">3. major fault 为什么比 minor fault 慢？</h3>
+<p>major fault 通常需要从磁盘或其他慢速后备存储读入页面，进程可能阻塞等待 I/O；minor fault 通常只需要在内存中分配页面、建立映射或复制已有页面，不需要等待磁盘读取。</p>
+<span class="heading-anchor" id="4. 什么是工作集？"></span><h3 id="4">4. 什么是工作集？</h3>
+<p>工作集是在一个时间窗口内被进程活跃访问的页面集合。它反映了程序近期真正需要驻留的内存，而不是简单等于虚拟地址空间大小，也不一定完全等于 RSS。</p>
+<span class="heading-anchor" id="5. 内存抖动时为什么 CPU 可能不高？"></span><h3 id="5-cpu">5. 内存抖动时为什么 CPU 可能不高？</h3>
+<p>因为进程频繁发生 major fault，需要等待页面从存储设备读入。大量时间消耗在 I/O 等待上，而不是 CPU 计算，所以 CPU 利用率可能不高，但系统负载、I/O 等待、swap 活动和请求延迟都可能很高。</p>
+<span class="heading-anchor" id="6. swap 使用量不为零是否一定说明系统有问题？"></span><h3 id="6-swap">6. swap 使用量不为零是否一定说明系统有问题？</h3>
+<p>不一定。冷页面被换出、swap 使用量保持稳定且没有持续换入换出时，系统仍可能正常运行。真正需要警惕的是持续的 swap in/out、major fault 增加、I/O 等待升高和业务性能下降。</p>
+<span class="heading-anchor" id="7. 为什么容器可能在宿主机还有空闲内存时 OOM？"></span><h3 id="7-oom">7. 为什么容器可能在宿主机还有空闲内存时 OOM？</h3>
+<p>因为容器受到 cgroup 的内存上限约束。容器达到自己的 <code>memory.max</code> 后，cgroup 可以触发 OOM，不需要等待宿主机全部物理内存耗尽。</p>
+<hr/>
+<span class="heading-anchor" id="十六、常见误区总结"></span><h2 id="_12">十六、常见误区总结</h2>
+<span class="heading-anchor" id="误区 1：所有 page fault 都是程序 bug"></span><h3 id="1-page-fault-bug">误区 1：所有 page fault 都是程序 bug</h3>
+<p>错误。合法的匿名页首次访问、文件映射加载、COW 和 swap 换入都可能产生 page fault。</p>
+<span class="heading-anchor" id="误区 2：缺页次数越少，程序一定越快"></span><h3 id="2">误区 2：缺页次数越少，程序一定越快</h3>
+<p>不一定。缺页类型、是否需要磁盘 I/O、页面访问位置以及程序的计算量都会影响性能。少量 major fault 可能比大量 minor fault 更昂贵。</p>
+<span class="heading-anchor" id="误区 3：虚拟内存申请成功就代表物理内存已经占用"></span><h3 id="3">误区 3：虚拟内存申请成功就代表物理内存已经占用</h3>
+<p>不一定。许多页面采用延迟分配，只有首次访问时才分配物理页。因此“申请量”“虚拟地址空间”“RSS”和“工作集”需要分开理解。</p>
+<span class="heading-anchor" id="误区 4：关闭 swap 就能解决所有内存问题"></span><h3 id="4-swap">误区 4：关闭 swap 就能解决所有内存问题</h3>
+<p>关闭 swap 可能减少换入换出，但不能降低工作集；在内存不足时，系统可能更早触发 OOM。是否使用 swap 需要结合延迟目标、内存余量和工作负载决定。</p>
+<span class="heading-anchor" id="误区 5：给进程更多线程可以缓解抖动"></span><h3 id="5">误区 5：给进程更多线程可以缓解抖动</h3>
+<p>通常相反。更多线程可能带来更多栈空间、更多并发数据和更大的活跃工作集，使页面竞争更严重。抖动的根本问题是活跃工作集放不下，而不是 CPU 并行度不足。</p>
+<hr/>
+<span class="heading-anchor" id="十七、思维导图"></span><h2 id="_13">十七、思维导图</h2>
+<blockquote>
+<p>记忆建议：缺页不等于错误；先判断“访问地址是否合法”，再判断“页面是否需要磁盘 I/O”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 缺页异常处理"></span><h3 id="1_1">1. 缺页异常处理</h3>
+<pre class="mermaid">flowchart TD
+  A["访问虚拟地址"] --&gt; B{"页表项有效吗"}
+  B --&gt;|有效| C["检查权限并访问物理页"]
+  B --&gt;|无效| D["CPU 触发缺页异常"]
+  D --&gt; E{"地址属于合法区域吗"}
+  E --&gt;|否| F["SIGSEGV 或保护错误\n程序终止"]
+  E --&gt;|是| G{"页面是否需要存储 I/O"}
+  G --&gt;|否| H["minor fault\n分配页面、建立映射或执行 COW"]
+  G --&gt;|是| I["major fault\n从文件或交换区读入"]
+  H --&gt; J["更新页表、刷新必要缓存并重试指令"]
+  I --&gt; J
+</pre>
+<span class="heading-anchor" id="2. COW 写时复制"></span><h3 id="2-cow">2. COW 写时复制</h3>
+<pre class="mermaid">flowchart LR
+  A["fork 后父子共享页面"] --&gt; B["页面标记为只读/COW"]
+  B --&gt; C{"某一方执行写操作"}
+  C --&gt; D["触发缺页异常"]
+  D --&gt; E["内核检查 COW 并分配新页"]
+  E --&gt; F["复制旧页面内容"]
+  F --&gt; G["写入方获得独立可写副本"]
+  G --&gt; H["另一方继续使用原页面"]
+</pre>
+<span class="heading-anchor" id="3. 内存压力链路"></span><h3 id="3_1">3. 内存压力链路</h3>
+<pre class="mermaid">flowchart TD
+  A["活跃工作集总量大于可用内存"] --&gt; B["页面回收和缺页增多"]
+  B --&gt; C["swap 或文件读写增多"]
+  C --&gt; D["major fault 延迟升高"]
+  D --&gt; E["进程等待 I/O，服务吞吐下降"]
+  E --&gt; F["内存抖动"]
+  F --&gt; G["严重时触发 OOM"]
+</pre>
+<hr/>
+<span class="heading-anchor" id="十八、全章总结"></span><h2 id="_14">十八、全章总结</h2>
+<ol>
+<li>虚拟内存允许进程使用独立、连续且较大的虚拟地址空间，而物理页面由内核按需管理。</li>
+<li>按需分页不会在程序启动时加载所有页面，真正访问页面时才进行分配或读取。</li>
+<li>缺页异常可能是合法的延迟分配、文件加载、COW 或 swap 换入，也可能是非法访问。</li>
+<li><code>minor fault</code> 通常不需要磁盘 I/O，<code>major fault</code> 通常需要访问后备存储，延迟高得多。</li>
+<li>COW 通过“先共享、写时复制”优化 <code>fork</code>，但大量写入可能造成额外内存峰值。</li>
+<li>页面置换算法无法准确预知未来访问，因此实际系统使用访问位、活跃链表等机制近似 LRU，并综合考虑脏页、文件页、匿名页和公平性。</li>
+<li>工作集描述一段时间内真正活跃的页面；当工作集总量超过可用内存时，系统可能进入抖动。</li>
+<li>抖动的主要特征是频繁换页、major fault 和 I/O 等待增加，CPU 利用率不一定高。</li>
+<li>swap 可以缓解短时内存压力，但持续换入换出会严重影响性能。</li>
+<li>容器 OOM 排查必须结合 cgroup 限制和事件，不能只看宿主机剩余内存或单个进程的 RSS。</li>
+</ol>
+<p>最重要的排查思路是：<strong>先区分虚拟内存、驻留内存和活跃工作集；再区分 minor fault 与 major fault；最后结合 swap、I/O、cgroup 和业务延迟判断问题究竟是正常的按需加载，还是已经进入内存压力和抖动。</strong></p></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

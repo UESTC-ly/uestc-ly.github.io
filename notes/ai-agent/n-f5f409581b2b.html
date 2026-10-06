@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-03 IVF 与乘积量化 · 李杨的学习笔记</title><meta name="description" content="想象一张城市地图被划成多个片区，每个片区选一个代表位置。录入餐馆时，先把餐馆分到最近
+的代表位置；查询时，也先判断问题更接近哪些片区，只搜索这些片区中的记录。这就是 IVF 的
+核心直觉。"><meta property="og:title" content="06-03 IVF 与乘积量化 · 李杨的学习笔记"><meta property="og:description" content="想象一张城市地图被划成多个片区，每个片区选一个代表位置。录入餐馆时，先把餐馆分到最近
+的代表位置；查询时，也先判断问题更接近哪些片区，只搜索这些片区中的记录。这就是 IVF 的
+核心直觉。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-f5f409581b2b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-f5f409581b2b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 06-indexes-vector-databases</p><h1>06-03 IVF 与乘积量化</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/06-indexes-vector-databases/03-ivf-and-product-quantization.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#ivf">IVF：先找可能的区域</a></li><li><a href="#_1">分区数量不是越多越好</a></li><li><a href="#pq">PQ：保存近似表示</a></li><li><a href="#_2">两类误差会叠加</a></li><li><a href="#_3">残差与重排的直觉</a></li><li><a href="#_4">训练与版本管理</a></li><li><a href="#ivf-pq">何时考虑 IVF 或 PQ</a></li><li><a href="#_5">纸笔练习</a></li><li><a href="#_6">自测</a></li><li><a href="#_7">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>06-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>50 分钟阅读，加 20 分钟纸笔练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解向量距离、Flat、ANN、聚类中心的直觉</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用二维点、分区圆圈和简化编码表模拟搜索</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释倒排文件索引（Inverted File Index，IVF）如何先选分区再搜索；</li>
+<li>解释乘积量化（Product Quantization，PQ）如何用短编码近似向量；</li>
+<li>区分“少搜了一些分区”和“压缩后距离不精确”两类误差；</li>
+<li>说明训练样本、参数和重建策略为什么必须版本化。</li>
+</ul>
+<span class="heading-anchor" id="IVF：先找可能的区域"></span><h2 id="ivf">IVF：先找可能的区域</h2>
+<p>想象一张城市地图被划成多个片区，每个片区选一个代表位置。录入餐馆时，先把餐馆分到最近
+的代表位置；查询时，也先判断问题更接近哪些片区，只搜索这些片区中的记录。这就是 IVF 的
+核心直觉。</p>
+<p>“倒排”表示索引从代表区域指向属于该区域的向量列表。构建阶段通常先学习若干聚类中心，
+再把每条向量分配到一个或多个列表。查询阶段先比较查询与中心，选择若干最可能的列表，然后
+在列表内部继续计算候选距离。</p>
+<p>如果只检查很少列表，查询工作量下降，但边界附近的真正近邻可能被分在未检查的相邻列表中。
+检查更多列表通常能提高找回机会，同时增加延迟。这与 HNSW 的图导航不同，但同样体现 ANN
+用搜索范围换取召回的思想。</p>
+<span class="heading-anchor" id="分区数量不是越多越好"></span><h2 id="_1">分区数量不是越多越好</h2>
+<p>分区太少，每个列表很长，查询仍需比较大量记录；分区太多，中心选择和管理成本上升，列表
+可能极不均衡，小数据分区还可能缺少代表性。数据分布若随时间变化，旧中心也可能不再适合
+新数据。</p>
+<p>因此要观察列表大小分布、空列表、热门列表、查询命中分区以及不同主题的召回，而不只看平均
+延迟。训练中心所用的数据快照应具有代表性，并记录抽样方式与版本。若新领域资料持续加入，
+需要评估重训与重建，而不是假设第一次聚类永久有效。</p>
+<span class="heading-anchor" id="PQ：保存近似表示"></span><h2 id="pq">PQ：保存近似表示</h2>
+<p>原始高维向量通常由许多数值组成。PQ 的思路是把向量切成若干子向量，对每一段分别学习一组
+代表码字。保存记录时，不再为每段保存全部浮点数，而是保存“最接近哪个码字”的短编号。</p>
+<p>例如，一个教学向量被分成三段，每段分别选择码字编号 <code>2</code>、<code>7</code>、<code>1</code>，最终记录可以看作
+<code>[2, 7, 1]</code>。查询时利用码字与查询子向量的距离表，快速估算完整距离。这个编码占用更少
+空间，也可能减少内存访问，但估算距离不等于原始距离。</p>
+<p>PQ 不是通用压缩文件，也不是加密。编码保留的是为距离比较服务的近似信息，不能替代原文、
+权限或来源；压缩后的记录也不应默认没有敏感性。</p>
+<span class="heading-anchor" id="两类误差会叠加"></span><h2 id="_2">两类误差会叠加</h2>
+<p>IVF 与 PQ 常可组合：先用 IVF 选择少数列表，再用 PQ 编码估算列表内距离。此时有两处可能
+漏掉目标：</p>
+<ol>
+<li><strong>分区误差：</strong> 目标落在没有被搜索的列表；</li>
+<li><strong>量化误差：</strong> 目标进入候选范围，但压缩距离改变了排序。</li>
+</ol>
+<p>排障时应分层比较。先用原始向量 Flat 结果作为基线，再比较只使用 IVF、不压缩的结果，最后
+比较 IVF 加 PQ。这样才能判断召回下降主要来自分区范围还是量化。若把所有变化一次打开，只看
+最终答案，很难定位问题。</p>
+<span class="heading-anchor" id="残差与重排的直觉"></span><h2 id="_3">残差与重排的直觉</h2>
+<p>一些实现会编码“向量相对分区中心的差值”，而不是直接编码完整向量，因为同一分区内的残差
+可能更容易用有限码字表示。另一些流程会先用压缩距离取较大的候选集，再读取原始向量精确
+计算并重排。后者能减少量化对最终排序的影响，但需要保留原向量并增加读放大。</p>
+<p>这些做法说明压缩不是免费收益：节省内存可能换来训练、编码、候选扩展和二次计算成本。是否
+值得，需要依据端到端目标验证。</p>
+<span class="heading-anchor" id="训练与版本管理"></span><h2 id="_4">训练与版本管理</h2>
+<p>IVF 中心和 PQ 码本都从数据学习，因此它们属于索引版本的一部分。需要记录：训练数据快照、
+抽样规则、向量模型和预处理版本、分区与编码配置、训练程序版本以及构建时间。新旧码本的编号
+没有天然兼容关系，不能把使用旧码本的编码交给新码本解释。</p>
+<p>更新策略也要明确。新增向量可以按现有码本编码，但持续域偏移可能降低质量；删除记录可能
+需要整理；大规模模型迁移通常需要建立新索引并验证后切换。</p>
+<span class="heading-anchor" id="何时考虑 IVF 或 PQ"></span><h2 id="ivf-pq">何时考虑 IVF 或 PQ</h2>
+<p>IVF 适合需要通过分区减少候选扫描的场景，PQ 适合内存或存储压力显著、可接受一定距离误差
+的场景。数据很小、必须精确、更新模式不稳定，或尚未建立召回基线时，先采用更简单方案通常
+更容易验证。具体阈值依赖数据和环境，本章不提供未经测量的固定数字。</p>
+<span class="heading-anchor" id="纸笔练习"></span><h2 id="_5">纸笔练习</h2>
+<p>在纸上画十二个二维点，用三个中心把它们分区。选择一个靠近分区边界的查询，只搜索最近的
+一个分区，观察可能漏掉哪些点；再扩大为两个分区。随后把每个坐标四舍五入到较粗刻度，观察
+候选排序是否变化，并分别标记分区误差与量化误差。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_6">自测</h2>
+<ol>
+<li>IVF 查询为什么可能漏掉分区边界附近的近邻？</li>
+<li>PQ 编码为什么不能当作原向量的无损替代？</li>
+<li>IVF 与 PQ 组合时，怎样分层定位召回下降？</li>
+<li>为什么码本和训练数据快照需要版本化？</li>
+<li>保留原向量做二次精确重排会带来什么代价？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_7">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿，已做轻量静态检查；未执行 IVF/PQ 训练、压缩或性能实验。</li>
+<li>代码与图表：可复现实验、伪实现和数据流图仍是计划项。</li>
+<li>
+<p>摘要：<a href="n-5e1027574dca.html">06-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-5b638535ac00.html">06-02 HNSW 的分层图直觉</a></p>
+</li>
+<li>下一章：<a href="n-438d6aab46d9.html">06-04 本地 FAISS 与元数据索引</a></li>
+<li>返回：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

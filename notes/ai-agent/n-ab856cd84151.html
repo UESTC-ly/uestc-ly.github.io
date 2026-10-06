@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02. 函数与面向对象 · 李杨的学习笔记</title><meta name="description" content="适用版本：Python 3.11+。函数负责把行为组织成可测试的单元；面向对象负责把状态、行为和协议组合成可替换的组件。AI Agent 中的工具、模型客户端、记忆存储和工作流节点，都可以从这两条主线理解。"><meta property="og:title" content="02. 函数与面向对象 · 李杨的学习笔记"><meta property="og:description" content="适用版本：Python 3.11+。函数负责把行为组织成可测试的单元；面向对象负责把状态、行为和协议组合成可替换的组件。AI Agent 中的工具、模型客户端、记忆存储和工作流节点，都可以从这两条主线理解。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-ab856cd84151.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-ab856cd84151.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python_ai_agent</p><h1>02. 函数与面向对象</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python_ai_agent/02_%E5%87%BD%E6%95%B0%E4%B8%8E%E9%9D%A2%E5%90%91%E5%AF%B9%E8%B1%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">可运行示例</a></li><li><a href="#1">1. 函数是可调用对象</a></li><li><a href="#_4">参数种类与调用规则</a></li><li><a href="#_5">参数绑定的完整规则</a></li><li><a href="#_6">默认参数与可变对象陷阱</a></li><li><a href="#_7">返回值、多个结果和副作用</a></li><li><a href="#_8">一等函数、回调与副作用边界</a></li><li><a href="#2-lambda">2. 作用域、闭包和 lambda</a></li><li><a href="#legb">LEGB 规则</a></li><li><a href="#globalnonlocal">名称绑定、global/nonlocal 与闭包单元</a></li><li><a href="#_9">闭包循环变量陷阱</a></li><li><a href="#lambda">lambda：只用于短小表达式</a></li><li><a href="#lambda_1">lambda 与命名函数的选择</a></li><li><a href="#3">3. 类、实例与属性</a></li><li><a href="#property">属性、property 与不变量</a></li><li><a href="#_10">属性查找顺序与描述符</a></li><li><a href="#4">4. 实例方法、类方法和静态方法</a></li><li><a href="#_11">方法绑定的运行机制</a></li><li><a href="#5">5. 组合优先于继承</a></li><li><a href="#solid">组合、继承与适用的 SOLID 原则</a></li><li><a href="#6-super">6. 继承、多态与 super</a></li><li><a href="#_12">覆盖契约与协作式继承</a></li><li><a href="#mro">MRO：方法解析顺序</a></li><li><a href="#mro_1">MRO 的阅读方法与选择</a></li><li><a href="#7">7. 抽象基类与协议</a></li><li><a href="#abcprotocol">ABC、Protocol 与鸭子类型的边界</a></li><li><a href="#8">8. 常用魔术方法与数据模型</a></li><li><a href="#_13">从语法到协议：如何实现魔术方法</a></li><li><a href="#9-agent">9. 面向 Agent 的组件设计示例</a></li><li><a href="#_14">组件边界、状态所有权与测试替身</a></li><li><a href="#_15">常见坑</a></li><li><a href="#ai-agent">面向 AI Agent 的应用提示</a></li><li><a href="#_16">练习题</a></li><li><a href="#_17">练习提示与验收标准</a></li><li><a href="#_18">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>适用版本：Python 3.11+。函数负责把行为组织成可测试的单元；面向对象负责把状态、行为和协议组合成可替换的组件。AI Agent 中的工具、模型客户端、记忆存储和工作流节点，都可以从这两条主线理解。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>完成本章后，你应该能够：</p>
+<ol>
+<li>使用位置参数、关键字参数、可变参数和仅限关键字参数设计清晰的函数接口。</li>
+<li>解释 LEGB 作用域、闭包和 nonlocal，识别默认参数与可变状态的陷阱。</li>
+<li>区分实例方法、类方法和静态方法，并选择组合、继承或协议实现。</li>
+<li>理解多态、MRO、super 和抽象基类，设计可替换的 Agent 组件。</li>
+<li>使用常见魔术方法参与 Python 数据模型，而不是把它们当成神秘语法。</li>
+<li>将“工具就是一个满足约定的可调用对象”落实为可测试的接口。</li>
+</ol>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<ul>
+<li>函数是可调用的一等对象，签名、作用域和副作用边界决定了接口是否清晰、可测试。</li>
+<li>类把状态、行为和不变量组合起来；组合、继承、多态和协议决定组件是否可替换。</li>
+<li>Python 数据模型通过魔术方法把对象接入内置语法；实现协议要遵守对象的真实语义。</li>
+<li>Agent 设计应依赖最小接口并注入具体模型、工具和存储，避免把供应商实现写死在工作流中。</li>
+</ul>
+<span class="heading-anchor" id="可运行示例"></span><h2 id="_3">可运行示例</h2>
+<p>本章带有 python 标记的代码块均可复制到 Python 3.11+ 中单独运行；每段代码后都说明输出、绑定关系或异常行为。</p>
+<span class="heading-anchor" id="1. 函数是可调用对象"></span><h2 id="1">1. 函数是可调用对象</h2>
+<p>函数可以接收输入、返回输出，也可以赋值给变量、放入列表、作为参数传递或从函数返回。这种“一等对象”特性是高阶函数、装饰器和工作流编排的基础。</p>
+<span class="heading-anchor" id="参数种类与调用规则"></span><h3 id="_4">参数种类与调用规则</h3>
+<p>Python 3 的函数签名可以显式表达参数应该如何传入：</p>
+<pre><code class="language-python">def call_model(
+    prompt: str,
+    /,
+    model: str = "default",
+    *,
+    temperature: float = 0.2,
+    **options: object,
+) -&gt; str:
+    """演示位置专用、普通和仅关键字参数。"""
+    return (
+        f"model={model}, temperature={temperature}, "
+        f"prompt={prompt!r}, options={options}"
+    )
+
+
+print(call_model("解释 asyncio"))
+print(call_model("解释 asyncio", "fast", temperature=0.0, timeout=10))
+</code></pre>
+<p>输出类似：</p>
+<pre><code class="language-text">model=default, temperature=0.2, prompt='解释 asyncio', options={}
+model=fast, temperature=0.0, prompt='解释 asyncio', options={'timeout': 10}
+</code></pre>
+<ul>
+<li>斜杠之前的 prompt 只能按位置传入，适合不希望暴露参数名或保持 API 简洁的场景。</li>
+<li>斜杠与星号之间是可按位置或关键字传入的普通参数。</li>
+<li>星号之后只能按关键字传入，适合容易混淆、需要自解释的配置。</li>
+<li><code>*args</code> 这类单星号参数收集额外位置参数并形成元组；当前函数中的 <code>**options</code> 是双星号参数，只收集额外关键字参数并形成字典。</li>
+</ul>
+<p>调用时可以使用解包：</p>
+<pre><code class="language-python">def summarize(title: str, *sentences: str, style: str = "brief") -&gt; str:
+    return f"[{style}] {title}: " + " / ".join(sentences)
+
+
+sentences = ("第一点", "第二点")
+config = {"style": "detailed"}
+print(summarize("结果", *sentences, **config))
+</code></pre>
+<p>输出为：</p>
+<pre><code class="language-text">[detailed] 结果: 第一点 / 第二点
+</code></pre>
+<span class="heading-anchor" id="参数绑定的完整规则"></span><h3 id="_5">参数绑定的完整规则</h3>
+<p>调用函数时，Python 会先把实参绑定到形参，再执行函数体。理解这一步能解释大多数 <code>TypeError</code>：</p>
+<ol>
+<li>位置实参按顺序填充位置参数；同一个形参若又被关键字传入，会报“multiple values”。</li>
+<li>关键字实参按名称绑定；不存在的名称只能由 <code>**kwargs</code> 接收，否则报未知关键字。</li>
+<li>缺少没有默认值的形参会报缺少必需参数；有默认值的形参在绑定后使用默认值。</li>
+<li><code>/</code> 前的形参禁止关键字传入；单独的 <code>*</code> 后的形参必须用关键字传入。</li>
+<li><code>*args</code> 收集多余位置实参为元组，<code>**kwargs</code> 收集多余关键字实参为字典；它们不会自动校验业务类型。</li>
+</ol>
+<p>可以用 <code>inspect.signature</code> 在框架边界观察或预先绑定参数，但它只是调用规则检查，不是 schema 校验：字符串是否是合法 URL、权限是否足够，仍要由业务代码验证。</p>
+<pre><code class="language-python">import inspect
+
+
+def request(prompt: str, /, model: str = "default", *, timeout: float = 10.0) -&gt; str:
+    return f"{model}:{timeout}:{prompt}"
+
+
+signature = inspect.signature(request)
+bound = signature.bind("查询订单", "fast", timeout=2.5)
+bound.apply_defaults()
+print(bound.arguments)
+# {'prompt': '查询订单', 'model': 'fast', 'timeout': 2.5}
+
+print(request("查询订单", timeout=1.0))  # default:1.0:查询订单
+for bad_call in (
+    lambda: request(prompt="不能按关键字传"),
+    lambda: request("问题", "fast", 1.0),
+    lambda: request("问题", unknown=True),
+):
+    try:
+        bad_call()
+    except TypeError as exc:
+        print(type(exc).__name__)  # 三次都是 TypeError
+</code></pre>
+<p><code>signature.bind(...)</code> 要求所有必需参数都已绑定；<code>bind_partial(...)</code> 则允许缺少参数，适合先收集配置、稍后补齐的场景。不要用 <code>**payload</code> 取代清晰签名来“解决所有参数问题”：明确的参数会让 IDE、静态检查和调用者更早发现错误，也能减少把模型生成的多余字段传入高权限工具。</p>
+<span class="heading-anchor" id="默认参数与可变对象陷阱"></span><h3 id="_6">默认参数与可变对象陷阱</h3>
+<p>默认参数只在函数定义时求值一次。可变对象作为默认值会在多次调用之间共享：</p>
+<pre><code class="language-python">def bad_add_message(message: str, history: list[str] = []) -&gt; list[str]:
+    history.append(message)
+    return history
+
+print(bad_add_message("第一次"))  # ['第一次']
+print(bad_add_message("第二次"))  # ['第一次', '第二次']：发生了意外共享
+
+
+def add_message(message: str, history: list[str] | None = None) -&gt; list[str]:
+    if history is None:
+        history = []
+    history.append(message)
+    return history
+
+
+print(add_message("第一次"))  # ['第一次']
+print(add_message("第二次"))  # ['第二次']
+</code></pre>
+<p>如果默认值本身是有意义的不可变配置（例如 timeout=30），可以直接使用；只要默认对象会被修改，就用 None 哨兵或不可变值。</p>
+<span class="heading-anchor" id="返回值、多个结果和副作用"></span><h3 id="_7">返回值、多个结果和副作用</h3>
+<p>Python 函数只能有一个返回对象，但可以返回元组进行结构化解包：</p>
+<pre><code class="language-python">def parse_tool_output(text: str) -&gt; tuple[bool, str]:
+    if not text.strip():
+        return False, "工具返回为空"
+    return True, text.strip()
+
+
+ok, result = parse_tool_output("  3 条结果  ")
+print(ok, result)  # True 3 条结果
+</code></pre>
+<p>要区分“计算结果”和“修改外部状态”的函数。Agent 业务中，格式化提示词、解析响应等函数尽量纯函数化；写数据库、发送事件、调用网络等副作用集中在边界处，并让调用者能看出它们可能失败。</p>
+<span class="heading-anchor" id="一等函数、回调与副作用边界"></span><h3 id="_8">一等函数、回调与副作用边界</h3>
+<p>函数对象可以存进容器、传给另一个函数、作为返回值，也可以通过 <code>callable</code> 检查是否能被调用。Agent 编排器常把“节点”统一看成可调用对象；但可调用并不说明它是同步、异步、纯函数还是幂等的，这些都应该在接口文档或类型协议中明确。</p>
+<pre><code class="language-python">from functools import partial
+from typing import Callable
+
+
+def run_pipeline(value: str, steps: list[Callable[[str], str]]) -&gt; str:
+    for step in steps:
+        value = step(value)
+    return value
+
+
+def add_prefix(prefix: str, text: str) -&gt; str:
+    return f"{prefix}{text}"
+
+
+with_trace = partial(add_prefix, "[trace] ")
+pipeline = [str.strip, str.upper, with_trace]
+print(run_pipeline("  tool result  ", pipeline))  # [trace] TOOL RESULT
+print(callable(with_trace))  # True
+</code></pre>
+<p>纯函数只依赖显式输入并返回结果，不修改外部状态；相同输入应得到相同结果。它便于重试、缓存和单元测试。网络请求、写日志、修改 Agent 消息列表、写数据库等是副作用，应集中在边界函数或对象方法中，并说明失败、超时和幂等策略。日志本身通常是允许的观测副作用，但不要把日志调用隐藏在本应纯粹的解析函数中。</p>
+<p>选择模块函数、闭包还是可调用对象时，可以按状态量和生命周期判断：无状态行为用模块函数；只需绑定少量配置用 <code>partial</code>/闭包；需要可观测状态、多个方法、资源清理或序列化时用类。不要为了“函数式”把复杂 Agent 状态塞进不可见闭包。</p>
+<span class="heading-anchor" id="2. 作用域、闭包和 lambda"></span><h2 id="2-lambda">2. 作用域、闭包和 lambda</h2>
+<span class="heading-anchor" id="LEGB 规则"></span><h3 id="legb">LEGB 规则</h3>
+<p>名称查找通常按 LEGB 顺序进行：Local（局部）→ Enclosing（外围函数）→ Global（模块全局）→ Builtins（内置）。函数内部赋值会让名称成为局部变量，除非声明 global 或 nonlocal。</p>
+<pre><code class="language-python">model = "global-model"
+
+
+def build_runner() -&gt; str:
+    model = "enclosing-model"
+
+    def run() -&gt; str:
+        model = "local-model"
+        return model
+
+    print("外围作用域:", model)
+    return run()
+
+
+print(build_runner())  # 外围作用域: enclosing-model / local-model
+print(model)           # global-model
+</code></pre>
+<p>global 会修改模块级变量，容易制造隐蔽耦合；业务代码通常更适合显式传参或把状态放进对象中。nonlocal 用于修改最近一层外围函数的变量：</p>
+<pre><code class="language-python">def make_counter(start: int = 0):
+    count = start
+
+    def next_count() -&gt; int:
+        nonlocal count
+        count += 1
+        return count
+
+    return next_count
+
+
+counter = make_counter(10)
+print(counter(), counter(), counter())  # 11 12 13
+</code></pre>
+<p>闭包会“记住”定义时的环境。它适合轻量的策略、配置绑定和装饰器；若状态较多、需要调试或序列化，使用显式类通常更清晰。</p>
+<span class="heading-anchor" id="名称绑定、global/nonlocal 与闭包单元"></span><h3 id="globalnonlocal">名称绑定、global/nonlocal 与闭包单元</h3>
+<p>作用域解决的是“这个名字从哪里取”；赋值解决的是“这个名字在哪一层重新绑定”。编译器看到函数体内对某名称赋值时，会把它视为局部变量，哪怕执行路径先读取它，这就是 <code>UnboundLocalError</code> 的来源。<code>global</code> 把绑定目标声明为模块全局，<code>nonlocal</code> 把它声明为最近外围函数的绑定。</p>
+<p>闭包并不是复制外层值，而是保存对外围变量单元（cell）的引用。多个内部函数可以共享同一个 cell，因此一个闭包更新状态，另一个闭包也可能看到更新。可以通过 <code>__closure__</code> 观察，但生产逻辑不要依赖这种调试属性。</p>
+<pre><code class="language-python">from collections.abc import Callable
+
+
+def make_pair(start: int) -&gt; tuple[Callable[[], int], Callable[[], int]]:
+    count = start
+
+    def increase() -&gt; int:
+        nonlocal count
+        count += 1
+        return count
+
+    def read() -&gt; int:
+        return count
+
+    return increase, read
+
+
+increase, read = make_pair(5)
+print(increase(), read(), increase())  # 6 6 7：两个函数共享 count
+print(increase.__closure__[0].cell_contents)  # 7：仅用于观察闭包状态
+</code></pre>
+<p>想读取但不修改全局值通常不需要 <code>global</code>；只有重新绑定才需要声明。并发 Agent 中，闭包里的可变计数器也不是自动线程安全的；若计数要跨任务共享，应使用锁、队列或外部存储，并明确一致性要求。</p>
+<span class="heading-anchor" id="闭包循环变量陷阱"></span><h3 id="_9">闭包循环变量陷阱</h3>
+<p>循环中创建的闭包通常捕获变量本身，而不是每次循环的当前值：</p>
+<pre><code class="language-python">bad = [lambda: i for i in range(3)]
+print([func() for func in bad])  # [2, 2, 2]
+
+good = [lambda i=i: i for i in range(3)]
+print([func() for func in good])  # [0, 1, 2]
+</code></pre>
+<p>这里的 i=i 使用默认参数在创建时绑定当前值；也可以用一个外层函数显式绑定。写异步任务或工具列表时尤其要留意该问题。</p>
+<span class="heading-anchor" id="lambda：只用于短小表达式"></span><h3 id="lambda">lambda：只用于短小表达式</h3>
+<pre><code class="language-python">tools = [
+    {"name": "search", "priority": 2},
+    {"name": "calculator", "priority": 1},
+]
+ordered = sorted(tools, key=lambda tool: tool["priority"])
+print([tool["name"] for tool in ordered])  # ['calculator', 'search']
+</code></pre>
+<p>当表达式需要条件嵌套、异常处理、日志或多行逻辑时，用 def 命名函数。命名函数更容易测试、记录和定位堆栈，也更适合给 Agent 工具提供可读的描述。</p>
+<span class="heading-anchor" id="lambda 与命名函数的选择"></span><h3 id="lambda_1">lambda 与命名函数的选择</h3>
+<p><code>lambda</code> 只能包含一个表达式，没有语句块、类型注释和清晰的文档空间；它适合一次性的排序键、过滤键或短回调。若函数会复用、需要日志/异常处理、需要暴露给工具注册表，使用有名字的 <code>def</code>。对字典字段排序也可使用 <code>operator.itemgetter</code>，避免在很多地方复制同一个 lambda。</p>
+<p>注意闭包的晚绑定与 lambda 完全无关：<code>lambda</code> 只是创建函数的语法，是否捕获外围变量仍遵循同一套闭包规则。给 Agent 工具动态生成回调时，要在工厂函数或默认参数中明确绑定工具名。</p>
+<span class="heading-anchor" id="3. 类、实例与属性"></span><h2 id="3">3. 类、实例与属性</h2>
+<p>类是创建对象的蓝图，但类本身也是对象。实例通常保存自己的状态，方法描述对状态的操作。</p>
+<pre><code class="language-python">class MessageBuffer:
+    default_role = "user"  # 类属性：所有实例共享，除非实例覆盖
+
+    def __init__(self, limit: int = 10) -&gt; None:
+        self.limit = limit       # 实例属性
+        self.messages: list[str] = []
+
+    def add(self, message: str) -&gt; None:
+        if len(self.messages) &gt;= self.limit:
+            self.messages.pop(0)
+        self.messages.append(message)
+
+    def __repr__(self) -&gt; str:
+        return f"MessageBuffer(limit={self.limit!r}, messages={self.messages!r})"
+
+
+first = MessageBuffer(limit=2)
+second = MessageBuffer(limit=2)
+first.add("你好")
+first.add("查询订单")
+first.add("补充订单号")
+
+print(first)                   # 只保留最近两条
+print(second.messages)         # []：实例状态相互独立
+print(first.default_role)      # user：从类属性读取
+</code></pre>
+<p>不要把可变的运行时状态放在类属性中：</p>
+<pre><code class="language-python">class BadBuffer:
+    messages: list[str] = []  # 所有实例共享同一列表
+
+
+a = BadBuffer()
+b = BadBuffer()
+a.messages.append("污染")
+print(b.messages)             # ['污染']
+</code></pre>
+<span class="heading-anchor" id="属性、property 与不变量"></span><h3 id="property">属性、property 与不变量</h3>
+<p>如果一个字段需要校验或计算，property 可以提供类似属性的接口，同时保留控制逻辑：</p>
+<pre><code class="language-python">class Temperature:
+    def __init__(self, celsius: float) -&gt; None:
+        self.celsius = celsius
+
+    @property
+    def celsius(self) -&gt; float:
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value: float) -&gt; None:
+        if value &lt; -273.15:
+            raise ValueError("温度不能低于绝对零度")
+        self._celsius = float(value)
+
+    @property
+    def fahrenheit(self) -&gt; float:
+        return self.celsius * 9 / 5 + 32
+
+
+temperature = Temperature(25)
+print(temperature.fahrenheit)  # 77.0
+try:
+    temperature.celsius = -300
+except ValueError as exc:
+    print(type(exc).__name__, exc)  # ValueError 温度不能低于绝对零度
+</code></pre>
+<span class="heading-anchor" id="属性查找顺序与描述符"></span><h3 id="_10">属性查找顺序与描述符</h3>
+<p>访问 <code>obj.attr</code> 时可以先记住这个学习版顺序：类型上的数据描述符 → 实例 <code>__dict__</code> → 类型及其 MRO 上的普通属性/非数据描述符 → <code>AttributeError</code>。严格来说，只要描述符类型定义了 <code>__set__</code> 或 <code>__delete__</code>，它就是数据描述符；常见可读写描述符还会定义 <code>__get__</code>。函数是非数据描述符，因此从实例取出时会自动绑定成带 <code>self</code> 的方法；<code>property</code> 是数据描述符，所以能阻止实例字典绕过校验。</p>
+<pre><code class="language-python">from __future__ import annotations
+
+
+class Positive:
+    def __set_name__(self, owner: type, name: str) -&gt; None:
+        self.name = name
+
+    def __get__(self, instance: object | None, owner: type | None = None) -&gt; int | "Positive":
+        if instance is None:
+            return self
+        return instance.__dict__.get(self.name, 1)
+
+    def __set__(self, instance: object, value: int) -&gt; None:
+        if value &lt;= 0:
+            raise ValueError("必须为正数")
+        instance.__dict__[self.name] = value
+
+
+class Request:
+    timeout = Positive()
+
+
+request = Request()
+print(request.timeout)  # 1：描述符提供默认值
+request.timeout = 3
+print(request.timeout, request.__dict__)  # 3 {'timeout': 3}
+try:
+    request.timeout = 0
+except ValueError as exc:
+    print(type(exc).__name__)  # ValueError：数据描述符拦截赋值
+</code></pre>
+<p>普通类属性适合共享的常量、策略或默认值，但读取它并不会自动复制可变对象；给实例赋同名属性才会遮蔽普通类属性。<code>__dict__</code> 不是所有对象都有（例如使用 <code>__slots__</code> 的实例），因此不要把它当作通用业务接口。需要自定义属性访问时优先使用 <code>property</code>/描述符，谨慎覆盖 <code>__getattribute__</code>，否则很容易递归或破坏调试工具。</p>
+<span class="heading-anchor" id="4. 实例方法、类方法和静态方法"></span><h2 id="4">4. 实例方法、类方法和静态方法</h2>
+<p>三种方法的关键区别在于第一个参数及其绑定对象：</p>
+<pre><code class="language-python">class ToolConfig:
+    default_timeout = 30
+
+    def __init__(self, name: str, timeout: int) -&gt; None:
+        self.name = name
+        self.timeout = timeout
+
+    def describe(self) -&gt; str:
+        """实例方法：访问当前实例。"""
+        return f"{self.name}(timeout={self.timeout})"
+
+    @classmethod
+    def with_default_timeout(cls, name: str) -&gt; "ToolConfig":
+        """类方法：访问 cls，常用于命名构造器。"""
+        return cls(name, cls.default_timeout)
+
+    @staticmethod
+    def valid_name(name: str) -&gt; bool:
+        """静态方法：只是逻辑上属于该类，不需要 self/cls。"""
+        return bool(name.strip()) and " " not in name
+
+
+config = ToolConfig.with_default_timeout("search")
+print(config.describe())                   # search(timeout=30)
+print(ToolConfig.valid_name("web_search"))  # True
+print(ToolConfig.valid_name("bad name"))    # False
+</code></pre>
+<ul>
+<li>实例方法：需要读写某个对象的状态。</li>
+<li>类方法：需要根据类本身创建对象，或要支持子类继承构造逻辑。</li>
+<li>静态方法：与类概念相关，但不依赖实例或类状态；如果没有这种归属关系，也可以写成模块函数。</li>
+</ul>
+<span class="heading-anchor" id="方法绑定的运行机制"></span><h3 id="_11">方法绑定的运行机制</h3>
+<p>类体中的普通函数会作为描述符存放在类命名空间。通过实例访问时，Python 自动把实例绑定为第一个参数；通过类访问时得到未绑定函数，需要手动传入实例。<code>classmethod</code> 把类绑定为 <code>cls</code>，<code>staticmethod</code> 不做自动绑定。</p>
+<pre><code class="language-python">class Worker:
+    def run(self, task: str) -&gt; str:
+        return f"{self.name}:{task}"
+
+    @classmethod
+    def named(cls, name: str) -&gt; "Worker":
+        worker = cls()
+        worker.name = name
+        return worker
+
+    @staticmethod
+    def valid_task(task: str) -&gt; bool:
+        return bool(task.strip())
+
+
+worker = Worker.named("agent-1")
+print(worker.run("search"))  # agent-1:search
+print(Worker.run(worker, "search"))  # agent-1:search：类访问时手动传 self
+print(Worker.valid_task(" "))  # False：静态方法不需要实例
+</code></pre>
+<p>命名构造器使用 <code>classmethod</code> 的好处是 <code>cls()</code> 会创建实际子类实例，继承层级中更容易扩展；若构造逻辑不依赖类状态，工厂函数也可能更清晰。<code>staticmethod</code> 只是命名空间归属，不会自动提供权限、缓存或实例隔离；没有强关联时把它写成模块函数。</p>
+<span class="heading-anchor" id="5. 组合优先于继承"></span><h2 id="5">5. 组合优先于继承</h2>
+<p>组合表示“对象拥有另一个对象”（has-a），通常比继承（is-a）更灵活。Agent 可以把模型、记忆、工具执行器组装成一个运行器：</p>
+<pre><code class="language-python">from collections.abc import Callable
+from typing import Protocol
+
+
+class Model(Protocol):
+    def complete(self, prompt: str) -&gt; str: ...
+
+
+class FakeModel:
+    def __init__(self, prefix: str = "模型") -&gt; None:
+        self.prefix = prefix
+
+    def complete(self, prompt: str) -&gt; str:
+        return f"{self.prefix}回答: {prompt}"
+
+
+class AgentRunner:
+    def __init__(
+        self,
+        model: Model,
+        tools: dict[str, Callable[[str], str]],
+    ) -&gt; None:
+        self.model = model
+        self.tools = tools
+
+    def run_tool(self, name: str, argument: str) -&gt; str:
+        try:
+            tool = self.tools[name]
+        except KeyError as exc:
+            raise ValueError(f"未注册工具: {name}") from exc
+        return tool(argument)
+
+    def answer(self, prompt: str) -&gt; str:
+        return self.model.complete(prompt)
+
+
+runner = AgentRunner(
+    FakeModel(),
+    {"upper": str.upper},
+)
+print(runner.answer("什么是闭包？"))  # 模型回答: 什么是闭包？
+print(runner.run_tool("upper", "hello"))  # HELLO
+</code></pre>
+<p>测试时可以把 <code>FakeModel</code> 换成任何满足 <code>Model</code> Protocol 的假模型，把工具字典换成测试函数；替换实现不必继承 <code>FakeModel</code>。这比在继承层级中替换一堆实现更直接。</p>
+<span class="heading-anchor" id="组合、继承与适用的 SOLID 原则"></span><h3 id="solid">组合、继承与适用的 SOLID 原则</h3>
+<p>选择依据不是“组合永远更好”，而是替换点是否稳定：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>更合适的方案</th>
+<th>判断问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>运行时注入模型、记忆、工具或中间件</td>
+<td>组合/依赖注入</td>
+<td>Agent 是否只需要一个最小接口？</td>
+</tr>
+<tr>
+<td>多个实现共享不变量和少量模板流程</td>
+<td>继承或 ABC</td>
+<td>子类是否始终满足父类语义？</td>
+</tr>
+<tr>
+<td>只想复用几段横切逻辑</td>
+<td>包装对象/装饰器</td>
+<td>是否能独立叠加日志、重试、限流？</td>
+</tr>
+<tr>
+<td>外部 SDK 与内部接口不一致</td>
+<td>适配器（组合）</td>
+<td>是否应隔离供应商类型和异常？</td>
+</tr>
+</tbody>
+</table></div>
+<p>在 Agent 中最实用的 SOLID 子集是：单一职责（模型调用、状态存储、工具授权分开）、开闭原则（通过注册和协议扩展工具，不修改核心循环）、里氏替换（替换模型后仍满足超时/错误/返回值契约）、依赖倒置（工作流依赖 Protocol，而非具体 SDK）。不要为了形式上的“每个类一个方法”拆出大量空壳；原则要服务于测试隔离和变更边界。</p>
+<pre><code class="language-python">from collections.abc import Callable
+
+
+class ToolExecutor:
+    def __init__(self, tools: dict[str, Callable[[str], str]]) -&gt; None:
+        self.tools = tools
+
+    def run(self, name: str, argument: str) -&gt; str:
+        return self.tools[name](argument)
+
+
+class LoggingExecutor:
+    def __init__(self, inner: ToolExecutor) -&gt; None:
+        self.inner = inner
+
+    def run(self, name: str, argument: str) -&gt; str:
+        print(f"call:{name}")
+        result = self.inner.run(name, argument)
+        print(f"done:{name}")
+        return result
+
+
+executor = LoggingExecutor(ToolExecutor({"upper": str.upper}))
+print(executor.run("upper", "hello"))
+# call:upper / done:upper / HELLO：日志能力可叠加，不需继承每一个具体工具
+</code></pre>
+<p>包装对象也必须保持被包装接口的契约，否则只是把复杂度藏起来。对于异步工具要定义 <code>async run</code> 或单独的异步协议，不要让同步包装器偷偷阻塞事件循环。</p>
+<span class="heading-anchor" id="6. 继承、多态与 super"></span><h2 id="6-super">6. 继承、多态与 super</h2>
+<p>继承适合表达稳定的“是一种”关系。子类可以覆写行为，调用者依赖父类定义的接口，从而实现多态：</p>
+<pre><code class="language-python">class Notifier:
+    def send(self, message: str) -&gt; str:
+        raise NotImplementedError
+
+
+class ConsoleNotifier(Notifier):
+    def send(self, message: str) -&gt; str:
+        return f"console: {message}"
+
+
+class MemoryNotifier(Notifier):
+    def __init__(self) -&gt; None:
+        self.sent: list[str] = []
+
+    def send(self, message: str) -&gt; str:
+        self.sent.append(message)
+        return f"memory: {message}"
+
+
+def notify_user(notifier: Notifier, message: str) -&gt; None:
+    print(notifier.send(message))
+
+
+for notifier in (ConsoleNotifier(), MemoryNotifier()):
+    notify_user(notifier, "任务完成")
+</code></pre>
+<p>super 表示沿着 MRO 调用下一个实现，而不是简单地“调用父类”。在覆盖 init 时，只有在父类初始化对当前对象有意义时才调用它；不要机械地写 super。</p>
+<pre><code class="language-python">class BaseClient:
+    def __init__(self, timeout: int) -&gt; None:
+        self.timeout = timeout
+
+
+class LoggingClient(BaseClient):
+    def __init__(self, timeout: int, label: str) -&gt; None:
+        super().__init__(timeout)
+        self.label = label
+
+
+client = LoggingClient(10, "search")
+print(client.timeout, client.label)  # 10 search
+</code></pre>
+<span class="heading-anchor" id="覆盖契约与协作式继承"></span><h3 id="_12">覆盖契约与协作式继承</h3>
+<p>多态不只要求“方法名相同”，还要求替换后调用者的假设仍成立：参数含义和默认值兼容，返回值满足原约定，异常类型可预期，子类不能无故收紧父类允许的输入或改变重要副作用。若子类必须先调用某个额外步骤才能工作，说明父类接口可能没有把生命周期表达清楚。</p>
+<p><code>super()</code> 的含义是“沿当前类的 MRO 找下一个实现”，不是固定指向语法上写出来的父类。协作式多继承的每一层都应调用 <code>super()</code>，并通过兼容的 <code>**kwargs</code> 传递未消费参数：</p>
+<pre><code class="language-python">class Root:
+    def __init__(self, **kwargs: object) -&gt; None:
+        super().__init__(**kwargs)
+
+
+class WithTrace(Root):
+    def __init__(self, **kwargs: object) -&gt; None:
+        self.trace_enabled = True
+        super().__init__(**kwargs)
+
+
+class WithMetrics(Root):
+    def __init__(self, **kwargs: object) -&gt; None:
+        self.metrics_enabled = True
+        super().__init__(**kwargs)
+
+
+class AgentRuntime(WithTrace, WithMetrics):
+    pass
+
+
+runtime = AgentRuntime()
+print(runtime.trace_enabled, runtime.metrics_enabled)  # True True
+print([cls.__name__ for cls in AgentRuntime.__mro__])
+# ['AgentRuntime', 'WithTrace', 'WithMetrics', 'Root', 'object']
+</code></pre>
+<p>若 <code>WithTrace</code> 直接写 <code>Root.__init__(self)</code>，<code>WithMetrics</code> 的初始化会被跳过；反过来，若层级需要精细控制且协作签名难以维持，优先改成组合式中间件。多继承适合小而正交的 mixin；不要把有独立生命周期的模型客户端、数据库和工具注册表硬塞进继承树。</p>
+<span class="heading-anchor" id="MRO：方法解析顺序"></span><h3 id="mro">MRO：方法解析顺序</h3>
+<p>Python 支持多继承，并使用 C3 线性化计算 MRO。查看它：</p>
+<pre><code class="language-python">class Root:
+    def name(self) -&gt; str:
+        return "root"
+
+
+class Left(Root):
+    def name(self) -&gt; str:
+        return "left"
+
+
+class Right(Root):
+    def name(self) -&gt; str:
+        return "right"
+
+
+class Combined(Left, Right):
+    pass
+
+
+print([cls.__name__ for cls in Combined.__mro__])
+# ['Combined', 'Left', 'Right', 'Root', 'object']
+print(Combined().name())  # left
+</code></pre>
+<p>多继承的协作式方法都应使用 super，并遵守兼容的签名，否则会出现初始化顺序或参数冲突。若只是复用几个能力，组合或显式委托往往比多继承更易维护。</p>
+<span class="heading-anchor" id="MRO 的阅读方法与选择"></span><h3 id="mro_1">MRO 的阅读方法与选择</h3>
+<p>MRO 是 C3 线性化得到的无重复类序列，满足子类优先、父类顺序保持一致和局部优先级约束。遇到 <code>super()</code> 不符合预期时，先打印 <code>type(obj).__mro__</code>，再从当前类在序列中的位置向后找实现；不要凭“最靠近的父类”猜测。</p>
+<p>如果只是希望两个能力都存在，MRO 是实现细节而不是业务 API。把能力拆成独立对象并显式调用通常更容易追踪；只有需要统一生命周期钩子、方法链或小型 mixin 时才值得使用协作式多继承。</p>
+<span class="heading-anchor" id="7. 抽象基类与协议"></span><h2 id="7">7. 抽象基类与协议</h2>
+<p>抽象基类（ABC）适合在运行时强制某些方法必须实现：</p>
+<pre><code class="language-python">from abc import ABC, abstractmethod
+
+
+class Retriever(ABC):
+    @abstractmethod
+    def search(self, query: str, *, limit: int = 5) -&gt; list[str]:
+        """返回检索到的文本片段。"""
+        raise NotImplementedError
+
+
+class InMemoryRetriever(Retriever):
+    def __init__(self, documents: list[str]) -&gt; None:
+        self.documents = documents
+
+    def search(self, query: str, *, limit: int = 5) -&gt; list[str]:
+        matched = [doc for doc in self.documents if query.lower() in doc.lower()]
+        return matched[:limit]
+
+
+retriever = InMemoryRetriever(["Python 教程", "Agent 工具调用"])
+print(retriever.search("agent"))  # ['Agent 工具调用']
+# Retriever() 会抛 TypeError，因为抽象方法没有实现
+</code></pre>
+<p>Python 还经常采用“鸭子类型”：只要对象拥有所需方法，就可以使用，不必继承某个基类。typing.Protocol 能把这种约定写出来，并让静态检查器理解：</p>
+<pre><code class="language-python">from typing import Protocol
+
+
+class Completer(Protocol):
+    def complete(self, prompt: str) -&gt; str: ...
+
+
+class LocalCompleter:
+    def complete(self, prompt: str) -&gt; str:
+        return f"local: {prompt}"
+
+
+def ask(completer: Completer, prompt: str) -&gt; str:
+    return completer.complete(prompt)
+
+
+print(ask(LocalCompleter(), "你好"))  # local: 你好
+</code></pre>
+<p>ABC 关注运行时约束和共享实现；Protocol 关注结构约定和静态类型兼容。工具插件、模型适配器等可替换边界通常适合用 Protocol 描述最小接口，再在需要时用 ABC 提供公共逻辑。</p>
+<span class="heading-anchor" id="ABC、Protocol 与鸭子类型的边界"></span><h3 id="abcprotocol">ABC、Protocol 与鸭子类型的边界</h3>
+<p>三者解决的问题不同：</p>
+<ul>
+<li>鸭子类型是运行时习惯：直接调用需要的方法，失败时才发现不兼容；灵活但错误出现较晚。</li>
+<li><code>ABC</code> 是名义接口：通过继承声明关系，抽象方法未实现时不能实例化，还可以共享模板实现。</li>
+<li><code>Protocol</code> 是结构接口：只要对象具备所需成员，静态类型检查器就可认为兼容，不要求继承；它适合插件和外部 SDK 适配。</li>
+</ul>
+<p><code>@runtime_checkable</code> 允许对 Protocol 做 <code>isinstance</code> 检查，但运行时通常只检查成员是否存在，不检查参数签名、返回值或业务语义。因此它不能取代静态检查和边界测试：</p>
+<pre><code class="language-python">from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class SupportsComplete(Protocol):
+    def complete(self, prompt: str) -&gt; str: ...
+
+
+class Compatible:
+    def complete(self, prompt: str) -&gt; str:
+        return prompt.upper()
+
+
+class WrongShape:
+    complete = "not callable"
+
+
+print(isinstance(Compatible(), SupportsComplete))  # True
+print(isinstance(WrongShape(), SupportsComplete))   # True：只看成员名，不能证明可调用
+print(Compatible().complete("hi"))                  # HI
+</code></pre>
+<p>接口应尽量小而稳定：模型适配器可以只要求 <code>complete</code>，工具协议只要求名称、参数 schema 和执行方法。若 Protocol 成员很多，替换实现会被迫依赖不需要的能力，说明应拆分接口；若需要共享状态和生命周期，才考虑 ABC 或组合基类。</p>
+<span class="heading-anchor" id="8. 常用魔术方法与数据模型"></span><h2 id="8">8. 常用魔术方法与数据模型</h2>
+<p>魔术方法是 Python 在特定语法或内置函数中调用的协议。不要只为“看起来高级”而实现；先明确对象应支持的语义。</p>
+<pre><code class="language-python">from types import NotImplementedType
+
+
+class ToolCall:
+    def __init__(self, name: str, arguments: dict[str, object]) -&gt; None:
+        self.name = name
+        self.arguments = arguments
+
+    def __repr__(self) -&gt; str:
+        return f"ToolCall(name={self.name!r}, arguments={self.arguments!r})"
+
+    def __str__(self) -&gt; str:
+        return f"{self.name}({self.arguments})"
+
+    def __eq__(self, other: object) -&gt; bool | NotImplementedType:
+        if not isinstance(other, ToolCall):
+            return NotImplemented
+        return self.name == other.name and self.arguments == other.arguments
+
+    def __bool__(self) -&gt; bool:
+        return bool(self.name.strip())
+
+    def __len__(self) -&gt; int:
+        return len(self.arguments)
+
+    def __call__(self, **extra: object) -&gt; "ToolCall":
+        merged = {**self.arguments, **extra}
+        return ToolCall(self.name, merged)
+
+
+call = ToolCall("search", {"query": "Python"})
+print(repr(call))                # ToolCall(...)
+print(str(call))                 # search({'query': 'Python'})
+print(len(call))                 # 1
+print(bool(call))                # True
+print(call(timeout=10))          # 新 ToolCall，不修改原对象
+print(call == ToolCall("search", {"query": "Python"}))  # True
+</code></pre>
+<p>常见协议包括：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>魔术方法</th>
+<th>触发场景</th>
+<th>设计提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>init</strong></td>
+<td>实例初始化</td>
+<td>建立对象不变量</td>
+</tr>
+<tr>
+<td><strong>repr</strong></td>
+<td>repr(x)、调试容器</td>
+<td>追求可诊断，敏感信息要脱敏</td>
+</tr>
+<tr>
+<td><strong>str</strong></td>
+<td>str(x)、print(x)</td>
+<td>面向用户的简洁表示</td>
+</tr>
+<tr>
+<td><strong>eq</strong></td>
+<td>x == y</td>
+<td>返回 NotImplemented 让对方类型有机会比较</td>
+</tr>
+<tr>
+<td><strong>hash</strong></td>
+<td>放入字典/集合</td>
+<td>可变对象不要提供不稳定哈希</td>
+</tr>
+<tr>
+<td><strong>bool</strong></td>
+<td>if x</td>
+<td>定义“空/无效”的真值语义</td>
+</tr>
+<tr>
+<td><strong>len</strong></td>
+<td>len(x)</td>
+<td>表达大小或可用项数量</td>
+</tr>
+<tr>
+<td><strong>getitem</strong></td>
+<td>x[key]</td>
+<td>支持索引/映射协议</td>
+</tr>
+<tr>
+<td><strong>iter</strong></td>
+<td>for x in obj</td>
+<td>形成可迭代协议（下一章详述）</td>
+</tr>
+<tr>
+<td><strong>call</strong></td>
+<td>obj(...)</td>
+<td>让对象像函数一样执行</td>
+</tr>
+</tbody>
+</table></div>
+<p>定义 eq 后，Python 通常会把 hash 置为 None，以避免可变对象作为哈希键造成错误。只有对象的参与比较状态真正不可变时，才实现稳定的 hash，或者使用 dataclass(frozen=True)。</p>
+<p>slots 可以限制实例属性并减少内存占用，但会牺牲动态加属性、某些序列化和多继承的便利。先测量再使用，不要把它当默认优化手段。</p>
+<span class="heading-anchor" id="从语法到协议：如何实现魔术方法"></span><h3 id="_13">从语法到协议：如何实现魔术方法</h3>
+<p>魔术方法的价值在于接入既有语法，使用者不需要知道实现细节。实现前先问“对象在业务上是什么”：工具调用是否可比较？结果是否像映射？<code>len</code> 表示参数数量还是输出长度？一个错误的协议实现会让普通语法产生误导性结果。</p>
+<pre><code class="language-python">from types import NotImplementedType
+
+
+class RankedTool:
+    def __init__(self, name: str, rank: int, arguments: dict[str, object]) -&gt; None:
+        self.name = name
+        self.rank = rank
+        self.arguments = arguments
+
+    def __repr__(self) -&gt; str:
+        return f"RankedTool({self.name!r}, rank={self.rank!r})"
+
+    def __len__(self) -&gt; int:
+        return len(self.arguments)
+
+    def __iter__(self):
+        return iter(self.arguments)
+
+    def __getitem__(self, key: str) -&gt; object:
+        return self.arguments[key]
+
+    def __contains__(self, key: object) -&gt; bool:
+        return key in self.arguments
+
+    def __lt__(self, other: object) -&gt; bool | NotImplementedType:
+        if not isinstance(other, RankedTool):
+            return NotImplemented
+        return self.rank &lt; other.rank
+
+    def __call__(self, **extra: object) -&gt; "RankedTool":
+        return RankedTool(self.name, self.rank, {**self.arguments, **extra})
+
+
+tool = RankedTool("search", 2, {"query": "python"})
+print(tool)              # RankedTool('search', rank=2)：容器/调试中的 repr
+print(len(tool), "query" in tool)  # 1 True
+print(tool["query"])     # python
+print(list(tool))        # ['query']
+print(tool(timeout=5))   # 新对象，不修改原参数
+print(tool &lt; RankedTool("browser", 3, {}))  # True
+</code></pre>
+<p>实现比较方法时，对不支持的类型返回 <code>NotImplemented</code>，让 Python 尝试对方的反射方法或最终抛出合适的 <code>TypeError</code>；返回 <code>False</code> 会掩盖类型不兼容。<code>__eq__</code> 与 <code>__hash__</code> 必须保持契约：相等对象的哈希相等，参与比较的字段在作为键期间不能变化，所以这里的可变 <code>RankedTool</code> 没有实现 <code>__hash__</code>。</p>
+<p>协议选择可按语法对应：<code>__getitem__</code> 接入索引/键访问，<code>__iter__</code> 接入迭代，<code>__call__</code> 接入调用，<code>__bool__</code> 接入真假判断，<code>__enter__</code>/<code>__exit__</code> 接入同步资源管理。不要为了少写几个方法而让一个对象同时伪装成模型、工具、序列和上下文管理器；接口越多，测试和替换成本越高。</p>
+<span class="heading-anchor" id="9. 面向 Agent 的组件设计示例"></span><h2 id="9-agent">9. 面向 Agent 的组件设计示例</h2>
+<p>把“状态”和“行为”分离出最小接口，Agent 可以替换模型、工具执行器和记忆实现：</p>
+<pre><code class="language-python">from dataclasses import dataclass, field
+from typing import Protocol
+
+
+class Model(Protocol):
+    def complete(self, messages: list[dict[str, str]]) -&gt; str: ...
+
+
+class Tool(Protocol):
+    name: str
+
+    def run(self, argument: str) -&gt; str: ...
+
+
+@dataclass
+class Agent:
+    model: Model
+    tools: dict[str, Tool]
+    messages: list[dict[str, str]] = field(default_factory=list)
+
+    def ask(self, text: str) -&gt; str:
+        self.messages.append({"role": "user", "content": text})
+        answer = self.model.complete(self.messages)
+        self.messages.append({"role": "assistant", "content": answer})
+        return answer
+
+    def use_tool(self, name: str, argument: str) -&gt; str:
+        if name not in self.tools:
+            raise ValueError(f"工具未获许可: {name}")
+        return self.tools[name].run(argument)
+
+
+class EchoModel:
+    def complete(self, messages: list[dict[str, str]]) -&gt; str:
+        return f"收到：{messages[-1]['content']}"
+
+
+class UpperTool:
+    name = "upper"
+
+    def run(self, argument: str) -&gt; str:
+        return argument.upper()
+
+
+agent = Agent(EchoModel(), {"upper": UpperTool()})
+print(agent.ask("介绍一下多态"))        # 收到：介绍一下多态
+print(agent.use_tool("upper", "hello"))  # HELLO
+</code></pre>
+<p>示例中的关键点是：Agent 通过协议依赖最小行为，工具用组合注入，消息状态由实例持有，未授权工具在边界处拒绝。生产实现还要添加输入 schema、超时、权限、审计和异常策略。</p>
+<span class="heading-anchor" id="组件边界、状态所有权与测试替身"></span><h3 id="_14">组件边界、状态所有权与测试替身</h3>
+<p>一个可维护的 Agent 组件至少要回答三件事：状态由谁拥有、方法是否会产生副作用、失败如何向上层传播。上例中 <code>Agent</code> 拥有消息列表，<code>Model</code> 只负责生成回答，<code>Tool</code> 只负责执行工具；这使得每个替换点都能用小型测试替身验证。</p>
+<p>建议把“决策”与“执行”拆开：纯函数根据状态生成下一步动作，执行器负责网络/文件/数据库副作用，再把结果作为新事件写回状态。这样重试决策可以重复计算，而不会重复写入或重复扣费。若必须把状态和行为放进同一个类，也要在构造器中显式注入依赖，不要在方法内部偷偷创建全局客户端。</p>
+<p>依赖注入不一定要使用大型框架；构造器参数、函数参数和工厂函数都足够。生产边界还应为模型输出设长度和 schema 限制，为工具执行设权限和超时，为 <code>repr</code>/日志设脱敏策略。</p>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_15">常见坑</h2>
+<ol>
+<li>可变默认参数会跨调用共享；使用 None 或 default_factory。</li>
+<li>在函数中给名称赋值会使它成为局部变量，可能导致“引用前赋值”的 UnboundLocalError。</li>
+<li>过度使用 global 会让测试和并发变得困难；优先显式传参或封装状态。</li>
+<li>循环创建闭包时，变量常按引用延迟读取；用默认参数或工厂函数绑定当前值。</li>
+<li>lambda 不适合承载业务逻辑；复杂逻辑用有名字、可测试的 def。</li>
+<li>类属性中的列表/字典会被所有实例共享；运行时状态应放到 init 的实例属性。</li>
+<li>继承不是代码复用的万能方案；不满足“是一种”关系时优先组合。</li>
+<li>覆盖方法时改变参数语义会破坏多态；子类应遵守父类/协议的可替换契约。</li>
+<li>多继承中直接写 Parent.method(self) 会绕过 MRO；协作式层级应使用 super。</li>
+<li>repr 可能进入日志，不能把 API 密钥、用户隐私或完整提示词直接放进去。</li>
+<li>自定义 eq 后不要随意实现 hash；对象作为字典键期间，参与哈希的字段必须保持不变。</li>
+<li>通过 call 隐藏昂贵的网络调用会降低可读性；命名方法通常更清楚。</li>
+</ol>
+<span class="heading-anchor" id="面向 AI Agent 的应用提示"></span><h2 id="ai-agent">面向 AI Agent 的应用提示</h2>
+<ul>
+<li><strong>工具适配器</strong>：用 Protocol 或 ABC 描述 run/arun 等最小接口，用组合注入不同工具；不要让 Agent 依赖某个具体供应商 SDK。</li>
+<li><strong>模型适配器</strong>：把供应商客户端封装为 complete 或 stream 接口，测试中注入确定性的假实现，避免每个单元测试都访问网络。</li>
+<li><strong>工作流节点</strong>：一个节点可以是带状态的对象，也可以是纯函数；把重试、日志、限流等横切逻辑交给装饰器或包装对象。</li>
+<li><strong>消息状态</strong>：状态属于实例或显式上下文对象，不要放在类属性或模块全局；分支执行时考虑前章的复制/不可变边界。</li>
+<li><strong>多态与安全</strong>：多态只负责替换实现，不等于授权。工具名称、参数和调用权限仍需在 Agent 边界校验。</li>
+<li><strong>数据模型</strong>：对象的 repr 方便调试，但日志必须脱敏；用户输入和模型输出都要限制长度，避免日志泄露或爆炸。</li>
+<li><strong>依赖倒置</strong>：Agent 依赖“能完成任务的接口”，而不是具体数据库、HTTP 客户端或模型类；这样才能隔离网络错误并提高可测试性。</li>
+</ul>
+<span class="heading-anchor" id="练习题"></span><h2 id="_16">练习题</h2>
+<ol>
+<li>编写 format_prompt(prompt, /, *, system=None, variables=None)，要求 prompt 只能按位置传入，变量缺失时给出清晰异常，并写三个调用示例。</li>
+<li>实现一个安全的 append_history(message, history=None)，证明不同调用不会共享列表；再解释为什么 history=[] 不安全。</li>
+<li>编写 make_retry_policy(max_retries) 闭包，记录调用次数并在超过次数时抛出异常；思考闭包状态如何影响并发安全。</li>
+<li>定义 Retriever 协议，分别实现内存检索器和“总是返回空列表”的测试替身，并让一个回答函数依赖协议而非具体类。</li>
+<li>设计 Tool 抽象或协议，写两个工具实现，要求 Agent 通过名称查找并拒绝未授权工具；为未知工具、空参数和工具异常设计测试。</li>
+<li><strong>综合题</strong>：实现一个可组合的 AgentRunner，由模型、记忆、工具注册表三部分组成。要求支持注入假模型、记录消息、执行工具、对工具异常进行统一包装，并说明哪些状态应由实例持有、哪些行为应抽成纯函数。</li>
+<li><strong>综合题</strong>：构造一个 BaseStep/RetryStep/LoggingStep 的多继承或包装示例，打印 MRO 并使用 super 保证初始化链完整。比较该方案与组合式中间件的可维护性。</li>
+</ol>
+<span class="heading-anchor" id="练习提示与验收标准"></span><h3 id="_17">练习提示与验收标准</h3>
+<ul>
+<li>第 1 题：提示：先写出位置专用和仅关键字参数，再对缺失变量使用显式异常。验收：关键字传 <code>prompt</code>、传未知变量和遗漏必填变量时都有可读错误；正常调用不修改输入字典。</li>
+<li>第 2 题：提示：用 <code>None</code> 哨兵并在函数体创建列表。验收：两次无显式历史的调用返回两个不同列表；传入已有列表时要明确是原地追加还是返回副本。</li>
+<li>第 3 题：提示：闭包只保存少量策略状态，先定义计数发生在调用前还是调用后。验收：超过次数时异常稳定；并发调用的安全性和是否需要锁有书面说明。</li>
+<li>第 4 题：提示：让回答函数只依赖 <code>search</code> 方法，不要在函数体 <code>isinstance</code> 某个具体检索器。验收：两个实现均可替换，测试替身不需要继承具体类。</li>
+<li>第 5 题：提示：把授权检查、参数校验和执行异常分成边界步骤。验收：未知工具被拒绝，空参数得到明确错误，工具内部异常不会被静默吞掉。</li>
+<li>第 6 题：提示：先画出模型、记忆、注册表和 Agent 的所有权，再决定哪些方法是纯函数。验收：可注入假模型；消息顺序正确；工具错误带有工具名且不会把密钥写进日志。</li>
+<li>第 7 题：提示：先打印 MRO，再用每一层 <code>super()</code> 记录初始化顺序，并另写一个组合式中间件版本。验收：所有 mixin 初始化一次且不跳过；能解释何时组合更易测试。</li>
+</ul>
+<span class="heading-anchor" id="小结"></span><h2 id="_18">小结</h2>
+<p>函数通过明确签名承载可复用行为，闭包适合少量绑定状态，类适合把状态和协议组织在一起。面向对象设计的重点不是继承层级，而是清晰的不变量、最小接口和可替换实现：能用组合就组合，用协议表达“需要什么”，用多态隔离具体模型和工具。魔术方法则是 Python 数据模型的协议入口，应只实现真正符合对象语义的行为。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

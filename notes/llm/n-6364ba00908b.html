@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>LLM 微调面试 20 问：从训练机制到生产落地 · 李杨的学习笔记</title><meta name="description" content="这份文档按面试高频问题组织。每个答案尽量做到：先一句话回答，再展开机制、风险和工程取舍。"><meta property="og:title" content="LLM 微调面试 20 问：从训练机制到生产落地 · 李杨的学习笔记"><meta property="og:description" content="这份文档按面试高频问题组织。每个答案尽量做到：先一句话回答，再展开机制、风险和工程取舍。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-6364ba00908b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-6364ba00908b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">LLM / 微调</p><h1>LLM 微调面试 20 问：从训练机制到生产落地</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/%E5%BE%AE%E8%B0%83/LLM%E5%BE%AE%E8%B0%83%E9%9D%A2%E8%AF%9520%E9%97%AE.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">使用方式</a></li><li><a href="#_2">思维导图：高频考点地图</a></li><li><a href="#q1-llm">Q1. 什么是 LLM 微调？它主要解决什么问题？</a></li><li><a href="#_3">标准回答</a></li><li><a href="#_4">深入展开</a></li><li><a href="#_5">追问回答</a></li><li><a href="#q2-prompt-engineeringrag">Q2. 微调、Prompt Engineering、RAG、继续预训练有什么区别？</a></li><li><a href="#_6">标准回答</a></li><li><a href="#_7">对比表</a></li><li><a href="#_8">速记</a></li><li><a href="#q3-sft-loss">Q3. SFT 是什么？训练样本和 loss 如何构造？</a></li><li><a href="#_9">标准回答</a></li><li><a href="#mask-prompt">为什么 mask prompt</a></li><li><a href="#_10">追问回答</a></li><li><a href="#q4-instruction-tuning-sft">Q4. Instruction Tuning 和 SFT 是什么关系？</a></li><li><a href="#_11">标准回答</a></li><li><a href="#_12">举例</a></li><li><a href="#_13">速记</a></li><li><a href="#q5-peft">Q5. 全参数微调和 PEFT 有什么区别？</a></li><li><a href="#_14">标准回答</a></li><li><a href="#_15">选择建议</a></li><li><a href="#q6-lora">Q6. LoRA 的核心原理是什么？为什么省参数？</a></li><li><a href="#_16">标准回答</a></li><li><a href="#_17">公式</a></li><li><a href="#_18">追问回答</a></li><li><a href="#q7-lora-rankalphatarget_modules">Q7. LoRA 中 rank、alpha、target_modules 怎么选？</a></li><li><a href="#_19">标准回答</a></li><li><a href="#_20">实践建议</a></li><li><a href="#q8-qlora-lora">Q8. QLoRA 是什么？和 LoRA 有什么区别？</a></li><li><a href="#_21">标准回答</a></li><li><a href="#_22">对比</a></li><li><a href="#_23">常见误区</a></li><li><a href="#q9-dpo-rlhf">Q9. DPO 是什么？它和 RLHF 有什么区别？</a></li><li><a href="#_24">标准回答</a></li><li><a href="#rlhf">RLHF 典型流程</a></li><li><a href="#_25">追问回答</a></li><li><a href="#q10-sft">Q10. 继续预训练和 SFT 应该如何配合？</a></li><li><a href="#_26">标准回答</a></li><li><a href="#_27">适用场景</a></li><li><a href="#q11">Q11. 微调数据应该如何清洗和构造？</a></li><li><a href="#_28">标准回答</a></li><li><a href="#_29">检查清单</a></li><li><a href="#_30">速记</a></li><li><a href="#q12">Q12. 如何设计微调评估集？</a></li><li><a href="#_31">标准回答</a></li><li><a href="#_32">指标示例</a></li><li><a href="#q13">Q13. 如何判断微调过拟合？怎么缓解？</a></li><li><a href="#_33">标准回答</a></li><li><a href="#_34">常见表现</a></li><li><a href="#q14">Q14. 什么是灾难性遗忘？如何避免？</a></li><li><a href="#_35">标准回答</a></li><li><a href="#_36">追问回答</a></li><li><a href="#q15">Q15. 微调为什么不能保证事实正确？</a></li><li><a href="#_37">标准回答</a></li><li><a href="#_38">举例</a></li><li><a href="#q16-lora-adapter-merge">Q16. 微调后的 LoRA Adapter 要不要 merge？</a></li><li><a href="#_39">标准回答</a></li><li><a href="#_40">注意</a></li><li><a href="#q17">Q17. 微调上线前必须做哪些检查？</a></li><li><a href="#_41">标准回答</a></li><li><a href="#_42">生产清单</a></li><li><a href="#q18">Q18. 如果微调后模型输出格式更稳定，但事实错误变多，怎么办？</a></li><li><a href="#_43">标准回答</a></li><li><a href="#_44">面试加分点</a></li><li><a href="#q19-epochbatch-size">Q19. 如何选择学习率、epoch、batch size 等超参数？</a></li><li><a href="#_45">标准回答</a></li><li><a href="#_46">原则</a></li><li><a href="#q20">Q20. 给你一个业务场景，你如何设计完整微调方案？</a></li><li><a href="#_47">标准回答</a></li><li><a href="#60">60 秒回答模板</a></li><li><a href="#_48">面试快速复盘表</a></li><li><a href="#_49">最终记忆图</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="使用方式"></span><h2 id="_1">使用方式</h2>
+<p>这份文档按面试高频问题组织。每个答案尽量做到：先一句话回答，再展开机制、风险和工程取舍。</p>
+<blockquote>
+<p>面试答题口诀：<strong>先判断是否该微调，再讲数据，再讲方法，再讲评估，最后讲上线风险。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="思维导图：高频考点地图"></span><h2 id="_2">思维导图：高频考点地图</h2>
+<pre class="mermaid">mindmap
+  root((微调面试))
+    基础概念
+      SFT
+      Instruction Tuning
+      PEFT
+      继续预训练
+    方法原理
+      LoRA
+      QLoRA
+      DPO
+      RLHF
+    数据工程
+      清洗
+      脱敏
+      标签mask
+      切分评估
+    训练稳定
+      学习率
+      过拟合
+      遗忘
+      安全退化
+    生产落地
+      Adapter
+      Merge
+      灰度
+      监控回滚
+</pre>
+<hr/>
+<span class="heading-anchor" id="Q1. 什么是 LLM 微调？它主要解决什么问题？"></span><h2 id="q1-llm">Q1. 什么是 LLM 微调？它主要解决什么问题？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_3">标准回答</h3>
+<p>LLM 微调是在预训练模型基础上，用目标任务或偏好数据继续训练，使模型更稳定地满足特定格式、风格、领域流程、工具调用或人类偏好。它主要解决“模型该如何回答”的行为适配问题，而不是单纯解决“模型缺少外部知识”的问题。</p>
+<pre class="mermaid">flowchart LR
+  A["预训练模型"] --&gt; B["通用能力"]
+  B --&gt; C["微调数据"]
+  C --&gt; D["行为适配"]
+  D --&gt; E["更符合任务的模型"]
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_4">深入展开</h3>
+<p>微调常用于：</p>
+<ul>
+<li>固定输出格式，比如 JSON、SQL、工具调用参数。</li>
+<li>学习领域话术，比如客服、法律、医疗辅助写作。</li>
+<li>学习业务流程，比如先问诊断信息再给建议。</li>
+<li>学习偏好，比如更简洁、更安全、更符合品牌风格。</li>
+</ul>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_5">追问回答</h3>
+<p>如果面试官问“微调能否让模型记住公司知识库？”</p>
+<p>答：可以让模型接触领域语料，但不适合把频繁变化、需要可追溯的知识都塞进参数。公司知识库通常优先用 RAG，微调用于让模型更会使用检索材料和遵守回答格式。</p>
+<hr/>
+<span class="heading-anchor" id="Q2. 微调、Prompt Engineering、RAG、继续预训练有什么区别？"></span><h2 id="q2-prompt-engineeringrag">Q2. 微调、Prompt Engineering、RAG、继续预训练有什么区别？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_6">标准回答</h3>
+<p>Prompt 不改参数，适合快速约束当前输入；RAG 不改参数，通过检索外部知识增强回答；微调会更新模型参数或适配器，适合固化稳定行为；继续预训练用大规模领域文本延续语言建模，适合让模型熟悉领域分布。</p>
+<pre class="mermaid">flowchart TD
+  A["模型适配"] --&gt; B["Prompt"]
+  B --&gt; B1["上下文内约束"]
+  A --&gt; C["RAG"]
+  C --&gt; C1["外部知识注入"]
+  A --&gt; D["微调"]
+  D --&gt; D1["参数或适配器更新"]
+  A --&gt; E["继续预训练"]
+  E --&gt; E1["领域语料分布学习"]
+</pre>
+<span class="heading-anchor" id="对比表"></span><h3 id="_7">对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>是否改参数</th>
+<th>适合问题</th>
+<th>主要风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prompt</td>
+<td>否</td>
+<td>少量格式和任务约束</td>
+<td>稳定性有限</td>
+</tr>
+<tr>
+<td>RAG</td>
+<td>否</td>
+<td>最新、私有、可引用知识</td>
+<td>检索失败和注入风险</td>
+</tr>
+<tr>
+<td>微调</td>
+<td>是</td>
+<td>固化行为和偏好</td>
+<td>过拟合、遗忘、安全退化</td>
+</tr>
+<tr>
+<td>继续预训练</td>
+<td>是</td>
+<td>领域语言分布</td>
+<td>成本高、仍需指令微调</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="速记"></span><h3 id="_8">速记</h3>
+<pre><code class="language-text">Prompt管当前怎么说，RAG管材料从哪来，微调管长期习惯，预训练管底层能力。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q3. SFT 是什么？训练样本和 loss 如何构造？"></span><h2 id="q3-sft-loss">Q3. SFT 是什么？训练样本和 loss 如何构造？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_9">标准回答</h3>
+<p>SFT 是监督微调，用“指令或上下文 -&gt; 理想回答”的样本训练模型。对于 Decoder-only 模型，本质仍是 next token prediction；通常会把 prompt 部分的 label 设为 ignore，只对 assistant 回答部分计算交叉熵 loss。</p>
+<pre class="mermaid">flowchart LR
+  A["system和user消息"] --&gt; B["Chat Template"]
+  C["assistant答案"] --&gt; B
+  B --&gt; D["Token序列"]
+  D --&gt; E["右移构造labels"]
+  E --&gt; F["prompt标签ignore"]
+  F --&gt; G["assistant部分计算loss"]
+</pre>
+<span class="heading-anchor" id="为什么 mask prompt"></span><h3 id="mask-prompt">为什么 mask prompt</h3>
+<p>如果不 mask prompt，模型会学习复述 system 和 user 内容，而不是专注学习“在用户问题之后如何回答”。mask 掉 prompt 部分可以让 loss 更集中于 assistant 输出。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_10">追问回答</h3>
+<p>问：所有 SFT 都必须 mask prompt 吗？<br/>
+答：不是绝对，但对指令微调和聊天模型很常见。具体取决于训练目标和数据格式。如果目标是普通语言建模或继续预训练，就不一定这样 mask。</p>
+<hr/>
+<span class="heading-anchor" id="Q4. Instruction Tuning 和 SFT 是什么关系？"></span><h2 id="q4-instruction-tuning-sft">Q4. Instruction Tuning 和 SFT 是什么关系？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_11">标准回答</h3>
+<p>Instruction Tuning 可以看作 SFT 的一种重要形式。它用大量“指令-回答”数据训练模型，让模型学会遵循人类自然语言指令。SFT 是训练范式，Instruction Tuning 是面向指令遵循能力的 SFT 数据组织方式。</p>
+<pre class="mermaid">flowchart TD
+  A["SFT监督微调"] --&gt; B["Instruction Tuning"]
+  B --&gt; B1["自然语言指令"]
+  B --&gt; B2["标准回答"]
+  A --&gt; C["任务微调"]
+  C --&gt; C1["分类"]
+  C --&gt; C2["抽取"]
+  A --&gt; D["对话微调"]
+  D --&gt; D1["多轮messages"]
+</pre>
+<span class="heading-anchor" id="举例"></span><h3 id="_12">举例</h3>
+<p>Instruction Tuning 样本常长这样：</p>
+<pre><code class="language-text">指令：用三句话解释Transformer
+回答：Transformer是一种...
+</code></pre>
+<p>而普通 SFT 也可以是情感分类、SQL 生成、摘要等特定任务。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_13">速记</h3>
+<pre><code class="language-text">SFT是训练方式，Instruction Tuning是让模型听懂指令的一类SFT。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q5. 全参数微调和 PEFT 有什么区别？"></span><h2 id="q5-peft">Q5. 全参数微调和 PEFT 有什么区别？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_14">标准回答</h3>
+<p>全参数微调更新模型所有权重，适配能力强但显存、存储和部署成本高。PEFT 只训练少量新增参数或部分参数，例如 LoRA、Adapter、Prefix Tuning，成本低、便于多任务管理，但表达能力可能受限。</p>
+<pre class="mermaid">flowchart TD
+  A["微调"] --&gt; B["全参数微调"]
+  B --&gt; B1["更新所有权重"]
+  B --&gt; B2["成本高适配强"]
+  A --&gt; C["PEFT"]
+  C --&gt; C1["只训少量参数"]
+  C --&gt; C2["LoRA Adapter Prefix"]
+  C --&gt; C3["成本低易管理"]
+</pre>
+<span class="heading-anchor" id="选择建议"></span><h3 id="_15">选择建议</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据少、资源有限、需要快速试验</td>
+<td>LoRA 或 QLoRA</td>
+</tr>
+<tr>
+<td>多个业务任务共享同一基座</td>
+<td>PEFT</td>
+</tr>
+<tr>
+<td>需要深度改造模型能力且资源充足</td>
+<td>全参数微调或继续预训练</td>
+</tr>
+<tr>
+<td>只是格式不稳定</td>
+<td>先 Prompt，再少量 SFT</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="Q6. LoRA 的核心原理是什么？为什么省参数？"></span><h2 id="q6-lora">Q6. LoRA 的核心原理是什么？为什么省参数？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_16">标准回答</h3>
+<p>LoRA 冻结原始权重 <code>W</code>，只训练一个低秩增量 <code>ΔW</code>。它把 <code>ΔW</code> 分解成两个小矩阵 <code>B A</code>，rank <code>r</code> 远小于原矩阵维度，因此可训练参数大幅减少。</p>
+<pre class="mermaid">flowchart LR
+  X["输入x"] --&gt; W["冻结W"]
+  X --&gt; A["低秩A"]
+  A --&gt; B["低秩B"]
+  B --&gt; S["缩放"]
+  W --&gt; ADD["相加"]
+  S --&gt; ADD
+  ADD --&gt; Y["输出"]
+</pre>
+<span class="heading-anchor" id="公式"></span><h3 id="_17">公式</h3>
+<div class="arithmatex">\[
+y = xW + \frac{\alpha}{r}xBA
+\]</div>
+<p>如果 <code>W</code> 是 <code>4096 × 4096</code>，完整矩阵约 1677 万参数；rank 为 8 的 LoRA 只需要约 6.5 万参数。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_18">追问回答</h3>
+<p>问：LoRA 为什么不会直接破坏原模型？<br/>
+答：因为原权重冻结，LoRA 只学习一个增量分支。初始化通常让增量接近 0，训练初期模型行为接近原模型，更稳定。</p>
+<hr/>
+<span class="heading-anchor" id="Q7. LoRA 中 rank、alpha、target_modules 怎么选？"></span><h2 id="q7-lora-rankalphatarget_modules">Q7. LoRA 中 rank、alpha、target_modules 怎么选？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_19">标准回答</h3>
+<p>rank 控制适配器容量，越大表达力越强但参数和过拟合风险越高；alpha 控制 LoRA 增量缩放强度；target_modules 决定 LoRA 插入哪些线性层，常见是 q、k、v、o 投影和 MLP 投影层。</p>
+<pre class="mermaid">mindmap
+  root((LoRA超参))
+    rank
+      容量
+      参数量
+      过拟合风险
+    alpha
+      增量强度
+      稳定性
+    dropout
+      正则化
+      小数据防过拟合
+    target_modules
+      Attention投影
+      MLP投影
+      任务适配范围
+</pre>
+<span class="heading-anchor" id="实践建议"></span><h3 id="_20">实践建议</h3>
+<ul>
+<li>数据少、任务简单：较小 rank。</li>
+<li>任务复杂、格式和推理模式变化大：适当增大 rank 或覆盖更多模块。</li>
+<li>只调 attention 可能不够，复杂任务可考虑 attention + MLP。</li>
+<li>必须基于验证集和回归测试选择，而不是盲目追大。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="Q8. QLoRA 是什么？和 LoRA 有什么区别？"></span><h2 id="q8-qlora-lora">Q8. QLoRA 是什么？和 LoRA 有什么区别？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_21">标准回答</h3>
+<p>QLoRA 是在量化后的冻结基座模型上训练 LoRA 适配器。LoRA 省的是可训练参数，QLoRA 进一步通过 4-bit 等量化降低基座模型显存占用，使低显存微调更大的模型成为可能。</p>
+<pre class="mermaid">flowchart TD
+  A["基座模型"] --&gt; B["低比特量化存储"]
+  B --&gt; C["冻结量化权重"]
+  C --&gt; D["插入LoRA"]
+  D --&gt; E["只训练LoRA参数"]
+  E --&gt; F["低显存微调"]
+</pre>
+<span class="heading-anchor" id="对比"></span><h3 id="_22">对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>LoRA</th>
+<th>QLoRA</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基座权重</td>
+<td>FP16/BF16 常见</td>
+<td>4-bit 量化常见</td>
+</tr>
+<tr>
+<td>训练参数</td>
+<td>LoRA</td>
+<td>LoRA</td>
+</tr>
+<tr>
+<td>显存占用</td>
+<td>低</td>
+<td>更低</td>
+</tr>
+<tr>
+<td>复杂度</td>
+<td>中</td>
+<td>更高</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h3 id="_23">常见误区</h3>
+<p>QLoRA 不是把所有训练都变成 4-bit。通常是基座权重量化存储，LoRA 参数仍以较高精度训练，计算中也会涉及反量化或特定 dtype。</p>
+<hr/>
+<span class="heading-anchor" id="Q9. DPO 是什么？它和 RLHF 有什么区别？"></span><h2 id="q9-dpo-rlhf">Q9. DPO 是什么？它和 RLHF 有什么区别？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_24">标准回答</h3>
+<p>DPO，Direct Preference Optimization，用 chosen/rejected 偏好对直接优化模型，使模型更倾向 chosen 而不是 rejected。相比 RLHF，DPO 不需要显式训练奖励模型，也不需要 PPO 式强化学习流程，工程更简单。</p>
+<pre class="mermaid">flowchart TD
+  A["偏好数据"] --&gt; B["chosen回答"]
+  A --&gt; C["rejected回答"]
+  B --&gt; D["当前模型概率"]
+  C --&gt; D
+  D --&gt; E["参考模型约束"]
+  E --&gt; F["DPO损失"]
+  F --&gt; G["偏好对齐模型"]
+</pre>
+<span class="heading-anchor" id="RLHF 典型流程"></span><h3 id="rlhf">RLHF 典型流程</h3>
+<pre><code class="language-text">SFT模型 → 采样回答 → 人类排序 → 奖励模型 → 强化学习优化策略模型
+</code></pre>
+<p>DPO 则更像：</p>
+<pre><code class="language-text">偏好对 + 参考模型 → 直接优化语言模型
+</code></pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_25">追问回答</h3>
+<p>问：DPO 是否一定优于 RLHF？<br/>
+答：不一定。DPO 简洁稳定，适合离线偏好数据；RLHF 更灵活但复杂。效果取决于数据质量、任务、训练配置和评估标准。</p>
+<hr/>
+<span class="heading-anchor" id="Q10. 继续预训练和 SFT 应该如何配合？"></span><h2 id="q10-sft">Q10. 继续预训练和 SFT 应该如何配合？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_26">标准回答</h3>
+<p>继续预训练让模型熟悉领域文本分布和术语，SFT 让模型学会按指令完成任务。常见顺序是先用大量领域无标注文本继续预训练，再用高质量指令数据做 SFT，最后可用偏好优化对齐。</p>
+<pre class="mermaid">flowchart LR
+  A["通用基座"] --&gt; B["领域继续预训练"]
+  B --&gt; C["领域语言和术语"]
+  C --&gt; D["SFT指令微调"]
+  D --&gt; E["会按任务回答"]
+  E --&gt; F["DPO或RLHF"]
+  F --&gt; G["更符合偏好"]
+</pre>
+<span class="heading-anchor" id="适用场景"></span><h3 id="_27">适用场景</h3>
+<p>如果领域语言与通用语料差异很大，例如医学、法律、代码、专利、古文，继续预训练可能有帮助。但如果只是想让模型按格式回答，直接 SFT 或 Prompt 更合适。</p>
+<hr/>
+<span class="heading-anchor" id="Q11. 微调数据应该如何清洗和构造？"></span><h2 id="q11">Q11. 微调数据应该如何清洗和构造？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_28">标准回答</h3>
+<p>微调数据要围绕目标行为构造，保证正确、干净、多样、格式一致、无敏感泄露，并覆盖真实线上分布和边界场景。坏数据会被模型学习，高重复数据会放大偏差。</p>
+<pre class="mermaid">flowchart TD
+  A["原始样本"] --&gt; B["去重"]
+  B --&gt; C["脱敏"]
+  C --&gt; D["纠错和标准化"]
+  D --&gt; E["格式校验"]
+  E --&gt; F["质量打分"]
+  F --&gt; G["切分训练验证测试"]
+</pre>
+<span class="heading-anchor" id="检查清单"></span><h3 id="_29">检查清单</h3>
+<ul>
+<li>是否有错误答案。</li>
+<li>是否有敏感信息。</li>
+<li>是否有大量重复模板。</li>
+<li>是否覆盖困难样本和边界问题。</li>
+<li>是否保留来源、版本和标注规则。</li>
+<li>是否有独立测试集。</li>
+</ul>
+<span class="heading-anchor" id="速记"></span><h3 id="_30">速记</h3>
+<pre><code class="language-text">模型不会识别你的训练数据是不是垃圾，它只会认真学习。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q12. 如何设计微调评估集？"></span><h2 id="q12">Q12. 如何设计微调评估集？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_31">标准回答</h3>
+<p>评估集应该覆盖目标任务、泛化场景、安全边界和通用能力回归。不能只看训练 loss，也不能用训练样本证明模型有效。</p>
+<pre class="mermaid">mindmap
+  root((微调评估集))
+    目标任务
+      格式
+      准确性
+      完整性
+    泛化样本
+      新问法
+      新实体
+      难例
+    安全回归
+      隐私
+      越权
+      危险请求
+    通用回归
+      常识
+      推理
+      语言能力
+</pre>
+<span class="heading-anchor" id="指标示例"></span><h3 id="_32">指标示例</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>目标</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON 输出</td>
+<td>schema 通过率</td>
+</tr>
+<tr>
+<td>分类任务</td>
+<td>Accuracy、F1</td>
+</tr>
+<tr>
+<td>问答</td>
+<td>人工评分、事实正确率</td>
+</tr>
+<tr>
+<td>摘要</td>
+<td>ROUGE 加人工一致性</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>拒答正确率、误拒率</td>
+</tr>
+<tr>
+<td>工具调用</td>
+<td>参数准确率、执行成功率</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="Q13. 如何判断微调过拟合？怎么缓解？"></span><h2 id="q13">Q13. 如何判断微调过拟合？怎么缓解？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_33">标准回答</h3>
+<p>如果训练 loss 持续下降，但验证集指标下降，或者模型对训练样本表现很好、对新问法泛化差，就可能过拟合。缓解方法包括减少 epoch、降低学习率、增加数据多样性、使用 early stopping、降低 LoRA rank、增加 dropout。</p>
+<pre class="mermaid">flowchart TD
+  A["训练过程"] --&gt; B{训练loss下降}
+  B -- 是 --&gt; C{验证集变好}
+  C -- 是 --&gt; D["继续观察"]
+  C -- 否 --&gt; E["过拟合信号"]
+  E --&gt; F["减少epoch"]
+  E --&gt; G["增强数据多样性"]
+  E --&gt; H["降低rank或加dropout"]
+</pre>
+<span class="heading-anchor" id="常见表现"></span><h3 id="_34">常见表现</h3>
+<ul>
+<li>输出越来越像训练模板，不会灵活变化。</li>
+<li>对训练集问题几乎逐字复现。</li>
+<li>新场景事实错误变多。</li>
+<li>安全拒答边界变差。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="Q14. 什么是灾难性遗忘？如何避免？"></span><h2 id="q14">Q14. 什么是灾难性遗忘？如何避免？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_35">标准回答</h3>
+<p>灾难性遗忘是模型在新任务微调后，原有通用能力或安全能力明显下降。避免方法包括使用 PEFT、小学习率、混入通用保持数据、限制训练轮数、做通用和安全回归评估。</p>
+<pre class="mermaid">flowchart LR
+  A["新任务数据"] --&gt; B["微调"]
+  B --&gt; C["目标任务提升"]
+  B --&gt; D["原能力下降"]
+  D --&gt; E["灾难性遗忘"]
+  E --&gt; F["PEFT和小学习率"]
+  E --&gt; G["通用回归数据"]
+  E --&gt; H["安全评估"]
+</pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_36">追问回答</h3>
+<p>问：LoRA 能完全避免遗忘吗？<br/>
+答：不能。LoRA 冻结基座，通常比全参微调更不容易破坏原模型，但适配器仍会影响输出分布，仍需回归测试。</p>
+<hr/>
+<span class="heading-anchor" id="Q15. 微调为什么不能保证事实正确？"></span><h2 id="q15">Q15. 微调为什么不能保证事实正确？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_37">标准回答</h3>
+<p>微调优化的是模型在训练数据上的条件概率，不是事实数据库。它可能学到表达风格和常见知识，但不能保证知识最新、完整、可追溯。对于需要精确事实和来源的场景，应结合 RAG、工具调用或数据库查询。</p>
+<pre class="mermaid">flowchart TD
+  A["微调"] --&gt; B["改变参数分布"]
+  B --&gt; C["更像训练答案"]
+  C --&gt; D["不等于事实校验"]
+  E["RAG或工具"] --&gt; F["外部可追溯事实"]
+  F --&gt; G["降低幻觉风险"]
+</pre>
+<span class="heading-anchor" id="举例"></span><h3 id="_38">举例</h3>
+<p>如果公司退款政策每周变化，用微调更新模型：</p>
+<ul>
+<li>训练成本高。</li>
+<li>旧政策可能残留。</li>
+<li>很难知道回答依据。</li>
+</ul>
+<p>更合理：RAG 检索最新政策，微调让模型按客服流程解释政策。</p>
+<hr/>
+<span class="heading-anchor" id="Q16. 微调后的 LoRA Adapter 要不要 merge？"></span><h2 id="q16-lora-adapter-merge">Q16. 微调后的 LoRA Adapter 要不要 merge？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_39">标准回答</h3>
+<p>是否 merge 取决于部署需求。Adapter 不合并更灵活，适合多任务、多版本、快速回滚；merge 后推理路径简单，可能更方便部署，但每个任务会产生一份完整权重，版本和存储成本更高。</p>
+<pre class="mermaid">flowchart TD
+  A["训练得到LoRA"] --&gt; B{是否需要多任务灵活切换}
+  B -- 是 --&gt; C["保留Adapter"]
+  C --&gt; D["基座复用回滚方便"]
+  B -- 否 --&gt; E{Serving是否不支持Adapter}
+  E -- 是 --&gt; F["Merge权重"]
+  E -- 否 --&gt; C
+</pre>
+<span class="heading-anchor" id="注意"></span><h3 id="_40">注意</h3>
+<p>Merge 前后要做一致性验证，尤其在量化部署场景中，merge、再量化、推理 dtype 都可能影响输出。</p>
+<hr/>
+<span class="heading-anchor" id="Q17. 微调上线前必须做哪些检查？"></span><h2 id="q17">Q17. 微调上线前必须做哪些检查？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_41">标准回答</h3>
+<p>上线前至少要检查目标任务提升、通用能力回归、安全回归、格式稳定性、延迟成本、版本可追溯、灰度方案和回滚方案。</p>
+<pre class="mermaid">mindmap
+  root((上线检查))
+    效果
+      目标指标提升
+      泛化验证
+    安全
+      隐私泄露
+      危险请求
+      越权承诺
+    工程
+      延迟
+      吞吐
+      成本
+    治理
+      数据版本
+      模型版本
+      回滚方案
+</pre>
+<span class="heading-anchor" id="生产清单"></span><h3 id="_42">生产清单</h3>
+<ul>
+<li>基座模型版本。</li>
+<li>训练数据版本和过滤规则。</li>
+<li>训练代码 commit。</li>
+<li>超参数和随机种子。</li>
+<li>评估报告。</li>
+<li>灰度范围。</li>
+<li>监控指标。</li>
+<li>回滚方式。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="Q18. 如果微调后模型输出格式更稳定，但事实错误变多，怎么办？"></span><h2 id="q18">Q18. 如果微调后模型输出格式更稳定，但事实错误变多，怎么办？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_43">标准回答</h3>
+<p>这说明微调改善了行为格式，但没有解决事实来源，甚至可能让模型更自信地幻觉。应先定位错误来源：数据是否含错、是否过拟合、是否缺外部知识。解决方案通常是修正数据、降低训练强度、加入事实性评估，并结合 RAG 或工具查询。</p>
+<pre class="mermaid">flowchart TD
+  A["事实错误变多"] --&gt; B{训练数据是否有错}
+  B -- 有 --&gt; C["清洗修正数据"]
+  B -- 无 --&gt; D{是否缺最新知识}
+  D -- 是 --&gt; E["接入RAG或工具"]
+  D -- 否 --&gt; F{是否过拟合}
+  F -- 是 --&gt; G["减少epoch或降低rank"]
+  F -- 否 --&gt; H["加强事实性评估和拒答策略"]
+</pre>
+<span class="heading-anchor" id="面试加分点"></span><h3 id="_44">面试加分点</h3>
+<p>强调不要只用“格式通过率”作为上线指标。格式稳定和事实正确是两个不同维度。</p>
+<hr/>
+<span class="heading-anchor" id="Q19. 如何选择学习率、epoch、batch size 等超参数？"></span><h2 id="q19-epochbatch-size">Q19. 如何选择学习率、epoch、batch size 等超参数？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_45">标准回答</h3>
+<p>微调超参数应从保守稳定开始，通过验证集和回归集调整。学习率过大可能破坏模型行为，epoch 过多容易过拟合，batch size 影响梯度稳定性和吞吐。LoRA 场景还要调 rank、alpha、dropout 和 target_modules。</p>
+<pre class="mermaid">flowchart TD
+  A["初始保守配置"] --&gt; B["观察训练loss"]
+  B --&gt; C["观察验证指标"]
+  C --&gt; D{欠拟合}
+  D -- 是 --&gt; E["增加rank或训练步数"]
+  D -- 否 --&gt; F{过拟合}
+  F -- 是 --&gt; G["减少epoch或加dropout"]
+  F -- 否 --&gt; H["评估回归和上线"]
+</pre>
+<span class="heading-anchor" id="原则"></span><h3 id="_46">原则</h3>
+<ul>
+<li>不要只凭训练 loss 调参。</li>
+<li>每次只改少量关键变量。</li>
+<li>保留实验记录，避免不可复现。</li>
+<li>小数据尤其要防过拟合。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="Q20. 给你一个业务场景，你如何设计完整微调方案？"></span><h2 id="q20">Q20. 给你一个业务场景，你如何设计完整微调方案？</h2>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_47">标准回答</h3>
+<p>我会按“目标定义、方法选择、数据构造、训练、评估、部署、监控闭环”来设计。</p>
+<pre class="mermaid">flowchart TD
+  A["业务问题"] --&gt; B["判断是否需要微调"]
+  B --&gt; C["定义成功指标"]
+  C --&gt; D["收集和清洗数据"]
+  D --&gt; E["选择SFT LoRA QLoRA或DPO"]
+  E --&gt; F["训练和调参"]
+  F --&gt; G["离线评估"]
+  G --&gt; H["安全和通用回归"]
+  H --&gt; I["灰度上线"]
+  I --&gt; J["监控和数据闭环"]
+</pre>
+<span class="heading-anchor" id="60 秒回答模板"></span><h3 id="60">60 秒回答模板</h3>
+<p>先确认问题是否真需要微调：如果是知识缺失，优先 RAG；如果是格式、流程、工具调用或风格不稳定，再考虑微调。然后定义指标，例如格式通过率、事实正确率、工具调用成功率和安全拒答率。数据上收集真实样本，脱敏、去重、纠错，切分 train/validation/test。资源有限时优先 LoRA 或 QLoRA，偏好问题可用 DPO。训练后不仅看 loss，还要做目标任务、泛化、安全、通用能力回归。上线采用灰度，记录数据和模型版本，监控失败样本并进入下一轮迭代。</p>
+<hr/>
+<span class="heading-anchor" id="面试快速复盘表"></span><h2 id="_48">面试快速复盘表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>关键词</th>
+<th>最短答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>微调是什么</td>
+<td>行为适配</td>
+<td>用任务数据改变模型长期习惯</td>
+</tr>
+<tr>
+<td>Prompt vs 微调</td>
+<td>参数</td>
+<td>Prompt 不改参数，微调改参数或适配器</td>
+</tr>
+<tr>
+<td>SFT</td>
+<td>监督学习</td>
+<td>模仿高质量答案</td>
+</tr>
+<tr>
+<td>label mask</td>
+<td>ignore prompt</td>
+<td>只学 assistant 回答</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>低秩增量</td>
+<td>冻结 W，只训 BA</td>
+</tr>
+<tr>
+<td>QLoRA</td>
+<td>量化基座</td>
+<td>4-bit 基座加 LoRA</td>
+</tr>
+<tr>
+<td>DPO</td>
+<td>偏好对</td>
+<td>不显式训练奖励模型</td>
+</tr>
+<tr>
+<td>过拟合</td>
+<td>验证集变差</td>
+<td>减 epoch、增数据、降 rank</td>
+</tr>
+<tr>
+<td>遗忘</td>
+<td>原能力下降</td>
+<td>PEFT、小学习率、回归测试</td>
+</tr>
+<tr>
+<td>幻觉</td>
+<td>事实不保证</td>
+<td>RAG 或工具补事实来源</td>
+</tr>
+<tr>
+<td>上线</td>
+<td>灰度回滚</td>
+<td>版本、评估、监控齐全</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="最终记忆图"></span><h2 id="_49">最终记忆图</h2>
+<pre class="mermaid">mindmap
+  root((微调总口诀))
+    先判断
+      Prompt能否解决
+      RAG是否更合适
+    再数据
+      正确
+      多样
+      脱敏
+      可评估
+    选方法
+      SFT
+      LoRA
+      QLoRA
+      DPO
+    控风险
+      过拟合
+      遗忘
+      幻觉
+      安全退化
+    上生产
+      版本记录
+      灰度
+      监控
+      回滚
+</pre></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

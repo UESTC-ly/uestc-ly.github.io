@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>云原生与DevOps：容器镜像与运行时 · 李杨的学习笔记</title><meta name="description" content="容器把应用及依赖打包成可移植运行单元，但共享宿主内核。"><meta property="og:title" content="云原生与DevOps：容器镜像与运行时 · 李杨的学习笔记"><meta property="og:description" content="容器把应用及依赖打包成可移植运行单元，但共享宿主内核。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8a3414682e2e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8a3414682e2e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 云原生与DevOps</p><h1>云原生与DevOps：容器镜像与运行时</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E4%BA%91%E5%8E%9F%E7%94%9F%E4%B8%8EDevOps/01-%E5%AE%B9%E5%99%A8%E9%95%9C%E5%83%8F%E4%B8%8E%E8%BF%90%E8%A1%8C%E6%97%B6.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">记忆口诀</a></li><li><a href="#_4">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_5">分章节讲解</a></li><li><a href="#1">1. 镜像分层</a></li><li><a href="#2">2. 容器隔离</a></li><li><a href="#3-dockerfile">3. Dockerfile 最佳实践</a></li><li><a href="#4">4. 镜像仓库</a></li><li><a href="#_6">关键对比表</a></li><li><a href="#_7">常见误区总结</a></li><li><a href="#_8">自检题</a></li><li><a href="#_9">速记卡片</a></li><li><a href="#_10">深度扩展：底层原理与应用边界</a></li><li><a href="#1-devops">1. 本章在「云原生与DevOps」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3">3. 概念深化：逐个击破</a></li><li><a href="#4_1">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_11">专题深化：具体机制、案例与追问</a></li><li><a href="#1_1">1. 具体案例：把「容器镜像与运行时」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_1">3. 概念到判断的检查清单</a></li><li><a href="#4_2">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解容器隔离、镜像层、Dockerfile、Registry 和运行时安全。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出适用场景、边界条件和常见误区。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>容器把应用及依赖打包成可移植运行单元，但共享宿主内核。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_3">记忆口诀</h2>
+<blockquote>
+<p>镜像分层，容器进程，仓库存放</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_4">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((容器镜像与运行时))
+    核心概念
+      镜像分层
+      容器隔离
+      Dockerfile 最佳实践
+      镜像仓库
+    学习动作
+      先定义
+      再画流程
+      比较适用
+      复述误区
+    输出能力
+      能解释
+      能判断
+      能应用
+      能排错
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  A["镜像"]
+  B["仓库"]
+  C["运行时"]
+  D["网络"]
+  E["安全"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_5">分章节讲解</h2>
+<span class="heading-anchor" id="1. 镜像分层"></span><h3 id="1">1. 镜像分层</h3>
+<p><strong>核心定义：</strong> 镜像由只读层叠加构成，构建缓存和层顺序会影响速度与体积。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“容器把应用及依赖打包成可移植运行单元，但共享宿主内核。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 把频繁变化文件放在前层会破坏缓存；把密钥写进层会难以清除。</p>
+<span class="heading-anchor" id="2. 容器隔离"></span><h3 id="2">2. 容器隔离</h3>
+<p><strong>核心定义：</strong> 容器依赖 namespace、cgroup 和能力限制实现进程、资源和权限隔离。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“容器把应用及依赖打包成可移植运行单元，但共享宿主内核。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 容器不是强隔离虚拟机；高风险场景要加强沙箱和权限控制。</p>
+<span class="heading-anchor" id="3. Dockerfile 最佳实践"></span><h3 id="3-dockerfile">3. Dockerfile 最佳实践</h3>
+<p><strong>核心定义：</strong> Dockerfile 应使用小基础镜像、多阶段构建、固定版本和非 root 用户。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“容器把应用及依赖打包成可移植运行单元，但共享宿主内核。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> latest 标签会破坏可复现；镜像过大增加拉取和攻击面。</p>
+<span class="heading-anchor" id="4. 镜像仓库"></span><h3 id="4">4. 镜像仓库</h3>
+<p><strong>核心定义：</strong> 镜像仓库存储和分发镜像，需配合签名、扫描、权限和保留方案。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“容器把应用及依赖打包成可移植运行单元，但共享宿主内核。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 公开仓库拉取的镜像不一定可信；供应链风险要治理。</p>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_6">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>正确理解</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>镜像分层</td>
+<td>镜像由只读层叠加构成，构建缓存和层顺序会影响速度与体积。</td>
+<td>把频繁变化文件放在前层会破坏缓存；把密钥写进层会难以清除。</td>
+</tr>
+<tr>
+<td>容器隔离</td>
+<td>容器依赖 namespace、cgroup 和能力限制实现进程、资源和权限隔离。</td>
+<td>容器不是强隔离虚拟机；高风险场景要加强沙箱和权限控制。</td>
+</tr>
+<tr>
+<td>Dockerfile 最佳实践</td>
+<td>Dockerfile 应使用小基础镜像、多阶段构建、固定版本和非 root 用户。</td>
+<td>latest 标签会破坏可复现；镜像过大增加拉取和攻击面。</td>
+</tr>
+<tr>
+<td>镜像仓库</td>
+<td>镜像仓库存储和分发镜像，需配合签名、扫描、权限和保留方案。</td>
+<td>公开仓库拉取的镜像不一定可信；供应链风险要治理。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_7">常见误区总结</h2>
+<ul>
+<li><strong>镜像分层：</strong> 把频繁变化文件放在前层会破坏缓存；把密钥写进层会难以清除。</li>
+<li><strong>容器隔离：</strong> 容器不是强隔离虚拟机；高风险场景要加强沙箱和权限控制。</li>
+<li><strong>Dockerfile 最佳实践：</strong> latest 标签会破坏可复现；镜像过大增加拉取和攻击面。</li>
+<li><strong>镜像仓库：</strong> 公开仓库拉取的镜像不一定可信；供应链风险要治理。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_8">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：容器把应用及依赖打包成可移植运行单元，但共享宿主内核。</li>
+<li>本章每个概念的适用前提分别是什么？</li>
+<li>哪个误区最容易在面试或工程实践中出现？为什么？</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_9">速记卡片</h2>
+<ul>
+<li>章节口诀：镜像分层，容器进程，仓库存放</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区。</li>
+<li>复习动作：遮住正文，只根据思维导图复述一遍。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_10">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「云原生与DevOps」中的位置"></span><h3 id="1-devops">1. 本章在「云原生与DevOps」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 用容器、编排、声明式配置、自动化流水线和可观测性构建弹性可交付系统。</li>
+<li><strong>本章作用：</strong> 「云原生与DevOps：容器镜像与运行时」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是只会写 YAML，不理解控制器、调度、资源隔离、发布方案和安全边界。</li>
+<li><strong>实践抓手：</strong> 排障和设计都要围绕镜像、Pod、Service、配置、网络、存储、流水线和观测信号展开。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 镜像分层"></span><h4 id="31">3.1 镜像分层</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 镜像分层 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 镜像分层，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 容器隔离"></span><h4 id="32">3.2 容器隔离</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 容器隔离 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 容器隔离，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 Dockerfile 最佳实践"></span><h4 id="33-dockerfile">3.3 Dockerfile 最佳实践</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> Dockerfile 最佳实践 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 Dockerfile 最佳实践，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 镜像仓库"></span><h4 id="34">3.4 镜像仓库</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 镜像仓库 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 镜像仓库，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4_1">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 排障和设计都要围绕镜像、Pod、Service、配置、网络、存储、流水线和观测信号展开。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 用容器、编排、声明式配置、自动化流水线和可观测性构建弹性可交付系统。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_11">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「容器镜像与运行时」放进真实问题"></span><h3 id="1_1">1. 具体案例：把「容器镜像与运行时」放进真实问题</h3>
+<p>例如一次服务发布要经历镜像构建、漏洞扫描、K8s 滚动更新、探针检查、灰度流量、指标观察和快速回滚。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>镜像层顺序影响缓存和体积。</li>
+<li>容器共享内核，安全边界弱于虚拟机。</li>
+<li>多阶段构建和非 root 用户是基本实践。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_1">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>镜像分层</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>容器隔离</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>Dockerfile 最佳实践</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>镜像仓库</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「云原生与DevOps」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_2">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>声明式配置是否表达真实期望状态？</li>
+<li>资源请求和限制是否合理？</li>
+<li>发布失败时如何定位和回滚？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用 CI 检查、部署演练、探针、日志指标追踪、SLO 和混沌实验验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

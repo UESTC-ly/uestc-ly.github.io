@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07-03 元数据、时间与权限过滤 · 李杨的学习笔记</title><meta name="description" content="完成本章后，你应该能够把元数据、时间和权限条件写成明确的候选返回规则，区分预过滤与
+后过滤的权衡，并设计不会因为扩大 Top-K 或更换检索器而越过租户和撤回边界的流程。"><meta property="og:title" content="07-03 元数据、时间与权限过滤 · 李杨的学习笔记"><meta property="og:description" content="完成本章后，你应该能够把元数据、时间和权限条件写成明确的候选返回规则，区分预过滤与
+后过滤的权衡，并设计不会因为扩大 Top-K 或更换检索器而越过租户和撤回边界的流程。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-f09001ab6631.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-f09001ab6631.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 07-retrieval</p><h1>07-03 元数据、时间与权限过滤</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/07-retrieval/03-metadata-time-and-permission-filters.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">相似不等于可以返回</a></li><li><a href="#_2">预过滤、检索内过滤与后过滤</a></li><li><a href="#created_at">时间不是一个简单的 created_at</a></li><li><a href="#_3">权限传播需要稳定标识</a></li><li><a href="#_4">过滤失败为何看起来像检索失败</a></li><li><a href="#_5">一个可检查的候选契约</a></li><li><a href="#_6">练习与自测</a></li><li><a href="#_7">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>07-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>50 分钟阅读，加 25 分钟边界练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>了解文档元数据、来源、版本、稀疏与稠密候选</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用表格模拟候选过滤与拒绝原因</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够把元数据、时间和权限条件写成明确的候选返回规则，区分预过滤与
+后过滤的权衡，并设计不会因为扩大 Top-K 或更换检索器而越过租户和撤回边界的流程。</p>
+<span class="heading-anchor" id="相似不等于可以返回"></span><h2 id="_1">相似不等于可以返回</h2>
+<p>假设查询与三个文本块都很相似：A 属于当前租户且有效，B 属于另一个租户，C 已被新政策
+替代。若系统只按相似度取前两名，再把结果交给生成模型，B 或 C 就可能进入上下文。</p>
+<p>过滤不是为了让结果“更整洁”，而是决定哪些候选有资格被当前请求看见。常见约束包括：</p>
+<ul>
+<li>租户、用户、角色、项目和文档访问范围；</li>
+<li>生效时间、失效时间、查询时点和时区；</li>
+<li>来源类型、语言、地区、产品线和文档状态；</li>
+<li>内容版本、删除、撤回、法律保留和审核状态。</li>
+</ul>
+<span class="heading-anchor" id="预过滤、检索内过滤与后过滤"></span><h2 id="_2">预过滤、检索内过滤与后过滤</h2>
+<p><strong>预过滤</strong>先确定允许的文档集合，再在其中检索。它容易表达严格边界，但过窄集合可能降低
+召回，某些索引也可能在小过滤集合下效率不稳定。</p>
+<p><strong>检索内过滤</strong>由检索系统在候选生成过程中应用结构化条件。它能减少不合格候选进入应用，
+但具体语义取决于存储和索引实现，必须用边界测试验证。</p>
+<p><strong>后过滤</strong>先取候选，再由应用删除不合格项。它适合补充复杂业务规则，却不能成为权限保护
+的唯一防线；候选内容可能已经进入缓存、日志、网络响应或不可信组件。后过滤还会造成
+“先取十条、删掉八条、最后只剩两条”的有效候选不足。</p>
+<p>实际系统可以分层使用三者，但安全边界应尽可能靠近数据访问处，并在返回前再次断言。</p>
+<span class="heading-anchor" id="时间不是一个简单的 created_at"></span><h2 id="created_at">时间不是一个简单的 <code>created_at</code></h2>
+<p>“截至 2025 年 3 月有效的政策”至少涉及：来源发布时间、业务生效时间、失效时间、系统
+摄取时间和查询发生时间。它们不能混为一个时间戳。</p>
+<p>例如，新政策 3 月 1 日发布，4 月 1 日生效。用户问 3 月 15 日适用规则时，按发布时间选
+最新文档会得到尚未生效的政策。更可靠的条件是：</p>
+<p><code>effective_from &lt;= query_time &lt; effective_to</code></p>
+<p>其中结束边界是否包含、缺失值如何解释、时区如何统一，都应写入契约和测试。不要用本地
+日期字符串隐式比较。</p>
+<span class="heading-anchor" id="权限传播需要稳定标识"></span><h2 id="_3">权限传播需要稳定标识</h2>
+<p>文本块、向量和稀疏索引记录都应关联到可验证的权限主体，而不是复制一段可能过期的角色
+名称。权限来源发生变化时，需要知道哪些派生对象、缓存、索引、副本和日志需要更新或撤回。</p>
+<p>多租户系统至少要把租户边界作为不可省略条件。即使两个租户上传了相同文件，也不能因为
+内容哈希相同就共用未隔离的访问记录。去重优化不能消除所有权和授权关系。</p>
+<span class="heading-anchor" id="过滤失败为何看起来像检索失败"></span><h2 id="_4">过滤失败为何看起来像检索失败</h2>
+<p>“没有结果”可能不是召回器没找到，而是：</p>
+<ol>
+<li>元数据字段在部分文档中缺失；</li>
+<li>过滤值大小写或编码不一致；</li>
+<li>时间边界使用错误时区；</li>
+<li>用户角色缓存尚未更新；</li>
+<li>过滤语法被存储适配器错误转换；</li>
+<li>相关候选排在过滤前 Top-K 之外。</li>
+</ol>
+<p>因此日志应区分初始候选数、各过滤阶段删除数、拒绝原因代码和最终返回数。权限日志不应
+写入敏感正文，必要时只记录稳定标识和规则版本。</p>
+<span class="heading-anchor" id="一个可检查的候选契约"></span><h2 id="_5">一个可检查的候选契约</h2>
+<p>候选对象可以在概念上包含：<code>chunk_id</code>、<code>document_id</code>、<code>source_version</code>、<code>tenant_id</code>、
+<code>permission_ref</code>、<code>effective_from</code>、<code>effective_to</code>、<code>retrieval_path</code> 和分数。返回前执行：</p>
+<ol>
+<li>当前身份与租户匹配；</li>
+<li>权限引用解析为允许；</li>
+<li>查询时点落在有效区间；</li>
+<li>文档未删除、未撤回且版本符合请求；</li>
+<li>来源仍可追溯。</li>
+</ol>
+<p>字段名称可以变化，但这些问题不能只交给生成模型判断。模型不应获得未授权内容再被要求
+“不要泄漏”。</p>
+<span class="heading-anchor" id="练习与自测"></span><h2 id="_6">练习与自测</h2>
+<p>为四条候选记录填写租户、角色、生效和失效时间。设计一个查询身份和查询时点，逐条写出
+允许或拒绝及原因。然后把 Top-K 从 5 增加到 50，说明为什么权限结论不应改变。</p>
+<ol>
+<li>后过滤为什么不能成为唯一权限防线？</li>
+<li>发布时间和生效时间有什么区别？</li>
+<li>过滤后候选不足时，应该记录哪些数量？</li>
+<li>文档撤回后，为什么只删除原文件还不够？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_7">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿；未完成具体存储的过滤语法和越权测试。</li>
+<li>安全边界：检索到的文本始终视为数据，不能改变身份、权限或过滤规则。</li>
+<li>
+<p>摘要：<a href="n-ff37c02717f6.html">07-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-72f9e321d153.html">07-02 稠密检索与混合检索</a></p>
+</li>
+<li>下一章：<a href="n-b6194aa30f01.html">07-04 查询改写、扩展与多查询</a></li>
+<li>返回：<a href="n-3b5435427cd1.html">07 检索索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

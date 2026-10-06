@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-05 批处理、缓存与成本 · 李杨的学习笔记</title><meta name="description" content="想象仓库有一千个文本块。如果每个块都单独建立连接、发送请求、等待响应并写入一次，
+大量时间会消耗在重复的固定步骤上。批处理（batching）把若干输入组成一批，让一次请求
+或一次模型运行处理多个对象，常能降低每条记录的固定开销。"><meta property="og:title" content="05-05 批处理、缓存与成本 · 李杨的学习笔记"><meta property="og:description" content="想象仓库有一千个文本块。如果每个块都单独建立连接、发送请求、等待响应并写入一次，
+大量时间会消耗在重复的固定步骤上。批处理（batching）把若干输入组成一批，让一次请求
+或一次模型运行处理多个对象，常能降低每条记录的固定开销。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-742817d3b965.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-742817d3b965.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-05 批处理、缓存与成本</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/05-batching-caching-and-cost.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从逐个结账到成批处理</a></li><li><a href="#_2">一条可恢复的批处理流水线</a></li><li><a href="#_3">批大小不是越大越好</a></li><li><a href="#_4">缓存：复用确定的工作结果</a></li><li><a href="#_5">缓存失效与删除</a></li><li><a href="#_6">重试、限流与幂等</a></li><li><a href="#_7">先区分可重试与不可重试</a></li><li><a href="#_8">使用退避并尊重服务信号</a></li><li><a href="#_9">保证幂等</a></li><li><a href="#_10">保留失败清单</a></li><li><a href="#_11">怎样观察成本</a></li><li><a href="#_12">一个具体例子：夜间增量索引</a></li><li><a href="#_13">安全与隐私边界</a></li><li><a href="#_14">流程设计练习</a></li><li><a href="#_15">自测</a></li><li><a href="#_16">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-05</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>初级到中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>50 分钟阅读，加 25 分钟流程设计练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 05-01 至 05-03；知道文本块、表示版本、重试和日志的基本含义</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；实际调用嵌入服务可能产生计算、网络或服务费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用表格模拟任务队列、缓存命中和失败重试</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释批处理如何减少固定开销，以及它为什么不能消除实际计算量；</li>
+<li>设计包含内容、模型和预处理版本的缓存键；</li>
+<li>处理部分失败、限流、重试、幂等和断点续跑；</li>
+<li>用输入量、请求量、耗时、失败和缓存命中观察成本，而不是只看总账单。</li>
+</ul>
+<span class="heading-anchor" id="从逐个结账到成批处理"></span><h2 id="_1">从逐个结账到成批处理</h2>
+<p>想象仓库有一千个文本块。如果每个块都单独建立连接、发送请求、等待响应并写入一次，
+大量时间会消耗在重复的固定步骤上。批处理（batching）把若干输入组成一批，让一次请求
+或一次模型运行处理多个对象，常能降低每条记录的固定开销。</p>
+<p>批处理不是“免费处理更多内容”。每个输入仍需被编码，较大的批次还会占用更多内存、
+网络载荷和服务配额。最合适的批大小取决于模型、输入长度分布、硬件、接口限制和失败
+恢复成本，需要测量而不是猜测。</p>
+<span class="heading-anchor" id="一条可恢复的批处理流水线"></span><h2 id="_2">一条可恢复的批处理流水线</h2>
+<p>一个稳健的离线嵌入任务可以拆成以下状态：</p>
+<ol>
+<li>从确定的语料快照读取待处理对象；</li>
+<li>验证文本非空、编码合法、长度处理明确；</li>
+<li>计算内容标识和表示版本，查询缓存；</li>
+<li>将未命中项按限制组成批次；</li>
+<li>调用本地模型或外部服务；</li>
+<li>校验返回数量、顺序、维度和数值有效性；</li>
+<li>分别记录每个对象成功或失败；</li>
+<li>以幂等方式写入缓存和目标索引；</li>
+<li>汇总完成数、跳过数、重试数和永久失败数。</li>
+</ol>
+<p>这里的关键是“每个对象有状态”。如果一批一百条中只有一条失败，不应把其余九十九条
+悄悄丢弃，也不应在不确认接口语义时把整批成功重复写入。</p>
+<span class="heading-anchor" id="批大小不是越大越好"></span><h2 id="_3">批大小不是越大越好</h2>
+<p>较大批次可能减少请求次数并提高硬件利用率，但会带来权衡：</p>
+<ul>
+<li>单批内存和载荷更大；</li>
+<li>长短输入混合时，填充或等待可能浪费资源；</li>
+<li>单批失败影响更多对象；</li>
+<li>请求耗时变长，超时恢复成本增加；</li>
+<li>更容易触发接口的条数、大小或速率限制；</li>
+<li>在线查询若与离线批任务共用资源，可能受到挤压。</li>
+</ul>
+<p>可以按相近长度分组，避免一个特别长的输入拖累整批，但分组规则也属于可观察配置。任何
+优化都应保留对象身份，防止排序变化让返回向量写到错误文本块。</p>
+<span class="heading-anchor" id="缓存：复用确定的工作结果"></span><h2 id="_4">缓存：复用确定的工作结果</h2>
+<p>缓存可以避免相同输入在相同表示条件下重复生成向量。最危险的缓存不是“没有命中”，而是
+错误命中：文本相同但模型、前缀、归一化或截断规则已经变化，系统却继续复用旧向量。</p>
+<p>一个概念缓存键至少应包含：</p>
+<ul>
+<li>规范化后输入的可靠内容哈希；</li>
+<li>模型与固定版本；</li>
+<li>查询或文档等输入模式；</li>
+<li>关键预处理版本，包括清理、前缀和截断规则；</li>
+<li>输出变换，例如是否归一化或降维；</li>
+<li>必要时包含模态与区域处理配置。</li>
+</ul>
+<p>缓存值还应保存维度、生成时间和校验信息。内容哈希用于比较内容是否相同，不应被当作
+访问授权；能猜到哈希也不能获得缓存内容。</p>
+<span class="heading-anchor" id="缓存失效与删除"></span><h2 id="_5">缓存失效与删除</h2>
+<p>缓存失效不是简单设置一个过期时间。以下变化通常需要新缓存条目或明确重算：</p>
+<ul>
+<li>原始内容改变；</li>
+<li>模型或模型版本改变；</li>
+<li>查询与文档输入约定改变；</li>
+<li>文本规范化、切分或截断规则改变；</li>
+<li>向量归一化、维度或数值格式改变；</li>
+<li>安全或许可证要求撤回原始内容。</li>
+</ul>
+<p>删除源文档时，要分别考虑在线索引、嵌入缓存、任务队列、备份和日志中的派生数据。缓存
+不是绕过删除义务的永久副本。具体保留策略需与数据治理要求一致。</p>
+<span class="heading-anchor" id="重试、限流与幂等"></span><h2 id="_6">重试、限流与幂等</h2>
+<span class="heading-anchor" id="先区分可重试与不可重试"></span><h3 id="_7">先区分可重试与不可重试</h3>
+<p>网络中断、临时不可用和被明确告知稍后重试，可能适合有限次数重试。输入为空、超出允许
+长度、权限被拒绝或配置不兼容，通常需要先修复数据或配置，盲目重试只会增加成本。</p>
+<span class="heading-anchor" id="使用退避并尊重服务信号"></span><h3 id="_8">使用退避并尊重服务信号</h3>
+<p>重试应逐步延长等待并加入适量随机抖动，避免大量工作进程同时再次请求。若接口提供明确
+的等待或配额信号，应按正式约定处理。具体状态码和限制属于实现时需要核查的可变事实，
+本章不假定所有服务相同。</p>
+<span class="heading-anchor" id="保证幂等"></span><h3 id="_9">保证幂等</h3>
+<p>幂等意味着同一对象以同一表示版本重复执行，不会产生多份互相冲突的活跃记录。可以使用
+“对象标识 + 表示版本”作为写入身份，并让成功状态在断点续跑时可被识别。</p>
+<span class="heading-anchor" id="保留失败清单"></span><h3 id="_10">保留失败清单</h3>
+<p>任务“完成”不能只看进程退出。应报告总对象数、成功数、缓存命中数、跳过数、临时失败、
+永久失败和原因分布。永久失败对象需要可导出清单，供修复或人工判断。</p>
+<span class="heading-anchor" id="怎样观察成本"></span><h2 id="_11">怎样观察成本</h2>
+<p>成本不仅是服务账单，还包括计算、存储、网络、工程维护和失败重做。可以从下列量开始：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>观察量</th>
+<th>能回答的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入对象数与字符或 token 量</td>
+<td>实际处理了多少内容？</td>
+</tr>
+<tr>
+<td>请求数与平均批大小</td>
+<td>是否因批次过小产生过多固定开销？</td>
+</tr>
+<tr>
+<td>缓存命中与未命中</td>
+<td>有多少工作被安全复用？</td>
+</tr>
+<tr>
+<td>成功、重试和永久失败</td>
+<td>多少资源花在恢复问题上？</td>
+</tr>
+<tr>
+<td>延迟分布与队列等待</td>
+<td>慢在生成、网络、排队还是写入？</td>
+</tr>
+<tr>
+<td>向量维度与记录数</td>
+<td>存储和传输规模怎样增长？</td>
+</tr>
+<tr>
+<td>表示版本分布</td>
+<td>是否仍在为旧版本付出重复维护成本？</td>
+</tr>
+</tbody>
+</table></div>
+<p>若外部服务按输入量计费，可以用“经过处理的计费单位 × 当期单价”形成估算，再加上重试
+与其他资源。单价和计费规则会变化，应在实际采用时查询官方资料并记录日期，不能把本章
+中的通用公式当成报价。</p>
+<span class="heading-anchor" id="一个具体例子：夜间增量索引"></span><h2 id="_12">一个具体例子：夜间增量索引</h2>
+<p>每天夜间有一批更新后的帮助中心文本块进入队列。系统先按内容哈希与表示版本查缓存：未
+变化的块直接复用，新增和修改的块进入批处理，已删除块进入撤回队列。</p>
+<p>某批包含五十个对象，服务返回四十九个向量和一个输入过长错误。正确处理不是把整批标成
+成功，也不是无限重试。系统校验返回映射，提交四十九条成功记录，把失败对象连同长度和
+规则版本写入失败清单。若允许确定性切分修复，则生成新的对象版本后重新排队；否则交由
+负责人判断。</p>
+<p>任务报告显示缓存命中、成功、删除和永久失败数量。在线索引只在新版本达到完成条件后
+切换，避免用户查询到半批新、半批旧且无法识别的状态。</p>
+<span class="heading-anchor" id="安全与隐私边界"></span><h2 id="_13">安全与隐私边界</h2>
+<ul>
+<li>批处理文件、缓存和失败日志可能复制敏感正文，需要与源数据同等或更严格的访问控制。</li>
+<li>日志应优先记录对象标识、长度和错误类别，避免无必要地打印完整文本。</li>
+<li>多租户缓存必须防止跨租户读取；内容相同不代表授权相同。</li>
+<li>外部服务调用前要确认传输、保留、训练使用和地区要求。</li>
+<li>成本保护不能只靠全局上限；还应限制单任务规模、并发和异常重试风暴。</li>
+</ul>
+<span class="heading-anchor" id="流程设计练习"></span><h2 id="_14">流程设计练习</h2>
+<p>设计一个处理一万条文本块的纸面流程。为每条记录写出 <code>pending</code>、<code>cached</code>、<code>succeeded</code>、
+<code>retryable_failed</code> 和 <code>permanent_failed</code> 五种状态的进入与退出条件。</p>
+<p>然后回答：模型版本变化时哪些缓存可复用？一批返回数量不一致时怎样阻止错误写入？任务
+中途停止后从哪里继续？源文档被删除后需要清理哪些派生位置？</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_15">自测</h2>
+<ol>
+<li>批处理减少了什么开销，又没有减少什么工作？</li>
+<li>为什么缓存键不能只有原始文本哈希？</li>
+<li>部分失败时，为什么需要对象级状态？</li>
+<li>哪些错误不适合盲目重试？</li>
+<li>除总费用外，哪些观察量能解释成本突然上升？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_16">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，未运行真实嵌入服务或给出任何供应商费用结论。</li>
+<li>代码与图表：批处理器、缓存实现和成本面板为后续计划，尚未实现或端到端验证。</li>
+<li>
+<p>摘要：<a href="n-fbe657b046bc.html">05-05 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-84c42ad63496.html">05-04 图片与多模态嵌入</a></p>
+</li>
+<li>下一章：<a href="n-13d215c1b1dc.html">05-06 迁移、重建索引与常见错误</a></li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

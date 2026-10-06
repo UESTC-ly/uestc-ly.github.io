@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-死锁与资源管理 · 李杨的学习笔记</title><meta name="description" content="死锁不是只会出现在教材里的“两个线程两把锁”。真实工程中，线程池、连接池、数据库事务、微服务调用也会形成资源等待环。本章讲死锁四条件和工程处理方式。"><meta property="og:title" content="05-死锁与资源管理 · 李杨的学习笔记"><meta property="og:description" content="死锁不是只会出现在教材里的“两个线程两把锁”。真实工程中，线程池、连接池、数据库事务、微服务调用也会形成资源等待环。本章讲死锁四条件和工程处理方式。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-6c979af972e7.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-6c979af972e7.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>05-死锁与资源管理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/05-%E6%AD%BB%E9%94%81%E4%B8%8E%E8%B5%84%E6%BA%90%E7%AE%A1%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">什么是死锁</a></li><li><a href="#_3">死锁四个必要条件</a></li><li><a href="#1">1. 互斥</a></li><li><a href="#2">2. 持有并等待</a></li><li><a href="#3">3. 不可抢占</a></li><li><a href="#4">4. 循环等待</a></li><li><a href="#_4">资源等待图</a></li><li><a href="#_5">死锁预防</a></li><li><a href="#_6">统一锁顺序</a></li><li><a href="#_7">一次性申请资源</a></li><li><a href="#_8">允许抢占或回滚</a></li><li><a href="#_9">死锁避免</a></li><li><a href="#_10">死锁检测和恢复</a></li><li><a href="#_11">活锁和饥饿</a></li><li><a href="#_12">工程中的资源等待环</a></li><li><a href="#_13">工程建议</a></li><li><a href="#_14">实践任务</a></li><li><a href="#_15">自测题</a></li><li><a href="#_16">补充深入讲解</a></li><li><a href="#_17">从零开始理解：死锁不是“程序卡住”这么简单</a></li><li><a href="#_18">一个银行转账例子</a></li><li><a href="#_19">数据库死锁为什么更常见</a></li><li><a href="#_20">微服务里的资源死锁</a></li><li><a href="#_21">进一步案例：转账系统如何设计避免死锁</a></li><li><a href="#_22">进一步案例：死锁恢复为什么需要幂等</a></li><li><a href="#_23">思维导图</a></li><li><a href="#1_1">1. 死锁四条件</a></li><li><a href="#2_1">2. 从等待到恢复</a></li><li><a href="#3_1">3. 工程资源等待环</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>死锁不是只会出现在教材里的“两个线程两把锁”。真实工程中，线程池、连接池、数据库事务、微服务调用也会形成资源等待环。本章讲死锁四条件和工程处理方式。</p>
+<span class="heading-anchor" id="什么是死锁"></span><h2 id="_2">什么是死锁</h2>
+<p>死锁是多个执行流互相等待对方持有的资源，导致所有参与者都无法继续。</p>
+<p>典型例子：</p>
+<pre><code class="language-text">线程 A：持有 L1，等待 L2
+线程 B：持有 L2，等待 L1
+</code></pre>
+<p>这时 A 和 B 都不会继续执行，也不会释放已有锁。</p>
+<span class="heading-anchor" id="死锁四个必要条件"></span><h2 id="_3">死锁四个必要条件</h2>
+<span class="heading-anchor" id="1. 互斥"></span><h3 id="1">1. 互斥</h3>
+<p>资源一次只能被一个执行流持有。例如互斥锁、数据库行锁、独占文件锁。</p>
+<span class="heading-anchor" id="2. 持有并等待"></span><h3 id="2">2. 持有并等待</h3>
+<p>执行流已经持有一些资源，同时还在等待新的资源。</p>
+<span class="heading-anchor" id="3. 不可抢占"></span><h3 id="3">3. 不可抢占</h3>
+<p>资源不能被外部强行夺走，只能由持有者主动释放。</p>
+<span class="heading-anchor" id="4. 循环等待"></span><h3 id="4">4. 循环等待</h3>
+<p>存在等待环：A 等 B，B 等 C，C 等 A。</p>
+<p>破坏任意一个条件，都可以预防死锁。</p>
+<span class="heading-anchor" id="资源等待图"></span><h2 id="_4">资源等待图</h2>
+<p>可以把线程和资源画成图：</p>
+<pre><code class="language-text">T1 持有 L1，等待 L2
+T2 持有 L2，等待 L3
+T3 持有 L3，等待 L1
+</code></pre>
+<p>这形成环，就可能死锁。数据库死锁检测就是维护类似等待图，发现环后回滚一个事务。</p>
+<span class="heading-anchor" id="死锁预防"></span><h2 id="_5">死锁预防</h2>
+<p>预防是在设计阶段破坏死锁条件。</p>
+<span class="heading-anchor" id="统一锁顺序"></span><h3 id="_6">统一锁顺序</h3>
+<p>规定所有代码都必须按相同顺序获取锁。例如总是先获取账户 ID 小的锁，再获取账户 ID 大的锁。</p>
+<p>这样可以破坏循环等待。</p>
+<span class="heading-anchor" id="一次性申请资源"></span><h3 id="_7">一次性申请资源</h3>
+<p>执行前一次性拿到所有资源，破坏持有并等待。缺点是资源利用率低，可能增加等待时间。</p>
+<span class="heading-anchor" id="允许抢占或回滚"></span><h3 id="_8">允许抢占或回滚</h3>
+<p>数据库事务可以回滚，某种意义上就是抢占资源。普通线程锁通常不能强制抢占。</p>
+<span class="heading-anchor" id="死锁避免"></span><h2 id="_9">死锁避免</h2>
+<p>避免是在分配资源前判断是否会进入不安全状态。银行家算法是经典例子，但工程中不常完整使用，因为它要求提前知道最大资源需求。</p>
+<p>工程中更常见的是：</p>
+<ul>
+<li>限制并发数。</li>
+<li>资源池分级。</li>
+<li>避免嵌套获取多个稀缺资源。</li>
+<li>请求进入前做准入控制。</li>
+</ul>
+<span class="heading-anchor" id="死锁检测和恢复"></span><h2 id="_10">死锁检测和恢复</h2>
+<p>如果无法完全预防，可以允许死锁发生，然后检测和恢复。</p>
+<p>数据库常见做法：</p>
+<ol>
+<li>事务等待锁。</li>
+<li>数据库维护等待图。</li>
+<li>发现环。</li>
+<li>选择一个事务回滚。</li>
+<li>另一个事务继续执行。</li>
+</ol>
+<p>普通程序中也可以用 watchdog、锁等待超时、线程 dump 检测问题。</p>
+<span class="heading-anchor" id="活锁和饥饿"></span><h2 id="_11">活锁和饥饿</h2>
+<ul>
+<li>死锁：大家都不动。</li>
+<li>活锁：大家都在动，但没有进展。例如两个线程不断互相让路。</li>
+<li>饥饿：某个线程长期得不到资源。</li>
+</ul>
+<p>解决饥饿需要公平队列、优先级老化、资源配额等机制。</p>
+<span class="heading-anchor" id="工程中的资源等待环"></span><h2 id="_12">工程中的资源等待环</h2>
+<p>真实系统中，死锁不一定表现为“锁”。例如：</p>
+<pre><code class="language-text">请求 A 持有数据库连接，等待线程池任务完成
+线程池任务等待另一个数据库连接
+连接池已满，所有连接都被请求持有
+</code></pre>
+<p>这也是资源等待环。</p>
+<p>微服务中也可能：</p>
+<pre><code class="language-text">服务 A 等服务 B
+服务 B 等服务 C
+服务 C 回调服务 A
+</code></pre>
+<p>如果没有超时和熔断，就可能形成分布式等待。</p>
+<span class="heading-anchor" id="工程建议"></span><h2 id="_13">工程建议</h2>
+<ol>
+<li>所有锁定义全局顺序。</li>
+<li>不要持锁做 I/O 或远程调用。</li>
+<li>锁等待、连接等待、RPC 都要有超时。</li>
+<li>数据库事务尽量短。</li>
+<li>失败要可重试，操作要幂等。</li>
+<li>资源池要有监控：使用率、等待数、等待时间。</li>
+<li>定期用压测验证高并发下是否出现等待环。</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_14">实践任务</h2>
+<p>画出你熟悉系统的一次请求处理路径，标出它持有的资源：</p>
+<ul>
+<li>线程。</li>
+<li>数据库连接。</li>
+<li>Redis 连接。</li>
+<li>文件 fd。</li>
+<li>锁。</li>
+<li>下游 RPC。</li>
+</ul>
+<p>尝试找出可能的等待环。</p>
+<span class="heading-anchor" id="自测题"></span><h2 id="_15">自测题</h2>
+<ol>
+<li>死锁四条件分别是什么？</li>
+<li>为什么统一锁顺序能预防死锁？</li>
+<li>数据库为什么可以通过回滚恢复死锁？</li>
+<li>微服务中如何避免资源等待环？</li>
+<li>活锁和死锁有什么区别？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_16">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：死锁不是“程序卡住”这么简单"></span><h2 id="_17">从零开始理解：死锁不是“程序卡住”这么简单</h2>
+<p>程序卡住可能有很多原因：CPU 死循环、I/O 卡住、线程池满、GC 停顿、死锁。死锁的特点是存在一个等待环，每个参与者都在等别人释放资源，而别人也在等它。</p>
+<p>判断死锁时，不要只看“卡住”，要找资源等待关系。</p>
+<span class="heading-anchor" id="一个银行转账例子"></span><h2 id="_18">一个银行转账例子</h2>
+<p>两个线程同时转账：</p>
+<pre><code class="language-text">线程 A：账户 1 → 账户 2
+线程 B：账户 2 → 账户 1
+</code></pre>
+<p>如果 A 先锁账户 1，再等账户 2；B 先锁账户 2，再等账户 1，就死锁。</p>
+<p>解决方式是统一顺序：永远先锁账户 ID 小的，再锁 ID 大的。这样不会形成环。</p>
+<span class="heading-anchor" id="数据库死锁为什么更常见"></span><h2 id="_19">数据库死锁为什么更常见</h2>
+<p>数据库事务会持有行锁、表锁、间隙锁。两个事务访问相同数据但顺序不同，就可能死锁。数据库通常能检测等待图并回滚一个事务。所以应用必须把死锁当作可重试错误处理，而不是认为它永远不该发生。</p>
+<span class="heading-anchor" id="微服务里的资源死锁"></span><h2 id="_20">微服务里的资源死锁</h2>
+<p>微服务没有显式锁，也可能形成等待环。例如线程池任务持有数据库连接等待另一个异步任务，而那个异步任务也需要数据库连接。连接池满后所有任务互相等待。</p>
+<p>解决思路是：资源池隔离、超时、限流、不要持有稀缺资源等待下游。</p>
+<span class="heading-anchor" id="进一步案例：转账系统如何设计避免死锁"></span><h2 id="_21">进一步案例：转账系统如何设计避免死锁</h2>
+<p>转账需要同时修改两个账户。如果每个账户一把锁，必须固定加锁顺序。可以按账户 ID 排序：先锁小 ID，再锁大 ID。这样所有线程的等待方向一致，不会形成环。</p>
+<p>如果转账涉及数据库事务，也应保持 SQL 访问顺序一致。比如批量更新多行时先按主键排序，再逐行更新。否则两个事务访问相同行但顺序不同，就可能死锁。</p>
+<span class="heading-anchor" id="进一步案例：死锁恢复为什么需要幂等"></span><h2 id="_22">进一步案例：死锁恢复为什么需要幂等</h2>
+<p>如果事务因死锁被数据库回滚，应用通常要重试。但重试安全的前提是操作幂等，或者有唯一请求号防止重复扣款、重复发货。否则“处理死锁”可能引入重复业务副作用。OS 和数据库层的死锁恢复，最终也会影响业务设计。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_23">思维导图</h2>
+<blockquote>
+<p>记忆建议：死锁不是“慢”，而是等待环；破坏四条件之一即可预防。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 死锁四条件"></span><h3 id="1_1">1. 死锁四条件</h3>
+<pre class="mermaid">mindmap
+  root((死锁四条件))
+    互斥
+      独占资源
+    持有并等待
+      拿着旧资源等新资源
+    不可抢占
+      只能主动释放
+    循环等待
+      等待关系成环
+</pre>
+<span class="heading-anchor" id="2. 从等待到恢复"></span><h3 id="2_1">2. 从等待到恢复</h3>
+<pre class="mermaid">flowchart TD
+  A["线程或事务等待资源"] --&gt; B["形成资源等待图"]
+  B --&gt; C{"是否有环"}
+  C --&gt;|无| D["继续等待或超时"]
+  C --&gt;|有| E["确认死锁风险"]
+  E --&gt; F["预防\n统一顺序 一次申请"]
+  E --&gt; G["检测\n找等待环"]
+  E --&gt; H["恢复\n回滚 释放 重试"]
+</pre>
+<span class="heading-anchor" id="3. 工程资源等待环"></span><h3 id="3_1">3. 工程资源等待环</h3>
+<pre class="mermaid">flowchart LR
+  A["线程池"] --&gt;|等待| B["数据库连接池"]
+  B --&gt;|等待| C["锁或事务"]
+  C --&gt;|等待| D["下游服务"]
+  D --&gt;|回调或重试占用| A
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>12. 实战项目：从需求到上线 · 李杨的学习笔记</title><meta name="description" content="用一个简化订单系统，把前面章节串起来。你将完成："><meta property="og:title" content="12. 实战项目：从需求到上线 · 李杨的学习笔记"><meta property="og:description" content="用一个简化订单系统，把前面章节串起来。你将完成："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-0bdab45e5825.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-0bdab45e5825.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>12. 实战项目：从需求到上线</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/12-%E5%AE%9E%E6%88%98%E9%A1%B9%E7%9B%AE%E4%BB%8E%E9%9C%80%E6%B1%82%E5%88%B0%E4%B8%8A%E7%BA%BF.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">项目目标</a></li><li><a href="#_2">需求</a></li><li><a href="#_3">业务事实</a></li><li><a href="#erd">ERD</a></li><li><a href="#_4">表结构</a></li><li><a href="#_5">索引设计</a></li><li><a href="#_6">创建订单事务</a></li><li><a href="#_7">支付回调事务</a></li><li><a href="#_8">查询示例</a></li><li><a href="#_9">用户订单列表</a></li><li><a href="#_10">订单详情</a></li><li><a href="#_11">待发货订单</a></li><li><a href="#migration">Migration 计划</a></li><li><a href="#_12">初始版本</a></li><li><a href="#_13">未来需求：增加订单取消原因</a></li><li><a href="#_14">上线检查</a></li><li><a href="#_15">扩展问题</a></li><li><a href="#_16">本章练习</a></li><li><a href="#_17">深入展开：订单系统从“能用”到“可靠”的完整推演</a></li><li><a href="#1">1. 先定义状态机</a></li><li><a href="#2">2. 创建订单要同时处理价格、库存和明细</a></li><li><a href="#3">3. 支付回调必须幂等</a></li><li><a href="#4">4. 查询和索引从页面出发</a></li><li><a href="#5">5. 退款扩展怎么做</a></li><li><a href="#6">6. 上线前要做的并发测试</a></li><li><a href="#7">7. 生产观测指标</a></li><li><a href="#_18">思维导图</a></li><li><a href="#1_1">1. 从需求到上线</a></li><li><a href="#2_1">2. 订单关键不变量</a></li><li><a href="#3_1">3. 支付回调事务</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="项目目标"></span><h2 id="_1">项目目标</h2>
+<p>用一个简化订单系统，把前面章节串起来。你将完成：</p>
+<ul>
+<li>需求拆解。</li>
+<li>ERD 设计。</li>
+<li>表结构和约束。</li>
+<li>核心事务。</li>
+<li>索引设计。</li>
+<li>migration 计划。</li>
+<li>上线和运维检查。</li>
+</ul>
+<span class="heading-anchor" id="需求"></span><h2 id="_2">需求</h2>
+<p>系统支持：</p>
+<ol>
+<li>用户注册并登录。</li>
+<li>商品上架，商品有 SKU、名称、价格、库存。</li>
+<li>用户创建订单，订单包含多个商品。</li>
+<li>下单时扣减库存。</li>
+<li>支付成功后订单变为 paid。</li>
+<li>用户查看订单列表和订单详情。</li>
+<li>后台查看待发货订单。</li>
+<li>保留价格快照和库存流水。</li>
+</ol>
+<p>非目标：优惠券、退款、物流拆单、复杂促销。</p>
+<span class="heading-anchor" id="业务事实"></span><h2 id="_3">业务事实</h2>
+<ul>
+<li>用户邮箱唯一。</li>
+<li>商品 SKU 唯一。</li>
+<li>库存不能为负。</li>
+<li>订单创建时保存商品当时价格。</li>
+<li>一个订单至少有一条明细。</li>
+<li>支付回调可能重复，需要幂等。</li>
+<li>库存变化需要流水，方便审计。</li>
+</ul>
+<span class="heading-anchor" id="ERD"></span><h2 id="erd">ERD</h2>
+<pre class="mermaid">erDiagram
+  users ||--o{ orders : places
+  products ||--|| inventory : has
+  orders ||--|{ order_items : contains
+  products ||--o{ order_items : sold_as
+  orders ||--o{ payments : paid_by
+  products ||--o{ inventory_events : changes
+</pre>
+<span class="heading-anchor" id="表结构"></span><h2 id="_4">表结构</h2>
+<pre><code class="language-sql">CREATE TABLE users (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE products (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sku TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  price NUMERIC(12, 2) NOT NULL CHECK (price &gt;= 0),
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE inventory (
+  product_id BIGINT PRIMARY KEY REFERENCES products(id),
+  available_quantity INTEGER NOT NULL CHECK (available_quantity &gt;= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE orders (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'cancelled', 'shipped')),
+  total_amount NUMERIC(12, 2) NOT NULL CHECK (total_amount &gt;= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at TIMESTAMPTZ
+);
+
+CREATE TABLE order_items (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  product_id BIGINT NOT NULL REFERENCES products(id),
+  quantity INTEGER NOT NULL CHECK (quantity &gt; 0),
+  unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price &gt;= 0),
+  product_name_snapshot TEXT NOT NULL,
+  UNIQUE (order_id, product_id)
+);
+
+CREATE TABLE payments (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  provider TEXT NOT NULL,
+  provider_payment_id TEXT NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount &gt;= 0),
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_payment_id)
+);
+
+CREATE TABLE inventory_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  product_id BIGINT NOT NULL REFERENCES products(id),
+  order_id BIGINT REFERENCES orders(id),
+  delta INTEGER NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('order_created', 'order_cancelled', 'manual_adjustment')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</code></pre>
+<span class="heading-anchor" id="索引设计"></span><h2 id="_5">索引设计</h2>
+<pre><code class="language-sql">-- 用户订单列表
+CREATE INDEX idx_orders_user_created
+ON orders (user_id, created_at DESC);
+
+-- 后台待发货订单
+CREATE INDEX idx_orders_paid_created
+ON orders (created_at)
+WHERE status = 'paid';
+
+-- 订单明细查询
+CREATE INDEX idx_order_items_order_id
+ON order_items (order_id);
+
+-- 库存流水
+CREATE INDEX idx_inventory_events_product_created
+ON inventory_events (product_id, created_at DESC);
+
+-- 支付查询
+CREATE INDEX idx_payments_order_id
+ON payments (order_id);
+</code></pre>
+<p>索引都来自查询模式，而不是因为“字段看起来重要”。</p>
+<span class="heading-anchor" id="创建订单事务"></span><h2 id="_6">创建订单事务</h2>
+<p>输入：<code>user_id</code> 和商品列表 <code>(product_id, quantity)</code>。</p>
+<p>关键点：</p>
+<ul>
+<li>读取商品当前价格和名称。</li>
+<li>条件扣减库存，库存不足时失败。</li>
+<li>创建订单和明细。</li>
+<li>写库存流水。</li>
+<li>所有步骤在一个事务中。</li>
+</ul>
+<p>伪 SQL 流程：</p>
+<pre><code class="language-sql">BEGIN;
+
+-- 1. 创建订单，金额先由应用计算后传入，或在数据库中聚合计算
+INSERT INTO orders (user_id, status, total_amount)
+VALUES (1, 'pending', 120.00)
+RETURNING id;
+
+-- 2. 扣库存：条件更新防止负库存
+UPDATE inventory
+SET available_quantity = available_quantity - 2,
+    updated_at = now()
+WHERE product_id = 10
+  AND available_quantity &gt;= 2
+RETURNING available_quantity;
+
+-- 如果没有返回行，ROLLBACK 并提示库存不足
+
+-- 3. 写订单明细，保存价格和商品名快照
+INSERT INTO order_items (order_id, product_id, quantity, unit_price, product_name_snapshot)
+SELECT 1001, id, 2, price, name
+FROM products
+WHERE id = 10 AND active = true;
+
+-- 4. 写库存流水
+INSERT INTO inventory_events (product_id, order_id, delta, reason)
+VALUES (10, 1001, -2, 'order_created');
+
+COMMIT;
+</code></pre>
+<p>真实系统中多商品订单要统一排序 product_id 后扣库存，降低死锁概率。</p>
+<span class="heading-anchor" id="支付回调事务"></span><h2 id="_7">支付回调事务</h2>
+<p>支付回调可能重复。使用唯一约束保证幂等：</p>
+<pre><code class="language-sql">BEGIN;
+
+INSERT INTO payments (order_id, provider, provider_payment_id, amount, status, payload)
+VALUES (1001, 'demo_pay', 'pay_abc', 120.00, 'succeeded', '{}'::jsonb)
+ON CONFLICT (provider, provider_payment_id)
+DO NOTHING;
+
+UPDATE orders
+SET status = 'paid', paid_at = now()
+WHERE id = 1001
+  AND status = 'pending';
+
+COMMIT;
+</code></pre>
+<p>应用层还要检查支付金额是否等于订单金额。</p>
+<span class="heading-anchor" id="查询示例"></span><h2 id="_8">查询示例</h2>
+<span class="heading-anchor" id="用户订单列表"></span><h3 id="_9">用户订单列表</h3>
+<pre><code class="language-sql">SELECT id, status, total_amount, created_at, paid_at
+FROM orders
+WHERE user_id = 1
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<span class="heading-anchor" id="订单详情"></span><h3 id="_10">订单详情</h3>
+<pre><code class="language-sql">SELECT
+  o.id,
+  o.status,
+  o.total_amount,
+  oi.product_id,
+  oi.product_name_snapshot,
+  oi.quantity,
+  oi.unit_price
+FROM orders o
+JOIN order_items oi ON oi.order_id = o.id
+WHERE o.id = 1001
+  AND o.user_id = 1;
+</code></pre>
+<span class="heading-anchor" id="待发货订单"></span><h3 id="_11">待发货订单</h3>
+<pre><code class="language-sql">SELECT id, user_id, total_amount, paid_at
+FROM orders
+WHERE status = 'paid'
+ORDER BY created_at
+LIMIT 100;
+</code></pre>
+<span class="heading-anchor" id="Migration 计划"></span><h2 id="migration">Migration 计划</h2>
+<span class="heading-anchor" id="初始版本"></span><h3 id="_12">初始版本</h3>
+<pre><code class="language-text">001_create_users_products_inventory.sql
+002_create_orders_order_items.sql
+003_create_payments_inventory_events.sql
+004_add_indexes.sql
+</code></pre>
+<span class="heading-anchor" id="未来需求：增加订单取消原因"></span><h3 id="_13">未来需求：增加订单取消原因</h3>
+<p>安全路径：</p>
+<ol>
+<li>新增可空字段 <code>cancel_reason</code>。</li>
+<li>应用写入取消原因。</li>
+<li>如需强制，回填历史数据。</li>
+<li>再添加约束。</li>
+</ol>
+<pre><code class="language-sql">ALTER TABLE orders ADD COLUMN cancel_reason TEXT;
+</code></pre>
+<p>不要在高峰期直接做大表复杂变更。</p>
+<span class="heading-anchor" id="上线检查"></span><h2 id="_14">上线检查</h2>
+<ul>
+<li>[ ] 所有 migration 从空库执行成功。</li>
+<li>[ ] 创建订单事务有并发测试。</li>
+<li>[ ] 库存不足返回明确错误。</li>
+<li>[ ] 支付回调重复投递不会重复入账。</li>
+<li>[ ] 用户只能查看自己的订单。</li>
+<li>[ ] 订单列表查询命中索引。</li>
+<li>[ ] 待发货查询命中部分索引。</li>
+<li>[ ] 备份策略覆盖订单和支付数据。</li>
+<li>[ ] 慢查询、锁等待、连接数有监控。</li>
+<li>[ ] 关键 SQL 有超时保护。</li>
+</ul>
+<span class="heading-anchor" id="扩展问题"></span><h2 id="_15">扩展问题</h2>
+<p>当系统变复杂后，可以继续引入：</p>
+<ul>
+<li>购物车表。</li>
+<li>优惠券和促销规则。</li>
+<li>退款表。</li>
+<li>物流单和发货批次。</li>
+<li>outbox 事件表，用于异步通知和搜索同步。</li>
+<li>订单状态流水。</li>
+<li>库存预占和释放机制。</li>
+</ul>
+<p>扩展时保持原则：先明确事实，再决定表结构；先保证正确，再优化性能。</p>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_16">本章练习</h2>
+<ol>
+<li>给多商品创建订单写出完整事务伪代码。</li>
+<li>设计订单取消并恢复库存的事务。</li>
+<li>给支付表增加退款记录，判断是新表还是扩展 payments。</li>
+<li>用 <code>EXPLAIN</code> 验证订单列表查询是否使用索引。</li>
+</ol>
+<p>下一章：<a href="n-d86638a45b07.html">99-术语表与复习题</a>。</p>
+<span class="heading-anchor" id="深入展开：订单系统从“能用”到“可靠”的完整推演"></span><h2 id="_17">深入展开：订单系统从“能用”到“可靠”的完整推演</h2>
+<p>订单系统是数据库能力的综合考题，因为它同时涉及建模、事务、索引、幂等、状态机、迁移、备份和审计。</p>
+<span class="heading-anchor" id="1. 先定义状态机"></span><h3 id="1">1. 先定义状态机</h3>
+<p>订单不是随便改状态。应该定义允许的状态流转：</p>
+<pre><code class="language-text">pending -&gt; paid -&gt; shipped
+pending -&gt; cancelled
+paid -&gt; refunded
+</code></pre>
+<p>不允许：</p>
+<pre><code class="language-text">cancelled -&gt; paid
+shipped -&gt; pending
+</code></pre>
+<p>状态流转可以在应用层控制，也可以用状态事件表审计：</p>
+<pre><code class="language-sql">CREATE TABLE order_status_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</code></pre>
+<p>当前状态用于快速查询，事件表用于审计和排查。</p>
+<span class="heading-anchor" id="2. 创建订单要同时处理价格、库存和明细"></span><h3 id="2">2. 创建订单要同时处理价格、库存和明细</h3>
+<p>创建订单时不能只保存商品 ID。要保存下单时价格和名称快照，否则商品改价会影响历史订单。</p>
+<p>多商品扣库存要注意：</p>
+<ul>
+<li>先按 product_id 排序，降低死锁。</li>
+<li>每个商品用条件更新防止负库存。</li>
+<li>任何一个商品库存不足，整个事务回滚。</li>
+<li>写库存流水，便于审计。</li>
+</ul>
+<p>伪流程：</p>
+<pre><code class="language-text">BEGIN
+  创建订单 pending
+  对商品按 product_id 排序
+  对每个商品条件扣库存
+  插入订单明细快照
+  写库存流水
+COMMIT
+</code></pre>
+<span class="heading-anchor" id="3. 支付回调必须幂等"></span><h3 id="3">3. 支付回调必须幂等</h3>
+<p>支付平台回调可能重复，也可能乱序。系统必须用唯一键去重：</p>
+<pre><code class="language-sql">UNIQUE (provider, provider_payment_id)
+</code></pre>
+<p>订单状态更新要带条件：</p>
+<pre><code class="language-sql">UPDATE orders
+SET status = 'paid', paid_at = now()
+WHERE id = $1 AND status = 'pending';
+</code></pre>
+<p>如果订单已支付，重复回调不应再次触发发货或加积分。</p>
+<span class="heading-anchor" id="4. 查询和索引从页面出发"></span><h3 id="4">4. 查询和索引从页面出发</h3>
+<p>用户订单列表：</p>
+<pre><code class="language-sql">WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
+</code></pre>
+<p>索引：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_user_created
+ON orders(user_id, created_at DESC);
+</code></pre>
+<p>后台待发货：</p>
+<pre><code class="language-sql">WHERE status = 'paid' ORDER BY paid_at LIMIT 100
+</code></pre>
+<p>如果 paid 且未发货只是少数，可以用部分索引或单独状态。</p>
+<p>订单详情查明细，<code>order_items(order_id)</code> 必须有索引。</p>
+<span class="heading-anchor" id="5. 退款扩展怎么做"></span><h3 id="5">5. 退款扩展怎么做</h3>
+<p>不要直接把订单金额改小。退款是新事件，应建退款表：</p>
+<pre><code class="language-sql">CREATE TABLE refunds (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  payment_id BIGINT NOT NULL REFERENCES payments(id),
+  amount NUMERIC(12,2) NOT NULL CHECK (amount &gt; 0),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
+  provider_refund_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</code></pre>
+<p>订单原始金额保持不变，退款通过退款流水表达。财务系统最怕历史事实被覆盖。</p>
+<span class="heading-anchor" id="6. 上线前要做的并发测试"></span><h3 id="6">6. 上线前要做的并发测试</h3>
+<p>至少测试：</p>
+<ul>
+<li>100 个请求同时购买最后 10 件商品，最终库存不为负，成功订单不超过 10。</li>
+<li>支付回调重复 10 次，只产生一条支付事件，只触发一次状态流转。</li>
+<li>创建订单中途失败，订单、明细、库存没有半截数据。</li>
+<li>多商品订单并发不会频繁死锁；即使死锁，重试后结果正确。</li>
+</ul>
+<p>这些测试比单纯 CRUD 测试重要得多。</p>
+<span class="heading-anchor" id="7. 生产观测指标"></span><h3 id="7">7. 生产观测指标</h3>
+<ul>
+<li>创建订单成功率。</li>
+<li>库存扣减失败率。</li>
+<li>支付回调重复率。</li>
+<li>pending 订单超时数量。</li>
+<li>发货队列积压。</li>
+<li>支付金额与订单金额不一致数量。</li>
+<li>库存流水与库存快照不一致数量。</li>
+</ul>
+<p>订单系统要监控业务不变量，而不是只监控数据库 CPU。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_18">思维导图</h2>
+<blockquote>
+<p>记忆建议：订单系统要先定义状态机，再围绕价格、库存、支付幂等和查询索引做设计。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 从需求到上线"></span><h3 id="1_1">1. 从需求到上线</h3>
+<pre class="mermaid">flowchart LR
+  A["需求和业务事实"] --&gt; B["订单状态机"]
+  B --&gt; C["ERD和表结构"]
+  C --&gt; D["约束和索引"]
+  D --&gt; E["创建订单事务"]
+  E --&gt; F["支付回调幂等"]
+  F --&gt; G["Migration和上线检查"]
+  G --&gt; H["监控和并发测试"]
+</pre>
+<span class="heading-anchor" id="2. 订单关键不变量"></span><h3 id="2_1">2. 订单关键不变量</h3>
+<pre class="mermaid">mindmap
+  root((订单不变量))
+    价格快照
+      下单时商品名
+      下单时金额
+    库存
+      不能扣成负数
+      并发条件更新
+    支付
+      回调幂等
+      状态单向流转
+    查询
+      用户订单列表
+      订单详情
+      待发货队列
+</pre>
+<span class="heading-anchor" id="3. 支付回调事务"></span><h3 id="3_1">3. 支付回调事务</h3>
+<pre class="mermaid">flowchart TD
+  A["收到支付回调"] --&gt; B["用外部支付单号做幂等键"]
+  B --&gt; C{"是否已处理"}
+  C --&gt;|是| D["直接返回成功"]
+  C --&gt;|否| E["开启事务锁定订单"]
+  E --&gt; F["校验金额和状态"]
+  F --&gt; G["更新支付和订单状态"]
+  G --&gt; H["提交后触发后续异步动作"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

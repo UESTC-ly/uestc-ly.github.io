@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>滑动窗口与字符统计：无重复字符的最长子串、长度最小的子数组、找到所有字母异位词（3、209、438） · 李杨的学习笔记</title><meta name="description" content="本笔记整理 LeetCode 3、209、438，以及几道题中常用的哈希表、字符频次数组和窗口边界写法。"><meta property="og:title" content="滑动窗口与字符统计：无重复字符的最长子串、长度最小的子数组、找到所有字母异位词（3、209、438） · 李杨的学习笔记"><meta property="og:description" content="本笔记整理 LeetCode 3、209、438，以及几道题中常用的哈希表、字符频次数组和窗口边界写法。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-a0f21c9d420a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-a0f21c9d420a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">滑动窗口</p><h1>滑动窗口与字符统计：无重复字符的最长子串、长度最小的子数组、找到所有字母异位词（3、209、438）</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3/%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3%E4%B8%8E%E5%AD%97%E7%AC%A6%E7%BB%9F%E8%AE%A1%EF%BC%883%E3%80%81438%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 适用场景</a></li><li><a href="#2">2. 常用操作</a></li><li><a href="#3-set-unordered_set">3. set 与 unordered_set</a></li><li><a href="#4-size-int">4. size() 与 int 的类型转换</a></li><li><a href="#1_1">1. 题意</a></li><li><a href="#2_1">2. 核心思路：可变长度滑动窗口</a></li><li><a href="#3_1">3. 易错点：删除的是字符，不是下标</a></li><li><a href="#4-abba">4. 示例推演：&quot;abba&quot;</a></li><li><a href="#5-c">5. C++ 代码</a></li><li><a href="#6">6. 复杂度</a></li><li><a href="#7">7. 方法归纳</a></li><li><a href="#8">8. 本次补充：用哈希表记录最后出现位置</a></li><li><a href="#_1">为什么左指针不能后退</a></li><li><a href="#_2">本次代码中的易错点</a></li><li><a href="#_3">复杂度与边界</a></li><li><a href="#1_2">1. 题意</a></li><li><a href="#2_2">2. 为什么使用滑动窗口</a></li><li><a href="#3_2">3. 核心步骤</a></li><li><a href="#4-c">4. C++ 代码</a></li><li><a href="#5">5. 复杂度与适用边界</a></li><li><a href="#6_1">6. 方法归纳</a></li><li><a href="#1_3">1. 题意</a></li><li><a href="#2-unordered_set">2. 为什么不能只使用 unordered_set</a></li><li><a href="#3_3">3. 核心思路：固定长度滑动窗口</a></li><li><a href="#4">4. 常见边界错误</a></li><li><a href="#right-sright">错误一：移动 right 后再访问 s[right]</a></li><li><a href="#_4">错误二：指针区间与计数数组不同步</a></li><li><a href="#5-c_1">5. C++ 双指针写法</a></li><li><a href="#6_2">6. 更简洁的单指针写法</a></li><li><a href="#7-s-ababp-ab">7. 示例推演：s = &quot;abab&quot;，p = &quot;ab&quot;</a></li><li><a href="#8_1">8. 复杂度</a></li><li><a href="#9">9. 方法归纳</a></li><li><a href="#_6">来源</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本笔记整理 LeetCode 3、209、438，以及几道题中常用的哈希表、字符频次数组和窗口边界写法。</p>
+<p>三题都在连续区间上移动窗口，但窗口条件不同：</p>
+<ul>
+<li>3 题是<strong>可变长度窗口</strong>：重复时不断缩小；</li>
+<li>209 题是<strong>可变长度窗口</strong>：和达标时记录答案，再尝试缩小；</li>
+<li>438 题是<strong>固定长度窗口</strong>：始终保持长度为 <code>p.size()</code>。</li>
+</ul>
+<p>相关笔记：<a href="n-a6646c452c52.html">哈希表专题（1、49、128）</a></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="一、unordered_set 基础"></span><h1 id="unordered_set">一、<code>unordered_set</code> 基础</h1>
+<span class="heading-anchor" id="1. 适用场景"></span><h2 id="1">1. 适用场景</h2>
+<p><code>unordered_set</code> 是哈希集合，适合：</p>
+<ul>
+<li>保存不重复的元素；</li>
+<li>快速判断某个元素是否存在；</li>
+<li>不关心元素的排列顺序。</li>
+</ul>
+<p>常用定义：</p>
+<pre><code class="language-cpp">unordered_set&lt;int&gt; nums;
+unordered_set&lt;char&gt; chars;
+unordered_set&lt;string&gt; words;
+</code></pre>
+<p>平均情况下，插入、查找和删除的时间复杂度都是 <code>O(1)</code>。</p>
+<span class="heading-anchor" id="2. 常用操作"></span><h2 id="2">2. 常用操作</h2>
+<pre><code class="language-cpp">unordered_set&lt;char&gt; st;
+
+st.insert('a');       // 插入元素
+st.count('a');        // 存在返回 1，不存在返回 0
+st.find('a');         // 找到则返回迭代器，否则返回 st.end()
+st.erase('a');        // 删除元素
+st.size();            // 元素数量
+st.empty();           // 是否为空
+st.clear();           // 清空集合
+</code></pre>
+<p>判断元素是否存在时，刷题中常写：</p>
+<pre><code class="language-cpp">if (st.count(c)) {
+    // c 存在
+}
+</code></pre>
+<p><code>unordered_set</code> 没有数组下标语义，不能写：</p>
+<pre><code class="language-cpp">st[0]; // 错误
+</code></pre>
+<p>遍历顺序也不固定：</p>
+<pre><code class="language-cpp">for (char c : st) {
+    cout &lt;&lt; c &lt;&lt; ' ';
+}
+</code></pre>
+<span class="heading-anchor" id="3. set 与 unordered_set"></span><h2 id="3-set-unordered_set">3. <code>set</code> 与 <code>unordered_set</code></h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>容器</th>
+<th>常见底层结构</th>
+<th>元素顺序</th>
+<th>查找、插入、删除</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>set</code></td>
+<td>红黑树</td>
+<td>自动排序</td>
+<td><code>O(log n)</code></td>
+</tr>
+<tr>
+<td><code>unordered_set</code></td>
+<td>哈希表</td>
+<td>无序</td>
+<td>平均 <code>O(1)</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>只需要去重和判断存在、不要求有序时，一般优先考虑 <code>unordered_set</code>。</p>
+<span class="heading-anchor" id="4. size() 与 int 的类型转换"></span><h2 id="4-size-int">4. <code>size()</code> 与 <code>int</code> 的类型转换</h2>
+<p><code>st.size()</code> 返回 <code>size_t</code>，而下面的 <code>ans</code> 是 <code>int</code>：</p>
+<pre><code class="language-cpp">int ans = 0;
+</code></pre>
+<p>直接写：</p>
+<pre><code class="language-cpp">ans = max(ans, st.size());
+</code></pre>
+<p>可能因为 <code>max</code> 的两个参数类型不同而编译失败。可以明确转换：</p>
+<pre><code class="language-cpp">ans = max(ans, static_cast&lt;int&gt;(st.size()));
+</code></pre>
+<p>在滑动窗口中，如果窗口边界都是 <code>int</code>，也可以直接计算窗口长度：</p>
+<pre><code class="language-cpp">ans = max(ans, right - left);
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="二、3. 无重复字符的最长子串"></span><h1 id="3">二、3. 无重复字符的最长子串</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1_1">1. 题意</h2>
+<p>给定字符串 <code>s</code>，求不包含重复字符的最长连续子串长度。</p>
+<p>本题要找的是<strong>子串</strong>，所以字符在原字符串中必须连续。</p>
+<span class="heading-anchor" id="2. 核心思路：可变长度滑动窗口"></span><h2 id="2_1">2. 核心思路：可变长度滑动窗口</h2>
+<p>维护左闭右开窗口：</p>
+<pre><code class="language-text">[left, right)
+</code></pre>
+<p>并使用：</p>
+<pre><code class="language-cpp">unordered_set&lt;char&gt; window;
+</code></pre>
+<p>记录当前窗口里的字符。</p>
+<p>窗口始终满足：</p>
+<blockquote>
+<p><code>window</code> 中没有重复字符，并且它保存的字符与 <code>[left, right)</code> 对应。</p>
+</blockquote>
+<p>处理规则：</p>
+<ul>
+<li><code>s[right]</code> 不在集合中：将其加入窗口，<code>right++</code>；</li>
+<li><code>s[right]</code> 已在集合中：删除左端字符 <code>s[left]</code>，<code>left++</code>；</li>
+<li>重复字符可能不在最左边，因此要持续缩小窗口，直到重复消失。</li>
+</ul>
+<span class="heading-anchor" id="3. 易错点：删除的是字符，不是下标"></span><h2 id="3_1">3. 易错点：删除的是字符，不是下标</h2>
+<p>集合的类型是：</p>
+<pre><code class="language-cpp">unordered_set&lt;char&gt; window;
+</code></pre>
+<p>因此错误写法是：</p>
+<pre><code class="language-cpp">window.erase(left);
+</code></pre>
+<p><code>left</code> 是下标，而集合中保存的是字符。正确写法是：</p>
+<pre><code class="language-cpp">window.erase(s[left]);
+</code></pre>
+<p>记忆：</p>
+<pre><code class="language-text">右边进入的是 s[right]
+左边离开的也是 s[left]
+</code></pre>
+<span class="heading-anchor" id='4. 示例推演："abba"'></span><h2 id="4-abba">4. 示例推演：<code>"abba"</code></h2>
+<p>开始时：</p>
+<pre><code class="language-text">left = 0, right = 0, window = {}
+</code></pre>
+<ol>
+<li>加入 <code>'a'</code>，窗口为 <code>"a"</code>，答案为 <code>1</code>；</li>
+<li>加入 <code>'b'</code>，窗口为 <code>"ab"</code>，答案为 <code>2</code>；</li>
+<li>再遇到 <code>'b'</code>，先删除左端 <code>'a'</code>，但窗口中仍有 <code>'b'</code>；</li>
+<li>继续删除左端旧的 <code>'b'</code>，重复消失；</li>
+<li>加入新的 <code>'b'</code>，再继续处理最后的 <code>'a'</code>。</li>
+</ol>
+<p>最终最长长度为 <code>2</code>。</p>
+<p>这个例子说明：遇到重复字符时不能只删除一次，必须持续移动左边界，直到当前字符可以安全进入窗口。</p>
+<span class="heading-anchor" id="5. C++ 代码"></span><h2 id="5-c">5. C++ 代码</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    int lengthOfLongestSubstring(string s) {
+        int left = 0;
+        int right = 0;
+        int answer = 0;
+
+        // 保存当前窗口 [left, right) 中的字符
+        unordered_set&lt;char&gt; window;
+
+        while (right &lt; static_cast&lt;int&gt;(s.size())) {
+            if (!window.count(s[right])) {
+                // 当前字符不重复，可以进入窗口
+                window.insert(s[right]);
+                right++;
+
+                // 此时窗口是 [left, right)，长度为 right - left
+                answer = max(answer, right - left);
+            } else {
+                // 当前字符重复，先从左侧缩小窗口
+                window.erase(s[left]);
+                left++;
+            }
+        }
+
+        return answer;
+    }
+};
+</code></pre>
+<p>也可以根据集合大小更新答案：</p>
+<pre><code class="language-cpp">answer = max(answer, static_cast&lt;int&gt;(window.size()));
+</code></pre>
+<p>不过使用 <code>right - left</code> 能直接体现窗口长度，并避免 <code>size_t</code> 与 <code>int</code> 的类型不一致。</p>
+<span class="heading-anchor" id="6. 复杂度"></span><h2 id="6">6. 复杂度</h2>
+<ul>
+<li>时间复杂度：<code>O(n)</code>；</li>
+<li>空间复杂度：<code>O(k)</code>，其中 <code>k</code> 是窗口中不同字符的数量。</li>
+</ul>
+<p>虽然代码中发生了左右指针移动，但每个字符最多进入和离开窗口各一次，因此整体是线性的。</p>
+<span class="heading-anchor" id="7. 方法归纳"></span><h2 id="7">7. 方法归纳</h2>
+<pre><code class="language-text">右端字符不重复 → 加入窗口，扩大右边界
+右端字符重复   → 删除左端字符，缩小左边界
+</code></pre>
+<p>记忆：</p>
+<blockquote>
+<p><strong>最长无重复子串：集合判重复，重复就缩左边，不重复就扩右边。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="8. 本次补充：用哈希表记录最后出现位置"></span><h2 id="8">8. 本次补充：用哈希表记录最后出现位置</h2>
+<p><code>lastPos[c]</code> 保存字符 <code>c</code> 在已扫描部分中最后出现的下标，<strong>不是出现次数，也不只保存当前窗口内的字符</strong>。此写法使用闭区间 <code>[left, right]</code>，长度为 <code>right - left + 1</code>。</p>
+<pre><code class="language-cpp">class Solution {
+public:
+    int lengthOfLongestSubstring(string s) {
+        int n = s.size();
+        int left = 0;
+        int ans = 0;
+        unordered_map&lt;char, int&gt; lastPos;
+
+        for (int right = 0; right &lt; n; right++) {
+            char c = s[right];
+            // 先确认存在，再判断旧位置是否在当前窗口内
+            if (lastPos.count(c) &amp;&amp; lastPos[c] &gt;= left) {
+                left = lastPos[c] + 1;
+            }
+            // 判断旧位置之后，统一更新最新位置
+            lastPos[c] = right;
+            ans = max(ans, right - left + 1);
+        }
+        return ans;
+    }
+};
+</code></pre>
+<p>加入新字符之前窗口没有重复，所以只需排除新字符对应的旧位置。跳到旧位置之后，窗口重新合法；更早的左边界会包含这两个重复字符。因此每轮得到以 <code>right</code> 结尾的最长合法窗口。</p>
+<span class="heading-anchor" id="为什么左指针不能后退"></span><h3 id="_1">为什么左指针不能后退</h3>
+<p>以 <code>"abba"</code> 为例：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>right</th>
+<th>字符</th>
+<th>旧位置</th>
+<th>更新后的 left</th>
+<th>合法窗口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>a</td>
+<td>不存在</td>
+<td>0</td>
+<td>a</td>
+</tr>
+<tr>
+<td>1</td>
+<td>b</td>
+<td>不存在</td>
+<td>0</td>
+<td>ab</td>
+</tr>
+<tr>
+<td>2</td>
+<td>b</td>
+<td>1</td>
+<td>2</td>
+<td>b</td>
+</tr>
+<tr>
+<td>3</td>
+<td>a</td>
+<td>0，在窗口外</td>
+<td>2</td>
+<td>ba</td>
+</tr>
+</tbody>
+</table></div>
+<p>最后一个 <code>a</code> 的旧位置是 <code>0</code>，已经被移出窗口。直接执行 <code>left = 0 + 1</code> 会把左边界从 <code>2</code> 退到 <code>1</code>，得到包含重复字符的 <code>"bba"</code>。</p>
+<p>上面的条件也可等价写为：</p>
+<pre><code class="language-cpp">if (lastPos.count(c)) {
+    left = max(left, lastPos[c] + 1);
+}
+</code></pre>
+<p>这里先判断字符存在，<code>max</code> 再保证左边界只向右移动。这是本题的窗口维护要求，不是所有双指针算法都禁止向左移动。</p>
+<span class="heading-anchor" id="本次代码中的易错点"></span><h3 id="_2">本次代码中的易错点</h3>
+<ul>
+<li><code>count(c)</code> 检查字符键是否存在；<code>count(lastPos[c])</code> 却把存储的下标当作字符键查找，含义错误。</li>
+<li>读写必须使用同一种键：采用 <code>char</code> 键时统一写 <code>c</code>，不要混用 <code>c - 'a'</code>。本题不只包含小写字母。</li>
+<li><code>lastPos[c]</code> 在键不存在时会插入值 <code>0</code>。直接判断 <code>lastPos[c] &gt;= left</code>，会把首次出现的字符误当成下标 <code>0</code> 处的旧字符；输入 <code>"a"</code> 就会错误返回 <code>0</code>。</li>
+<li>先查询旧位置，再执行 <code>lastPos[c] = right</code>；只需在条件外统一赋值一次。</li>
+<li><code>unordered_map&lt;char, int&gt; lastPos(26, {-1, -1})</code> 不是有效的“26 个位置填 -1”初始化方式。</li>
+</ul>
+<p>这里涉及的 <code>unordered_map</code> 行为是 C++ 容器的通用规则：<code>find</code>/<code>count</code> 用于查询是否存在，<code>operator[]</code> 在缺少 key 时会插入默认值。</p>
+<p>关于指定键初始化为 <code>-1</code>、<code>find</code> 写法及字符数组替代方案，见 <a href="n-daa7f9f0a953.html#unordered_map">C++基础</a>。</p>
+<span class="heading-anchor" id="复杂度与边界"></span><h3 id="_3">复杂度与边界</h3>
+<p>平均时间 <code>O(n)</code>，额外空间 <code>O(min(n, K))</code>，<code>K</code> 为字符集大小；固定字符集下额外空间可视为 <code>O(1)</code>。哈希操作平均为常数时间，极端碰撞下不保证整体线性。</p>
+<p>手推边界：空串返回 <code>0</code>，<code>"a"</code> 返回 <code>1</code>，<code>"bbbb"</code> 返回 <code>1</code>，<code>"abba"</code> 返回 <code>2</code>。</p>
+<p>记忆：<strong>查旧位置 → 排除窗口内重复 → 更新新位置 → 记录最长长度。</strong></p>
+<hr/>
+<span class="heading-anchor" id="三、209. 长度最小的子数组"></span><h1 id="209">三、209. 长度最小的子数组</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1_2">1. 题意</h2>
+<p>给定正整数数组 <code>nums</code> 和正整数 <code>target</code>，找到总和大于等于 <code>target</code> 的连续子数组，并返回其中最小的长度；不存在时返回 <code>0</code>。</p>
+<span class="heading-anchor" id="2. 为什么使用滑动窗口"></span><h2 id="2_2">2. 为什么使用滑动窗口</h2>
+<p>数组元素都是正数，这是本题能够使用滑动窗口的关键：</p>
+<ul>
+<li>右边加入一个数，窗口和只会变大；</li>
+<li>左边移出一个数，窗口和只会变小。</li>
+</ul>
+<p>因此可以先扩大窗口直到满足 <code>sum &gt;= target</code>，再不断缩小左边界，寻找当前右边界下的最短窗口。</p>
+<span class="heading-anchor" id="3. 核心步骤"></span><h2 id="3_2">3. 核心步骤</h2>
+<p>维护闭区间 <code>[left, right]</code>：</p>
+<ol>
+<li><code>nums[right]</code> 加入窗口；</li>
+<li>当窗口和 <code>sum &gt;= target</code> 时，先更新答案；</li>
+<li>移出 <code>nums[left]</code>，然后 <code>left++</code>，继续尝试缩小窗口；</li>
+<li>右指针遍历结束后，如果没有找到答案则返回 <code>0</code>。</li>
+</ol>
+<p>注意条件是 <code>&gt;=</code>，不是 <code>==</code>。例如 <code>target = 3</code>、<code>nums = [2, 2]</code> 时，窗口和为 <code>4</code>，仍然符合要求。</p>
+<span class="heading-anchor" id="4. C++ 代码"></span><h2 id="4-c">4. C++ 代码</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    int minSubArrayLen(int target, vector&lt;int&gt;&amp; nums) {
+        int left = 0;
+        int ans = INT_MAX;
+        long long sum = 0;
+
+        for (int right = 0; right &lt; nums.size(); right++) {
+            sum += nums[right];
+
+            // 满足条件后持续缩小左边界，寻找最短窗口
+            while (sum &gt;= target) {
+                ans = min(ans, right - left + 1);
+                sum -= nums[left];
+                left++;
+            }
+        }
+
+        return ans == INT_MAX ? 0 : ans;
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="5. 复杂度与适用边界"></span><h2 id="5">5. 复杂度与适用边界</h2>
+<p>原先枚举长度、枚举起点、重新求和的写法，最坏时间为 <code>O(n³)</code>。按长度递增找到首个合法窗口就返回是可行的，但判断必须为 <code>&gt;= target</code>，并且这种枚举仍可能超时。</p>
+<p>手推 <code>target = 7, nums = [2,3,1,2,4,3]</code>：右端到下标 <code>3</code> 时首次得到和为 <code>8</code> 的窗口，记录长度 <code>4</code>；继续扩张、收缩，最终窗口 <code>[4,3]</code> 的和为 <code>7</code>，记录长度 <code>2</code>。必须先记录合法窗口，再移出左端元素；用 <code>while</code> 持续收缩，不能只缩一次。</p>
+<ul>
+<li>时间复杂度：<code>O(n)</code>。左右指针都只向右移动一次；</li>
+<li>空间复杂度：<code>O(1)</code>；</li>
+<li>这里依赖数组元素为正数。若数组中允许负数，窗口和不再具有单调性，不能直接套用此模板。</li>
+</ul>
+<span class="heading-anchor" id="6. 方法归纳"></span><h2 id="6_1">6. 方法归纳</h2>
+<p>看到“正数数组 + 连续子数组 + 和至少达到某个目标”，优先想到：</p>
+<blockquote>
+<p><strong>先扩张到满足条件，再收缩到不满足条件；每次满足时更新最优答案。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="四、438. 找到字符串中所有字母异位词"></span><h1 id="438">四、438. 找到字符串中所有字母异位词</h1>
+<span class="heading-anchor" id="1. 题意"></span><h2 id="1_3">1. 题意</h2>
+<p>给定字符串 <code>s</code> 和 <code>p</code>，找出 <code>s</code> 中所有是 <code>p</code> 的字母异位词的子串，并返回这些子串的起始下标。</p>
+<p>字母异位词要求：</p>
+<ul>
+<li>字符种类相同；</li>
+<li>每种字符的出现次数相同；</li>
+<li>字符排列顺序可以不同。</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-text">"abc"、"cba"、"bac"
+</code></pre>
+<p>互为字母异位词。</p>
+<p>图片中的示例：</p>
+<pre><code class="language-text">s = "cbaebabacd", p = "abc"
+答案：[0, 6]
+</code></pre>
+<p>因为从下标 <code>0</code> 开始的 <code>"cba"</code> 和从下标 <code>6</code> 开始的 <code>"bac"</code> 都是 <code>"abc"</code> 的异位词。</p>
+<p>另一个示例：</p>
+<pre><code class="language-text">s = "abab", p = "ab"
+答案：[0, 1, 2]
+</code></pre>
+<p>对应的定长子串依次为 <code>"ab"</code>、<code>"ba"</code>、<code>"ab"</code>。</p>
+<span class="heading-anchor" id="2. 为什么不能只使用 unordered_set"></span><h2 id="2-unordered_set">2. 为什么不能只使用 <code>unordered_set</code></h2>
+<p>本题不仅要判断字符是否存在，还要比较每个字符出现了多少次。</p>
+<p>例如：</p>
+<pre><code class="language-text">p = "aab"
+</code></pre>
+<p>需要保存：</p>
+<pre><code class="language-text">a 出现 2 次
+b 出现 1 次
+</code></pre>
+<p><code>unordered_set</code> 去重后只能保存 <code>'a'</code> 和 <code>'b'</code>，会丢失字符次数，因此不适合本题。</p>
+<p>由于题目字符为小写英文字母，可以使用长度为 <code>26</code> 的频次数组：</p>
+<pre><code class="language-cpp">vector&lt;int&gt; need(26, 0);
+vector&lt;int&gt; window(26, 0);
+</code></pre>
+<p>字符转换为数组下标：</p>
+<pre><code class="language-cpp">int index = c - 'a';
+</code></pre>
+<span class="heading-anchor" id="3. 核心思路：固定长度滑动窗口"></span><h2 id="3_3">3. 核心思路：固定长度滑动窗口</h2>
+<p>异位词和 <code>p</code> 的长度一定相同，因此窗口长度固定为：</p>
+<pre><code class="language-cpp">m = p.size();
+</code></pre>
+<p>维护左闭右开窗口：</p>
+<pre><code class="language-text">[left, right)
+</code></pre>
+<p>每轮按以下顺序处理：</p>
+<ol>
+<li><code>s[right]</code> 进入窗口；</li>
+<li><code>right++</code>；</li>
+<li>如果窗口长度超过 <code>m</code>，删除 <code>s[left]</code> 并令 <code>left++</code>；</li>
+<li>当窗口长度等于 <code>m</code> 时，比较 <code>window</code> 和 <code>need</code>；</li>
+<li>两个计数数组相同，就记录 <code>left</code>。</li>
+</ol>
+<p>关键模板：</p>
+<pre><code class="language-cpp">window[s[right] - 'a']++;
+right++;
+
+if (right - left &gt; m) {
+    window[s[left] - 'a']--;
+    left++;
+}
+
+if (right - left == m &amp;&amp; window == need) {
+    answer.push_back(left);
+}
+</code></pre>
+<span class="heading-anchor" id="4. 常见边界错误"></span><h2 id="4">4. 常见边界错误</h2>
+<span class="heading-anchor" id="错误一：移动 right 后再访问 s[right]"></span><h3 id="right-sright">错误一：移动 <code>right</code> 后再访问 <code>s[right]</code></h3>
+<p>下面的顺序可能跳过 <code>s[0]</code>，并在末尾越界：</p>
+<pre><code class="language-cpp">right++;
+window[s[right] - 'a']++;
+</code></pre>
+<p>当 <code>right</code> 原本等于 <code>s.size() - 1</code> 时，执行 <code>right++</code> 后再访问 <code>s[right]</code>，就访问了字符串末尾之外的位置。</p>
+<p>正确顺序是：</p>
+<pre><code class="language-cpp">window[s[right] - 'a']++;
+right++;
+</code></pre>
+<p>即先处理当前字符，再移动右边界。</p>
+<span class="heading-anchor" id="错误二：指针区间与计数数组不同步"></span><h3 id="_4">错误二：指针区间与计数数组不同步</h3>
+<p>如果用：</p>
+<pre><code class="language-cpp">right - left + 1
+</code></pre>
+<p>表示闭区间 <code>[left, right]</code>，就必须确保 <code>window</code> 已经包含 <code>s[right]</code>。</p>
+<p>为了减少混乱，推荐统一使用左闭右开区间：</p>
+<pre><code class="language-text">[left, right)
+窗口长度 = right - left
+</code></pre>
+<p>这样 <code>right</code> 始终指向下一个尚未加入窗口的字符。</p>
+<span class="heading-anchor" id="5. C++ 双指针写法"></span><h2 id="5-c_1">5. C++ 双指针写法</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    vector&lt;int&gt; findAnagrams(string s, string p) {
+        int n = static_cast&lt;int&gt;(s.size());
+        int m = static_cast&lt;int&gt;(p.size());
+
+        vector&lt;int&gt; answer;
+
+        // p 比 s 长时，不可能存在符合要求的子串
+        if (m &gt; n) {
+            return answer;
+        }
+
+        vector&lt;int&gt; need(26, 0);
+        vector&lt;int&gt; window(26, 0);
+
+        for (char c : p) {
+            need[c - 'a']++;
+        }
+
+        int left = 0;
+        int right = 0;
+
+        // 窗口始终表示 [left, right)
+        while (right &lt; n) {
+            // 当前右侧字符进入窗口
+            window[s[right] - 'a']++;
+            right++;
+
+            // 固定窗口长度，超长时移出左侧字符
+            if (right - left &gt; m) {
+                window[s[left] - 'a']--;
+                left++;
+            }
+
+            // 长度相同且字符频次相同，就是异位词
+            if (right - left == m &amp;&amp; window == need) {
+                answer.push_back(left);
+            }
+        }
+
+        return answer;
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="6. 更简洁的单指针写法"></span><h2 id="6_2">6. 更简洁的单指针写法</h2>
+<p>固定长度窗口也可以只显式使用右边界：</p>
+<pre><code class="language-cpp">class Solution {
+public:
+    vector&lt;int&gt; findAnagrams(string s, string p) {
+        int n = static_cast&lt;int&gt;(s.size());
+        int m = static_cast&lt;int&gt;(p.size());
+
+        vector&lt;int&gt; answer;
+
+        if (m &gt; n) {
+            return answer;
+        }
+
+        vector&lt;int&gt; need(26, 0);
+        vector&lt;int&gt; window(26, 0);
+
+        for (char c : p) {
+            need[c - 'a']++;
+        }
+
+        for (int right = 0; right &lt; n; right++) {
+            // 当前字符进入窗口
+            window[s[right] - 'a']++;
+
+            // right &gt;= m 时，移除窗口左侧多出的字符
+            if (right &gt;= m) {
+                window[s[right - m] - 'a']--;
+            }
+
+            // 当前窗口长度达到 m，并且频次数组相同
+            if (right &gt;= m - 1 &amp;&amp; window == need) {
+                answer.push_back(right - m + 1);
+            }
+        }
+
+        return answer;
+    }
+};
+</code></pre>
+<p>对于刚开始学习滑动窗口时，双指针写法更直观；熟悉固定窗口后，可以使用单指针写法。</p>
+<span class="heading-anchor" id='7. 示例推演：s = "abab"，p = "ab"'></span><h2 id="7-s-ababp-ab">7. 示例推演：<code>s = "abab"</code>，<code>p = "ab"</code></h2>
+<p>目标频次：</p>
+<pre><code class="language-text">a = 1, b = 1
+</code></pre>
+<p>窗口长度固定为 <code>2</code>：</p>
+<ol>
+<li>加入 <code>s[0] = 'a'</code>，窗口 <code>"a"</code>，长度不足；</li>
+<li>加入 <code>s[1] = 'b'</code>，窗口 <code>"ab"</code>，记录起点 <code>0</code>；</li>
+<li>加入 <code>s[2] = 'a'</code> 后窗口暂时超长，移出 <code>s[0]</code>，得到 <code>"ba"</code>，记录起点 <code>1</code>；</li>
+<li>加入 <code>s[3] = 'b'</code> 后移出 <code>s[1]</code>，得到 <code>"ab"</code>，记录起点 <code>2</code>。</li>
+</ol>
+<p>最终结果：</p>
+<pre><code class="language-text">[0, 1, 2]
+</code></pre>
+<span class="heading-anchor" id="8. 复杂度"></span><h2 id="8_1">8. 复杂度</h2>
+<p>比较两个长度为 <code>26</code> 的数组需要 <code>O(26)</code>，因为字符集大小固定，可以看作常数。</p>
+<ul>
+<li>时间复杂度：<code>O(26n)</code>，简化为 <code>O(n)</code>；</li>
+<li>空间复杂度：<code>O(26)</code>，简化为 <code>O(1)</code>。</li>
+</ul>
+<span class="heading-anchor" id="9. 方法归纳"></span><h2 id="9">9. 方法归纳</h2>
+<p>看到以下特征：</p>
+<ul>
+<li>寻找连续子串；</li>
+<li>合法子串长度固定；</li>
+<li>需要比较字符出现次数；</li>
+</ul>
+<p>可以考虑：</p>
+<blockquote>
+<p><strong>定长滑动窗口 + 字符频次数组。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="五、三道滑动窗口题对比"></span><h1 id="_5">五、三道滑动窗口题对比</h1>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>题目</th>
+<th>窗口类型</th>
+<th>窗口中保存的信息</th>
+<th>缩小窗口的条件</th>
+<th>收集答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3. 无重复字符的最长子串</td>
+<td>可变长度</td>
+<td>当前字符集合</td>
+<td>右侧字符重复</td>
+<td>更新最大窗口长度</td>
+</tr>
+<tr>
+<td>209. 长度最小的子数组</td>
+<td>可变长度</td>
+<td>当前窗口和</td>
+<td>窗口和 <code>&gt;= target</code></td>
+<td>更新最小窗口长度</td>
+</tr>
+<tr>
+<td>438. 找到所有字母异位词</td>
+<td>固定长度</td>
+<td>26 个字母的出现次数</td>
+<td>窗口长度超过 <code>p.size()</code></td>
+<td>频次数组相同时记录左边界</td>
+</tr>
+</tbody>
+</table></div>
+<p>前文集合版 3 题与 438 题使用左闭右开窗口：</p>
+<pre><code class="language-text">窗口：[left, right)
+长度：right - left
+</code></pre>
+<p>这两个版本的处理顺序：</p>
+<pre><code class="language-text">右侧元素进入窗口
+        ↓
+根据题目条件移动左边界
+        ↓
+检查当前窗口并更新答案
+</code></pre>
+<p>209 和最后位置版 3 题使用闭区间 <code>[left, right]</code>，长度要加 <code>1</code>。209 求最短合法窗口，应在收缩前更新答案；3 题求最长合法窗口，应在排除重复后更新答案。</p>
+<p>最重要的是保持三者一致：</p>
+<ol>
+<li><code>left</code>、<code>right</code> 所表示的区间；</li>
+<li><code>window</code> 中实际保存的元素；</li>
+<li>计算窗口长度所使用的公式。</li>
+</ol>
+<span class="heading-anchor" id="来源"></span><h2 id="_6">来源</h2>
+<ul>
+<li>保留既有 LeetCode 3、438 题解及集合、字符计数讨论；</li>
+<li>本次会话中用户发送的 LeetCode 3、209 题目图片；</li>
+<li>本次会话中用户提交的 LeetCode 3、209 C++ 代码及其纠错讨论；</li>
+<li><code>unordered_set</code>、<code>unordered_map</code>、滑动窗口和字符计数数组的说明基于本次会话内容与通用 C++/算法知识整理。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

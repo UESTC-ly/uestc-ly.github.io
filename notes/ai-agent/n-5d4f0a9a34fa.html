@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08 重排 · 李杨的学习笔记</title><meta name="description" content="检索阶段通常先从大量资料中快速取得一批候选，再把其中较少的候选交给更细致的排序方法。
+这个“先扩大候选范围，再重新排序”的过程称为重排（Reranking）。它的目标不是凭空找到答案，
+而是在已经召回的候选中，把更可能支持当前问题的内容提前。"><meta property="og:title" content="08 重排 · 李杨的学习笔记"><meta property="og:description" content="检索阶段通常先从大量资料中快速取得一批候选，再把其中较少的候选交给更细致的排序方法。
+这个“先扩大候选范围，再重新排序”的过程称为重排（Reranking）。它的目标不是凭空找到答案，
+而是在已经召回的候选中，把更可能支持当前问题的内容提前。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-5d4f0a9a34fa.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-5d4f0a9a34fa.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08 重排</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/README.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">阅读顺序</a></li><li><a href="#_2">贯穿本部分的例子</a></li><li><a href="#_3">学完这一部分后</a></li><li><a href="#_4">始终保留的边界</a></li></ul></details><article class="note-content">
+<p>检索阶段通常先从大量资料中快速取得一批候选，再把其中较少的候选交给更细致的排序方法。
+这个“先扩大候选范围，再重新排序”的过程称为重排（Reranking）。它的目标不是凭空找到答案，
+而是在已经召回的候选中，把更可能支持当前问题的内容提前。</p>
+<p>重排会增加计算、延迟和运营复杂度，也可能把错误候选排到前面。无论使用交叉编码器、
+大语言模型还是分数融合，都不能恢复第一阶段从未召回的资料，更不能替代权限过滤、来源
+核验、版本检查和最终回答评估。</p>
+<span class="heading-anchor" id="阅读顺序"></span><h2 id="_1">阅读顺序</h2>
+<ol>
+<li><a href="n-4649ddbc353b.html">08-01 为什么需要重排，以及双编码器与交叉编码器</a>：建立两阶段排序直觉，理解速度与细致程度的交换。</li>
+<li><a href="n-a92d237babf6.html">08-02 使用大语言模型重排</a>：学习结构化输出、失败处理、提示注入、延迟和成本边界。</li>
+<li><a href="n-854a3f6b282d.html">08-03 分数融合与 RRF</a>：在不同分数不可直接比较时，理解归一化、加权融合和名次融合。</li>
+<li><a href="n-2267a610577c.html">08-04 多阶段、Top-K、召回率与精确率</a>：为每一阶段分配候选预算，并看清过早裁剪的后果。</li>
+<li><a href="n-7636bd047e21.html">08-05 重排器评估、延迟与成本</a>：用离线查询集、逐查询证据和运行预算决定是否采用重排。</li>
+</ol>
+<p>建议按顺序阅读。08-01 解释单路重排，08-02 讨论一种更灵活但边界更多的方法，08-03
+处理多路候选的合并，最后两章把这些方法放回完整管线中评估。初学者不需要先掌握模型
+训练细节，但应先理解第 07 部分的候选检索、过滤和失败诊断。</p>
+<span class="heading-anchor" id="贯穿本部分的例子"></span><h2 id="_2">贯穿本部分的例子</h2>
+<p>一家公司的制度库收到问题：“试用期员工能申请远程办公吗？”第一阶段检索返回 40 个
+有权限查看的文本块，其中既有现行远程办公制度，也有过期通知、考勤说明和仅包含
+“试用期”字样的无关内容。重排器读取问题和这些候选，把更完整地同时讨论“试用期”与
+“远程办公”的现行条款提前。</p>
+<p>如果现行条款根本不在这 40 个候选里，重排器无法把它找回来。如果过期通知没有版本标记，
+重排器也未必知道它已经失效。后续章节会反复用这个例子区分排序能力与系统责任。</p>
+<span class="heading-anchor" id="学完这一部分后"></span><h2 id="_3">学完这一部分后</h2>
+<p>你应该能够解释双编码器与交叉编码器的输入差异；能够为大语言模型重排设计结构化结果和
+失败回退；能够说明为什么不同检索器的原始分数往往不能直接相加；能够用 RRF 合并名次；
+还能够为多阶段候选数量、离线质量、延迟和成本写出可验证的选择依据。</p>
+<p>本部分不指定唯一模型、服务或阈值，也不提供尚未运行的性能结论。计划中的重排接口、
+RRF 实现、两阶段示例、参数扫描和流程图将在后续实现批次完成并单独验证。</p>
+<span class="heading-anchor" id="始终保留的边界"></span><h2 id="_4">始终保留的边界</h2>
+<ul>
+<li>重排只能改变已有候选的顺序，不能找回未召回资料。</li>
+<li>权限过滤必须在候选暴露给重排服务之前完成；重排不能修复越权候选。</li>
+<li>来源、版本、撤回状态和适用范围不能被相关性分数替代。</li>
+<li>被检索文本始终是不可信数据，其中的指令不能改变系统规则。</li>
+<li>更高离线排序指标不自动等于更好的最终回答或更好的真实用户体验。</li>
+<li>候选数量、模型选择、超时和回退必须与延迟、费用及失败预算一起评估。</li>
+</ul>
+<p>返回：<a href="n-cf7d5431540b.html">文档总索引</a>｜上一部分：<a href="n-3b5435427cd1.html">07 检索</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

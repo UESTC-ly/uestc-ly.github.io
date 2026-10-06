@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>查看 IPv4 路由 · 李杨的学习笔记</title><meta name="description" content="路由表（Routing Table）记录了主机或路由器如何把数据包转发到目标网络。它并不是简单地保存“某个 IP 对应某个网卡”，而是把 目标地址所在的网段 映射到下一跳、出口接口以及相关优先级信息。"><meta property="og:title" content="查看 IPv4 路由 · 李杨的学习笔记"><meta property="og:description" content="路由表（Routing Table）记录了主机或路由器如何把数据包转发到目标网络。它并不是简单地保存“某个 IP 对应某个网卡”，而是把 目标地址所在的网段 映射到下一跳、出口接口以及相关优先级信息。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-1463f52008bb.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-1463f52008bb.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机网络</p><h1>查看 IPv4 路由</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/04-%E7%BD%91%E7%BB%9C%E5%B1%82%EF%BC%9AIP%E3%80%81%E5%AD%90%E7%BD%91%E5%88%92%E5%88%86%E3%80%81ARP%E3%80%81ICMP%E3%80%81%E8%B7%AF%E7%94%B1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#4">4. 路由表</a></li><li><a href="#41">4.1 查看路由表</a></li><li><a href="#42">4.2 路由表条目的组成</a></li><li><a href="#43">4.3 最长前缀匹配</a></li><li><a href="#44">4.4 路由选择的优先级</a></li><li><a href="#45">4.5 直连路由、静态路由和默认路由</a></li><li><a href="#46">4.6 一次路由转发的完整过程</a></li><li><a href="#47">4.7 常见排查方法</a></li><li><a href="#48">4.8 面试总结</a></li><li><a href="#2-ipv4">2. IPv4 地址与子网</a></li><li><a href="#21">2.1 为什么需要子网</a></li><li><a href="#22">2.2 判断是否同网段</a></li><li><a href="#3">3. 默认网关</a></li><li><a href="#4_1">4. 路由表</a></li><li><a href="#41_1">4.1 最长前缀匹配</a></li><li><a href="#5-ip">5. IP 包结构重点</a></li><li><a href="#51-ttl">5.1 TTL</a></li><li><a href="#6-icmp">6. ICMP：网络层诊断与控制</a></li><li><a href="#7-arp">7. ARP 与网络层的关系</a></li><li><a href="#8-nat">8. NAT：地址转换</a></li><li><a href="#9-ipv6">9. IPv6 简介</a></li><li><a href="#10">10. 网络层排障</a></li><li><a href="#11">11. 本章小结</a></li><li><a href="#_4">深入展开：网络层的核心是“我该把包交给谁”</a></li><li><a href="#1-ip">1. IP 地址不是身份证，而是网络位置</a></li><li><a href="#2">2. 子网判断决定“直接发”还是“交给网关”</a></li><li><a href="#3_1">3. 路由表不是只在路由器上有</a></li><li><a href="#4-icmp-ping">4. ICMP 不只是 ping</a></li><li><a href="#5-nat">5. NAT 后到底改了什么</a></li><li><a href="#6">6. 网络层排障最小路径</a></li><li><a href="#_5">思维导图</a></li><li><a href="#1">1. 主机发包决策</a></li><li><a href="#2_1">2. 网络层关键概念</a></li><li><a href="#3_2">3. 网络层排障路径</a></li></ul></details><article class="note-content"><span class="heading-anchor" id="4. 路由表"></span><h2 id="4">4. 路由表</h2>
+<p>路由表（Routing Table）记录了主机或路由器如何把数据包转发到目标网络。它并不是简单地保存“某个 IP 对应某个网卡”，而是把<strong>目标地址所在的网段</strong>映射到下一跳、出口接口以及相关优先级信息。</p>
+<p>当主机准备发送一个数据包时，通常会按照下面的过程查找路由：</p>
+<ol>
+<li>从数据包的目标 IP 地址中取出目标地址。</li>
+<li>将目标地址与路由表中的各个目标网段进行匹配。</li>
+<li>如果有多条路由匹配，优先选择网络前缀最长、也就是最具体的那一条。</li>
+<li>确定下一跳和出口网卡。</li>
+<li>如果目标不在本地直连网段，则先通过 ARP（IPv4）解析下一跳网关的 MAC 地址，再封装二层帧并发送。</li>
+<li>如果没有任何更具体的路由，则尝试使用默认路由；如果默认路由也不存在，通常会返回“Network is unreachable”。</li>
+</ol>
+<span class="heading-anchor" id="4.1 查看路由表"></span><h3 id="41">4.1 查看路由表</h3>
+<p>常用命令：</p>
+<pre><code class="language-bash">ip route
+route -n
+netstat -rn
+</code></pre>
+<p>在 Linux 中，<code>ip route</code> 是更推荐的查看方式；<code>route -n</code> 和 <code>netstat -rn</code> 属于较传统的命令，在一些系统或排查旧环境时仍然常见。</p>
+<pre><code class="language-bash"># 查看 IPv4 路由
+ip -4 route
+
+# 查看 IPv6 路由
+ip -6 route
+
+# 查看某个目标地址实际会使用哪条路由
+ip route get 8.8.8.8
+</code></pre>
+<p><code>ip route get</code> 特别适合排查“数据包究竟从哪块网卡发出、经过哪个下一跳”的问题。它展示的是内核针对一个具体目标地址做出的路由选择结果。</p>
+<span class="heading-anchor" id="4.2 路由表条目的组成"></span><h3 id="42">4.2 路由表条目的组成</h3>
+<p>典型条目：</p>
+<pre><code class="language-text">default via 192.168.1.1 dev en0
+192.168.1.0/24 dev en0 scope link
+</code></pre>
+<p>含义：</p>
+<ul>
+<li><code>default</code>：默认路由，等价于 <code>0.0.0.0/0</code>，可以匹配所有 IPv4 目标地址，但只有在没有更具体路由时才使用。</li>
+<li><code>via 192.168.1.1</code>：下一跳网关是 <code>192.168.1.1</code>。对于不在本地直连网段中的目标，主机会把数据包交给这个网关。</li>
+<li><code>dev en0</code>：通过 <code>en0</code> 网卡发送。</li>
+<li><code>192.168.1.0/24</code>：目标网段为 <code>192.168.1.0</code> 到 <code>192.168.1.255</code>。其中网络地址通常是 <code>192.168.1.0</code>，广播地址通常是 <code>192.168.1.255</code>，可用主机地址通常为 <code>192.168.1.1</code> 到 <code>192.168.1.254</code>。</li>
+<li><code>scope link</code>：目标在当前二层链路上，可以直接通过 ARP 解析目标主机的 MAC 地址，不需要经过三层网关。</li>
+</ul>
+<p>上述两条路由可以理解为：</p>
+<ul>
+<li>到 <code>192.168.1.0/24</code> 的流量直接走 <code>en0</code>，目标主机与本机处于同一个直连网段。</li>
+<li>其他没有更具体匹配项的流量走 <code>192.168.1.1</code>，由该网关继续转发。</li>
+</ul>
+<p>传统 <code>route -n</code> 的输出通常包含以下字段：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Destination</td>
+<td>目标网络或目标主机</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>下一跳网关；直连路由可能显示为 <code>0.0.0.0</code> 或 <code>*</code></td>
+</tr>
+<tr>
+<td>Genmask</td>
+<td>目标网络掩码</td>
+</tr>
+<tr>
+<td>Flags</td>
+<td>路由状态，例如 <code>U</code> 表示可用，<code>G</code> 表示经过网关，<code>H</code> 表示目标是单个主机</td>
+</tr>
+<tr>
+<td>Metric</td>
+<td>路由度量值，用于比较同等条件下的候选路由</td>
+</tr>
+<tr>
+<td>Iface</td>
+<td>出口网卡</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4.3 最长前缀匹配"></span><h3 id="43">4.3 最长前缀匹配</h3>
+<p>路由选择遵循最长前缀匹配（Longest Prefix Match）：匹配目标地址的网络前缀越长，路由越具体，优先级越高。</p>
+<pre><code class="language-text">10.1.2.3 匹配：
+10.0.0.0/8
+10.1.0.0/16
+10.1.2.0/24  ← 最具体，优先使用
+</code></pre>
+<p>这里三条路由都能覆盖 <code>10.1.2.3</code>，但 <code>/24</code> 比 <code>/16</code> 更长，<code>/16</code> 又比 <code>/8</code> 更长，因此最终选择 <code>10.1.2.0/24</code>。</p>
+<p>可以把它类比为查找地址：</p>
+<ul>
+<li><code>10.0.0.0/8</code> 类似“所有 10 开头的地址”；</li>
+<li><code>10.1.0.0/16</code> 类似“所有 10.1 开头的地址”；</li>
+<li><code>10.1.2.0/24</code> 类似“所有 10.1.2 开头的地址”。</li>
+</ul>
+<p>越具体的规则越优先，因此不能简单地认为“路由表中排在前面的条目一定优先”。</p>
+<span class="heading-anchor" id="4.4 路由选择的优先级"></span><h3 id="44">4.4 路由选择的优先级</h3>
+<p>一般可以按以下思路理解路由选择：</p>
+<ol>
+<li>先比较目标网络前缀长度，最长前缀优先。</li>
+<li>如果前缀长度相同，再比较路由的优先级、管理距离或协议相关属性。</li>
+<li>在同等条件下，比较 metric 等度量值，通常选择代价更小的路径。</li>
+<li>如果多条路径仍然等价，系统或路由器可能进行等价多路径（ECMP）转发。</li>
+</ol>
+<p>例如：</p>
+<pre><code class="language-text">10.0.0.0/8       via 192.168.1.1  metric 100
+10.0.0.0/8       via 192.168.1.2  metric 200
+</code></pre>
+<p>两条路由的前缀长度相同，因此通常会优先选择 metric 更小的第一条路由。需要注意，不同操作系统和路由协议对 <code>metric</code>、<code>priority</code>、管理距离等字段的具体含义可能不同，排查时应结合实际系统的输出解释。</p>
+<span class="heading-anchor" id="4.5 直连路由、静态路由和默认路由"></span><h3 id="45">4.5 直连路由、静态路由和默认路由</h3>
+<span class="heading-anchor" id="直连路由"></span><h4 id="_1">直连路由</h4>
+<p>网卡配置了 IP 地址和子网掩码后，系统通常会自动生成对应的直连路由。例如：</p>
+<pre><code class="language-text">192.168.1.0/24 dev en0 scope link
+</code></pre>
+<p>这表示本机认为 <code>192.168.1.0/24</code> 与自己处于同一个链路上。发送给该网段内其他主机的数据包不需要先交给网关，而是直接通过 ARP 找到目标主机的 MAC 地址。</p>
+<span class="heading-anchor" id="静态路由"></span><h4 id="_2">静态路由</h4>
+<p>管理员手动配置的路由称为静态路由。例如：</p>
+<pre><code class="language-bash">ip route add 10.10.0.0/16 via 192.168.1.254 dev en0
+</code></pre>
+<p>它表示：访问 <code>10.10.0.0/16</code> 的数据包交给 <code>192.168.1.254</code>，并通过 <code>en0</code> 发送。静态路由配置简单、路径明确，但网络拓扑变化后通常需要人工维护。</p>
+<span class="heading-anchor" id="默认路由"></span><h4 id="_3">默认路由</h4>
+<p>默认路由是兜底规则：</p>
+<pre><code class="language-text">default via 192.168.1.1 dev en0
+</code></pre>
+<p>家庭网络中的默认网关通常是路由器。主机访问互联网时，目标地址一般不在本地直连网段中，因此会命中默认路由。默认路由并不意味着所有数据包都一定能到达目标，它只说明“本机应把未知目标交给哪个下一跳”。后续是否能继续转发，还取决于网关、上游路由和 NAT 等配置。</p>
+<span class="heading-anchor" id="4.6 一次路由转发的完整过程"></span><h3 id="46">4.6 一次路由转发的完整过程</h3>
+<p>假设主机地址为 <code>192.168.1.10/24</code>，默认网关为 <code>192.168.1.1</code>，现在访问 <code>8.8.8.8</code>：</p>
+<ol>
+<li>主机查看路由表，发现 <code>8.8.8.8</code> 不属于 <code>192.168.1.0/24</code> 直连网段。</li>
+<li>主机匹配到默认路由，确定下一跳为 <code>192.168.1.1</code>，出口为 <code>en0</code>。</li>
+<li>主机通过 ARP 查询 <code>192.168.1.1</code> 的 MAC 地址。</li>
+<li>主机生成二层帧：目标 MAC 是网关 MAC，源 MAC 是本机 <code>en0</code> 的 MAC。</li>
+<li>IP 数据包中的目标 IP 仍然是 <code>8.8.8.8</code>，不会被改成网关的 IP；二层帧的目标 MAC 才是网关的 MAC。</li>
+<li>网关收到数据包后，去掉原来的二层封装，再根据自己的路由表继续转发。</li>
+<li>数据包每经过一个路由器，通常都会重新封装二层帧，但源、目的 IP 通常仍保持端到端的目标关系；TTL 会在每一跳递减。</li>
+</ol>
+<p>这也解释了“网关负责三层转发，ARP 负责在当前链路上找到下一跳 MAC”这两个概念之间的关系。</p>
+<span class="heading-anchor" id="4.7 常见排查方法"></span><h3 id="47">4.7 常见排查方法</h3>
+<pre><code class="language-bash"># 查看接口地址和状态
+ip addr
+
+# 查看路由表
+ip route
+
+# 查看到指定地址的路由选择
+ip route get 8.8.8.8
+
+# 查看 ARP/邻居缓存
+ip neigh
+
+# 查看数据包经过的路由器
+traceroute 8.8.8.8
+# 或
+tracepath 8.8.8.8
+</code></pre>
+<p>常见问题及判断思路：</p>
+<ul>
+<li><strong>只能访问同一局域网，不能访问外网</strong>：重点检查默认路由是否存在、默认网关是否可达，以及网关是否继续向上游转发。</li>
+<li><strong>有路由但仍然不通</strong>：检查下一跳是否可达、ARP 是否解析成功、防火墙是否丢弃数据包，以及返回方向是否存在路由。</li>
+<li><strong>访问某个网段走错出口</strong>：检查是否存在更具体的路由，因为最长前缀匹配可能使它覆盖默认路由或较粗的网段路由。</li>
+<li><strong>路由表看起来正确但应用仍失败</strong>：继续区分 DNS、TCP/UDP 端口、防火墙、MTU 和应用层协议问题；路由正确只代表转发路径选择正确，不代表服务一定可用。</li>
+<li><strong>出现 <code>Network is unreachable</code></strong>：通常表示本机找不到可用的匹配路由，尤其要检查目标网段路由和默认路由。</li>
+<li><strong>出现 <code>Host is unreachable</code></strong>：可能是下一跳或目标主机无法通过当前链路到达，也可能是本机或网关返回了不可达 ICMP。</li>
+</ul>
+<span class="heading-anchor" id="4.8 面试总结"></span><h3 id="48">4.8 面试总结</h3>
+<ul>
+<li>路由表描述的是“目标网段—下一跳—出口接口”的映射关系。</li>
+<li>路由选择的核心原则是最长前缀匹配，而不是简单按照路由表显示顺序选择。</li>
+<li>直连路由通常直接通过 ARP 获取目标主机 MAC；非直连流量通常通过 ARP 获取下一跳网关 MAC。</li>
+<li>默认路由等价于 <code>0.0.0.0/0</code>，只有在没有更具体路由时才作为兜底规则。</li>
+<li>路由器每一跳都会重新进行路由查找和二层封装，TTL 会逐跳递减。</li>
+<li>“有路由”只说明系统知道数据包往哪里发，不保证下一跳可达、返回路径正确或应用端口开放。 </li>
+</ul>
+<pre><code>
+IPv6 示例：
+
+```text
+2001:db8::1
+</code></pre>
+<p>IP 地址不是“机器永久身份”，而是“网络位置”。同一台机器换网络，IP 可以变化；同一台机器也可以有多个网卡、多个 IP。</p>
+<hr/>
+<span class="heading-anchor" id="2. IPv4 地址与子网"></span><h2 id="2-ipv4">2. IPv4 地址与子网</h2>
+<p>IPv4 是 32 位地址。子网前缀决定哪些位表示网络，哪些位表示主机。</p>
+<pre><code class="language-text">192.168.1.10/24
+</code></pre>
+<p>含义：</p>
+<ul>
+<li>前 24 位是网络号：192.168.1.0</li>
+<li>后 8 位是主机号</li>
+<li>子网掩码：255.255.255.0</li>
+<li>可用主机大致是 192.168.1.1 到 192.168.1.254</li>
+</ul>
+<span class="heading-anchor" id="2.1 为什么需要子网"></span><h3 id="21">2.1 为什么需要子网</h3>
+<p>子网用于：</p>
+<ul>
+<li>管理地址空间</li>
+<li>隔离广播域</li>
+<li>控制路由规模</li>
+<li>划分安全边界</li>
+</ul>
+<span class="heading-anchor" id="2.2 判断是否同网段"></span><h3 id="22">2.2 判断是否同网段</h3>
+<p>本机：</p>
+<pre><code class="language-text">IP: 192.168.1.10/24
+</code></pre>
+<p>目标：</p>
+<pre><code class="language-text">192.168.1.20 → 同网段，直接 ARP 目标主机
+10.0.0.5 → 不同网段，发给默认网关
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="3. 默认网关"></span><h2 id="3">3. 默认网关</h2>
+<p>默认网关是当目标不在本地子网时，主机交给它转发的下一跳。</p>
+<pre><code class="language-text">目标 IP 不在本地网段
+  ↓
+查路由表
+  ↓
+命中默认路由 0.0.0.0/0
+  ↓
+发给默认网关
+</code></pre>
+<p>默认网关通常是本地路由器或三层交换机接口。</p>
+<hr/>
+<span class="heading-anchor" id="4. 路由表"></span><h2 id="4_1">4. 路由表</h2>
+<p>路由表决定数据包下一跳。</p>
+<p>查看路由表：</p>
+<pre><code class="language-bash">ip route
+route -n
+netstat -rn
+</code></pre>
+<p>典型条目：</p>
+<pre><code class="language-text">default via 192.168.1.1 dev en0
+192.168.1.0/24 dev en0 scope link
+</code></pre>
+<p>含义：</p>
+<ul>
+<li>到 192.168.1.0/24 的流量直接走 en0</li>
+<li>其他流量走 192.168.1.1</li>
+</ul>
+<span class="heading-anchor" id="4.1 最长前缀匹配"></span><h3 id="41_1">4.1 最长前缀匹配</h3>
+<p>路由选择遵循最长前缀匹配：</p>
+<pre><code class="language-text">10.1.2.3 匹配：
+10.0.0.0/8
+10.1.0.0/16
+10.1.2.0/24  ← 最具体，优先使用
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="5. IP 包结构重点"></span><h2 id="5-ip">5. IP 包结构重点</h2>
+<p>IPv4 头部包含：</p>
+<ul>
+<li>源 IP</li>
+<li>目的 IP</li>
+<li>TTL</li>
+<li>协议号：TCP=6，UDP=17，ICMP=1</li>
+<li>分片相关字段</li>
+<li>头部校验和</li>
+</ul>
+<span class="heading-anchor" id="5.1 TTL"></span><h3 id="51-ttl">5.1 TTL</h3>
+<p>TTL 每经过一个路由器减 1，变成 0 后丢弃，并可能返回 ICMP 超时。</p>
+<p>作用：防止路由环路导致包无限转发。</p>
+<p><code>traceroute</code> 正是利用 TTL 逐步探测路径。</p>
+<hr/>
+<span class="heading-anchor" id="6. ICMP：网络层诊断与控制"></span><h2 id="6-icmp">6. ICMP：网络层诊断与控制</h2>
+<p>ICMP 用于传递网络层错误和诊断信息。</p>
+<p>常见用途：</p>
+<ul>
+<li><code>ping</code>：Echo Request / Echo Reply</li>
+<li><code>traceroute</code>：TTL 超时消息</li>
+<li>目的不可达：网络、主机、端口不可达</li>
+<li>路径 MTU 发现</li>
+</ul>
+<p>注意：ICMP 被禁不代表服务一定不可达；有些网络会屏蔽 ping，但允许 TCP/HTTPS。</p>
+<hr/>
+<span class="heading-anchor" id="7. ARP 与网络层的关系"></span><h2 id="7-arp">7. ARP 与网络层的关系</h2>
+<p>ARP 严格说在链路层和网络层之间，但理解 IP 通信必须理解它。</p>
+<p>当主机准备发送 IP 包时，它需要知道下一跳 MAC：</p>
+<ul>
+<li>目标同网段：ARP 目标 IP</li>
+<li>目标不同网段：ARP 默认网关 IP</li>
+</ul>
+<p>因此跨网访问时，以太网帧的目的 MAC 通常是网关 MAC，而 IP 包的目的 IP 仍然是最终服务器 IP。</p>
+<pre><code class="language-text">以太网帧：目的 MAC = 网关 MAC
+IP 包：目的 IP = 远端服务器 IP
+</code></pre>
+<p>这是面试高频点。</p>
+<hr/>
+<span class="heading-anchor" id="8. NAT：地址转换"></span><h2 id="8-nat">8. NAT：地址转换</h2>
+<p>NAT 让多个内网地址共享一个或少数公网地址。</p>
+<p>典型家用网络：</p>
+<pre><code class="language-text">电脑 192.168.1.10:52341
+  ↓ NAT
+公网 IP 203.0.113.5:40001
+  ↓ Internet
+服务器 93.184.216.34:443
+</code></pre>
+<p>NAT 设备维护映射表：</p>
+<pre><code class="language-text">内网 IP:端口 ↔ 公网 IP:端口
+</code></pre>
+<p>优点：</p>
+<ul>
+<li>缓解 IPv4 地址不足</li>
+<li>提供一定入站隔离</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>破坏端到端连接模型</li>
+<li>P2P、VoIP、游戏联机需要穿透</li>
+<li>排障复杂度增加</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="9. IPv6 简介"></span><h2 id="9-ipv6">9. IPv6 简介</h2>
+<p>IPv6 地址 128 位，目标是提供更大的地址空间并简化部分网络机制。</p>
+<p>特点：</p>
+<ul>
+<li>地址空间巨大</li>
+<li>无广播，使用组播和任播</li>
+<li>邻居发现 NDP 替代 ARP</li>
+<li>更强调端到端可达，但现实中仍常配合防火墙</li>
+</ul>
+<p>不要把 IPv6 理解成“只是更长的 IPv4”。它在地址配置、邻居发现、报文结构上都有变化。</p>
+<hr/>
+<span class="heading-anchor" id="10. 网络层排障"></span><h2 id="10">10. 网络层排障</h2>
+<p>常用命令：</p>
+<pre><code class="language-bash">ip addr
+ip route
+ping 8.8.8.8
+ping example.com
+traceroute example.com
+mtr example.com
+</code></pre>
+<p>排查顺序：</p>
+<ol>
+<li>本机是否有正确 IP？</li>
+<li>子网掩码是否正确？</li>
+<li>默认网关是否存在？</li>
+<li>能否 ping 网关？</li>
+<li>能否 ping 公网 IP？</li>
+<li>DNS 是否解析正确？</li>
+<li>traceroute 卡在哪一跳？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="11. 本章小结"></span><h2 id="11">11. 本章小结</h2>
+<ul>
+<li>IP 负责跨网络寻址，MAC 负责下一跳交付。</li>
+<li>子网决定目标是在本地还是需要走网关。</li>
+<li>路由表通过最长前缀匹配选择下一跳。</li>
+<li>ICMP 是网络层诊断的重要工具。</li>
+<li>NAT 改写地址和端口，是现代 IPv4 网络的重要现实。</li>
+</ul>
+<span class="heading-anchor" id="深入展开：网络层的核心是“我该把包交给谁”"></span><h2 id="_4">深入展开：网络层的核心是“我该把包交给谁”</h2>
+<p>网络层不负责保证可靠，也不关心 HTTP 内容。它只解决一个问题：<strong>目标 IP 在哪里，下一跳走哪里。</strong></p>
+<span class="heading-anchor" id="1. IP 地址不是身份证，而是网络位置"></span><h3 id="1-ip">1. IP 地址不是身份证，而是网络位置</h3>
+<p>很多初学者会把 IP 当成一台机器的固定身份。更准确地说，IP 是某个网络接口在某个网络中的位置。</p>
+<p>同一台机器可以有多个 IP：</p>
+<pre><code class="language-text">Wi-Fi 网卡：192.168.1.10
+Docker 网桥：172.17.0.1
+VPN 网卡：10.8.0.5
+本地回环：127.0.0.1
+</code></pre>
+<p>所以排障时要问：你访问的是哪个 IP？服务监听在哪个网卡？路由从哪个接口出去？</p>
+<span class="heading-anchor" id="2. 子网判断决定“直接发”还是“交给网关”"></span><h3 id="2">2. 子网判断决定“直接发”还是“交给网关”</h3>
+<p>假设本机：</p>
+<pre><code class="language-text">IP: 192.168.1.10/24
+网关: 192.168.1.1
+</code></pre>
+<p>访问 <code>192.168.1.20</code>：同网段，本机直接 ARP <code>192.168.1.20</code>。</p>
+<p>访问 <code>8.8.8.8</code>：不同网段，本机不会 ARP <code>8.8.8.8</code>，而是 ARP 网关 <code>192.168.1.1</code>。</p>
+<p>这句话非常重要：</p>
+<blockquote>
+<p>跨网段访问时，链路层目的 MAC 是网关 MAC；网络层目的 IP 仍是最终目标 IP。</p>
+</blockquote>
+<span class="heading-anchor" id="3. 路由表不是只在路由器上有"></span><h3 id="3_1">3. 路由表不是只在路由器上有</h3>
+<p>你的电脑也有路由表。可以理解为本机出门指南：</p>
+<pre><code class="language-text">192.168.1.0/24 直接从 Wi-Fi 出去
+10.8.0.0/24 走 VPN
+其他所有地址走默认网关 192.168.1.1
+</code></pre>
+<p>真实输出可能类似：</p>
+<pre><code class="language-bash">ip route
+# default via 192.168.1.1 dev wlan0
+# 192.168.1.0/24 dev wlan0 scope link
+# 10.8.0.0/24 dev tun0
+</code></pre>
+<p>访问一个目标前，可以用：</p>
+<pre><code class="language-bash">ip route get 8.8.8.8
+</code></pre>
+<p>看系统到底会从哪个接口、经哪个下一跳出去。</p>
+<span class="heading-anchor" id="4. ICMP 不只是 ping"></span><h3 id="4-icmp-ping">4. ICMP 不只是 ping</h3>
+<p>ICMP 常被误解为“ping 协议”。ping 只是 ICMP 的一种用法。ICMP 还用于：</p>
+<ul>
+<li>TTL 超时：traceroute 依赖它。</li>
+<li>目的不可达：主机不可达、网络不可达、端口不可达。</li>
+<li>路径 MTU 发现：告诉发送方包太大且不能分片。</li>
+</ul>
+<p>很多网络管理员会禁 ICMP，但完全禁掉可能导致路径 MTU 发现失效，出现“小包通，大包卡”的问题。</p>
+<span class="heading-anchor" id="5. NAT 后到底改了什么"></span><h3 id="5-nat">5. NAT 后到底改了什么</h3>
+<p>普通路由只转发，不改源/目的 IP。NAT 会改写地址或端口。</p>
+<p>家用 NAT 典型过程：</p>
+<pre><code class="language-text">内网请求：192.168.1.10:52341 → 93.184.216.34:443
+NAT 后：203.0.113.5:40001 → 93.184.216.34:443
+返回时：93.184.216.34:443 → 203.0.113.5:40001
+NAT 查表还原：93.184.216.34:443 → 192.168.1.10:52341
+</code></pre>
+<p>如果 NAT 表丢了，返回包就不知道该交给哪台内网主机。</p>
+<span class="heading-anchor" id="6. 网络层排障最小路径"></span><h3 id="6">6. 网络层排障最小路径</h3>
+<pre><code class="language-bash">ip addr                 # 我有没有正确 IP
+ip route                # 我有没有正确路由和默认网关
+ping 网关IP             # 到第一跳通不通
+ping 8.8.8.8            # 公网 IP 通不通
+traceroute 8.8.8.8      # 卡在哪一跳
+</code></pre>
+<p>如果 <code>ping 网关</code> 不通，优先查本地链路、VLAN、ARP。如果网关通但公网 IP 不通，查网关之后的路由、NAT、运营商或防火墙。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<blockquote>
+<p>记忆建议：网络层的核心问题是“目标 IP 在哪边，我该把包交给哪个下一跳”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 主机发包决策"></span><h3 id="1">1. 主机发包决策</h3>
+<pre class="mermaid">flowchart TD
+  A["要发送到目标IP"] --&gt; B{"是否同一子网"}
+  B --&gt;|是| C["ARP查询目标主机MAC"]
+  B --&gt;|否| D["查路由表选择网关"]
+  D --&gt; E["ARP查询网关MAC"]
+  C --&gt; F["封装以太网帧发送"]
+  E --&gt; F
+  F --&gt; G["路由器逐跳转发"]
+</pre>
+<span class="heading-anchor" id="2. 网络层关键概念"></span><h3 id="2_1">2. 网络层关键概念</h3>
+<pre class="mermaid">mindmap
+  root((网络层))
+    IP地址
+      网络位置
+      子网掩码CIDR
+    路由表
+      下一跳
+      最长前缀匹配
+    默认网关
+      跨网段出口
+    ICMP
+      ping
+      traceroute
+      差错控制
+    NAT
+      地址端口转换
+</pre>
+<span class="heading-anchor" id="3. 网络层排障路径"></span><h3 id="3_2">3. 网络层排障路径</h3>
+<pre class="mermaid">flowchart LR
+  A["确认本机IP和掩码"] --&gt; B["判断目标是否同网段"]
+  B --&gt; C["检查网关和路由表"]
+  C --&gt; D["ping网关和目标"]
+  D --&gt; E["traceroute观察中断点"]
+  E --&gt; F["必要时抓ARP ICMP IP包"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

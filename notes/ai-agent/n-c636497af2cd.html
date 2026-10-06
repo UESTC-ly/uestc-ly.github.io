@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Human-in-the-loop 与长任务 · 李杨的学习笔记</title><meta name="description" content="模型适合处理开放式理解和候选方案，但以下情况不应完全自动化："><meta property="og:title" content="Human-in-the-loop 与长任务 · 李杨的学习笔记"><meta property="og:description" content="模型适合处理开放式理解和候选方案，但以下情况不应完全自动化："><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-c636497af2cd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-c636497af2cd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 04-Agent与工作流</p><h1>Human-in-the-loop 与长任务</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/04-Agent%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81/05-Human-in-the-loop%E4%B8%8E%E9%95%BF%E4%BB%BB%E5%8A%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-human-in-the-loop">1. 为什么需要 Human-in-the-loop</a></li><li><a href="#2">2. 审批状态</a></li><li><a href="#3">3. 风险分级</a></li><li><a href="#4">4. 长任务的基本架构</a></li><li><a href="#5-api">5. 任务 API 的最小设计</a></li><li><a href="#6">6. 进度与用户体验</a></li><li><a href="#7">7. 取消、恢复和并发</a></li><li><a href="#8-hitl">8. HITL 与模型的配合</a></li><li><a href="#9">9. 典型失败场景</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 为什么需要 Human-in-the-loop"></span><h2 id="1-human-in-the-loop">1. 为什么需要 Human-in-the-loop</h2>
+<p>模型适合处理开放式理解和候选方案，但以下情况不应完全自动化：</p>
+<ul>
+<li>扣款、退款、删除、发布、发送外部消息等有副作用操作；</li>
+<li>低置信度或多个方案都合理；</li>
+<li>涉及法律、医疗、财务或高敏感个人数据的关键判断；</li>
+<li>工具结果冲突、策略拒绝或重试耗尽；</li>
+<li>自动化动作可能造成不可逆损失。</li>
+</ul>
+<p>Human-in-the-loop（HITL）不是简单地在 Prompt 里说“请用户确认”，而是一个可持久化、可审计、可过期的业务状态。</p>
+<span class="heading-anchor" id="2. 审批状态"></span><h2 id="2">2. 审批状态</h2>
+<p>一个可恢复的审批流程可以包含：</p>
+<pre><code class="language-text">RUNNING
+  ↓
+WAITING_APPROVAL
+  ├─ APPROVED → RUNNING
+  ├─ REJECTED → CANCELLED / REPLAN
+  ├─ EXPIRED → FAILED / NEEDS_REVIEW
+  └─ EDITED → 重新校验 → WAITING_APPROVAL
+</code></pre>
+<p>审批请求至少包含：</p>
+<ul>
+<li>任务 ID、步骤 ID 和审批范围；</li>
+<li>将要执行的工具、资源和参数摘要；</li>
+<li>风险说明、预计影响和有效期；</li>
+<li>请求人、审批人、时间和决定；</li>
+<li>参数被修改时的版本号或哈希。</li>
+</ul>
+<p>审批只对明确的动作和参数有效。审批后如果参数、资源或用户身份发生变化，必须重新审批。</p>
+<span class="heading-anchor" id="3. 风险分级"></span><h2 id="3">3. 风险分级</h2>
+<p>可以先采用简单分级：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>风险</th>
+<th>示例</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>低</td>
+<td>查询公开资料、读取用户自己的订单</td>
+<td>自动执行并记录</td>
+</tr>
+<tr>
+<td>中</td>
+<td>批量生成草稿、修改可恢复配置</td>
+<td>用户确认或抽样复核</td>
+</tr>
+<tr>
+<td>高</td>
+<td>扣款、退款、删除、发布、对外发送</td>
+<td>明确审批、幂等和审计</td>
+</tr>
+<tr>
+<td>不允许</td>
+<td>越权访问、导出密钥、绕过审计</td>
+<td>直接拒绝</td>
+</tr>
+</tbody>
+</table></div>
+<p>风险分级应由应用策略决定，不能让模型自行声明“这是低风险”。</p>
+<span class="heading-anchor" id="4. 长任务的基本架构"></span><h2 id="4">4. 长任务的基本架构</h2>
+<p>长任务不能绑定在一次同步 HTTP 请求中。推荐拆成：</p>
+<pre><code class="language-text">API 接收请求
+  ↓ 创建 task 记录并返回 task_id
+队列投递任务
+  ↓
+Worker 领取并处理一个或多个状态节点
+  ↓ 保存检查点、进度和事件
+需要审批则暂停并通知用户
+  ↓ 用户通过 API/UI 恢复
+Worker 从检查点继续
+  ↓
+完成、失败、取消或转人工
+</code></pre>
+<p>状态至少应有：<code>QUEUED</code>、<code>RUNNING</code>、<code>WAITING_APPROVAL</code>、<code>RETRYING</code>、<code>SUCCEEDED</code>、<code>FAILED</code>、<code>CANCEL_REQUESTED</code>、<code>CANCELLED</code>。</p>
+<span class="heading-anchor" id="5. 任务 API 的最小设计"></span><h2 id="5-api">5. 任务 API 的最小设计</h2>
+<pre><code class="language-text">POST /tasks
+→ {"task_id": "task_001", "status": "QUEUED"}
+
+GET /tasks/task_001
+→ 返回当前状态、进度、可展示结果和下一步动作
+
+POST /tasks/task_001/approve
+→ 带 approval_id、版本号和审批决定
+
+POST /tasks/task_001/cancel
+→ 写入取消请求，由 Worker 在安全点处理
+</code></pre>
+<p>不要让前端通过提交任意状态值来改变任务；服务端应根据事件和当前状态执行合法转移。</p>
+<span class="heading-anchor" id="6. 进度与用户体验"></span><h2 id="6">6. 进度与用户体验</h2>
+<p>进度应基于可验证阶段，而不是模型随口生成的百分比：</p>
+<pre><code class="language-json">{
+  "phase": "checking_order",
+  "completed_steps": 2,
+  "total_steps": 5,
+  "message": "正在核对订单资格",
+  "updated_at": "..."
+}
+</code></pre>
+<p>对不确定的 Agent 任务，可以展示“已完成的阶段”和“当前等待事项”，不要伪造精确进度。用户应能看到失败原因、是否可重试、是否需要补充信息和取消入口。</p>
+<span class="heading-anchor" id="7. 取消、恢复和并发"></span><h2 id="7">7. 取消、恢复和并发</h2>
+<ul>
+<li>取消通常是请求，不一定能立即中止已发出的外部请求；</li>
+<li>Worker 在工具调用前、调用后和长循环间检查取消标志；</li>
+<li>同一任务只能有一个有效执行者，或使用租约和版本锁；</li>
+<li>Worker 崩溃后由队列重新投递，但必须依赖幂等处理；</li>
+<li>恢复时重新确认截止时间、权限、审批有效期和外部状态；</li>
+<li>不要从任意消息中间恢复 Tool Calling 链，必须从一致检查点恢复。</li>
+</ul>
+<span class="heading-anchor" id="8. HITL 与模型的配合"></span><h2 id="8-hitl">8. HITL 与模型的配合</h2>
+<p>模型可以生成给人的说明、候选选项和风险摘要，但应用应生成最终审批单，并从可信业务状态中填充金额、资源和权限信息。审批结果回传模型时，只需提供必要的结构化事实，不要把内部审计细节全部暴露给模型。</p>
+<span class="heading-anchor" id="9. 典型失败场景"></span><h2 id="9">9. 典型失败场景</h2>
+<ul>
+<li>审批通过后任务重复执行：缺少幂等键或审批版本校验；</li>
+<li>页面刷新后审批状态丢失：审批未持久化；</li>
+<li>Worker 重启导致重新扣款：没有检查点和外部状态查询；</li>
+<li>用户取消但任务仍继续：取消只改了前端状态，没有服务端取消标志；</li>
+<li>审批内容与实际参数不一致：审批绑定的是模糊描述而非参数版本。</li>
+</ul>
+<p>下一步：了解跨工具和跨服务的统一协议 <a href="n-a8a0a7b5115b.html">MCP 与多 Agent</a>。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

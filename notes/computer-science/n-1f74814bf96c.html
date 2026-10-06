@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>分布式系统 · 李杨的学习笔记</title><meta name="description" content="这组笔记面向 C++ 后端开发面试与工程实践，目标不是背概念，而是建立一套可迁移的判断框架：先识别故障模型和一致性目标，再选择复制、协调、事务、发布、观测与容灾方案。"><meta property="og:title" content="分布式系统 · 李杨的学习笔记"><meta property="og:description" content="这组笔记面向 C++ 后端开发面试与工程实践，目标不是背概念，而是建立一套可迁移的判断框架：先识别故障模型和一致性目标，再选择复制、协调、事务、发布、观测与容灾方案。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-1f74814bf96c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-1f74814bf96c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>分布式系统</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/README.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">工程实践/示例</a></li><li><a href="#_5">章节地图</a></li><li><a href="#_6">推荐学习顺序</a></li><li><a href="#_7">按问题查章节</a></li><li><a href="#_8">知识依赖图</a></li><li><a href="#_9">阅读方式</a></li><li><a href="#_10">面试复盘清单</a></li><li><a href="#_11">学习产出</a></li><li><a href="#_12">决策速查</a></li><li><a href="#_13">常见误区</a></li><li><a href="#_14">自测题</a></li><li><a href="#_15">实践任务</a></li><li><a href="#_16">延伸阅读</a></li></ul></details><article class="note-content">
+<p>这组笔记面向 C++ 后端开发面试与工程实践，目标不是背概念，而是建立一套可迁移的判断框架：先识别故障模型和一致性目标，再选择复制、协调、事务、发布、观测与容灾方案。</p>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>建立故障模型、一致性、可用性和工程取舍的共同语言。</li>
+<li>能设计 RPC、服务发现、限流熔断、幂等、事务、共识、容灾和观测链路。</li>
+<li>能在系统设计中区分协议保证、工程假设和具体实现配置。</li>
+<li>能用容量估算、失败路径和 SLO/error budget 支撑架构选择。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>分布式系统的核心矛盾来自“不可靠网络 + 独立故障 + 并发状态”。所有方案都在一致性、可用性、延迟、成本和复杂度之间取舍：共识提高状态安全但牺牲写可用性和延迟；异步化提高吞吐但需要幂等、补偿和对账；多活提高灾难恢复能力但引入路由和冲突处理。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_4">工程实践/示例</h2>
+<span class="heading-anchor" id="章节地图"></span><h3 id="_5">章节地图</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>顺序</th>
+<th>章节</th>
+<th>解决的问题</th>
+<th>前置依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><a href="n-19133ad19aea.html">基本理论：CAP、BASE 与一致性</a></td>
+<td>分布式系统能保证什么，不能同时保证什么</td>
+<td>网络、数据库事务基础</td>
+</tr>
+<tr>
+<td>2</td>
+<td><a href="n-d51faea33ec3.html">服务发现、RPC 与负载均衡</a></td>
+<td>请求如何找到可用服务并稳定调用</td>
+<td>HTTP/TCP、进程模型</td>
+</tr>
+<tr>
+<td>3</td>
+<td><a href="n-37e7c300537e.html">韧性工程：限流、熔断、降级</a></td>
+<td>局部故障如何不被放大成系统故障</td>
+<td>服务调用链、延迟分布</td>
+</tr>
+<tr>
+<td>4</td>
+<td><a href="n-571f58333355.html">幂等、分布式锁与分布式 ID</a></td>
+<td>重试、并发和唯一性如何处理</td>
+<td>Redis/数据库唯一约束</td>
+</tr>
+<tr>
+<td>5</td>
+<td><a href="n-66917d2438e8.html">分布式事务与最终一致性</a></td>
+<td>跨服务状态如何一致或可补偿</td>
+<td>事务、消息队列</td>
+</tr>
+<tr>
+<td>6</td>
+<td><a href="n-da08966340ee.html">一致性哈希、选举与 Raft 基础</a></td>
+<td>节点变化、主从切换和共识如何工作</td>
+<td>复制、一致性模型</td>
+</tr>
+<tr>
+<td>7</td>
+<td><a href="n-581c58990def.html">高可用、容灾与灰度发布</a></td>
+<td>故障、灾难和变更如何控制影响面</td>
+<td>SLA、发布流水线</td>
+</tr>
+<tr>
+<td>8</td>
+<td><a href="n-928f2d34b29f.html">可观测性：链路追踪与故障定位</a></td>
+<td>如何在复杂调用图中定位问题</td>
+<td>日志、指标、Trace</td>
+</tr>
+<tr>
+<td>9</td>
+<td><a href="n-eec6388c09d7.html">系统设计方法与案例</a></td>
+<td>如何把需求拆成可落地架构</td>
+<td>前 8 章</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="推荐学习顺序"></span><h3 id="_6">推荐学习顺序</h3>
+<ol>
+<li>先读第 1 章，建立“故障模型、一致性、可用性、分区”的共同语言。</li>
+<li>再读第 2-4 章，理解日常微服务调用中的发现、路由、重试、限流、幂等和锁。</li>
+<li>接着读第 5-6 章，掌握跨服务状态一致性、最终一致性和共识算法的边界。</li>
+<li>最后读第 7-9 章，把工程治理、观测定位和系统设计题方法串起来。</li>
+</ol>
+<span class="heading-anchor" id="按问题查章节"></span><h3 id="_7">按问题查章节</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>入口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网络分区时为什么不能同时强一致又始终可用？</td>
+<td>第 1 章 CAP、一致性模型</td>
+</tr>
+<tr>
+<td><code>R + W &gt; N</code> 为什么仍可能读旧值？</td>
+<td>第 1 章 Quorum、sloppy quorum、read repair</td>
+</tr>
+<tr>
+<td>RPC 超时后到底能不能重试？</td>
+<td>第 2 章 deadline、重试预算；第 4 章幂等</td>
+</tr>
+<tr>
+<td>限流、熔断、降级分别该放在哪里？</td>
+<td>第 3 章韧性工程</td>
+</tr>
+<tr>
+<td>分布式锁为什么还需要 fencing token？</td>
+<td>第 4 章分布式锁</td>
+</tr>
+<tr>
+<td>跨服务写库和发消息如何避免丢事件？</td>
+<td>第 5 章 Outbox/CDC</td>
+</tr>
+<tr>
+<td>Raft 为什么不能只靠心跳选主？</td>
+<td>第 6 章 term、投票、日志匹配</td>
+</tr>
+<tr>
+<td>备份为什么必须恢复演练？</td>
+<td>第 7 章 RTO/RPO</td>
+</tr>
+<tr>
+<td>告警响了如何系统化定位？</td>
+<td>第 8 章 logs/metrics/traces/SLO</td>
+</tr>
+<tr>
+<td>系统设计题如何把容量和失败路径讲完整？</td>
+<td>第 9 章案例</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="知识依赖图"></span><h3 id="_8">知识依赖图</h3>
+<pre class="mermaid">flowchart TD
+  A["网络不可靠与故障模型"] --&gt; B["一致性模型"]
+  B --&gt; C["复制与 Quorum"]
+  C --&gt; D["Raft 与选举"]
+  A --&gt; E["RPC 超时与重试"]
+  E --&gt; F["限流 熔断 降级"]
+  E --&gt; G["幂等键 状态机"]
+  G --&gt; H["分布式事务"]
+  H --&gt; I["Outbox Saga TCC"]
+  F --&gt; J["高可用与容灾"]
+  J --&gt; K["灰度发布"]
+  E --&gt; L["日志 指标 Trace"]
+  L --&gt; M["故障定位"]
+  B --&gt; N["系统设计拆解"]
+  F --&gt; N
+  H --&gt; N
+  J --&gt; N
+</pre>
+<span class="heading-anchor" id="阅读方式"></span><h3 id="_9">阅读方式</h3>
+<p>每篇笔记都固定包含：学习目标、核心原理、工程实践/案例、常见误区、自测题、实践任务、延伸阅读。阅读时建议把每个主题按三层区分：</p>
+<ul>
+<li>理论保证：在明确模型下可以证明的性质，例如线性一致性、Raft 安全性、Quorum 交集。</li>
+<li>工程假设：生产环境为了可用性、成本、延迟所依赖的条件，例如时钟大致同步、故障独立、健康检查可信。</li>
+<li>实现取舍：具体系统中的参数、算法和降级策略，例如超时时间、重试次数、负载均衡算法、Outbox 投递方式。</li>
+</ul>
+<span class="heading-anchor" id="面试复盘清单"></span><h3 id="_10">面试复盘清单</h3>
+<ul>
+<li>能否先说清楚系统目标：读多写少、强一致、最终一致、低延迟、高可用，哪一个优先？</li>
+<li>能否明确故障模型：进程崩溃、网络分区、慢请求、消息重复、时钟回拨、机房故障？</li>
+<li>能否解释重试为什么需要幂等，超时为什么不代表失败？</li>
+<li>能否说明 2PC、TCC、Saga、Outbox 各自牺牲了什么？</li>
+<li>能否把日志、指标、链路追踪和 SLO/error budget 联系起来？</li>
+<li>能否在系统设计题中先拆需求、估规模、画数据流，再讨论一致性和故障处理？</li>
+</ul>
+<span class="heading-anchor" id="学习产出"></span><h3 id="_11">学习产出</h3>
+<p>读完这组笔记后，至少应能输出三类材料：</p>
+<ol>
+<li>一页一致性决策表：列出核心数据、读写路径、要求的一致性模型、允许的旧读窗口和补偿机制。</li>
+<li>一张调用链韧性图：标注每层 deadline、重试、限流、熔断、降级、幂等和监控指标。</li>
+<li>一个系统设计答案：包含需求澄清、容量估算、接口和数据模型、核心链路、故障路径、RTO/RPO、灰度和观测。</li>
+</ol>
+<span class="heading-anchor" id="决策速查"></span><h3 id="_12">决策速查</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>决策</th>
+<th>优先问</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>选择强一致还是最终一致</td>
+<td>错误结果的业务后果是什么，用户能否接受中间态</td>
+</tr>
+<tr>
+<td>是否引入 MQ</td>
+<td>是否需要削峰、解耦或异步，是否准备好幂等和对账</td>
+</tr>
+<tr>
+<td>是否使用分布式锁</td>
+<td>锁保护的是效率还是正确性，下游是否支持 fencing</td>
+</tr>
+<tr>
+<td>是否跨地域多活</td>
+<td>写冲突如何解决，按什么维度单元化</td>
+</tr>
+<tr>
+<td>是否自动重试</td>
+<td>错误是否可重试，请求是否幂等，是否有总预算</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_13">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>多数派等于绝对正确</td>
+<td>多数派保证依赖协议前提，还要看日志、版本和故障模型</td>
+</tr>
+<tr>
+<td>重试能提高所有请求成功率</td>
+<td>重试会放大故障，必须受 deadline、预算和幂等约束</td>
+</tr>
+<tr>
+<td>最终一致就是不用管</td>
+<td>最终一致需要状态机、重试、补偿、死信和对账</td>
+</tr>
+<tr>
+<td>多活只是多部署几套服务</td>
+<td>多活核心难点是写路由、冲突和容灾切换</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_14">自测题</h2>
+<ol>
+<li>如何区分数学/协议保证、工程假设和具体实现？</li>
+<li>为什么超时是未知状态，而不是确定失败？</li>
+<li>哪些业务数据必须强约束，哪些可以最终一致？</li>
+<li>一个系统设计答案为什么要包含失败路径和容量估算？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_15">实践任务</h2>
+<ul>
+<li>为一个订单系统画出从入口 RPC 到库存、支付、消息、搜索索引的完整一致性和故障处理图。</li>
+<li>选择一个现有服务，补充 SLI/SLO、error budget、灰度门禁和排障 runbook。</li>
+<li>用第 9 章模板设计一个“优惠券系统”，要求包含容量估算、幂等、分布式事务、缓存和容灾。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_16">延伸阅读</h2>
+<ul>
+<li>Google SRE Book：https://sre.google/sre-book/table-of-contents/</li>
+<li>Raft 官方站点：https://raft.github.io/</li>
+<li>Martin Kleppmann, <em>Designing Data-Intensive Applications</em>。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

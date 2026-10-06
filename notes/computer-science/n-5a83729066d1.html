@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>13-Linux实操与观测 · 李杨的学习笔记</title><meta name="description" content="操作系统知识最终要能解释线上现象。本章给出 CPU、内存、I/O、网络、系统调用、fd 的排查方法。重点不是记命令，而是知道每个命令回答什么问题。"><meta property="og:title" content="13-Linux实操与观测 · 李杨的学习笔记"><meta property="og:description" content="操作系统知识最终要能解释线上现象。本章给出 CPU、内存、I/O、网络、系统调用、fd 的排查方法。重点不是记命令，而是知道每个命令回答什么问题。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5a83729066d1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5a83729066d1.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>13-Linux实操与观测</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/13-Linux%E5%AE%9E%E6%93%8D%E4%B8%8E%E8%A7%82%E6%B5%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">总体排查框架</a></li><li><a href="#cpu">CPU 排查</a></li><li><a href="#_3">上下文切换</a></li><li><a href="#_4">内存排查</a></li><li><a href="#oom">OOM 排查</a></li><li><a href="#io">磁盘 I/O 排查</a></li><li><a href="#_5">网络排查</a></li><li><a href="#_6">系统调用排查</a></li><li><a href="#fd">fd 排查</a></li><li><a href="#_7">一套常用排查路径</a></li><li><a href="#cpu_1">CPU 高</a></li><li><a href="#_8">内存涨</a></li><li><a href="#_9">磁盘慢</a></li><li><a href="#_10">网络慢</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">补充深入讲解</a></li><li><a href="#_13">从零开始理解：排查不是背命令，而是缩小范围</a></li><li><a href="#_14">为什么要先看全局再看局部</a></li><li><a href="#_15">常见误判</a></li><li><a href="#_16">一句话记忆工具</a></li><li><a href="#_17">思维导图</a></li><li><a href="#1">1. 总体排查决策树</a></li><li><a href="#2">2. 命令按层记忆</a></li><li><a href="#3">3. 常见误判</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>操作系统知识最终要能解释线上现象。本章给出 CPU、内存、I/O、网络、系统调用、fd 的排查方法。重点不是记命令，而是知道每个命令回答什么问题。</p>
+<span class="heading-anchor" id="总体排查框架"></span><h2 id="_2">总体排查框架</h2>
+<p>遇到系统变慢，先问：</p>
+<ol>
+<li>CPU 是否忙？忙在用户态、内核态还是软中断？</li>
+<li>内存是否紧张？是否 swap、major fault、OOM？</li>
+<li>磁盘是否慢？await、util、队列是否高？</li>
+<li>网络是否异常？连接状态、丢包、重传、队列？</li>
+<li>应用是否排队？线程池、连接池、锁、GC、下游？</li>
+</ol>
+<p>不要直接猜。先用指标定位层次。</p>
+<span class="heading-anchor" id="CPU 排查"></span><h2 id="cpu">CPU 排查</h2>
+<p>命令：</p>
+<pre><code class="language-bash">top
+pidstat 1
+pidstat -t -p &lt;pid&gt; 1
+mpstat -P ALL 1
+perf top
+</code></pre>
+<p>看什么：</p>
+<ul>
+<li><code>%us</code>：用户态计算。</li>
+<li><code>%sy</code>：内核态。</li>
+<li><code>%si</code>：软中断，网络高时常见。</li>
+<li>load average：可运行和不可中断任务数量。</li>
+<li>单核打满还是多核打满。</li>
+</ul>
+<p>CPU 高常见原因：死循环、正则回溯、序列化、加密、GC、锁自旋、频繁系统调用、软中断。</p>
+<span class="heading-anchor" id="上下文切换"></span><h2 id="_3">上下文切换</h2>
+<p>命令：</p>
+<pre><code class="language-bash">vmstat 1
+pidstat -w -p &lt;pid&gt; 1
+</code></pre>
+<p><code>cs</code> 很高可能说明线程过多、锁竞争、频繁阻塞唤醒。上下文切换高时，CPU 可能忙于调度而不是业务。</p>
+<span class="heading-anchor" id="内存排查"></span><h2 id="_4">内存排查</h2>
+<p>命令：</p>
+<pre><code class="language-bash">free -h
+vmstat 1
+cat /proc/meminfo
+cat /proc/&lt;pid&gt;/status
+pmap -x &lt;pid&gt;
+</code></pre>
+<p>看什么：</p>
+<ul>
+<li>available：可用内存。</li>
+<li>buff/cache：页缓存。</li>
+<li>si/so：swap in/out。</li>
+<li>VmRSS：实际常驻内存。</li>
+<li>VmSize：虚拟地址空间大小。</li>
+<li>Threads：线程数。</li>
+</ul>
+<p>RSS 上涨不一定是泄漏，可能是缓存、分配器保留、mmap、线程栈、直接内存。</p>
+<span class="heading-anchor" id="OOM 排查"></span><h2 id="oom">OOM 排查</h2>
+<p>看：</p>
+<pre><code class="language-bash">dmesg | grep -i oom
+cat /sys/fs/cgroup/*/memory.events 2&gt;/dev/null
+</code></pre>
+<p>容器 OOM 要看 cgroup 限制，不要只看宿主机 free。</p>
+<span class="heading-anchor" id="磁盘 I/O 排查"></span><h2 id="io">磁盘 I/O 排查</h2>
+<p>命令：</p>
+<pre><code class="language-bash">iostat -x 1
+pidstat -d 1
+df -h
+df -i
+</code></pre>
+<p>看什么：</p>
+<ul>
+<li><code>%util</code>：设备繁忙程度。</li>
+<li><code>await</code>：平均等待时间。</li>
+<li><code>r/s w/s</code>：请求数。</li>
+<li><code>rkB/s wkB/s</code>：吞吐。</li>
+<li>inode 是否耗尽。</li>
+</ul>
+<p>磁盘慢可能来自随机 I/O、频繁 fsync、日志暴增、空间不足、设备故障、page cache 回写压力。</p>
+<span class="heading-anchor" id="网络排查"></span><h2 id="_5">网络排查</h2>
+<p>命令：</p>
+<pre><code class="language-bash">ss -s
+ss -ant
+ss -lntp
+ip addr
+ip route
+ulimit -n
+</code></pre>
+<p>看状态：</p>
+<ul>
+<li><code>SYN_RECV</code> 多：握手积压或 SYN flood。</li>
+<li><code>ESTAB</code> 多：连接多。</li>
+<li><code>TIME_WAIT</code> 多：短连接/主动关闭多。</li>
+<li><code>CLOSE_WAIT</code> 多：应用未 close。</li>
+</ul>
+<p>网络慢不一定是网络问题。RTT 正常但接口慢，常是应用线程池、数据库、锁、GC 或下游慢。</p>
+<span class="heading-anchor" id="系统调用排查"></span><h2 id="_6">系统调用排查</h2>
+<p>命令：</p>
+<pre><code class="language-bash">strace -c &lt;command&gt;
+strace -T -p &lt;pid&gt;
+</code></pre>
+<p><code>strace -c</code> 看系统调用统计，<code>-T</code> 看单次耗时。</p>
+<p>频繁 <code>futex</code> 可能是锁竞争；频繁 <code>open/stat</code> 可能是元数据访问；频繁小 <code>read/write</code> 可能需要缓冲或批量。</p>
+<span class="heading-anchor" id="fd 排查"></span><h2 id="fd">fd 排查</h2>
+<pre><code class="language-bash">ls /proc/&lt;pid&gt;/fd | wc -l
+lsof -p &lt;pid&gt;
+ulimit -n
+</code></pre>
+<p><code>Too many open files</code> 要判断是 fd 泄漏还是正常容量不足。大量 CLOSE_WAIT 常指向 socket 未关闭。</p>
+<span class="heading-anchor" id="一套常用排查路径"></span><h2 id="_7">一套常用排查路径</h2>
+<span class="heading-anchor" id="CPU 高"></span><h3 id="cpu_1">CPU 高</h3>
+<pre><code class="language-text">top 找进程
+  → top -H 找线程
+  → perf 看热点
+  → strace 看 syscall
+  → 结合应用线程栈
+</code></pre>
+<span class="heading-anchor" id="内存涨"></span><h3 id="_8">内存涨</h3>
+<pre><code class="language-text">free/vmstat 看系统压力
+  → ps/top 找进程
+  → pmap 看区域
+  → 语言 profiler 看对象
+  → 判断泄漏/缓存/碎片/堆外
+</code></pre>
+<span class="heading-anchor" id="磁盘慢"></span><h3 id="_9">磁盘慢</h3>
+<pre><code class="language-text">iostat 看设备
+  → pidstat -d 找进程
+  → strace -T 看慢调用
+  → 查 fsync/随机 I/O/日志/空间
+</code></pre>
+<span class="heading-anchor" id="网络慢"></span><h3 id="_10">网络慢</h3>
+<pre><code class="language-text">ss 看连接状态
+  → 看 fd 和队列
+  → 看应用线程池/连接池
+  → tracing 拆分耗时
+</code></pre>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li>load 高但 CPU idle 高，可能是什么？</li>
+<li><code>strace</code> 和 <code>perf</code> 分别适合什么？</li>
+<li>如何判断 fd 泄漏？</li>
+<li>CLOSE_WAIT 多说明什么？</li>
+<li>容器 CPU limit 太低如何观察？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_12">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：排查不是背命令，而是缩小范围"></span><h2 id="_13">从零开始理解：排查不是背命令，而是缩小范围</h2>
+<p>命令只是工具。真正的排查逻辑是不断缩小范围：是 CPU、内存、磁盘、网络还是应用队列？是用户态还是内核态？是系统整体问题还是单进程问题？是持续问题还是尖峰？</p>
+<span class="heading-anchor" id="为什么要先看全局再看局部"></span><h2 id="_14">为什么要先看全局再看局部</h2>
+<p>如果整机 CPU 打满，你先查某个进程可能错过软中断或其他噪声进程。如果整机内存充足，单个进程 OOM 可能是 cgroup 限制。全局指标给方向，局部指标给证据。</p>
+<span class="heading-anchor" id="常见误判"></span><h2 id="_15">常见误判</h2>
+<ul>
+<li>load 高不一定 CPU 高，可能是 D 状态 I/O 等待。</li>
+<li>free 内存少不一定内存不足，可能被 page cache 使用。</li>
+<li>TIME_WAIT 多不一定是 bug，CLOSE_WAIT 多更危险。</li>
+<li>RSS 不降不一定泄漏，可能是分配器缓存。</li>
+<li>epoll 使用了不代表 I/O 就异步。</li>
+</ul>
+<span class="heading-anchor" id="一句话记忆工具"></span><h2 id="_16">一句话记忆工具</h2>
+<ul>
+<li><code>top</code>：谁在用 CPU。</li>
+<li><code>vmstat</code>：系统整体运行节奏。</li>
+<li><code>iostat</code>：磁盘设备是否慢。</li>
+<li><code>ss</code>：网络连接状态。</li>
+<li><code>strace</code>：程序在调哪些系统调用。</li>
+<li><code>perf</code>：CPU 时间花在哪里。</li>
+<li><code>lsof</code>：进程打开了什么。</li>
+<li><code>pmap</code>：进程地址空间长什么样。</li>
+</ul>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_17">思维导图</h2>
+<blockquote>
+<p>记忆建议：排查不是背命令，而是用指标不断缩小层次。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 总体排查决策树"></span><h3 id="1">1. 总体排查决策树</h3>
+<pre class="mermaid">flowchart TD
+  A["系统变慢"] --&gt; B{"CPU是否忙"}
+  B --&gt;|是| C["看us sy si load perf"]
+  B --&gt;|否| D{"内存是否紧张"}
+  D --&gt;|是| E["看available swap fault OOM"]
+  D --&gt;|否| F{"磁盘是否慢"}
+  F --&gt;|是| G["看await util 队列 fsync"]
+  F --&gt;|否| H{"网络是否异常"}
+  H --&gt;|是| I["看重传 连接 队列 缓冲区"]
+  H --&gt;|否| J["看应用队列 锁 GC 下游"]
+</pre>
+<span class="heading-anchor" id="2. 命令按层记忆"></span><h3 id="2">2. 命令按层记忆</h3>
+<pre class="mermaid">mindmap
+  root((Linux观测工具))
+    CPU
+      top
+      pidstat
+      mpstat
+      perf
+    内存
+      free
+      vmstat
+      proc meminfo
+      pmap
+    磁盘
+      iostat
+      pidstat d
+      lsof
+    网络
+      ss
+      sar
+      tcpdump
+    系统调用
+      strace
+      eBPF
+</pre>
+<span class="heading-anchor" id="3. 常见误判"></span><h3 id="3">3. 常见误判</h3>
+<pre class="mermaid">flowchart LR
+  A["load高CPU不高"] --&gt; B["可能是IO等待或D状态"]
+  C["free显示内存少"] --&gt; D["可能是页缓存可回收"]
+  E["网络慢"] --&gt; F["可能是应用读慢或队列满"]
+  G["CPU高"] --&gt; H["可能是软中断或锁自旋"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

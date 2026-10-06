@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>框架与构建工具 · 李杨的学习笔记</title><meta name="description" content="brpc 的学习重点是 bthread、Controller、Channel、服务注册和内置治理能力；gRPC 的学习重点是 .proto 生成 stub、Channel、CompletionQueue/同步 API、deadline 和 status；Boost.Asio 的学习重点是 io_context 、exe"><meta property="og:title" content="框架与构建工具 · 李杨的学习笔记"><meta property="og:description" content="brpc 的学习重点是 bthread、Controller、Channel、服务注册和内置治理能力；gRPC 的学习重点是 .proto 生成 stub、Channel、CompletionQueue/同步 API、deadline 和 status；Boost.Asio 的学习重点是 io_context 、exe"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-9ffccf034d8b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-9ffccf034d8b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>框架与构建工具</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/08-%E6%A1%86%E6%9E%B6%E4%B8%8E%E6%9E%84%E5%BB%BA%E5%B7%A5%E5%85%B7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">框架定位</a></li><li><a href="#_5">工作模型对比</a></li><li><a href="#api">不背 API 的学习方式</a></li><li><a href="#_6">选型边界</a></li><li><a href="#cmake">CMake 的职责</a></li><li><a href="#cmake-target">CMake target 传播规则</a></li><li><a href="#conan-vcpkg">Conan 与 vcpkg</a></li><li><a href="#conanvcpkg">Conan/vcpkg 的工程取舍</a></li><li><a href="#_7">工程实践/示例</a></li><li><a href="#_8">框架选型简表</a></li><li><a href="#cmake_1">CMake 项目结构</a></li><li><a href="#_9">使用框架前的检查清单</a></li><li><a href="#_10">故障排查/观测</a></li><li><a href="#_11">框架接入问题</a></li><li><a href="#_12">构建问题</a></li><li><a href="#_13">推导示例</a></li><li><a href="#echo-server">从 echo server 对比框架</a></li><li><a href="#cmake_2">CMake 依赖定位</a></li><li><a href="#_14">如何讲框架选型</a></li><li><a href="#_15">最小验收清单</a></li><li><a href="#_16">常见误区</a></li><li><a href="#_17">自测题</a></li><li><a href="#_18">实践任务</a></li><li><a href="#_19">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解 brpc、gRPC、Boost.Asio、Drogon/oatpp 的定位与选型。</li>
+<li>知道框架学习应抓架构和边界，不背 API 细节。</li>
+<li>理解 CMake、Conan、vcpkg 的职责。</li>
+<li>能写出最小 CMake 示例，并知道何时查官方文档。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="框架定位"></span><h3 id="_4">框架定位</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具/框架</th>
+<th>定位</th>
+<th>适合场景</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>brpc</td>
+<td>C++ RPC 框架</td>
+<td>高性能内部服务、百度系生态经验</td>
+<td>协议支持、bthread、服务治理能力</td>
+</tr>
+<tr>
+<td>gRPC</td>
+<td>跨语言 RPC 框架</td>
+<td>多语言微服务、IDL 优先、HTTP/2</td>
+<td>Protobuf、deadline、streaming、负载均衡</td>
+</tr>
+<tr>
+<td>Boost.Asio</td>
+<td>异步 IO 基础库</td>
+<td>自定义协议、底层网络库、跨平台 IO</td>
+<td>executor、异步模型、生命周期</td>
+</tr>
+<tr>
+<td>Drogon</td>
+<td>C++ HTTP 应用框架</td>
+<td>Web API、HTTP 服务</td>
+<td>路由、中间件、ORM、异步处理</td>
+</tr>
+<tr>
+<td>oatpp</td>
+<td>C++ Web/API 框架</td>
+<td>REST API、DTO、OpenAPI 风格</td>
+<td>组件体系、序列化、接口描述</td>
+</tr>
+</tbody>
+</table></div>
+<p>选型时先问：</p>
+<ul>
+<li>是内部 RPC 还是对外 HTTP API？</li>
+<li>是否需要跨语言？</li>
+<li>是否已有 IDL 和服务治理体系？</li>
+<li>团队是否能维护异步生命周期复杂度？</li>
+<li>性能瓶颈在框架层还是业务/存储/下游？</li>
+</ul>
+<span class="heading-anchor" id="工作模型对比"></span><h3 id="_5">工作模型对比</h3>
+<p>brpc 的学习重点是 bthread、Controller、Channel、服务注册和内置治理能力；gRPC 的学习重点是 <code>.proto</code> 生成 stub、Channel、CompletionQueue/同步 API、deadline 和 status；Boost.Asio 的学习重点是 <code>io_context</code>、executor、异步操作回调和对象生命周期；Drogon/oatpp 更偏 HTTP 应用层，重点是路由、中间件、请求上下文和异步响应。</p>
+<p>框架不是只替你调用 socket。它决定线程模型、回调在哪个线程执行、取消如何传播、连接何时关闭、错误如何映射到 status，以及指标和 tracing 如何接入。</p>
+<span class="heading-anchor" id="不背 API 的学习方式"></span><h3 id="api">不背 API 的学习方式</h3>
+<p>框架 API 会演进，面试和工程更看重：</p>
+<ul>
+<li>事件循环或线程模型。</li>
+<li>连接和请求生命周期。</li>
+<li>超时、取消、重试和错误模型。</li>
+<li>序列化和兼容策略。</li>
+<li>观测性与调试手段。</li>
+<li>与构建系统和部署环境的集成。</li>
+</ul>
+<p>版本敏感内容以官方文档为准，不在笔记里写死未经核实的版本号。</p>
+<span class="heading-anchor" id="选型边界"></span><h3 id="_6">选型边界</h3>
+<p>如果服务需要跨语言、强 IDL 和统一 deadline/status，gRPC 通常更容易标准化。如果团队主要做 C++ 内部服务，并且已有 brpc 运维经验，brpc 的生态能力可能更贴合。如果协议非常定制，Boost.Asio 或直接 epoll 更利于控制细节，但生命周期难度也更高。如果只是对外 REST API，Drogon/oatpp 能减少样板代码。</p>
+<p>任何选择都要检查 TLS、流式传输、负载均衡、健康检查、观测、包管理、CI 构建时间和团队熟悉度。</p>
+<span class="heading-anchor" id="CMake 的职责"></span><h3 id="cmake">CMake 的职责</h3>
+<p>CMake 是构建系统生成器，用来描述 target、源码、依赖、编译选项和安装规则。现代 CMake 推荐围绕 target 建模，而不是全局堆变量。</p>
+<p>最小示例：</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20)
+project(net_demo LANGUAGES CXX)
+
+add_executable(net_demo main.cpp)
+target_compile_features(net_demo PRIVATE cxx_std_17)
+target_compile_options(net_demo PRIVATE -Wall -Wextra -Wpedantic)
+</code></pre>
+<p>引入依赖时优先使用 target：</p>
+<pre><code class="language-cmake">find_package(Protobuf CONFIG REQUIRED)
+target_link_libraries(net_demo PRIVATE protobuf::libprotobuf)
+</code></pre>
+<p>具体 package 名称和 target 名称以依赖官方文档或包管理器生成结果为准。</p>
+<span class="heading-anchor" id="CMake target 传播规则"></span><h3 id="cmake-target">CMake target 传播规则</h3>
+<p><code>PUBLIC</code> 表示当前 target 和依赖它的 target 都需要该属性；<code>PRIVATE</code> 只影响当前 target；<code>INTERFACE</code> 只影响使用者。头文件 include 目录、编译特性和链接库传播错误，会导致“本机能编、CI 不能编”或无关 target 被污染。</p>
+<pre><code class="language-cmake">target_include_directories(net_core PUBLIC include)
+target_compile_features(net_core PUBLIC cxx_std_20)
+target_link_libraries(server PRIVATE net_core)
+</code></pre>
+<p>这里 <code>server</code> 会继承 <code>net_core</code> 的 public include 目录和 C++ 标准要求，但不会继承 <code>net_core</code> 的 private 编译选项。</p>
+<span class="heading-anchor" id="Conan 与 vcpkg"></span><h3 id="conan-vcpkg">Conan 与 vcpkg</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>职责</th>
+<th>典型价值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Conan</td>
+<td>C/C++ 包管理，强调 profile、二进制包和私有仓库</td>
+<td>企业内依赖治理、跨平台构建</td>
+</tr>
+<tr>
+<td>vcpkg</td>
+<td>C/C++ 包管理，和 CMake 集成方便</td>
+<td>快速获取开源依赖、manifest 模式</td>
+</tr>
+</tbody>
+</table></div>
+<p>包管理器解决依赖获取、版本锁定、编译选项和传递依赖问题，但不能替代架构选型。</p>
+<span class="heading-anchor" id="Conan/vcpkg 的工程取舍"></span><h3 id="conanvcpkg">Conan/vcpkg 的工程取舍</h3>
+<p>Conan 的 profile 能明确编译器、标准库、构建类型和选项，适合企业内二进制缓存和私有依赖治理。vcpkg manifest 模式上手快，和 CMake toolchain 集成直接，适合快速引入常见开源库。两者都需要锁定版本、固定 triplet/profile，并在 CI 中复现同样配置。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_7">工程实践/示例</h2>
+<span class="heading-anchor" id="框架选型简表"></span><h3 id="_8">框架选型简表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>优先考虑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>多语言服务调用，IDL 优先</td>
+<td>gRPC</td>
+</tr>
+<tr>
+<td>C++ 内部高性能 RPC，已有 brpc 生态</td>
+<td>brpc</td>
+</tr>
+<tr>
+<td>自定义 TCP 协议或网络库练习</td>
+<td>Boost.Asio 或直接 epoll</td>
+</tr>
+<tr>
+<td>对外 REST API，想快速完成 Web 服务</td>
+<td>Drogon/oatpp</td>
+</tr>
+<tr>
+<td>学习 Linux 网络底层</td>
+<td>先手写 socket/epoll，再看框架</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="CMake 项目结构"></span><h3 id="cmake_1">CMake 项目结构</h3>
+<pre><code class="language-text">net-demo/
+  CMakeLists.txt
+  src/
+    main.cpp
+  include/
+    net_demo/
+      server.h
+</code></pre>
+<p>示例：</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20)
+project(net_demo LANGUAGES CXX)
+
+add_library(net_core
+    src/server.cpp
+)
+target_include_directories(net_core PUBLIC include)
+target_compile_features(net_core PUBLIC cxx_std_17)
+
+add_executable(net_demo src/main.cpp)
+target_link_libraries(net_demo PRIVATE net_core)
+</code></pre>
+<span class="heading-anchor" id="使用框架前的检查清单"></span><h3 id="_9">使用框架前的检查清单</h3>
+<ul>
+<li>官方文档是否覆盖当前平台和编译器？</li>
+<li>是否支持需要的协议、TLS、超时、取消和监控？</li>
+<li>异步回调中的对象生命周期如何管理？</li>
+<li>是否能和现有日志、配置、指标系统集成？</li>
+<li>测试如何写：单元测试、集成测试、fake server、压测？</li>
+</ul>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_10">故障排查/观测</h2>
+<span class="heading-anchor" id="框架接入问题"></span><h3 id="_11">框架接入问题</h3>
+<p>框架接入最常见的问题不是 API 写错，而是线程模型误解：回调在哪个线程执行、是否允许阻塞、对象能否在回调返回前销毁、取消后是否还会回调。接入新框架时先写最小 echo/hello 服务，验证启动、关闭、超时、错误 status、日志 trace 和压测行为。</p>
+<span class="heading-anchor" id="构建问题"></span><h3 id="_12">构建问题</h3>
+<p>CMake 找不到包时，先看 <code>CMAKE_PREFIX_PATH</code>、toolchain file、包管理器生成的 config 文件和 target 名称。链接错误要区分头文件可见但库未链接、ABI/编译选项不一致、Debug/Release 混用和传递依赖缺失。不要通过全局 <code>include_directories</code> 和 <code>link_directories</code> 临时修补，除非能解释影响范围。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_13">推导示例</h2>
+<span class="heading-anchor" id="从 echo server 对比框架"></span><h3 id="echo-server">从 echo server 对比框架</h3>
+<p>同一个 echo 服务可以用不同框架验证工作模型：gRPC 关注 <code>.proto</code> 方法、deadline 和 status；Asio 关注 async read/write 和 handler 生命周期；Drogon/oatpp 关注 HTTP route、request object 和 response callback；brpc 关注 Controller、Channel 和 bthread 调度。比较时记录线程数、回调线程、关闭流程和错误映射，比单看 QPS 更有价值。</p>
+<span class="heading-anchor" id="CMake 依赖定位"></span><h3 id="cmake_2">CMake 依赖定位</h3>
+<p>当 <code>find_package(Protobuf CONFIG REQUIRED)</code> 失败时，不要马上改源码 include 路径。先确认包管理器是否安装了 Protobuf，toolchain file 是否传给 CMake，生成目录里是否存在 <code>ProtobufConfig.cmake</code>，以及官方导出的 target 名称是否真是 <code>protobuf::libprotobuf</code>。不同包和版本的 target 名称可能不同，以实际 config 和官方文档为准。</p>
+<span class="heading-anchor" id="如何讲框架选型"></span><h3 id="_14">如何讲框架选型</h3>
+<p>选型回答应先给业务约束：内部 RPC 还是外部 HTTP，是否跨语言，是否需要流式传输、deadline、取消、观测和服务治理。然后再比较 brpc、gRPC、Asio、Drogon/oatpp 的工作模型和维护成本，不要只引用 benchmark。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_15">最小验收清单</h3>
+<ul>
+<li>能画出框架线程和回调模型。</li>
+<li>能说明超时、取消和错误映射。</li>
+<li>CMake 依赖使用 target-based 写法。</li>
+<li>包管理器版本和 profile/triplet 在 CI 固定。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_16">常见误区</h2>
+<ul>
+<li>为了简历引入重量级 RPC 框架，但业务只是简单 HTTP API。</li>
+<li>只看框架 QPS benchmark，不看团队维护成本。</li>
+<li>在 CMake 里用全局 include/link 变量污染所有 target。</li>
+<li>包管理器版本未锁定，CI 和本机依赖不一致。</li>
+<li>学框架只背接口，不理解线程模型和生命周期。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_17">自测题</h2>
+<ol>
+<li>gRPC 和 Protobuf 的关系是什么？</li>
+<li>Boost.Asio 更像框架还是底层 IO 库？</li>
+<li>为什么现代 CMake 推荐 target-based 写法？</li>
+<li>Conan/vcpkg 解决什么问题，不能解决什么问题？</li>
+<li>选择 RPC 框架时为什么要考虑取消和 deadline？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_18">实践任务</h2>
+<ul>
+<li>用 CMake 构建一个最小 echo server。</li>
+<li>分别阅读 gRPC 和 brpc 的官方 quick start，比较线程模型和调用语义。</li>
+<li>用 Boost.Asio 写一个 async echo server，再和 epoll 版本对照。</li>
+<li>用 vcpkg 或 Conan 引入 Protobuf，生成并链接一个 <code>.proto</code>。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_19">延伸阅读</h2>
+<ul>
+<li>CMake 官方文档: https://cmake.org/documentation/</li>
+<li>CMake Tutorial: https://cmake.org/cmake/help/latest/guide/tutorial/</li>
+<li>Conan 官方文档: https://docs.conan.io/</li>
+<li>vcpkg 官方文档: https://learn.microsoft.com/vcpkg/</li>
+<li>brpc 官方文档: https://brpc.apache.org/docs/</li>
+<li>gRPC C++ 文档: https://grpc.io/docs/languages/cpp/</li>
+<li>Boost.Asio 文档: https://www.boost.org/doc/libs/release/doc/html/boost_asio.html</li>
+<li>Drogon 文档: https://drogon.org/</li>
+<li>oatpp 文档: https://oatpp.io/docs/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

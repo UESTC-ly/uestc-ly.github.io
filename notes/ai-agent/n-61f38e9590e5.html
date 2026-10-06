@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-01 嵌入与向量空间直觉 · 李杨的学习笔记</title><meta name="description" content="图书馆可以给每本书一个位置，例如“3 楼、7 号架、从左第 12 本”。位置不是书的内容，
+却能帮助管理员把书放回去。嵌入也会给输入一个由许多数值组成的位置，不过这个位置不是
+人工编写的分类编号，而是模型按照训练得到的规则计算出来的。"><meta property="og:title" content="05-01 嵌入与向量空间直觉 · 李杨的学习笔记"><meta property="og:description" content="图书馆可以给每本书一个位置，例如“3 楼、7 号架、从左第 12 本”。位置不是书的内容，
+却能帮助管理员把书放回去。嵌入也会给输入一个由许多数值组成的位置，不过这个位置不是
+人工编写的分类编号，而是模型按照训练得到的规则计算出来的。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-61f38e9590e5.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-61f38e9590e5.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-01 嵌入与向量空间直觉</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/01-embedding-and-vector-space-intuition.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从书架位置建立直觉</a></li><li><a href="#_2">定义：把输入映射为数值向量</a></li><li><a href="#_3">向量空间与“靠近”</a></li><li><a href="#_4">一个具体例子：售后政策检索</a></li><li><a href="#_5">嵌入不等于摘要、加密或事实判断</a></li><li><a href="#_6">一条可管理的向量记录</a></li><li><a href="#_7">工程与安全边界</a></li><li><a href="#_8">输入边界</a></li><li><a href="#_9">版本边界</a></li><li><a href="#_10">数据边界</a></li><li><a href="#_11">检索边界</a></li><li><a href="#_12">纸笔练习</a></li><li><a href="#_13">自测</a></li><li><a href="#_14">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>35 分钟阅读，加 15 分钟纸笔练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>知道文本块是从文档中切出的可追溯片段；了解列表和小数的基本含义</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章的二维坐标例子在纸上画点</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>用自己的话解释嵌入向量（Embedding）与向量空间（vector space）；</li>
+<li>区分“内容被表示为向量”和“系统已经理解并验证了内容”；</li>
+<li>说明为什么文档和查询必须使用兼容的表示方法；</li>
+<li>列出一条向量记录至少应保留的原文、来源、权限和版本信息。</li>
+</ul>
+<span class="heading-anchor" id="从书架位置建立直觉"></span><h2 id="_1">从书架位置建立直觉</h2>
+<p>图书馆可以给每本书一个位置，例如“3 楼、7 号架、从左第 12 本”。位置不是书的内容，
+却能帮助管理员把书放回去。嵌入也会给输入一个由许多数值组成的位置，不过这个位置不是
+人工编写的分类编号，而是模型按照训练得到的规则计算出来的。</p>
+<p>假设一个极度简化的空间只有两个方向：横轴大致表示“售后相关程度”，纵轴大致表示
+“物流相关程度”。下面三个句子可能落在不同位置：</p>
+<ul>
+<li>“退款多久到账”靠近售后方向；</li>
+<li>“包裹什么时候送达”靠近物流方向；</li>
+<li>“签收后如何申请退款”可能位于两者之间。</li>
+</ul>
+<p>真实嵌入通常有远多于两个数值，而且单个维度通常不能被可靠地解释为某个固定主题。
+二维图只是帮助理解“位置”和“邻近”，不能把真实模型想象成一张由人工命名坐标轴组成
+的表格。</p>
+<span class="heading-anchor" id="定义：把输入映射为数值向量"></span><h2 id="_2">定义：把输入映射为数值向量</h2>
+<p>嵌入模型接收文本、图片或其他允许的输入，输出一个固定长度的数值序列。这个序列称为
+嵌入向量。例如，教学示意可以写成：</p>
+<p><code>“退款多久到账” → [0.72, -0.18, 0.43, …]</code></p>
+<p>省略号表示后面还有更多数值。向量中数值的数量称为维度（dimension）。同一个模型和
+配置通常会输出固定维度，便于批量保存和比较。</p>
+<p>用符号表示，嵌入过程可以写成：</p>
+<p><code>输入 x → 嵌入模型 f → 向量 f(x)</code></p>
+<p>这一定义只说明发生了映射，没有承诺向量包含输入的全部细节，也没有承诺每一种下游任务
+都能从中恢复需要的信息。模型在训练时学到的相似性，会决定哪些输入更容易靠近。</p>
+<span class="heading-anchor" id="向量空间与“靠近”"></span><h2 id="_3">向量空间与“靠近”</h2>
+<p>所有兼容向量共同构成一个可以比较的位置空间。检索时，系统把用户问题也转换成向量，
+再寻找附近的文档块向量。这里的“附近”需要由余弦相似度、点积或欧氏距离等规则定义，
+下一章会详细比较这些规则。</p>
+<p>一个最小流程是：</p>
+<ol>
+<li>保存文档块原文及其来源；</li>
+<li>用模型版本 <code>E1</code> 为每个文本块生成向量；</li>
+<li>用户提问时，也用 <code>E1</code> 生成查询向量；</li>
+<li>按约定的相似度规则取得若干候选；</li>
+<li>再检查权限、版本和内容，决定哪些候选能进入后续步骤。</li>
+</ol>
+<p>第三步不能随意换成不兼容的模型 <code>E2</code>。两个模型即使输出相同维度，也可能使用完全不同
+的空间。数值长度相同，只说明存储形状相同，不说明坐标含义相同。</p>
+<span class="heading-anchor" id="一个具体例子：售后政策检索"></span><h2 id="_4">一个具体例子：售后政策检索</h2>
+<p>知识库里有三个文本块：</p>
+<ul>
+<li>A：“标准商品签收后 30 天内可申请退货。”</li>
+<li>B：“订单发货后可在物流页面查看承运商。”</li>
+<li>C：“企业账户每月生成一次电子账单。”</li>
+</ul>
+<p>用户问“收到商品后最晚多久能退”。一个适合当前语言和领域的文本嵌入模型，可能让查询
+向量更接近 A，而远离 B 和 C。系统于是把 A 放入候选集。</p>
+<p>但这还不是最终答案。系统仍需检查 A 是否为当前版本、是否适用于用户所在地区、是否受
+权限限制，以及“30 天”是否在切分时保留了完整条件。如果 A 是旧政策，向量检索可能在
+语义上选对主题，却在业务上返回错误资料。</p>
+<p>这个例子说明：嵌入负责提供候选关系，来源和业务规则负责判断候选是否可用，回答步骤
+负责忠实组织已有证据。三者不能互相替代。</p>
+<span class="heading-anchor" id="嵌入不等于摘要、加密或事实判断"></span><h2 id="_5">嵌入不等于摘要、加密或事实判断</h2>
+<p>初学者容易把向量想成“压缩后的完整含义”。更稳妥的理解是：它是一种为特定比较任务
+训练出的数值表示。</p>
+<ul>
+<li><strong>不是摘要：</strong> 不能直接把一串向量数值当作人可读的内容概括。</li>
+<li><strong>不是加密：</strong> 向量不是为了保密而设计的，不能替代访问控制和加密存储。</li>
+<li><strong>不是唯一身份：</strong> 不同输入可能非常接近，同一内容经过不同预处理也可能得到不同向量。</li>
+<li><strong>不是事实判断：</strong> 错误、过时或恶意文本同样可以被顺利嵌入。</li>
+<li><strong>不是通用坐标：</strong> 不同模型、版本和输入模式之间通常不能直接比较。</li>
+</ul>
+<p>因此，删除原文只保留向量通常会破坏引用、复核和重建能力。向量记录应该能回到原始文本
+块及其文档位置，而不是成为失去出处的一组数字。</p>
+<span class="heading-anchor" id="一条可管理的向量记录"></span><h2 id="_6">一条可管理的向量记录</h2>
+<p>概念上，一条记录至少需要回答以下问题：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>建议保留的信息</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>表示了什么</td>
+<td>文本块或媒体对象的稳定标识</td>
+</tr>
+<tr>
+<td>原文在哪里</td>
+<td>文档标识、章节、页码或其他可定位信息</td>
+</tr>
+<tr>
+<td>谁可以使用</td>
+<td>租户、访问范围或权限引用</td>
+</tr>
+<tr>
+<td>怎样生成</td>
+<td>模型名、模型版本、输入模式、维度和关键预处理版本</td>
+</tr>
+<tr>
+<td>何时生成</td>
+<td>生成时间、来源内容版本</td>
+</tr>
+<tr>
+<td>怎样比较</td>
+<td>预期相似度度量及是否归一化</td>
+</tr>
+</tbody>
+</table></div>
+<p>这不是要求把所有信息都塞进向量数据库的一列，而是要求系统在检索、审计和重建时能把
+这些信息关联起来。具体存储结构将在后续实现章节决定。</p>
+<span class="heading-anchor" id="工程与安全边界"></span><h2 id="_7">工程与安全边界</h2>
+<span class="heading-anchor" id="输入边界"></span><h3 id="_8">输入边界</h3>
+<p>空文本、只有空白符的文本、超出模型输入限制的文本和无法解码的内容应当被明确处理。
+静默截断可能删除决定含义的尾部条件，因此需要记录截断行为，而不是只留下一个看似正常
+的向量。</p>
+<span class="heading-anchor" id="版本边界"></span><h3 id="_9">版本边界</h3>
+<p>模型标识不足以描述全部兼容条件。大小写处理、Unicode 规范化、文本前缀、语言模式和
+图片裁剪规则都可能改变输出。关键配置应形成可比较的表示版本。</p>
+<span class="heading-anchor" id="数据边界"></span><h3 id="_10">数据边界</h3>
+<p>把文本发送给外部嵌入服务前，需要确认数据分类、传输、保留和地区要求。即使只在本地
+生成向量，也要把向量当作可能泄露输入特征的数据资产，不应默认公开。</p>
+<span class="heading-anchor" id="检索边界"></span><h3 id="_11">检索边界</h3>
+<p>接近只是一种候选信号。相似内容可能来自错误版本、其他租户或被污染的数据源。权限过滤
+不应等到内容已经进入回答上下文后才执行。</p>
+<span class="heading-anchor" id="纸笔练习"></span><h2 id="_12">纸笔练习</h2>
+<p>画一个二维平面，放置“退款多久到账”“怎么查快递”“签收后怎么退货”三个点。然后加入
+“退款商品寄到哪里”。说明它可能同时靠近售后和物流内容的原因。</p>
+<p>再写下这四个点没有表达的信息，例如政策生效日期、用户地区和访问权限。这个练习的重点
+不是画出标准答案，而是区分“相似性坐标”和“业务事实”。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_13">自测</h2>
+<ol>
+<li>为什么向量维度相同不代表两个模型兼容？</li>
+<li>嵌入向量为什么不能替代原文和来源？</li>
+<li>语义接近的候选为什么仍可能不适用于当前用户？</li>
+<li>哪些预处理变化可能需要形成新的表示版本？</li>
+<li>把敏感文本转成向量后，为什么不能默认它已经匿名？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_14">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已做轻量静态检查；未声称验证任何具体模型的生产效果。</li>
+<li>代码与图表：嵌入生成代码和向量空间图为后续计划，本章只给出概念流程和纸笔例子。</li>
+<li>
+<p>摘要：<a href="n-eb8d85b4aefc.html">05-01 章节摘要</a></p>
+</li>
+<li>
+<p>下一章：<a href="n-e96ed97bbda3.html">05-02 相似度度量与归一化</a></p>
+</li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

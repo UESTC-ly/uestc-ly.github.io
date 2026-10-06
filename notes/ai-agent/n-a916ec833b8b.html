@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03. MCP 协议与工具生态 · 李杨的学习笔记</title><meta name="description" content="MCP，Model Context Protocol，是一种让 AI 应用以标准方式连接外部工具和上下文的协议。它把工具、资源、提示模板和客户端能力拆开，降低不同 Agent 应用接入外部系统的成本。"><meta property="og:title" content="03. MCP 协议与工具生态 · 李杨的学习笔记"><meta property="og:description" content="MCP，Model Context Protocol，是一种让 AI 应用以标准方式连接外部工具和上下文的协议。它把工具、资源、提示模板和客户端能力拆开，降低不同 Agent 应用接入外部系统的成本。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-a916ec833b8b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-a916ec833b8b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>03. MCP 协议与工具生态</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/03-MCP%E5%8D%8F%E8%AE%AE%E4%B8%8E%E5%B7%A5%E5%85%B7%E7%94%9F%E6%80%81.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-mcp">1. MCP 为什么出现？</a></li><li><a href="#2-hostclientserver">2. Host、Client、Server</a></li><li><a href="#3-tools">3. Tools：模型可主动调用的动作</a></li><li><a href="#4-resources">4. Resources：应用提供给模型的资料</a></li><li><a href="#5-prompts">5. Prompts：可复用提示模板</a></li><li><a href="#6-roots">6. Roots：范围提示，不是硬安全边界</a></li><li><a href="#7-sampling">7. Sampling：服务器请求客户端调用模型</a></li><li><a href="#8-elicitation">8. Elicitation：向用户请求结构化信息</a></li><li><a href="#9-mcp-function-calling">9. MCP 与普通 Function Calling 的关系</a></li><li><a href="#10-mcp">10. MCP 安全清单</a></li><li><a href="#11">11. 学习自检</a></li><li><a href="#_4">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>MCP 解决什么问题？</li>
+<li>Host、Client、Server 在 MCP 中分别是什么？</li>
+<li>Tools、Resources、Prompts、Roots、Sampling、Elicitation 分别有什么作用？</li>
+<li>MCP 的安全边界在哪里，哪些地方不能误解？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>MCP，Model Context Protocol，是一种让 AI 应用以标准方式连接外部工具和上下文的协议。它把工具、资源、提示模板和客户端能力拆开，降低不同 Agent 应用接入外部系统的成本。</p>
+<blockquote>
+<p>记忆口诀：<strong>Tools 让模型行动，Resources 给模型资料，Prompts 给用户模板，Roots 告诉服务器范围，Sampling 让服务器请求模型。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((MCP))
+    架构
+      Host
+      Client
+      Server
+      JSON RPC
+    Server功能
+      Tools
+      Resources
+      Prompts
+    Client功能
+      Roots
+      Sampling
+      Elicitation
+    治理
+      Capability Negotiation
+      Authorization
+      Consent
+      Logging
+      Boundaries
+</pre>
+<span class="heading-anchor" id="1. MCP 为什么出现？"></span><h2 id="1-mcp">1. MCP 为什么出现？</h2>
+<p>没有 MCP 时，每个 AI 应用都要为每个外部系统单独写集成：</p>
+<pre><code class="language-text">Claude Desktop -&gt; GitHub集成
+IDE Agent -&gt; GitHub集成
+内部Agent -&gt; GitHub集成
+</code></pre>
+<p>MCP 的思想是：外部系统实现一个 MCP Server，AI 应用通过 MCP Client 与它通信。</p>
+<pre class="mermaid">flowchart LR
+  A["AI应用Host"] --&gt; B["MCP Client"]
+  B --&gt; C["MCP Server"]
+  C --&gt; D["文件系统"]
+  C --&gt; E["数据库"]
+  C --&gt; F["GitHub"]
+  C --&gt; G["日历"]
+</pre>
+<span class="heading-anchor" id="2. Host、Client、Server"></span><h2 id="2-hostclientserver">2. Host、Client、Server</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>角色</th>
+<th>含义</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Host</td>
+<td>用户直接使用的 AI 应用</td>
+<td>桌面助手、IDE、Agent 平台</td>
+</tr>
+<tr>
+<td>Client</td>
+<td>Host 内部的协议客户端</td>
+<td>管理与服务器连接</td>
+</tr>
+<tr>
+<td>Server</td>
+<td>暴露工具和资源的程序</td>
+<td>文件系统服务器、数据库服务器</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["Host应用"] --&gt; B["MCP Client"]
+  B --&gt; C["MCP Server A"]
+  B --&gt; D["MCP Server B"]
+  C --&gt; E["资源或工具"]
+  D --&gt; F["资源或工具"]
+</pre>
+<span class="heading-anchor" id="3. Tools：模型可主动调用的动作"></span><h2 id="3-tools">3. Tools：模型可主动调用的动作</h2>
+<p>Tools 是 MCP Server 暴露给模型的可执行函数。</p>
+<p>特点：</p>
+<ul>
+<li>模型决定何时调用。</li>
+<li>输入通常用 JSON Schema 描述。</li>
+<li>可以读，也可以写。</li>
+<li>可能需要用户批准。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["模型"] --&gt; B["选择Tool"]
+  B --&gt; C["生成参数"]
+  C --&gt; D["tools call"]
+  D --&gt; E["MCP Server执行"]
+  E --&gt; F["结果返回"]
+</pre>
+<p>适合：</p>
+<ul>
+<li>查询数据库。</li>
+<li>创建日历事件。</li>
+<li>搜索文件。</li>
+<li>发送消息。</li>
+<li>调用业务 API。</li>
+</ul>
+<span class="heading-anchor" id="4. Resources：应用提供给模型的资料"></span><h2 id="4-resources">4. Resources：应用提供给模型的资料</h2>
+<p>Resources 是被动数据源，通常由应用选择是否放入上下文。</p>
+<p>特点：</p>
+<ul>
+<li>不是模型随意执行的动作。</li>
+<li>通常是只读上下文。</li>
+<li>有 URI、MIME type 和内容。</li>
+<li>可以是固定资源或资源模板。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["MCP Server"] --&gt; B["resources list"]
+  B --&gt; C["应用选择资源"]
+  C --&gt; D["resources read"]
+  D --&gt; E["内容放入上下文"]
+</pre>
+<p>例子：</p>
+<ul>
+<li><code>file:///project/README.md</code></li>
+<li><code>db://schema/users</code></li>
+<li><code>docs://api/authentication</code></li>
+</ul>
+<span class="heading-anchor" id="5. Prompts：可复用提示模板"></span><h2 id="5-prompts">5. Prompts：可复用提示模板</h2>
+<p>Prompts 是服务器提供的提示模板或工作流模板，用户或应用可以选择使用。</p>
+<p>适合：</p>
+<ul>
+<li>总结会议。</li>
+<li>生成旅行计划。</li>
+<li>代码审查模板。</li>
+<li>数据库诊断模板。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["Prompt模板"] --&gt; B["用户选择"]
+  B --&gt; C["填入参数"]
+  C --&gt; D["发送给模型"]
+</pre>
+<span class="heading-anchor" id="6. Roots：范围提示，不是硬安全边界"></span><h2 id="6-roots">6. Roots：范围提示，不是硬安全边界</h2>
+<p>Roots 用来告诉 MCP Server 当前应该关注哪些文件系统目录。</p>
+<p>重要理解：Roots 是协调机制，不是强安全边界。真正的安全还要靠操作系统权限、沙箱、容器和应用层授权。</p>
+<pre class="mermaid">flowchart TD
+  A["Client提供Roots"] --&gt; B["Server知道工作范围"]
+  B --&gt; C["优先访问范围内文件"]
+  C --&gt; D["减少误操作"]
+  E["真正安全"] --&gt; F["OS权限和沙箱"]
+</pre>
+<span class="heading-anchor" id="7. Sampling：服务器请求客户端调用模型"></span><h2 id="7-sampling">7. Sampling：服务器请求客户端调用模型</h2>
+<p>Sampling 允许 MCP Server 通过 Client 请求 LLM 生成内容。这样服务器不需要自己持有模型 API key，客户端仍可控制模型选择、权限和用户审批。</p>
+<pre class="mermaid">flowchart LR
+  A["MCP Server"] --&gt; B["sampling请求"]
+  B --&gt; C["Client审核"]
+  C --&gt; D["LLM生成"]
+  D --&gt; E["Client审核结果"]
+  E --&gt; F["返回Server"]
+</pre>
+<p>安全要点：</p>
+<ul>
+<li>客户端应让用户能查看和拒绝 sampling 请求。</li>
+<li>请求中不应包含不必要敏感数据。</li>
+<li>要设置 token、成本和频率限制。</li>
+</ul>
+<span class="heading-anchor" id="8. Elicitation：向用户请求结构化信息"></span><h2 id="8-elicitation">8. Elicitation：向用户请求结构化信息</h2>
+<p>Elicitation 允许服务器在信息不足时，通过客户端向用户请求特定字段。</p>
+<p>例子：订机票工具需要出发城市、目的地、日期，如果缺少日期，可以请求用户补充。</p>
+<pre class="mermaid">flowchart TD
+  A["工具需要更多信息"] --&gt; B["Elicitation请求"]
+  B --&gt; C["客户端展示表单"]
+  C --&gt; D["用户填写或拒绝"]
+  D --&gt; E["服务器继续或取消"]
+</pre>
+<span class="heading-anchor" id="9. MCP 与普通 Function Calling 的关系"></span><h2 id="9-mcp-function-calling">9. MCP 与普通 Function Calling 的关系</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Function Calling</th>
+<th>MCP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>范围</td>
+<td>单应用内定义工具</td>
+<td>标准化客户端和服务器协议</td>
+</tr>
+<tr>
+<td>工具发现</td>
+<td>应用手动提供</td>
+<td>Server 可 list tools</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>通常由应用自定义</td>
+<td>Resources 是一等概念</td>
+</tr>
+<tr>
+<td>生态复用</td>
+<td>较弱</td>
+<td>一个 Server 可服务多个 Host</td>
+</tr>
+<tr>
+<td>协议</td>
+<td>API 内部机制</td>
+<td>JSON-RPC 协议与能力协商</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10. MCP 安全清单"></span><h2 id="10-mcp">10. MCP 安全清单</h2>
+<pre class="mermaid">mindmap
+  root((MCP安全))
+    权限
+      最小权限
+      用户授权
+      OAuth或Token
+    工具
+      参数校验
+      操作审批
+      输出脱敏
+    资源
+      访问控制
+      敏感数据过滤
+      来源标记
+    运行
+      沙箱
+      日志
+      限流
+      超时
+</pre>
+<p>注意：</p>
+<ul>
+<li>不要把 Roots 当作强隔离。</li>
+<li>不要让服务器随意读取所有本地文件。</li>
+<li>不要把工具执行权限完全交给模型判断。</li>
+<li>高风险 tools 必须审批和审计。</li>
+</ul>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>MCP 中 Host、Client、Server 分别是什么？</li>
+<li>Tools 和 Resources 的控制者有什么区别？</li>
+<li>Prompts 为什么是一等概念？</li>
+<li>Roots 为什么不是安全边界？</li>
+<li>Sampling 为什么强调人类可审查？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_4">参考</h2>
+<ul>
+<li>MCP Specification Overview: https://modelcontextprotocol.io/specification/2025-06-18/basic</li>
+<li>MCP Server Concepts: https://modelcontextprotocol.io/docs/learn/server-concepts</li>
+<li>MCP Client Concepts: https://modelcontextprotocol.io/docs/learn/client-concepts</li>
+<li>MCP Sampling: https://modelcontextprotocol.io/docs/concepts/sampling</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

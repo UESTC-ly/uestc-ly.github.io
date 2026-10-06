@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>ELK 与 Loki · 李杨的学习笔记</title><meta name="description" content="ELK 通常指 Elasticsearch、Logstash、Kibana，也常用 Beats 或 Fluent Bit/Fluentd 负责采集。Elasticsearch 对字段建立索引，适合复杂检索、聚合和日志分析，但索引成本较高。"><meta property="og:title" content="ELK 与 Loki · 李杨的学习笔记"><meta property="og:description" content="ELK 通常指 Elasticsearch、Logstash、Kibana，也常用 Beats 或 Fluent Bit/Fluentd 负责采集。Elasticsearch 对字段建立索引，适合复杂检索、聚合和日志分析，但索引成本较高。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-77b75ff51988.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-77b75ff51988.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 03-配置与可观测性</p><h1>ELK 与 Loki</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/03-%E9%85%8D%E7%BD%AE%E4%B8%8E%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7/04-%E6%97%A5%E5%BF%97%E6%A3%80%E7%B4%A2%E4%B8%8E%E8%81%9A%E5%90%88.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">架构与数据流</a></li><li><a href="#_4">示例</a></li><li><a href="#_5">典型工作流</a></li><li><a href="#_6">常见坑</a></li><li><a href="#_7">排障步骤</a></li><li><a href="#_8">练习</a></li><li><a href="#_9">检查清单</a></li><li><a href="#_10">前置知识与完成标准</a></li><li><a href="#elk-loki_1">ELK 与 Loki 原理拆解</a></li><li><a href="#elkelastic-stack">ELK/Elastic Stack</a></li><li><a href="#loki">Loki</a></li><li><a href="#_11">索引与标签差异</a></li><li><a href="#_12">更细的采集管线</a></li><li><a href="#_13">分步接入</a></li><li><a href="#_14">从零可复现实验</a></li><li><a href="#_15">查询与配置逐段解释</a></li><li><a href="#_16">成本、安全、隐私、采样、基数与保留</a></li><li><a href="#_17">排障决策树</a></li><li><a href="#_18">分层练习与答案要点</a></li><li><a href="#_19">小结</a></li><li><a href="#_20">官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 Elasticsearch/Logstash/Kibana 与 Loki 的定位差异。</li>
+<li>区分全文索引日志系统和标签索引日志系统。</li>
+<li>掌握日志采集、解析、存储、查询的基本链路。</li>
+<li>能设计可查询、可关联、成本可控的结构化日志。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<p>ELK 通常指 Elasticsearch、Logstash、Kibana，也常用 Beats 或 Fluent Bit/Fluentd 负责采集。Elasticsearch 对字段建立索引，适合复杂检索、聚合和日志分析，但索引成本较高。</p>
+<p>Loki 的设计更接近 Prometheus。它主要索引少量标签，日志正文按块存储，查询时先用标签选流，再在日志内容里过滤。Loki 成本通常更低，但不适合把大量高基数字段都变成标签。</p>
+<p>日志数据模型应以结构化事件为核心：时间戳、级别、服务字段、Trace ID、事件名、错误分类、必要业务上下文。自然语言消息可以保留，但不应是唯一可查询信息。</p>
+<span class="heading-anchor" id="架构与数据流"></span><h2 id="_3">架构与数据流</h2>
+<pre class="mermaid">flowchart LR
+  A["应用 stdout / 文件"] --&gt; B["采集器"]
+  B --&gt; C["解析与脱敏"]
+  C --&gt; D{日志后端}
+  D --&gt; E["Elasticsearch"]
+  D --&gt; F["Loki"]
+  E --&gt; G["Kibana"]
+  F --&gt; H["Grafana"]
+</pre>
+<p>ELK 典型链路：</p>
+<ol>
+<li>Filebeat/Fluent Bit 读取文件或容器 stdout。</li>
+<li>Logstash/Ingest Pipeline 解析 JSON、补字段、脱敏。</li>
+<li>Elasticsearch 建索引并存储。</li>
+<li>Kibana 查询、聚合和可视化。</li>
+</ol>
+<p>Loki 典型链路：</p>
+<ol>
+<li>Promtail/Fluent Bit/Alloy 读取日志。</li>
+<li>提取少量稳定标签，例如 service、env、namespace、pod。</li>
+<li>日志正文按 chunk 存储。</li>
+<li>Grafana 用 LogQL 查询和跳转。</li>
+</ol>
+<span class="heading-anchor" id="示例"></span><h2 id="_4">示例</h2>
+<p>推荐日志字段：</p>
+<pre><code class="language-json">{
+  "ts": "2026-08-31T09:00:00Z",
+  "level": "warn",
+  "service.name": "payment-service",
+  "deployment.environment": "prod",
+  "service.version": "2026.08.31-1",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "event": "gateway_timeout",
+  "error.type": "UPSTREAM_TIMEOUT",
+  "http.route": "/payments",
+  "http.status_code": 504
+}
+</code></pre>
+<p>Loki 标签建议：</p>
+<pre><code class="language-text">{service_name="payment-service", env="prod", namespace="checkout"}
+</code></pre>
+<p>LogQL 示例：</p>
+<pre><code class="language-logql">{service_name="payment-service", env="prod"} |= "UPSTREAM_TIMEOUT"
+</code></pre>
+<p>Elasticsearch 查询思路：</p>
+<pre><code class="language-json">{
+  "query": {
+    "bool": {
+      "filter": [
+        { "term": { "service.name": "payment-service" } },
+        { "term": { "error.type": "UPSTREAM_TIMEOUT" } }
+      ]
+    }
+  }
+}
+</code></pre>
+<p>C++ 常见接入路径：</p>
+<ul>
+<li>应用输出 JSON 日志到 stdout，由容器平台采集。</li>
+<li>spdlog/glog/Boost.Log 配合自定义 formatter 输出结构化字段。</li>
+<li>日志上下文中注入 Trace ID、请求 ID、用户匿名标识。</li>
+<li>对敏感字段在应用侧或采集管道做脱敏。</li>
+</ul>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_5">典型工作流</h2>
+<ol>
+<li>先统一日志 schema 和字段命名。</li>
+<li>应用只负责输出结构化日志，不直接耦合具体日志后端。</li>
+<li>采集器负责补充 Kubernetes、主机、实例等环境字段。</li>
+<li>管道负责解析、脱敏、采样或丢弃低价值日志。</li>
+<li>日志平台设置保留周期、冷热分层和索引策略。</li>
+<li>Grafana/Kibana 查询从服务、错误类型、Trace ID 开始。</li>
+</ol>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_6">常见坑</h2>
+<ul>
+<li>日志字段随代码随意变化，查询和告警长期不稳定。</li>
+<li>把 Trace ID、订单 ID、用户 ID 全部设为 Loki 标签，造成高基数。</li>
+<li>Elasticsearch 对所有字段自动索引，存储成本快速膨胀。</li>
+<li>日志里输出明文密码、Token、手机号等敏感数据。</li>
+<li>多行日志或异常堆栈没有正确合并，查询时上下文断裂。</li>
+<li>本地时间、时区和采集时间混用，排障时间线错位。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_7">排障步骤</h2>
+<ol>
+<li>确认应用是否实际输出日志，stdout 和文件路径是否正确。</li>
+<li>检查采集器是否读取到目标，是否有解析错误或丢弃规则。</li>
+<li>查看日志后端写入速率、拒绝写入和限流信息。</li>
+<li>用服务名和时间范围做最小查询，确认数据存在。</li>
+<li>再加错误类型、Trace ID、路由等条件逐步缩小范围。</li>
+<li>对 Loki 检查标签数量和流数量，对 Elasticsearch 检查索引模板和字段映射。</li>
+<li>对敏感信息泄露，先阻断输出和采集，再清理或限制历史索引访问。</li>
+</ol>
+<span class="heading-anchor" id="练习"></span><h2 id="_8">练习</h2>
+<ol>
+<li>把一条普通文本错误日志改成结构化 JSON 日志。</li>
+<li>判断哪些字段适合作为 Loki 标签：service、env、trace_id、user_id、namespace。</li>
+<li>设计 Elasticsearch 索引保留策略，区分热日志和归档日志。</li>
+<li>为 C++ 服务设计异常堆栈、多行日志和 Trace ID 关联方案。</li>
+</ol>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_9">检查清单</h2>
+<ul>
+<li>日志是结构化输出，字段命名稳定。</li>
+<li>日志包含服务、环境、版本、实例、Trace ID。</li>
+<li>敏感字段有脱敏或禁止输出策略。</li>
+<li>Loki 只索引低基数标签。</li>
+<li>Elasticsearch 映射和索引生命周期受控。</li>
+<li>日志采集器有监控和告警。</li>
+<li>查询入口能从 Trace ID 或错误类型快速定位事件。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h2 id="_10">前置知识与完成标准</h2>
+<p>前置知识：</p>
+<ul>
+<li>知道应用可以把日志输出到 stdout、文件或日志库 sink。</li>
+<li>了解 JSON、正则、字段解析、索引、标签和对象存储的基本概念。</li>
+<li>能区分“日志正文”“结构化字段”“索引字段”“标签”。</li>
+</ul>
+<p>完成标准：</p>
+<ul>
+<li>能解释 ELK 和 Loki 的索引策略差异。</li>
+<li>能设计日志采集、解析、脱敏、写入、保留和查询链路。</li>
+<li>能判断哪些字段适合 Elasticsearch 索引，哪些字段适合 Loki 标签。</li>
+<li>能处理多行日志、解析失败、写入拒绝、查询慢和敏感信息泄露。</li>
+</ul>
+<span class="heading-anchor" id="ELK 与 Loki 原理拆解"></span><h2 id="elk-loki_1">ELK 与 Loki 原理拆解</h2>
+<span class="heading-anchor" id="ELK/Elastic Stack"></span><h3 id="elkelastic-stack">ELK/Elastic Stack</h3>
+<p>原理：Elasticsearch 把日志文档写入索引或 data stream，并对字段建立倒排索引、doc values 等结构。Kibana 查询时可以按字段过滤、全文检索、聚合和可视化。Logstash、Filebeat、Elastic Agent 或 Ingest Pipeline 负责采集和解析。</p>
+<p>数据模型：</p>
+<pre><code class="language-text">data_stream/index -&gt; document(@timestamp + fields + message) -&gt; indexed fields + stored source
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>复杂全文检索、多字段聚合、审计分析。</li>
+<li>需要对业务字段做临时过滤，例如错误码、订单状态、渠道类型。</li>
+<li>安全日志、访问日志、应用日志的统一检索。</li>
+</ul>
+<p>边界：</p>
+<ul>
+<li>默认动态映射可能把大量字段都索引，成本快速上升。</li>
+<li>高写入量需要分片、生命周期、冷热层和容量规划。</li>
+<li>字段类型一旦冲突，写入会失败或查询不可用。</li>
+</ul>
+<p>与相邻概念区别：Elasticsearch 是搜索和分析后端；Logstash/Filebeat 是采集管道；Kibana 是查询展示入口。</p>
+<span class="heading-anchor" id="Loki"></span><h3 id="loki">Loki</h3>
+<p>原理：Loki 主要索引日志流标签，日志正文按 chunk 存储。查询先用标签选择 stream，再用 LogQL 对日志内容过滤、解析和聚合。它更像“日志版 Prometheus”，强调低索引成本。</p>
+<p>数据模型：</p>
+<pre><code class="language-text">stream labels -&gt; ordered log entries(timestamp + line) -&gt; chunks
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>Kubernetes/container stdout 日志。</li>
+<li>与 Grafana、Prometheus、Tempo 联动排障。</li>
+<li>标签少、查询通常从服务/命名空间/Pod 开始的场景。</li>
+</ul>
+<p>边界：</p>
+<ul>
+<li>不适合把 <code>trace_id</code>、<code>user_id</code>、<code>order_id</code> 这类高基数字段做标签。</li>
+<li>纯全文检索能力不等于 Elasticsearch，查询需要先用标签缩小范围。</li>
+<li>日志行结构差、标签设计差时，LogQL 会变慢。</li>
+</ul>
+<p>与相邻概念区别：Loki 标签是索引入口，不是任意字段索引；日志正文解析通常发生在查询时或采集管线中。</p>
+<span class="heading-anchor" id="索引与标签差异"></span><h2 id="_11">索引与标签差异</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Elasticsearch</th>
+<th>Loki</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查询入口</td>
+<td>字段索引、全文检索、聚合</td>
+<td>低基数标签选择日志流</td>
+</tr>
+<tr>
+<td>成本来源</td>
+<td>字段索引、分片、副本、存储层</td>
+<td>stream 数量、chunk、对象存储、查询扫描</td>
+</tr>
+<tr>
+<td>适合字段</td>
+<td>错误码、服务、路由、状态、审计字段</td>
+<td>service、env、namespace、pod、container</td>
+</tr>
+<tr>
+<td>危险字段</td>
+<td>动态无限字段、长文本字段全索引</td>
+<td>trace_id、user_id、request_id、完整 path</td>
+</tr>
+<tr>
+<td>查询风格</td>
+<td>先字段过滤，再聚合/全文</td>
+<td>先标签过滤，再内容过滤/解析</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="更细的采集管线"></span><h2 id="_12">更细的采集管线</h2>
+<pre class="mermaid">flowchart LR
+  A["应用 stdout/文件"] --&gt; B["采集器"]
+  B --&gt; C["多行合并"]
+  C --&gt; D["解析 JSON/grok/regex"]
+  D --&gt; E["补资源字段"]
+  E --&gt; F["脱敏/丢弃/采样"]
+  F --&gt; G{路由}
+  G --&gt; H["Elasticsearch data stream"]
+  G --&gt; I["Loki stream"]
+  H --&gt; J["Kibana"]
+  I --&gt; K["Grafana"]
+</pre>
+<p>关键阶段：</p>
+<ol>
+<li>采集：确认文件路径、容器 stdout、offset 和轮转策略。</li>
+<li>多行：异常堆栈必须合并成一条事件，否则上下文断裂。</li>
+<li>解析：优先 JSON；无法结构化时再用 grok/regex。</li>
+<li>丰富：添加 <code>service.name</code>、<code>env</code>、<code>namespace</code>、<code>pod</code>、<code>trace_id</code>。</li>
+<li>脱敏：删除或哈希手机号、邮箱、Token、身份证号。</li>
+<li>路由：高价值日志进热索引，低价值 debug 可采样或短保留。</li>
+</ol>
+<span class="heading-anchor" id="分步接入"></span><h2 id="_13">分步接入</h2>
+<ol>
+<li>先统一日志 schema，明确哪些字段必须输出、哪些字段禁止输出。</li>
+<li>应用输出 JSON Lines 到 stdout 或固定文件路径，不直接绑定后端。</li>
+<li>部署采集器读取日志，处理 offset、轮转和多行堆栈。</li>
+<li>在采集管线解析 JSON、补资源字段、脱敏和按事件类型采样。</li>
+<li>Elasticsearch 侧配置 data stream、模板、字段映射和 ILM。</li>
+<li>Loki 侧只选择低基数标签，其他字段保留在日志正文或 structured metadata。</li>
+<li>在 Kibana/Grafana 中保存常用查询，并打通 Trace ID 跳转。</li>
+</ol>
+<span class="heading-anchor" id="从零可复现实验"></span><h2 id="_14">从零可复现实验</h2>
+<p>目标：用本地文件模拟日志解析、标签选择和敏感字段脱敏。</p>
+<p>准备日志：</p>
+<pre><code class="language-bash">mkdir -p /tmp/log-demo
+cat &gt;/tmp/log-demo/app.log &lt;&lt;'LOG'
+{"@timestamp":"2026-08-31T09:00:00Z","level":"error","service.name":"payment-service","deployment.environment.name":"prod","trace_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","event":"gateway_timeout","error.type":"UPSTREAM_TIMEOUT","phone":"13800000000","message":"gateway timeout"}
+{"@timestamp":"2026-08-31T09:00:01Z","level":"info","service.name":"payment-service","deployment.environment.name":"prod","trace_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","event":"payment_ok","message":"payment completed"}
+LOG
+</code></pre>
+<p>本地验证结构化字段：</p>
+<pre><code class="language-bash">python3 -m json.tool /tmp/log-demo/app.log
+</code></pre>
+<p>上面的命令会失败，因为文件是 JSON Lines，不是单个 JSON 文档。应逐行验证：</p>
+<pre><code class="language-bash">while read -r line; do printf '%s\n' "$line" | python3 -m json.tool &gt;/dev/null; done &lt;/tmp/log-demo/app.log
+</code></pre>
+<p>模拟脱敏检查：</p>
+<pre><code class="language-bash">grep -E '1[0-9]{10}|token|password' /tmp/log-demo/app.log
+</code></pre>
+<p>预期数据：</p>
+<ul>
+<li>每行都是合法 JSON。</li>
+<li>第一行能按 <code>service.name</code>、<code>error.type</code> 和 <code>trace_id</code> 查询。</li>
+<li>脱敏检查会命中手机号，说明这条日志不能直接进入生产后端。</li>
+</ul>
+<p>失败现象：</p>
+<ul>
+<li>JSON 解析失败：采集管道应打 <code>parse_error</code>，原文进入隔离索引或被丢弃。</li>
+<li>多行堆栈拆散：Kibana/Grafana 中只能看到碎片。</li>
+<li>Loki stream 数暴涨：标签包含高基数字段。</li>
+<li>Elasticsearch 写入 400：字段映射冲突或字段数量超过限制。</li>
+</ul>
+<p>验证方法：</p>
+<ul>
+<li>用逐行 JSON 校验确认应用输出格式稳定。</li>
+<li>用敏感字段正则扫描样本日志，确认脱敏规则先于写入后端。</li>
+<li>在 Loki 先查标签选择器，再追加内容过滤；在 Elasticsearch 先查时间范围和精确字段。</li>
+</ul>
+<span class="heading-anchor" id="查询与配置逐段解释"></span><h2 id="_15">查询与配置逐段解释</h2>
+<p>Loki LogQL：</p>
+<pre><code class="language-logql">{service_name="payment-service", env="prod"} |= "UPSTREAM_TIMEOUT" | json | error_type="UPSTREAM_TIMEOUT"
+</code></pre>
+<ul>
+<li><code>{service_name="payment-service", env="prod"}</code> 用低基数标签选择 stream。</li>
+<li><code>|= "UPSTREAM_TIMEOUT"</code> 在日志正文中做快速包含过滤。</li>
+<li><code>| json</code> 把 JSON 日志行解析成临时字段。</li>
+<li><code>error_type="UPSTREAM_TIMEOUT"</code> 对解析字段过滤。</li>
+</ul>
+<p>Elasticsearch bool 查询：</p>
+<pre><code class="language-json">{
+  "query": {
+    "bool": {
+      "filter": [
+        { "range": { "@timestamp": { "gte": "now-15m" } } },
+        { "term": { "service.name": "payment-service" } },
+        { "term": { "error.type": "UPSTREAM_TIMEOUT" } }
+      ]
+    }
+  }
+}
+</code></pre>
+<ul>
+<li><code>range @timestamp</code> 必须放在最前面的思维步骤，避免扫太大范围。</li>
+<li><code>term</code> 用于精确字段，适合 keyword 类型。</li>
+<li><code>filter</code> 不参与相关性评分，适合日志排障。</li>
+</ul>
+<p>Filebeat 到 Logstash 的思路：</p>
+<pre><code class="language-yaml">filebeat.inputs:
+  - type: filestream
+    paths: ["/var/log/app/*.log"]
+
+output.logstash:
+  hosts: ["logstash:5044"]
+</code></pre>
+<ul>
+<li><code>filestream</code> 读取文件并维护 offset。</li>
+<li><code>paths</code> 要覆盖轮转后的路径。</li>
+<li><code>output.logstash</code> 把事件交给 Logstash 做解析和路由。</li>
+</ul>
+<span class="heading-anchor" id="成本、安全、隐私、采样、基数与保留"></span><h2 id="_16">成本、安全、隐私、采样、基数与保留</h2>
+<ul>
+<li>成本：Elastic 成本重点是索引字段、分片、副本和热存储；Loki 成本重点是 stream 数、chunk 压缩、对象存储和查询扫描量。</li>
+<li>安全：采集器到后端启用 TLS；Kibana/Grafana 按团队和环境做权限隔离；生产日志后端禁止匿名查询。</li>
+<li>隐私：应用侧优先不输出敏感字段；管道侧再做二次脱敏；历史泄露要限制访问并按合规流程处理。</li>
+<li>采样：debug/info 日志可按事件采样；error、审计、支付状态变更不应随机丢弃。</li>
+<li>标签基数：Loki 标签控制在服务、环境、namespace、pod、container 等有限集合；Elastic 索引字段也要有模板和动态字段限制。</li>
+<li>保留：错误和审计日志保留更久；debug 短保留；热数据用于排障，冷数据用于合规和离线分析。</li>
+</ul>
+<span class="heading-anchor" id="排障决策树"></span><h2 id="_17">排障决策树</h2>
+<pre><code class="language-text">查不到日志
+├─ 应用实际输出了吗？
+│  ├─ 否：检查日志级别、输出路径、容器 stdout
+│  └─ 是：继续
+├─ 采集器读到了吗？
+│  ├─ 否：检查路径、权限、offset、文件轮转
+│  └─ 是：继续
+├─ 解析和脱敏是否丢弃？
+│  ├─ 是：查 parse_error/drop 计数和隔离索引
+│  └─ 否：继续
+├─ 后端写入成功吗？
+│  ├─ 否：检查限流、映射冲突、认证、队列积压
+│  └─ 是：检查查询时间范围、标签/字段名、权限
+└─ 查询很慢？
+   ├─ Loki：缩小标签和时间范围，检查 stream 基数
+   └─ Elastic：检查索引模板、分片、字段基数、ILM 热层
+</code></pre>
+<span class="heading-anchor" id="分层练习与答案要点"></span><h2 id="_18">分层练习与答案要点</h2>
+<p>基础练习：把 <code>payment failed: timeout</code> 改成结构化日志。</p>
+<p>答案要点：至少包含时间、级别、服务、环境、事件名、错误类型、Trace ID 和稳定消息；不要只写自然语言。</p>
+<p>进阶练习：判断 <code>service</code>、<code>env</code>、<code>trace_id</code>、<code>user_id</code>、<code>namespace</code> 哪些适合做 Loki 标签。</p>
+<p>答案要点：<code>service</code>、<code>env</code>、<code>namespace</code> 适合；<code>trace_id</code>、<code>user_id</code> 高基数，不适合。</p>
+<p>综合练习：设计支付服务日志保留策略。</p>
+<p>答案要点：error 和审计日志热存 7-14 天、冷存按合规要求；debug 1-3 天或按采样保留；敏感字段禁止入库；索引模板固定字段类型；Loki 标签低基数。</p>
+<span class="heading-anchor" id="小结"></span><h2 id="_19">小结</h2>
+<p>ELK 适合复杂字段检索和日志分析，代价是索引和存储成本更高。Loki 适合以低基数标签为入口的云原生日志排障，代价是不能把它当成任意字段全文索引系统。日志系统能否好用，主要取决于结构化 schema、解析质量、脱敏、标签/索引治理和保留策略。</p>
+<span class="heading-anchor" id="官方延伸阅读"></span><h2 id="_20">官方延伸阅读</h2>
+<ul>
+<li>Elastic Data Streams：https://www.elastic.co/docs/manage-data/data-store/data-streams</li>
+<li>Filebeat 官方文档：https://www.elastic.co/docs/reference/beats/filebeat</li>
+<li>Logstash 日志解析管线：https://www.elastic.co/guide/en/logstash/current/advanced-pipeline.html</li>
+<li>Grafana Loki 文档：https://grafana.com/docs/loki/latest/</li>
+<li>Loki LogQL：https://grafana.com/docs/loki/latest/query/</li>
+<li>OpenTelemetry Logs 数据模型：https://opentelemetry.io/docs/specs/otel/logs/data-model/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

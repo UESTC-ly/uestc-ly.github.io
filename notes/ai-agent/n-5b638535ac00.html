@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-02 HNSW 的分层图直觉 · 李杨的学习笔记</title><meta name="description" content="分层可导航小世界图（Hierarchical Navigable Small World，HNSW）把向量记录看作图中的
+节点，相近节点之间建立连接。查询不是逐一比较全部节点，而是从某个入口沿连接移动，寻找
+越来越接近查询的位置。"><meta property="og:title" content="06-02 HNSW 的分层图直觉 · 李杨的学习笔记"><meta property="og:description" content="分层可导航小世界图（Hierarchical Navigable Small World，HNSW）把向量记录看作图中的
+节点，相近节点之间建立连接。查询不是逐一比较全部节点，而是从某个入口沿连接移动，寻找
+越来越接近查询的位置。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-5b638535ac00.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-5b638535ac00.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 06-indexes-vector-databases</p><h1>06-02 HNSW 的分层图直觉</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/06-indexes-vector-databases/02-hnsw-intuition.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从道路网理解图索引</a></li><li><a href="#_2">构建时发生什么</a></li><li><a href="#_3">三组参数的责任</a></li><li><a href="#_4">一次查询怎样前进</a></li><li><a href="#_5">过滤为何变复杂</a></li><li><a href="#_6">更新、删除与重建</a></li><li><a href="#hnsw">什么时候不急着使用 HNSW</a></li><li><a href="#_7">纸笔练习</a></li><li><a href="#_8">自测</a></li><li><a href="#_9">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>06-02</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门到中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 15 分钟纸笔练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解 Flat、ANN、Top-K 以及召回与延迟权衡</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>在纸上画多层节点与连线，模拟逐层接近目标的过程</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>用分层道路网解释 HNSW 的基本搜索直觉；</li>
+<li>区分构建期连接规模、构建搜索范围和查询搜索范围；</li>
+<li>说明参数变化为何同时影响召回、延迟、内存与构建成本；</li>
+<li>识别删除、更新、过滤和版本迁移带来的工程限制。</li>
+</ul>
+<span class="heading-anchor" id="从道路网理解图索引"></span><h2 id="_1">从道路网理解图索引</h2>
+<p>分层可导航小世界图（Hierarchical Navigable Small World，HNSW）把向量记录看作图中的
+节点，相近节点之间建立连接。查询不是逐一比较全部节点，而是从某个入口沿连接移动，寻找
+越来越接近查询的位置。</p>
+<p>“分层”可以类比交通网络：高层像高速公路，连接较远的区域，适合快速接近目标城市；低层
+像城市道路，连接更密集，适合在目标附近细查。查询通常先在稀疏高层做大步移动，再逐层
+下降，最后在底层搜索候选。</p>
+<p>这个比喻只用于建立直觉。真实连接由向量距离与构建策略决定，不是地理道路；图搜索也不
+保证走到全局最优节点，因此 HNSW 仍属于近似检索。</p>
+<span class="heading-anchor" id="构建时发生什么"></span><h2 id="_2">构建时发生什么</h2>
+<p>新向量加入索引时，系统会为它选择层级，并通过已有图搜索邻近节点，再建立有限数量的连接。
+连接不能无限增加，否则内存和构建成本会失控；连接也不能过少，否则图可能难以导航，查询
+容易停在局部区域。</p>
+<p>构建顺序、距离分布和实现细节可能影响最终图结构。这意味着同一份数据在不同配置或版本下
+重建，不应默认得到完全相同的内部布局。应用层应该关注可测的检索结果和版本记录，而不是
+依赖内部节点编号。</p>
+<span class="heading-anchor" id="三组参数的责任"></span><h2 id="_3">三组参数的责任</h2>
+<p>不同实现可能使用不同名称，但常见配置可以按责任理解：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数类别</th>
+<th>控制什么</th>
+<th>调大时常见影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每个节点的连接规模</td>
+<td>图的连通丰富程度</td>
+<td>可能改善可导航性，但增加内存与构建工作</td>
+</tr>
+<tr>
+<td>构建期搜索范围</td>
+<td>插入节点时考察多少候选邻居</td>
+<td>可能形成质量更好的图，但构建更慢</td>
+</tr>
+<tr>
+<td>查询期搜索范围</td>
+<td>查询时保留和扩展多少候选</td>
+<td>可能提高召回，但增加查询延迟</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些是方向性工程直觉，不是对所有实现的性能承诺。参数之间会相互作用，过滤条件、数据分布、
+向量维度与硬件也会改变结果。接入具体库时，应记录实际参数名称、版本和默认值，再用本地
+数据验证。</p>
+<span class="heading-anchor" id="一次查询怎样前进"></span><h2 id="_4">一次查询怎样前进</h2>
+<p>假设入口节点与查询并不相近。搜索在高层检查入口的邻居，如果某个邻居更接近查询，就移动
+过去并继续探索；当高层没有明显改进时，进入下一层，在更密集的连接中细查。底层会维护一
+组候选，而不是只沿唯一一条路径前进。候选范围越大，越有机会绕过错误岔路，但工作量也越大。</p>
+<p>这说明 HNSW 的召回损失可能来自“入口和连接把搜索带到不理想区域”，而不一定来自相似度
+计算错误。排障时可以用 Flat 结果确认目标向量确实是近邻，再调整查询范围或重建配置。</p>
+<span class="heading-anchor" id="过滤为何变复杂"></span><h2 id="_5">过滤为何变复杂</h2>
+<p>图是按向量邻近关系建立的，业务过滤条件却可能把很多节点排除。例如查询只允许访问租户 A
+的数据，而图中的近邻大多属于租户 B。如果搜索过程完全不能穿过被过滤节点，图的有效连通性
+可能下降；如果允许穿过却读取了不该暴露的内容，又会产生安全风险。</p>
+<p>实现可以采用预分区、允许受控导航但不返回内容、扩大候选后再过滤，或为高选择性字段建立
+独立索引。选择哪种方式取决于产品语义与安全边界。无论哪种方式，必须测试高选择性权限过滤
+下的召回，并确认无权文本不会进入日志、重排或生成上下文。</p>
+<span class="heading-anchor" id="更新、删除与重建"></span><h2 id="_6">更新、删除与重建</h2>
+<p>向量“更新”通常可理解为删除旧表示并插入新表示，但底层是否立即回收连接和空间取决于实现。
+频繁删除可能留下墓碑或降低图质量，最终需要整理或重建。更换嵌入模型时，旧图的距离关系不再
+代表新空间，不能只替换向量数值而保留原连接。</p>
+<p>工程上应记录索引版本、构建参数、数据快照、表示版本和切换状态。新索引准备好之前继续服务
+旧索引，验证通过后原子切换，是比原地覆盖更易回滚的思路，但具体流程仍需结合存储系统验证。</p>
+<span class="heading-anchor" id="什么时候不急着使用 HNSW"></span><h2 id="hnsw">什么时候不急着使用 HNSW</h2>
+<p>数据规模较小、更新非常频繁、内存紧张，或需要严格精确结果时，Flat 或其他索引可能更合适。
+如果主要瓶颈来自嵌入生成、远程网络或后续模型调用，先引入复杂图索引也未必改善端到端体验。
+索引选择应由测量驱动，而不是把“高级算法”当作默认升级。</p>
+<span class="heading-anchor" id="纸笔练习"></span><h2 id="_7">纸笔练习</h2>
+<p>画两层图：高层放三个节点，底层放八个节点。选择一个远离入口的目标，模拟先在高层移动、
+再到底层细查。然后删除一条关键连接，观察搜索可能怎样停在错误区域。最后加入“只能返回蓝色
+节点”的过滤条件，讨论预分区与后过滤各自的代价。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_8">自测</h2>
+<ol>
+<li>HNSW 的高层和底层各承担什么作用？</li>
+<li>为什么增加查询搜索范围通常会增加延迟？</li>
+<li>更换嵌入模型后为什么不能沿用旧图连接？</li>
+<li>高选择性权限过滤可能怎样影响图搜索？</li>
+<li>哪些场景下 Flat 可能比 HNSW 更合适？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_9">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿，已做轻量静态检查；未运行 HNSW 实验或验证具体实现参数。</li>
+<li>代码与图表：邻接图实验和分层图仍是计划项。</li>
+<li>
+<p>摘要：<a href="n-e25a2a314180.html">06-02 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-e9288013e6ed.html">06-01 Flat 与近似最近邻索引</a></p>
+</li>
+<li>下一章：<a href="n-f5f409581b2b.html">06-03 IVF 与乘积量化</a></li>
+<li>返回：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

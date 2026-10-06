@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>热 Key、大 Key 与性能治理 · 李杨的学习笔记</title><meta name="description" content="热 Key 是访问集中，容易打满单分片 CPU、网卡或连接；大 Key 是单个 Key 的 value 或元素集合过大，容易导致网络传输、内存分配、删除和复制延迟。"><meta property="og:title" content="热 Key、大 Key 与性能治理 · 李杨的学习笔记"><meta property="og:description" content="热 Key 是访问集中，容易打满单分片 CPU、网卡或连接；大 Key 是单个 Key 的 value 或元素集合过大，容易导致网络传输、内存分配、删除和复制延迟。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f4e2441dfa0b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f4e2441dfa0b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>热 Key、大 Key 与性能治理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/04-%E7%83%ADKey%E5%A4%A7Key%E4%B8%8E%E6%80%A7%E8%83%BD%E6%B2%BB%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#key">热 Key 的发现路径</a></li><li><a href="#key_1">大 Key 的拆分与迁移</a></li><li><a href="#_4">性能治理决策案例</a></li><li><a href="#key_2">故障时序：热 Key 打满单分片</a></li><li><a href="#_5">容量估算与阈值</a></li><li><a href="#_6">常见误区</a></li><li><a href="#_7">自测题</a></li><li><a href="#_8">实践任务</a></li><li><a href="#_9">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>能识别热 Key、大 Key、慢命令和阻塞操作。</li>
+<li>掌握拆分、复制、本地缓存、限流和异步化等治理方式。</li>
+<li>理解性能问题往往来自数据模型和访问模式，而不只是 Redis 参数。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>热 Key 是访问集中，容易打满单分片 CPU、网卡或连接；大 Key 是单个 Key 的 value 或元素集合过大，容易导致网络传输、内存分配、删除和复制延迟。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>典型表现</th>
+<th>检测方式</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>热 Key</td>
+<td>单 Key QPS 极高</td>
+<td>代理统计、客户端埋点、<code>--hotkeys</code></td>
+<td>本地缓存、读副本、Key 分片</td>
+</tr>
+<tr>
+<td>大 Key</td>
+<td>value 很大或元素很多</td>
+<td><code>MEMORY USAGE</code>、扫描采样</td>
+<td>拆 Key、分页、异步删除</td>
+</tr>
+<tr>
+<td>慢命令</td>
+<td>P99/P999 抖动</td>
+<td>slowlog、latency doctor</td>
+<td>替换命令、分批处理</td>
+</tr>
+<tr>
+<td>阻塞</td>
+<td>整实例响应变慢</td>
+<td>监控事件循环延迟</td>
+<td>避免同步大删除和长 Lua</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<p>大集合删除优先使用异步释放：</p>
+<pre><code class="language-redis">UNLINK huge:set:20260831
+</code></pre>
+<p>大 Hash 拆分示例：</p>
+<pre><code class="language-text">user:profile:{uid}:base
+user:profile:{uid}:stats
+user:profile:{uid}:flags
+</code></pre>
+<p>热点商品详情可组合本地缓存和 Redis：</p>
+<pre class="mermaid">flowchart TD
+  Req["请求"] --&gt; L1["进程内 LRU/TTL"]
+  L1 --&gt;|miss| L2["Redis"]
+  L2 --&gt;|miss| DB[(DB)]
+  DB --&gt; L2 --&gt; L1
+</pre>
+<span class="heading-anchor" id="热 Key 的发现路径"></span><h3 id="key">热 Key 的发现路径</h3>
+<p>热 Key 不一定是访问次数最高的 key，也可能是返回体巨大、单次耗时长或集中在某个分片的 key。发现应同时看客户端、代理和 Redis 侧证据：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>观测位置</th>
+<th>指标</th>
+<th>价值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>客户端埋点</td>
+<td>key 模板、QPS、P99、错误率、返回字节</td>
+<td>最接近业务请求，可区分接口来源</td>
+</tr>
+<tr>
+<td>代理/网关</td>
+<td>单 key TopN、单分片流量、连接数</td>
+<td>能发现跨服务共享热点</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td><code>SLOWLOG</code>、<code>INFO commandstats</code>、<code>redis-cli --hotkeys</code></td>
+<td>能确认实例压力，但 key 维度有限</td>
+</tr>
+<tr>
+<td>系统层</td>
+<td>CPU、网卡、内存带宽、fork 延迟</td>
+<td>判断瓶颈是否已经越过 Redis 命令本身</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>--hotkeys</code> 依赖采样和内部统计，适合辅助定位，不应作为唯一证据。更稳妥的方案是在客户端封装层按 key 模板聚合，例如把 <code>sku:123:detail</code> 归一为 <code>sku:{id}:detail</code>，同时保留 TopN 原始 key。</p>
+<span class="heading-anchor" id="大 Key 的拆分与迁移"></span><h3 id="key_1">大 Key 的拆分与迁移</h3>
+<p>大 Key 的危险不只是内存占用。它会放大网络传输、慢删除、AOF/RDB fork COW、复制缓冲和 Cluster 迁移成本。拆分时优先按访问边界拆，不要机械分片。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>大 Key 类型</th>
+<th>拆分方式</th>
+<th>读取方式</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>大 String JSON</td>
+<td>按字段域拆成多个 Hash/String</td>
+<td>只取需要字段</td>
+<td>保持版本号，避免多 key 组合旧值</td>
+</tr>
+<tr>
+<td>大 Hash</td>
+<td>按业务域或 hash bucket 拆</td>
+<td><code>HSCAN</code>/分页读取</td>
+<td>字段 TTL 需要 Redis 7.4+；生命周期/容量边界不同仍建议拆开</td>
+</tr>
+<tr>
+<td>大 Set</td>
+<td>按 member hash 分桶</td>
+<td>分桶判断或离线合并</td>
+<td>集合运算会变复杂</td>
+</tr>
+<tr>
+<td>大 ZSet</td>
+<td>按时间窗口或排行榜周期拆</td>
+<td>查询最近窗口再合并</td>
+<td>全局排名需要额外计算</td>
+</tr>
+</tbody>
+</table></div>
+<p>迁移大 Key 时避免一次性 <code>DUMP/RESTORE</code> 或跨集群大批量同步压满网络。更安全的流程是：冻结或双写、分批复制、校验数量和抽样 checksum、切读、观察、清理旧 key。删除旧 key 优先 <code>UNLINK</code>，让释放内存异步化。</p>
+<pre><code class="language-pseudo">cursor = 0
+do:
+    cursor, fields = HSCAN(old_key, cursor, COUNT 1000)
+    for field, value in fields:
+        bucket = crc32(field) % 64
+        HSET new_key(bucket), field, value
+while cursor != 0
+</code></pre>
+<span class="heading-anchor" id="性能治理决策案例"></span><h3 id="_4">性能治理决策案例</h3>
+<p>秒杀商品详情热读：</p>
+<ol>
+<li>L1 本地缓存设置极短 TTL，降低 Redis QPS。</li>
+<li>Redis 缓存使用逻辑过期，后台单飞刷新。</li>
+<li>DB 回源加互斥锁和限流，失败返回可接受的旧值。</li>
+<li>大促前预热热点 key，活动结束后降级本地缓存容量。</li>
+</ol>
+<p>大 V 粉丝集合：</p>
+<ol>
+<li>关注关系最终事实放数据库。</li>
+<li>Redis Set 只保留常用关系判断或分桶缓存。</li>
+<li>粉丝列表分页走数据库/搜索系统，避免 <code>SMEMBERS</code>。</li>
+<li>离线任务维护计数和 TopN，不在请求路径做大集合交集。</li>
+</ol>
+<span class="heading-anchor" id="故障时序：热 Key 打满单分片"></span><h3 id="key_2">故障时序：热 Key 打满单分片</h3>
+<pre class="mermaid">sequenceDiagram
+  participant App
+  participant R as Redis Shard A
+  participant DB
+  App-&gt;&gt;R: GET sku:42 repeated
+  R--&gt;&gt;App: latency rises
+  App-&gt;&gt;R: timeout retry
+  R--&gt;&gt;App: more queued commands
+  App-&gt;&gt;DB: cache fallback surge
+  DB--&gt;&gt;App: slow queries
+</pre>
+<p>处理顺序应先止血：关闭无意义重试、启用本地缓存/静态降级、限制回源并发；再做拆分、预热、长期模型调整。</p>
+<span class="heading-anchor" id="容量估算与阈值"></span><h3 id="_5">容量估算与阈值</h3>
+<pre><code class="language-text">single_key_bandwidth = key_qps * avg_value_bytes
+delete_pause_risk ~= elements_or_bytes / allocator_free_speed
+reshard_time ~= key_bytes / effective_network_bandwidth + restore_cost
+</code></pre>
+<p>给 key 设计硬阈值：String value 最大大小、集合最大成员数、单次返回最大 M、删除是否必须 <code>UNLINK</code>、是否允许在线迁移。超过阈值时写入侧就应拒绝或转入异步存储，而不是等排障时才发现。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_6">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>大 Key 只影响内存</td>
+<td>还影响复制、持久化、网络和删除延迟</td>
+</tr>
+<tr>
+<td>热 Key 加 Redis 节点就能解决</td>
+<td>Cluster 中单 Key 仍落在一个 slot 和分片上</td>
+</tr>
+<tr>
+<td>Lua 一定更快</td>
+<td>长 Lua 会阻塞事件循环，应控制执行时间</td>
+</tr>
+<tr>
+<td>慢查询只看数据库</td>
+<td>Redis 也需要 slowlog 和延迟监控</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_7">自测题</h2>
+<ol>
+<li>为什么热 Key 在 Cluster 中不能靠自动分片消除？</li>
+<li><code>DEL</code> 和 <code>UNLINK</code> 的工程差异是什么？</li>
+<li>如何判断一个 Hash 是否应该拆分？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_8">实践任务</h2>
+<ul>
+<li>设计热 Key 发现指标：按 Key QPS、流量、命中率、P99 延迟输出 TopN。</li>
+<li>将一个包含 100 万成员的 Set 访问方案改造成可分页、可恢复的批处理方案。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_9">延伸阅读</h2>
+<ul>
+<li>Redis latency：https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/</li>
+<li>Redis memory optimization：https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

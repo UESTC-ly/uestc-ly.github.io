@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>信息检索与搜索引擎：排序学习与相关性 · 李杨的学习笔记</title><meta name="description" content="排序把召回候选按相关性、质量和业务约束重新排列。"><meta property="og:title" content="信息检索与搜索引擎：排序学习与相关性 · 李杨的学习笔记"><meta property="og:description" content="排序把召回候选按相关性、质量和业务约束重新排列。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-83c3b6f0d6dc.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-83c3b6f0d6dc.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 信息检索与搜索引擎</p><h1>信息检索与搜索引擎：排序学习与相关性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E4%BF%A1%E6%81%AF%E6%A3%80%E7%B4%A2%E4%B8%8E%E6%90%9C%E7%B4%A2%E5%BC%95%E6%93%8E/03-%E6%8E%92%E5%BA%8F%E5%AD%A6%E4%B9%A0%E4%B8%8E%E7%9B%B8%E5%85%B3%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">底层原则</a></li><li><a href="#_7">分章节讲解</a></li><li><a href="#1">1. 相关性特征</a></li><li><a href="#2-learning-to-rank">2. Learning to Rank</a></li><li><a href="#3">3. 重排序</a></li><li><a href="#4">4. 点击偏差</a></li><li><a href="#_8">排序链路视角</a></li><li><a href="#_9">关键对比表</a></li><li><a href="#_10">指标和目标对照表</a></li><li><a href="#_11">常见误区总结</a></li><li><a href="#_12">自检题</a></li><li><a href="#_13">速记卡片</a></li><li><a href="#_14">深度扩展：底层原理与应用边界</a></li><li><a href="#1_1">1. 本章在「信息检索与搜索引擎」中的位置</a></li><li><a href="#2">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4_1">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_15">专题深化：具体机制、案例与追问</a></li><li><a href="#1_2">1. 具体案例：把「排序学习与相关性」放进真实问题</a></li><li><a href="#2_1">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_2">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解特征工程、Learning to Rank、点击偏差和相关性调优。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出适用场景、边界条件、训练偏差和常见误区。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>排序把召回候选按相关性、质量和业务约束重新排列。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>召回给候选，排序定名次</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((排序学习与相关性))
+    核心概念
+      相关性特征
+      Learning to Rank
+      重排序
+      点击偏差
+    学习动作
+      先定义
+      再画流程
+      比较适用
+      复述误区
+    输出能力
+      能解释
+      能判断
+      能应用
+      能排错
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  A["候选"]
+  B["特征"]
+  C["模型"]
+  D["重排"]
+  E["反馈"]
+  A --&gt; B --&gt; C --&gt; D --&gt; E
+</pre>
+<span class="heading-anchor" id="底层原则"></span><h2 id="_6">底层原则</h2>
+<ul>
+<li><strong>排序不是召回的替代品：</strong> 没有足够好的候选，再强的排序也无能为力。</li>
+<li><strong>相关性不是单一分数：</strong> 文本匹配、质量、时效、用户行为、商业约束常常同时存在。</li>
+<li><strong>训练目标必须与产品目标对齐：</strong> 训练一个“更像点击”的模型，不等于训练一个“更相关”的模型。</li>
+<li><strong>反馈数据天然有偏：</strong> 排名位置、曝光机会和界面设计会影响点击，不能把点击当成纯真值。</li>
+</ul>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_7">分章节讲解</h2>
+<span class="heading-anchor" id="1. 相关性特征"></span><h3 id="1">1. 相关性特征</h3>
+<p><strong>核心定义：</strong> 相关性特征包括文本匹配、字段权重、文档质量、时效性、用户行为和个性化信号。</p>
+<p><strong>工程理解：</strong>
+- 相关性特征可以看成排序模型的“证据”。
+- 证据越多，模型越有机会区分候选；但特征越多，也越容易引入噪声和泄漏。
+- 特征设计的第一原则是“可获得、可解释、可稳定复用”。</p>
+<p><strong>常见误区：</strong> 把业务转化率直接当相关性可能牺牲用户意图。</p>
+<span class="heading-anchor" id="2. Learning to Rank"></span><h3 id="2-learning-to-rank">2. Learning to Rank</h3>
+<p><strong>核心定义：</strong> 排序学习用人工标注或行为数据训练模型，常见思路有 pointwise、pairwise、listwise。</p>
+<p><strong>工程理解：</strong>
+- Pointwise 更像做回归/分类，简单直接。
+- Pairwise 更关注两个结果谁更好，适合相对排序。
+- Listwise 更贴近整页排序，但训练和优化更复杂。</p>
+<p><strong>适用场景：</strong>
+- 有稳定训练样本和标注体系时。
+- 需要把多种特征统一到一个排序分数时。
+- 召回候选已经比较靠谱，主要瓶颈在精排时。</p>
+<p><strong>常见误区：</strong> 训练数据有偏会导致模型放大偏见；点击不等于真实相关。</p>
+<span class="heading-anchor" id="3. 重排序"></span><h3 id="3">3. 重排序</h3>
+<p><strong>核心定义：</strong> 重排序在初排结果上使用更复杂模型或规则，兼顾质量、多样性和约束。</p>
+<p><strong>工程理解：</strong>
+- 重排序常放在延迟预算更宽的环节，因为它处理的是更小的候选集。
+- 它经常承担业务规则注入、多样性控制、去重复和安全过滤的职责。
+- 很多系统里，重排不是“纯模型”，而是“模型 + 规则 + 约束”的组合体。</p>
+<p><strong>常见误区：</strong> 重排候选太少会错失好结果，太多会增加延迟。</p>
+<span class="heading-anchor" id="4. 点击偏差"></span><h3 id="4">4. 点击偏差</h3>
+<p><strong>核心定义：</strong> 用户点击受位置、摘要、品牌和界面影响，需要去偏或实验设计校正。</p>
+<p><strong>工程理解：</strong>
+- 点击偏差最常见的来源是位置偏差：排在前面的更容易被点。
+- 还要区分“看见了但没点”和“没看到”。
+- 训练前常需要做曝光建模、逆倾向加权或人工标注校正。</p>
+<p><strong>常见误区：</strong> 直接用点击数训练会偏向原本排在前面的结果。</p>
+<span class="heading-anchor" id="排序链路视角"></span><h2 id="_8">排序链路视角</h2>
+<pre class="mermaid">flowchart TB
+  Q["查询与上下文"]
+  R["召回候选"]
+  F["特征构建"]
+  M["排序模型"]
+  P["重排序与约束"]
+  O["最终列表"]
+  Q --&gt; R --&gt; F --&gt; M --&gt; P --&gt; O
+</pre>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_9">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>正确理解</th>
+<th>适用场景</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>相关性特征</td>
+<td>相关性是多信号综合判断，不是单一文本匹配。</td>
+<td>特征工程、质量建模、个性化排序。</td>
+<td>以业务转化率替代相关性。</td>
+</tr>
+<tr>
+<td>Learning to Rank</td>
+<td>用数据学习“谁更该排前面”。</td>
+<td>已有高质量候选，需要精排。</td>
+<td>只关注训练损失，忽视线上目标。</td>
+</tr>
+<tr>
+<td>重排序</td>
+<td>在小候选集上做更强判断和约束控制。</td>
+<td>延迟允许、需多样性或强规则时。</td>
+<td>候选太少或太多都不合适。</td>
+</tr>
+<tr>
+<td>点击偏差</td>
+<td>点击受曝光位置和界面影响，不能直接等于相关性。</td>
+<td>样本构造、去偏、评估校正。</td>
+<td>把点击当作天然真值。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="指标和目标对照表"></span><h2 id="_10">指标和目标对照表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>目标</th>
+<th>更该关注什么</th>
+<th>常见风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>提升用户满意度</td>
+<td>真实相关性、结果可解释性、多样性</td>
+<td>只追点击，忽视长期体验。</td>
+</tr>
+<tr>
+<td>提升转化</td>
+<td>任务完成率、结果质量、后续行为</td>
+<td>牺牲广义相关性。</td>
+</tr>
+<tr>
+<td>提升排序稳定性</td>
+<td>样本一致性、特征漂移、模型鲁棒性</td>
+<td>线上线下不一致。</td>
+</tr>
+<tr>
+<td>控制延迟</td>
+<td>候选规模、模型复杂度、重排序开销</td>
+<td>分数提升但响应变慢。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_11">常见误区总结</h2>
+<ul>
+<li><strong>相关性特征：</strong> 把业务转化率直接当相关性可能牺牲用户意图。</li>
+<li><strong>Learning to Rank：</strong> 训练数据有偏会导致模型放大偏见；点击不等于真实相关。</li>
+<li><strong>重排序：</strong> 重排候选太少会错失好结果，太多会增加延迟。</li>
+<li><strong>点击偏差：</strong> 直接用点击数训练会偏向原本排在前面的结果。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_12">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：排序把召回候选按相关性、质量和业务约束重新排列。</li>
+<li>为什么“点击多”不能直接等于“更相关”？</li>
+<li>pointwise、pairwise、listwise 各自更像什么问题？</li>
+<li>哪个误区最容易在面试或工程实践中出现？为什么？</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_13">速记卡片</h2>
+<ul>
+<li>章节口诀：召回给候选，排序定名次</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区。</li>
+<li>复习动作：遮住正文，只根据思维导图复述一遍。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_14">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「信息检索与搜索引擎」中的位置"></span><h3 id="1_1">1. 本章在「信息检索与搜索引擎」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 通过索引、召回、排序和评估，从大规模内容中找到最符合用户意图的结果。</li>
+<li><strong>本章作用：</strong> 「信息检索与搜索引擎：排序学习与相关性」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是只做关键词匹配，不区分召回、排序、相关性、点击偏差和向量语义边界。</li>
+<li><strong>实践抓手：</strong> 搜索优化要拆成索引质量、召回覆盖、排序特征、评估指标和线上实验。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 相关性特征"></span><h4 id="31">3.1 相关性特征</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 相关性特征 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 相关性特征，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 Learning to Rank"></span><h4 id="32-learning-to-rank">3.2 Learning to Rank</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> Learning to Rank 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 Learning to Rank，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 重排序"></span><h4 id="33">3.3 重排序</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 重排序 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 重排序，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 点击偏差"></span><h4 id="34">3.4 点击偏差</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 点击偏差 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 点击偏差，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4_1">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 搜索优化要拆成索引质量、召回覆盖、排序特征、评估指标和线上实验。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 通过索引、召回、排序和评估，从大规模内容中找到最符合用户意图的结果。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_15">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「排序学习与相关性」放进真实问题"></span><h3 id="1_2">1. 具体案例：把「排序学习与相关性」放进真实问题</h3>
+<p>例如搜索“苹果手机电池”既要词面召回，也要理解同义词和意图，还要用排序模型处理时效、质量和点击偏差。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_1">2. 本章关键机制细化</h3>
+<ul>
+<li>排序特征来自文本匹配、质量、时效、行为和个性化。</li>
+<li>点击数据有位置偏差，不能直接等同相关性。</li>
+<li>重排用更贵模型处理更少候选。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>相关性特征</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>Learning to Rank</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>重排序</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>点击偏差</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「信息检索与搜索引擎」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_2">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>召回不全还是排序不准？</li>
+<li>评价指标是否匹配用户体验？</li>
+<li>点击数据是否有位置偏差？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用离线标注集、NDCG/MRR、人工评测、A/B 实验和失败查询分析验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

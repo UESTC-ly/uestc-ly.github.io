@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>向量与混合检索 · 李杨的学习笔记</title><meta name="description" content="Embedding 把文本、图片或其他对象编码为固定维度向量，使语义相近的对象在向量空间中距离更近。它不是原文压缩，也不保存可逆语义；模型、训练数据、指令格式、语言和 chunk 粒度都会影响向量质量。"><meta property="og:title" content="向量与混合检索 · 李杨的学习笔记"><meta property="og:description" content="Embedding 把文本、图片或其他对象编码为固定维度向量，使语义相近的对象在向量空间中距离更近。它不是原文压缩，也不保存可逆语义；模型、训练数据、指令格式、语言和 chunk 粒度都会影响向量质量。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f6f13b368744.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f6f13b368744.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 05-搜索与存储</p><h1>向量与混合检索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/05-%E6%90%9C%E7%B4%A2%E4%B8%8E%E5%AD%98%E5%82%A8/03-%E5%90%91%E9%87%8F%E4%B8%8E%E6%B7%B7%E5%90%88%E6%A3%80%E7%B4%A2.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#embedding">Embedding 表示什么</a></li><li><a href="#_4">距离度量</a></li><li><a href="#ann-hnsw">ANN 与 HNSW 直觉</a></li><li><a href="#_5">过滤、召回与重排</a></li><li><a href="#_6">混合检索与融合</a></li><li><a href="#_7">离线评估与线上闭环</a></li><li><a href="#_8">工程实践/示例</a></li><li><a href="#rag">RAG 检索链路</a></li><li><a href="#_9">失败路径</a></li><li><a href="#_10">常见误区</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解 embedding、距离度量、ANN、HNSW、过滤、召回和重排的职责。</li>
+<li>掌握关键词检索与向量检索的互补关系，以及 RRF/加权融合的适用边界。</li>
+<li>能设计 RAG/知识库检索链路中的 chunk、索引、候选集、融合、重排和评估。</li>
+<li>能用离线评测与线上指标诊断召回不足、排序错误和成本过高。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="Embedding 表示什么"></span><h3 id="embedding">Embedding 表示什么</h3>
+<p>Embedding 把文本、图片或其他对象编码为固定维度向量，使语义相近的对象在向量空间中距离更近。它不是原文压缩，也不保存可逆语义；模型、训练数据、指令格式、语言和 chunk 粒度都会影响向量质量。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>工程影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模型版本</td>
+<td>升级后通常需要重建向量或双写评估</td>
+</tr>
+<tr>
+<td>向量维度</td>
+<td>影响存储、内存、索引构建和检索成本</td>
+</tr>
+<tr>
+<td>chunk 粒度</td>
+<td>太大稀释主题，太小丢上下文</td>
+</tr>
+<tr>
+<td>文本清洗</td>
+<td>模板、导航、噪声会污染相似度</td>
+</tr>
+<tr>
+<td>元数据</td>
+<td>过滤、权限、时间衰减和业务规则依赖它</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="距离度量"></span><h3 id="_4">距离度量</h3>
+<p>常见度量包括 cosine similarity、dot product、L2 distance。选择必须与模型训练方式和向量归一化方式匹配。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>度量</th>
+<th>直觉</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cosine</td>
+<td>比较方向，弱化长度</td>
+<td>常需归一化</td>
+</tr>
+<tr>
+<td>Dot product</td>
+<td>方向和长度共同影响</td>
+<td>向量范数会影响排名</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>欧氏距离越小越近</td>
+<td>高维空间解释性弱</td>
+</tr>
+</tbody>
+</table></div>
+<p>若模型文档要求归一化，索引和查询都要一致处理；否则离线评测和线上召回会出现难以解释的漂移。</p>
+<span class="heading-anchor" id="ANN 与 HNSW 直觉"></span><h3 id="ann-hnsw">ANN 与 HNSW 直觉</h3>
+<p>精确 KNN 要和所有向量计算距离，规模大时成本过高。ANN 牺牲少量召回，换取更低延迟。HNSW 可以理解为多层近邻图：上层长跳快速接近目标区域，下层细搜找到局部近邻。</p>
+<pre class="mermaid">flowchart TD
+  Q["query vector"] --&gt; L2["高层稀疏图快速跳转"]
+  L2 --&gt; L1["中层图缩小范围"]
+  L1 --&gt; L0["底层稠密图局部搜索"]
+  L0 --&gt; K["TopK candidates"]
+</pre>
+<p>常见参数直觉：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>影响</th>
+<th>取舍</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>M</code></td>
+<td>每个点连接邻居数</td>
+<td>越大召回更好，内存和构建更贵</td>
+</tr>
+<tr>
+<td><code>ef_construction</code></td>
+<td>构建时搜索宽度</td>
+<td>越大图质量更好，构建更慢</td>
+</tr>
+<tr>
+<td><code>ef_search</code></td>
+<td>查询时搜索宽度</td>
+<td>越大召回更好，延迟更高</td>
+</tr>
+<tr>
+<td>TopK</td>
+<td>返回候选数</td>
+<td>太小漏召回，太大重排成本高</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些参数名和默认值随具体引擎变化，生产调参应以所用数据库/搜索引擎官方文档为准。</p>
+<span class="heading-anchor" id="过滤、召回与重排"></span><h3 id="_5">过滤、召回与重排</h3>
+<p>权限、租户、语言、时间、状态等条件必须进入检索链路。过滤有两类：</p>
+<ul>
+<li>前过滤：先按 metadata 缩小候选，再做向量搜索。安全、成本低，但过滤后候选太少会影响 ANN 召回。</li>
+<li>后过滤：先向量召回，再过滤。召回图搜索更完整，但可能返回不足 K 条，且权限过滤不能只依赖客户端。</li>
+</ul>
+<p>重排通常对 TopN 候选使用更贵模型或业务规则重算顺序。它不能弥补完全没召回的文档，因此召回层要优先保证 Recall@K。</p>
+<span class="heading-anchor" id="混合检索与融合"></span><h3 id="_6">混合检索与融合</h3>
+<p>关键词检索擅长编号、专有名词、代码、错误码、精确短语；向量检索擅长语义改写、自然语言问题和跨语言/近义表达。混合检索通常双路召回、去重、融合、重排。</p>
+<pre class="mermaid">flowchart LR
+  Q["Query"] --&gt; BM25["BM25 召回"]
+  Q --&gt; Emb["Embedding"]
+  Emb --&gt; Vec["向量召回"]
+  BM25 --&gt; Fuse["融合"]
+  Vec --&gt; Fuse
+  Fuse --&gt; Rerank["重排"]
+  Rerank --&gt; TopK["Top K"]
+</pre>
+<p>融合策略：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>公式/直觉</th>
+<th>适用</th>
+<th>局限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>加权分数</td>
+<td><code>a * bm25_norm + b * vector_norm</code></td>
+<td>分数可稳定归一化</td>
+<td>分数分布漂移会影响权重</td>
+</tr>
+<tr>
+<td>RRF</td>
+<td><code>sum(1 / (k + rank_i))</code></td>
+<td>两路分数尺度不同</td>
+<td>只看排名，不看分数间距</td>
+</tr>
+<tr>
+<td>规则提升</td>
+<td>标题/标签/权限/新鲜度加权</td>
+<td>业务强约束</td>
+<td>规则过多会不可维护</td>
+</tr>
+<tr>
+<td>学习排序</td>
+<td>用特征训练 ranker</td>
+<td>有点击/标注数据</td>
+<td>成本和偏差控制更复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>RRF 的核心价值是避免 BM25 分数和向量相似度不可比较；加权融合更可控，但需要持续校准。</p>
+<span class="heading-anchor" id="离线评估与线上闭环"></span><h3 id="_7">离线评估与线上闭环</h3>
+<p>离线评估需要 query、候选文档、人工相关性标注和指标。常用指标：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recall@K</td>
+<td>相关文档是否进入前 K 候选</td>
+</tr>
+<tr>
+<td>MRR</td>
+<td>第一个相关结果出现得多早</td>
+</tr>
+<tr>
+<td>nDCG@K</td>
+<td>多级相关性下的排序质量</td>
+</tr>
+<tr>
+<td>Precision@K</td>
+<td>前 K 中有多少相关结果</td>
+</tr>
+<tr>
+<td>分路命中率</td>
+<td>BM25、vector、hybrid 各自贡献</td>
+</tr>
+</tbody>
+</table></div>
+<p>线上指标要防止只看点击率。无结果率、改写率、二次搜索率、答案引用命中、用户停留、人工差评都能暴露检索问题。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_8">工程实践/示例</h2>
+<span class="heading-anchor" id="RAG 检索链路"></span><h3 id="rag">RAG 检索链路</h3>
+<pre><code class="language-text">文档解析
+  -&gt; 清洗和结构识别
+  -&gt; chunk + overlap
+  -&gt; BM25 字段入索引
+  -&gt; embedding 入向量索引
+  -&gt; 查询双路召回
+  -&gt; metadata 过滤
+  -&gt; RRF/加权融合
+  -&gt; cross-encoder 或 LLM rerank
+  -&gt; 生成答案并保留引用
+</code></pre>
+<span class="heading-anchor" id="失败路径"></span><h3 id="_9">失败路径</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+<th>排查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>语义问题找不到</td>
+<td>chunk 太大/太小，模型不适配</td>
+<td>Recall@K、样本标注</td>
+</tr>
+<tr>
+<td>错误码查询差</td>
+<td>只用向量召回</td>
+<td>增加 keyword/BM25 精确字段</td>
+</tr>
+<tr>
+<td>权限泄漏</td>
+<td>后过滤遗漏或缓存 key 缺租户</td>
+<td>权限测试、审计日志</td>
+</tr>
+<tr>
+<td>结果重复</td>
+<td>chunk 重叠或多路召回未去重</td>
+<td>canonical doc_id 去重</td>
+</tr>
+<tr>
+<td>延迟过高</td>
+<td>TopK/ef_search/重排候选过大</td>
+<td>profile、分阶段耗时</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_10">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>向量检索一定比 BM25 好</td>
+<td>专有名词、数字、代码、型号常需关键词</td>
+</tr>
+<tr>
+<td>embedding 一次生成永久适用</td>
+<td>模型升级、切分策略变化会要求重建或双索引迁移</td>
+</tr>
+<tr>
+<td>TopK 越大越好</td>
+<td>召回更大增加重排成本和噪声</td>
+</tr>
+<tr>
+<td>混合检索只是拼接结果</td>
+<td>需要去重、归一化、融合、过滤和评估</td>
+</tr>
+<tr>
+<td>重排可以修复所有问题</td>
+<td>未进入候选集的文档无法被重排提升</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li>为什么“HTTP 503”这类查询适合关键词召回？</li>
+<li>RRF 解决了什么融合问题？</li>
+<li>文档切分粒度会如何影响 RAG 效果？</li>
+<li>前过滤和后过滤分别有什么风险？</li>
+<li>为什么模型升级后要重新做离线评测？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<ul>
+<li>为技术文档问答设计 chunk 规则、embedding 字段、BM25 字段、metadata 过滤和重排流程。</li>
+<li>准备 20 个评测 query，手工标注相关文档并计算 Recall@5、MRR、nDCG@10。</li>
+<li>对同一批 query 比较 BM25、vector、hybrid、hybrid+rerank 的指标和延迟。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_13">延伸阅读</h2>
+<ul>
+<li>Elasticsearch dense vector：https://www.elastic.co/guide/en/elasticsearch/reference/current/dense-vector.html</li>
+<li>OpenSearch vector search：https://opensearch.org/docs/latest/vector-search/</li>
+<li>OpenSearch hybrid search：https://opensearch.org/docs/latest/search-plugins/hybrid-search/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

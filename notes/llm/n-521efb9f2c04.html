@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Quantization 详解与实操教程 · 李杨的学习笔记</title><meta name="description" content="你提到的 quanzition ，在大模型工程里通常指的是 quantization 。"><meta property="og:title" content="Quantization 详解与实操教程 · 李杨的学习笔记"><meta property="og:description" content="你提到的 quanzition ，在大模型工程里通常指的是 quantization 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-521efb9f2c04.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-521efb9f2c04.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>Quantization 详解与实操教程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/Quantization_%E8%AF%A6%E8%A7%A3%E4%B8%8E%E5%AE%9E%E6%93%8D%E6%95%99%E7%A8%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 这篇文档讲什么</a></li><li><a href="#2-quantization">2. 什么是 Quantization</a></li><li><a href="#3">3. 为什么大模型这么依赖量化</a></li><li><a href="#4">4. 量化到底压缩了什么</a></li><li><a href="#5-4">5. 理解量化，先区分 4 个核心概念</a></li><li><a href="#51">5.1 比特宽度</a></li><li><a href="#52">5.2 量化对象</a></li><li><a href="#53">5.3 量化时机</a></li><li><a href="#54">5.4 量化格式和生态</a></li><li><a href="#6">6. 为什么量化后模型还能工作</a></li><li><a href="#61">6.1 神经网络对小扰动往往有一定鲁棒性</a></li><li><a href="#62">6.2 参数分布里存在冗余</a></li><li><a href="#63">6.3 好的量化方法不是“瞎压”</a></li><li><a href="#7-quantization-fine-tuning">7. Quantization 和 Fine-Tuning 是什么关系</a></li><li><a href="#71">7.1 微调解决什么</a></li><li><a href="#72">7.2 量化解决什么</a></li><li><a href="#73">7.3 为什么它们经常一起出现</a></li><li><a href="#8">8. 主流量化路线总览</a></li><li><a href="#9-bitsandbytes-qlora">9. bitsandbytes：最适合入门和 QLoRA 的路线</a></li><li><a href="#91">9.1 它的核心优势</a></li><li><a href="#92">9.2 它最典型的两种模式</a></li><li><a href="#93-4-bit">9.3 一个最小 4-bit 加载示例</a></li><li><a href="#94-bitsandbytes">9.4 bitsandbytes 最适合什么时候</a></li><li><a href="#10-gptq-4-bit">10. GPTQ：经典的训练后 4-bit 量化</a></li><li><a href="#101">10.1 你需要抓住的关键词</a></li><li><a href="#102">10.2 它适合什么场景</a></li><li><a href="#103-gptq">10.3 GPTQ 的核心直觉</a></li><li><a href="#104-group_size128">10.4 为什么很多资料会提 group_size=128</a></li><li><a href="#105">10.5 一个典型加载示例</a></li><li><a href="#106-gptq">10.6 GPTQ 适合什么时候优先考虑</a></li><li><a href="#11-awq-4-bit">11. AWQ：更强调“重要权重保护”的 4-bit 路线</a></li><li><a href="#111">11.1 它为什么受欢迎</a></li><li><a href="#112-gptq">11.2 它和 GPTQ 的差别，怎么用人话理解</a></li><li><a href="#113-awq">11.3 AWQ 的典型适用场景</a></li><li><a href="#114">11.4 一个典型示例</a></li><li><a href="#115-awq">11.5 什么时候优先 AWQ</a></li><li><a href="#12-gguf">12. GGUF：不是单纯“一个算法”，而是一条本地部署路线</a></li><li><a href="#121-gguf">12.1 GGUF 为什么这么重要</a></li><li><a href="#122">12.2 常见量化档位</a></li><li><a href="#123">12.3 一个典型工作流</a></li><li><a href="#124-gguf">12.4 GGUF 最适合谁</a></li><li><a href="#13-hqq">13. HQQ：没有校准数据时的快速量化方案</a></li><li><a href="#131">13.1 它什么时候有吸引力</a></li><li><a href="#132">13.2 它适合什么场景</a></li><li><a href="#133">13.3 什么时候不要先用它</a></li><li><a href="#14">14. 一张表看懂它们的边界</a></li><li><a href="#15">15. 从工程角度，应该怎么选</a></li><li><a href="#151-qlora">15.1 我想做 QLoRA 微调</a></li><li><a href="#152">15.2 我只想把模型塞进显卡并先跑起来</a></li><li><a href="#153-4-bit-gpu">15.3 我想要比较正式的 4-bit GPU 推理部署</a></li><li><a href="#154-maccpu">15.4 我想在 Mac、CPU、本地桌面环境里运行</a></li><li><a href="#155">15.5 我没有校准数据，但想快速做低比特实验</a></li><li><a href="#16">16. 一个最实用的入门路线</a></li><li><a href="#bitsandbytes-4-bit">第一步：先用 bitsandbytes 跑通 4-bit 加载</a></li><li><a href="#qlora">第二步：再理解 QLoRA</a></li><li><a href="#gptq-awq">第三步：再看 GPTQ 和 AWQ</a></li><li><a href="#gguf">第四步：如果你做本地应用，再进入 GGUF</a></li><li><a href="#17-4-bit">17. 最小可用实战：4-bit 推理</a></li><li><a href="#171">17.1 安装</a></li><li><a href="#172">17.2 代码</a></li><li><a href="#173">17.3 你应该观察什么</a></li><li><a href="#18-qlora">18. 最小可用实战：QLoRA 的基本结构</a></li><li><a href="#181">18.1 典型结构</a></li><li><a href="#182">18.2 这段代码真正表达了什么</a></li><li><a href="#19">19. 常见误区</a></li><li><a href="#191-4-bit-8-bit">19.1 误区一：4-bit 一定比 8-bit 更划算</a></li><li><a href="#192">19.2 误区二：所有量化方法是同一类东西</a></li><li><a href="#193">19.3 误区三：量化后速度一定更快</a></li><li><a href="#194">19.4 误区四：量化后质量下降就说明方法不行</a></li><li><a href="#20">20. 常见排障</a></li><li><a href="#201">20.1 模型能加载，但输出明显变差</a></li><li><a href="#202">20.2 显存还是爆</a></li><li><a href="#203">20.3 推理比预期慢</a></li><li><a href="#204">20.4 本地部署一堆格式看不懂</a></li><li><a href="#21">21. 学习顺序建议</a></li><li><a href="#22">22. 一页总结</a></li><li><a href="#221-quantization">22.1 Quantization 是什么</a></li><li><a href="#222">22.2 它主要解决什么问题</a></li><li><a href="#223">22.3 它和微调的关系</a></li><li><a href="#224">22.4 方案怎么选</a></li><li><a href="#225">22.5 对初学者最实用的建议</a></li><li><a href="#23">23. 下一步可以学什么</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 这篇文档讲什么"></span><h2 id="1">1. 这篇文档讲什么</h2>
+<p>你提到的 <code>quanzition</code>，在大模型工程里通常指的是 <code>quantization</code>。</p>
+<p>中文一般翻译为：</p>
+<ul>
+<li>量化</li>
+<li>模型量化</li>
+<li>低比特量化</li>
+</ul>
+<p>如果你最近在看大模型部署、显存优化、本地推理或者 <code>QLoRA</code>，几乎一定会遇到这个词。</p>
+<p>很多资料会直接给你一段代码：</p>
+<ul>
+<li><code>load_in_8bit=True</code></li>
+<li><code>load_in_4bit=True</code></li>
+<li><code>GPTQ</code></li>
+<li><code>AWQ</code></li>
+<li><code>GGUF</code></li>
+</ul>
+<p>但如果没有先建立一张完整地图，你很容易出现这些困惑：</p>
+<ul>
+<li>量化到底是在压什么</li>
+<li>它和微调是不是一回事</li>
+<li>4-bit、8-bit、INT4、NF4 到底有什么关系</li>
+<li><code>bitsandbytes</code>、<code>GPTQ</code>、<code>AWQ</code>、<code>GGUF</code>、<code>HQQ</code> 分别适合什么场景</li>
+<li>为什么有的量化适合训练，有的只适合推理</li>
+</ul>
+<p>这篇文档的目标，是先把这些问题讲清楚，再给你一条可执行的工程路线。</p>
+<p>读完后，你应该能回答：</p>
+<ul>
+<li>什么是 quantization</li>
+<li>为什么量化能显著降低显存和存储成本</li>
+<li>量化有哪些主流路线，它们的边界是什么</li>
+<li>什么时候该用 <code>bitsandbytes</code></li>
+<li>什么时候该用 <code>GPTQ</code> 或 <code>AWQ</code></li>
+<li>什么时候该用 <code>GGUF + llama.cpp</code></li>
+<li>如何从“我只有一张消费级显卡”出发，选对自己的方案</li>
+</ul>
+<p>一句话先给结论：</p>
+<blockquote>
+<p><code>Quantization</code> 的本质，是把模型参数从高精度表示压缩成更低精度表示，以更少的显存、存储和带宽成本完成推理，必要时也为低成本微调创造条件。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="2. 什么是 Quantization"></span><h2 id="2-quantization">2. 什么是 Quantization</h2>
+<p>先从最朴素的定义开始。</p>
+<p>神经网络里的权重，本来通常用高精度浮点数表示，比如：</p>
+<ul>
+<li><code>FP32</code></li>
+<li><code>FP16</code></li>
+<li><code>BF16</code></li>
+</ul>
+<p>这些表示方式精度高，但也更占内存。</p>
+<p>量化做的事，就是把这些高精度数，映射到更低精度的表示里，比如：</p>
+<ul>
+<li><code>INT8</code></li>
+<li><code>INT4</code></li>
+<li><code>NF4</code></li>
+<li>更激进的 <code>3-bit</code>、<code>2-bit</code></li>
+</ul>
+<p>这样做的直接结果是：</p>
+<ul>
+<li>模型更小</li>
+<li>显存占用更低</li>
+<li>内存带宽压力更小</li>
+<li>推理速度通常更快</li>
+</ul>
+<p>你可以把它理解成：</p>
+<ul>
+<li>原始模型：用“高清格式”存参数</li>
+<li>量化模型：用“压缩格式”存参数</li>
+</ul>
+<p>关键在于：</p>
+<blockquote>
+<p>压缩之后，模型还能不能保持足够可用的质量。</p>
+</blockquote>
+<p>这就是量化方法之间真正竞争的地方。</p>
+<hr/>
+<span class="heading-anchor" id="3. 为什么大模型这么依赖量化"></span><h2 id="3">3. 为什么大模型这么依赖量化</h2>
+<p>在小模型时代，全精度部署往往还能接受。</p>
+<p>但到了大模型时代，参数量一上去，问题立刻变得现实。</p>
+<p>例如一个 <code>7B</code> 模型，如果用 <code>FP16</code> 存储：</p>
+<ul>
+<li>每个参数约 2 字节</li>
+<li>总大小大约 <code>14 GB</code></li>
+</ul>
+<p>这还只是“权重本体”。</p>
+<p>如果你要运行推理，还要考虑：</p>
+<ul>
+<li>KV Cache</li>
+<li>中间激活</li>
+<li>框架额外开销</li>
+<li>batch 带来的显存增长</li>
+</ul>
+<p>这意味着很多情况下：</p>
+<ul>
+<li><code>7B</code> 模型对普通显卡已经不轻松</li>
+<li><code>13B</code>、<code>30B</code>、<code>70B</code> 更是很快超出消费级显卡上限</li>
+</ul>
+<p>量化的价值，就在这里非常直接：</p>
+<ul>
+<li><code>8-bit</code> 大约把权重内存减半</li>
+<li><code>4-bit</code> 大约把权重内存降到原来的四分之一</li>
+</ul>
+<p>举个非常直观的数量级：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>精度</th>
+<th>7B 模型权重大致体积</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FP16</td>
+<td>14 GB</td>
+</tr>
+<tr>
+<td>INT8</td>
+<td>7 GB</td>
+</tr>
+<tr>
+<td>INT4</td>
+<td>3.5 GB</td>
+</tr>
+</tbody>
+</table></div>
+<p>这还没算不同方法的元数据开销，但数量级基本就是这个意思。</p>
+<p>所以量化不是“可选优化”，而是很多部署场景里的前置条件。</p>
+<hr/>
+<span class="heading-anchor" id="4. 量化到底压缩了什么"></span><h2 id="4">4. 量化到底压缩了什么</h2>
+<p>很多初学者会把“量化”理解成“把整个模型都变成整数”。</p>
+<p>这个理解太粗了。</p>
+<p>更准确的说法是：</p>
+<blockquote>
+<p>量化是在用更少 bit 数去近似表示模型里的数值信息。</p>
+</blockquote>
+<p>通常最常见的是量化下面这些内容：</p>
+<ul>
+<li>权重 <code>weights</code></li>
+<li>有时也包括激活 <code>activations</code></li>
+<li>极少数场景会进一步碰缓存或优化器状态</li>
+</ul>
+<p>在大模型工程里，最常见的是：</p>
+<ul>
+<li><strong>权重量化</strong>：最主流</li>
+<li><strong>权重为主，计算保留更高精度</strong>：非常常见</li>
+</ul>
+<p>也就是说，工程里大量方案并不是“所有计算都用 4-bit”。</p>
+<p>更常见的做法是：</p>
+<ul>
+<li>权重以 4-bit 存储</li>
+<li>真正矩阵乘法时，用更高精度做一部分计算</li>
+<li>最终在“存储成本”和“计算稳定性”之间取平衡</li>
+</ul>
+<p>这也是为什么你会同时看到这些词：</p>
+<ul>
+<li><code>weight-only quantization</code></li>
+<li><code>compute dtype</code></li>
+<li><code>dequantization</code></li>
+<li><code>mixed precision</code></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="5. 理解量化，先区分 4 个核心概念"></span><h2 id="5-4">5. 理解量化，先区分 4 个核心概念</h2>
+<span class="heading-anchor" id="5.1 比特宽度"></span><h3 id="51">5.1 比特宽度</h3>
+<p>这是最直观的指标。</p>
+<ul>
+<li><code>8-bit</code>：压缩较温和，质量通常更稳</li>
+<li><code>4-bit</code>：压缩更激进，是当前大模型工程里的高频甜点位</li>
+<li><code>3-bit</code> / <code>2-bit</code>：更省，但更容易掉质量</li>
+</ul>
+<span class="heading-anchor" id="5.2 量化对象"></span><h3 id="52">5.2 量化对象</h3>
+<p>你是在量化：</p>
+<ul>
+<li>权重</li>
+<li>激活</li>
+<li>两者都量化</li>
+</ul>
+<p>大模型部署里，最常见的是“只量化权重”。</p>
+<span class="heading-anchor" id="5.3 量化时机"></span><h3 id="53">5.3 量化时机</h3>
+<p>这是一个很重要的分类。</p>
+<ul>
+<li><strong>训练后量化</strong> <code>PTQ, Post-Training Quantization</code></li>
+<li><strong>量化感知训练</strong> <code>QAT, Quantization-Aware Training</code></li>
+</ul>
+<p>目前 LLM 工程中，你最常见到的是 <strong>PTQ</strong>。</p>
+<p>因为：</p>
+<ul>
+<li>成本低</li>
+<li>操作简单</li>
+<li>适合直接把已有大模型压缩后部署</li>
+</ul>
+<span class="heading-anchor" id="5.4 量化格式和生态"></span><h3 id="54">5.4 量化格式和生态</h3>
+<p>这是最容易混淆的一点。</p>
+<p>有些词是“方法”，有些词是“工具链或格式”。</p>
+<p>例如：</p>
+<ul>
+<li><code>GPTQ</code>：量化方法</li>
+<li><code>AWQ</code>：量化方法</li>
+<li><code>HQQ</code>：量化方法</li>
+<li><code>GGUF</code>：更像是文件格式与生态路线</li>
+<li><code>bitsandbytes</code>：更像是工程库与运行时集成方案</li>
+</ul>
+<p>所以它们不是同一层级的概念，不能完全并列理解。</p>
+<hr/>
+<span class="heading-anchor" id="6. 为什么量化后模型还能工作"></span><h2 id="6">6. 为什么量化后模型还能工作</h2>
+<p>这是最值得建立直觉的部分。</p>
+<p>表面上看，量化是“丢精度”。</p>
+<p>那为什么模型没有直接坏掉？</p>
+<p>核心原因有三个。</p>
+<span class="heading-anchor" id="6.1 神经网络对小扰动往往有一定鲁棒性"></span><h3 id="61">6.1 神经网络对小扰动往往有一定鲁棒性</h3>
+<p>模型参数不是每一位小数都同等重要。</p>
+<p>很多权重即使被近似，模型整体功能仍然能维持。</p>
+<span class="heading-anchor" id="6.2 参数分布里存在冗余"></span><h3 id="62">6.2 参数分布里存在冗余</h3>
+<p>大模型参数量极大，其中很多参数对最终输出的影响并不是线性决定性的。</p>
+<p>这意味着：</p>
+<ul>
+<li>允许适度近似</li>
+<li>允许局部误差</li>
+<li>只要关键结构保住，整体能力就能保住</li>
+</ul>
+<span class="heading-anchor" id="6.3 好的量化方法不是“瞎压”"></span><h3 id="63">6.3 好的量化方法不是“瞎压”</h3>
+<p>像 <code>GPTQ</code>、<code>AWQ</code> 这类方案，并不是粗暴地把所有权重统一压成低精度。</p>
+<p>它们会尽量做这些事：</p>
+<ul>
+<li>分组量化</li>
+<li>根据误差或激活重要性决定怎么压</li>
+<li>给不同组使用不同缩放参数</li>
+<li>尽量保护更敏感的权重</li>
+</ul>
+<p>所以真正的工程问题不是：</p>
+<p>“能不能量化”</p>
+<p>而是：</p>
+<p>“用什么方法量化，才能在你当前硬件和任务目标下最划算”</p>
+<hr/>
+<span class="heading-anchor" id="7. Quantization 和 Fine-Tuning 是什么关系"></span><h2 id="7-quantization-fine-tuning">7. Quantization 和 Fine-Tuning 是什么关系</h2>
+<p>这也是最容易被混淆的地方。</p>
+<p>先给一句非常重要的话：</p>
+<blockquote>
+<p>量化不等于微调。</p>
+</blockquote>
+<p>两者解决的问题不同。</p>
+<span class="heading-anchor" id="7.1 微调解决什么"></span><h3 id="71">7.1 微调解决什么</h3>
+<p>微调是在改模型能力：</p>
+<ul>
+<li>让模型适配新任务</li>
+<li>让模型适配新领域</li>
+<li>让模型学会新的输出风格</li>
+</ul>
+<span class="heading-anchor" id="7.2 量化解决什么"></span><h3 id="72">7.2 量化解决什么</h3>
+<p>量化是在压缩部署成本：</p>
+<ul>
+<li>更省显存</li>
+<li>更省存储</li>
+<li>更方便推理</li>
+</ul>
+<span class="heading-anchor" id="7.3 为什么它们经常一起出现"></span><h3 id="73">7.3 为什么它们经常一起出现</h3>
+<p>因为像 <code>QLoRA</code> 这样的路线会把两者连起来：</p>
+<ul>
+<li>先把基础模型做 4-bit 加载</li>
+<li>再在这个低成本底座上挂 LoRA adapter 训练</li>
+</ul>
+<p>也就是说：</p>
+<ul>
+<li>基座模型：量化后冻结</li>
+<li>新增参数：继续训练</li>
+</ul>
+<p>这就是为什么你在学习 PEFT 时，会频繁看到量化。</p>
+<p>但概念上一定要分开：</p>
+<ul>
+<li><code>LoRA</code> 是微调方法</li>
+<li><code>Quantization</code> 是压缩/部署方法</li>
+<li><code>QLoRA</code> 是把二者结合起来的工程路径</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. 主流量化路线总览"></span><h2 id="8">8. 主流量化路线总览</h2>
+<p>先给你一张大图。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>核心定位</th>
+<th>最适合的场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bitsandbytes</code></td>
+<td>最容易接入 Hugging Face 的 8-bit/4-bit 方案</td>
+<td>快速上手、受限显存推理、QLoRA</td>
+</tr>
+<tr>
+<td><code>GPTQ</code></td>
+<td>经典训练后 4-bit 权重量化</td>
+<td>NVIDIA GPU 推理、已有量化模型生态</td>
+</tr>
+<tr>
+<td><code>AWQ</code></td>
+<td>关注激活重要性的 4-bit 量化</td>
+<td>指令模型、聊天模型、生产推理、vLLM</td>
+</tr>
+<tr>
+<td><code>GGUF</code></td>
+<td><code>llama.cpp</code> 生态的量化格式与部署路线</td>
+<td>CPU、本地推理、Apple Silicon、Ollama/LM Studio</td>
+</tr>
+<tr>
+<td><code>HQQ</code></td>
+<td>无需校准数据的快速量化方案</td>
+<td>需要快速实验、没有校准集、尝试极低比特</td>
+</tr>
+</tbody>
+</table></div>
+<p>下面逐个讲。</p>
+<hr/>
+<span class="heading-anchor" id="9. bitsandbytes：最适合入门和 QLoRA 的路线"></span><h2 id="9-bitsandbytes-qlora">9. bitsandbytes：最适合入门和 QLoRA 的路线</h2>
+<p><code>bitsandbytes</code> 的特点不是“理论最强”，而是“工程接入最顺手”。</p>
+<p>它非常适合这些场景：</p>
+<ul>
+<li>你已经在用 Hugging Face <code>transformers</code></li>
+<li>你想快速把模型降到 <code>8-bit</code> 或 <code>4-bit</code></li>
+<li>你显卡不够大，但想先跑起来</li>
+<li>你准备做 <code>QLoRA</code></li>
+</ul>
+<span class="heading-anchor" id="9.1 它的核心优势"></span><h3 id="91">9.1 它的核心优势</h3>
+<ul>
+<li>接入简单</li>
+<li>生态成熟</li>
+<li>适合直接 <code>from_pretrained</code></li>
+<li>非常适合和 <code>PEFT</code> 联合使用</li>
+</ul>
+<span class="heading-anchor" id="9.2 它最典型的两种模式"></span><h3 id="92">9.2 它最典型的两种模式</h3>
+<h4 id="8-bit">8-bit</h4>
+<p>特点：</p>
+<ul>
+<li>压缩幅度温和</li>
+<li>质量通常更稳</li>
+<li>比 4-bit 更保守</li>
+</ul>
+<h4 id="4-bit">4-bit</h4>
+<p>特点：</p>
+<ul>
+<li>更省显存</li>
+<li>是 <code>QLoRA</code> 的基础路线</li>
+<li>通常会配合 <code>NF4</code> 和更高精度计算 dtype</li>
+</ul>
+<span class="heading-anchor" id="9.3 一个最小 4-bit 加载示例"></span><h3 id="93-4-bit">9.3 一个最小 4-bit 加载示例</h3>
+<pre><code class="language-python">import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+model_name = "meta-llama/Llama-2-7b-hf"
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+</code></pre>
+<p>这段代码背后的意思是：</p>
+<ul>
+<li>权重以 4-bit 形式加载</li>
+<li>计算时仍保留更稳定的高精度 dtype</li>
+<li><code>nf4</code> 是 4-bit 下常见的推荐量化类型</li>
+</ul>
+<span class="heading-anchor" id="9.4 bitsandbytes 最适合什么时候"></span><h3 id="94-bitsandbytes">9.4 bitsandbytes 最适合什么时候</h3>
+<p>如果你满足下面任意一点，优先从它开始：</p>
+<ul>
+<li>想最快理解“量化到底怎么用”</li>
+<li>想在 Hugging Face 体系里少折腾</li>
+<li>想做 <code>QLoRA</code></li>
+<li>只想先把 7B/13B 模型塞进显卡里</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. GPTQ：经典的训练后 4-bit 量化"></span><h2 id="10-gptq-4-bit">10. GPTQ：经典的训练后 4-bit 量化</h2>
+<p><code>GPTQ</code> 可以理解成“大模型 4-bit PTQ 时代的重要代表方案”。</p>
+<p>它的核心思路是：</p>
+<ul>
+<li>对权重做分组量化</li>
+<li>尽量最小化量化误差</li>
+<li>在较低 bit 数下保持尽可能好的精度</li>
+</ul>
+<span class="heading-anchor" id="10.1 你需要抓住的关键词"></span><h3 id="101">10.1 你需要抓住的关键词</h3>
+<ul>
+<li><code>Post-Training Quantization</code></li>
+<li><code>group-wise quantization</code></li>
+<li><code>4-bit</code></li>
+<li>面向推理部署</li>
+</ul>
+<span class="heading-anchor" id="10.2 它适合什么场景"></span><h3 id="102">10.2 它适合什么场景</h3>
+<ul>
+<li>你要把模型压成高质量的 4-bit 推理版本</li>
+<li>你主要在 NVIDIA GPU 上运行</li>
+<li>你会使用已有的 GPTQ 量化模型</li>
+<li>你更关注“推理部署质量”而不是“最简单接入”</li>
+</ul>
+<span class="heading-anchor" id="10.3 GPTQ 的核心直觉"></span><h3 id="103-gptq">10.3 GPTQ 的核心直觉</h3>
+<p>不是所有权重都必须用同一个尺度去压。</p>
+<p>所以 GPTQ 常做的事是：</p>
+<ul>
+<li>把一大块权重矩阵切成很多组</li>
+<li>每组单独量化</li>
+<li>通过误差最小化思路，尽量减少精度损失</li>
+</ul>
+<span class="heading-anchor" id="10.4 为什么很多资料会提 group_size=128"></span><h3 id="104-group_size128">10.4 为什么很多资料会提 <code>group_size=128</code></h3>
+<p>因为它往往是一个工程上比较均衡的默认值：</p>
+<ul>
+<li>精度还不错</li>
+<li>速度也比较合适</li>
+<li>生态支持广</li>
+</ul>
+<p>组太小：</p>
+<ul>
+<li>精度可能更好</li>
+<li>但额外开销更高</li>
+</ul>
+<p>组太大：</p>
+<ul>
+<li>速度可能更快</li>
+<li>但量化误差更容易变大</li>
+</ul>
+<span class="heading-anchor" id="10.5 一个典型加载示例"></span><h3 id="105">10.5 一个典型加载示例</h3>
+<pre><code class="language-python">from transformers import AutoTokenizer
+from auto_gptq import AutoGPTQForCausalLM
+
+model_name = "TheBloke/Llama-2-7B-Chat-GPTQ"
+
+model = AutoGPTQForCausalLM.from_quantized(
+    model_name,
+    device="cuda:0",
+    use_triton=False,
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+</code></pre>
+<span class="heading-anchor" id="10.6 GPTQ 适合什么时候优先考虑"></span><h3 id="106-gptq">10.6 GPTQ 适合什么时候优先考虑</h3>
+<p>当你想要的是：</p>
+<ul>
+<li>经典 4-bit 权重量化</li>
+<li>较成熟的量化模型分发生态</li>
+<li>面向 GPU 的高质量推理</li>
+</ul>
+<p>那么 GPTQ 是一个很自然的选择。</p>
+<hr/>
+<span class="heading-anchor" id="11. AWQ：更强调“重要权重保护”的 4-bit 路线"></span><h2 id="11-awq-4-bit">11. AWQ：更强调“重要权重保护”的 4-bit 路线</h2>
+<p><code>AWQ</code> 全称是 <code>Activation-aware Weight Quantization</code>。</p>
+<p>这个名字里最重要的词，是 <code>Activation-aware</code>。</p>
+<p>它的核心观点是：</p>
+<blockquote>
+<p>不是所有权重都同等重要，某些和激活模式强相关的“关键权重”，更值得被保护。</p>
+</blockquote>
+<span class="heading-anchor" id="11.1 它为什么受欢迎"></span><h3 id="111">11.1 它为什么受欢迎</h3>
+<p>因为它在工程上往往表现出很好的平衡：</p>
+<ul>
+<li>仍然是 4-bit</li>
+<li>压缩效果强</li>
+<li>对指令模型、聊天模型往往比较友好</li>
+<li>在生产推理生态里很常见</li>
+</ul>
+<span class="heading-anchor" id="11.2 它和 GPTQ 的差别，怎么用人话理解"></span><h3 id="112-gptq">11.2 它和 GPTQ 的差别，怎么用人话理解</h3>
+<p>你可以这样记：</p>
+<ul>
+<li><code>GPTQ</code>：更强调“从误差最小化角度把权重量化好”</li>
+<li><code>AWQ</code>：更强调“把真正重要的那部分权重保护好”</li>
+</ul>
+<p>这不是严格数学定义，但对建立直觉很有帮助。</p>
+<span class="heading-anchor" id="11.3 AWQ 的典型适用场景"></span><h3 id="113-awq">11.3 AWQ 的典型适用场景</h3>
+<ul>
+<li>你部署的是聊天模型或指令微调模型</li>
+<li>你想要高质量 4-bit 推理</li>
+<li>你准备用 <code>vLLM</code></li>
+<li>你有比较现代的 GPU</li>
+</ul>
+<span class="heading-anchor" id="11.4 一个典型示例"></span><h3 id="114">11.4 一个典型示例</h3>
+<pre><code class="language-python">from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer
+
+model_name = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
+
+model = AutoAWQForCausalLM.from_quantized(
+    model_name,
+    fuse_layers=True,
+)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+</code></pre>
+<span class="heading-anchor" id="11.5 什么时候优先 AWQ"></span><h3 id="115-awq">11.5 什么时候优先 AWQ</h3>
+<p>如果你更偏向下面这些目标：</p>
+<ul>
+<li>部署而不是训练</li>
+<li>4-bit 高质量聊天推理</li>
+<li><code>vLLM</code> 生产化路线</li>
+<li>想要比传统方案更激进但仍稳的 4-bit 推理体验</li>
+</ul>
+<p>那 <code>AWQ</code> 往往比 <code>GPTQ</code> 更值得优先试。</p>
+<hr/>
+<span class="heading-anchor" id="12. GGUF：不是单纯“一个算法”，而是一条本地部署路线"></span><h2 id="12-gguf">12. GGUF：不是单纯“一个算法”，而是一条本地部署路线</h2>
+<p>很多人第一次看到 <code>GGUF</code> 时会把它和 <code>GPTQ</code>、<code>AWQ</code> 当成完全同类。</p>
+<p>这会导致理解混乱。</p>
+<p>更准确地说：</p>
+<blockquote>
+<p><code>GGUF</code> 更像是 <code>llama.cpp</code> 生态的模型格式与量化部署路线。</p>
+</blockquote>
+<p>它非常适合：</p>
+<ul>
+<li>本地推理</li>
+<li>CPU 推理</li>
+<li>Apple Silicon</li>
+<li>桌面工具生态</li>
+</ul>
+<p>例如这些工具经常围绕这条路线：</p>
+<ul>
+<li><code>llama.cpp</code></li>
+<li><code>Ollama</code></li>
+<li><code>LM Studio</code></li>
+<li>一些本地 GUI 客户端</li>
+</ul>
+<span class="heading-anchor" id="12.1 GGUF 为什么这么重要"></span><h3 id="121-gguf">12.1 GGUF 为什么这么重要</h3>
+<p>因为它解决的不是“只在 Python 里怎么压缩模型”，而是：</p>
+<ul>
+<li>如何把模型变成更容易在本地设备运行的格式</li>
+<li>如何在 CPU、Mac、轻量 GPU 上高效推理</li>
+<li>如何在 C/C++ 推理栈里更稳定地跑起来</li>
+</ul>
+<span class="heading-anchor" id="12.2 常见量化档位"></span><h3 id="122">12.2 常见量化档位</h3>
+<p>在 GGUF 生态里，你经常会看到这些名字：</p>
+<ul>
+<li><code>Q4_K_M</code></li>
+<li><code>Q5_K_M</code></li>
+<li><code>Q6_K</code></li>
+<li><code>Q8_0</code></li>
+</ul>
+<p>对初学者来说，一个很实用的记法是：</p>
+<ul>
+<li><code>Q4_K_M</code>：常见默认档，性价比较高</li>
+<li><code>Q5_K_M</code>：更偏质量</li>
+<li><code>Q6_K</code> / <code>Q8_0</code>：更接近原始质量，但更大</li>
+</ul>
+<span class="heading-anchor" id="12.3 一个典型工作流"></span><h3 id="123">12.3 一个典型工作流</h3>
+<ol>
+<li>先把 Hugging Face 模型转换到 GGUF</li>
+<li>再选择一个量化档位</li>
+<li>用 <code>llama.cpp</code> 或上层工具运行</li>
+</ol>
+<span class="heading-anchor" id="12.4 GGUF 最适合谁"></span><h3 id="124-gguf">12.4 GGUF 最适合谁</h3>
+<p>如果你满足下面任意一点，GGUF 很可能是你的第一选择：</p>
+<ul>
+<li>你主要做本地运行，不想依赖完整 Python 推理栈</li>
+<li>你在 Mac 上跑模型</li>
+<li>你想跑在 CPU 或轻量 GPU 上</li>
+<li>你准备用 Ollama 或 LM Studio</li>
+</ul>
+<p>这时你就不要优先纠结 <code>AWQ</code> 和 <code>GPTQ</code>，而是优先进入 <code>GGUF</code> 这条生态。</p>
+<hr/>
+<span class="heading-anchor" id="13. HQQ：没有校准数据时的快速量化方案"></span><h2 id="13-hqq">13. HQQ：没有校准数据时的快速量化方案</h2>
+<p><code>HQQ</code> 的亮点很明确：</p>
+<ul>
+<li>不需要校准数据</li>
+<li>量化速度快</li>
+<li>可以尝试更激进的低 bit</li>
+</ul>
+<span class="heading-anchor" id="13.1 它什么时候有吸引力"></span><h3 id="131">13.1 它什么时候有吸引力</h3>
+<p>很多 PTQ 方法会涉及校准样本。</p>
+<p>但真实工程里，你未必总有一套合适的校准集，或者你只是想快速试一下：</p>
+<ul>
+<li>这个模型压成 4-bit 会怎么样</li>
+<li>能不能再压到 3-bit 或 2-bit</li>
+</ul>
+<p>这时 <code>HQQ</code> 的价值就出来了。</p>
+<span class="heading-anchor" id="13.2 它适合什么场景"></span><h3 id="132">13.2 它适合什么场景</h3>
+<ul>
+<li>快速实验</li>
+<li>无校准数据</li>
+<li>做方法探索</li>
+<li>尝试极低比特</li>
+</ul>
+<span class="heading-anchor" id="13.3 什么时候不要先用它"></span><h3 id="133">13.3 什么时候不要先用它</h3>
+<p>如果你的目标非常明确是：</p>
+<ul>
+<li>最稳定的主流部署</li>
+<li>某个成熟生产栈</li>
+<li>最常见社区分发版本</li>
+</ul>
+<p>那通常还是先试：</p>
+<ul>
+<li><code>bitsandbytes</code></li>
+<li><code>AWQ</code></li>
+<li><code>GPTQ</code></li>
+<li><code>GGUF</code></li>
+</ul>
+<p><code>HQQ</code> 更像是一个“灵活、实验友好”的选项。</p>
+<hr/>
+<span class="heading-anchor" id="14. 一张表看懂它们的边界"></span><h2 id="14">14. 一张表看懂它们的边界</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>主要目标</th>
+<th>是否适合训练</th>
+<th>是否适合推理</th>
+<th>典型生态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bitsandbytes</code></td>
+<td>低成本加载与训练集成</td>
+<td>是，特别适合 <code>QLoRA</code></td>
+<td>是</td>
+<td><code>transformers</code></td>
+</tr>
+<tr>
+<td><code>GPTQ</code></td>
+<td>高质量 4-bit PTQ</td>
+<td>通常不是首选训练路线</td>
+<td>是</td>
+<td>NVIDIA GPU 推理</td>
+</tr>
+<tr>
+<td><code>AWQ</code></td>
+<td>激活感知的高质量 4-bit 推理</td>
+<td>不是主打训练</td>
+<td>是</td>
+<td><code>transformers</code>、<code>vLLM</code></td>
+</tr>
+<tr>
+<td><code>GGUF</code></td>
+<td>本地设备部署与跨硬件运行</td>
+<td>不是主打训练</td>
+<td>是</td>
+<td><code>llama.cpp</code>、<code>Ollama</code></td>
+</tr>
+<tr>
+<td><code>HQQ</code></td>
+<td>无校准快速量化</td>
+<td>可与 PEFT 配合，但更偏实验</td>
+<td>是</td>
+<td>HF / vLLM 方向</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里最容易记混的点再重复一次：</p>
+<ul>
+<li>想训练或做 <code>QLoRA</code>：先看 <code>bitsandbytes</code></li>
+<li>想高质量 GPU 推理：先看 <code>AWQ</code> / <code>GPTQ</code></li>
+<li>想本地 CPU/Mac/Ollama：先看 <code>GGUF</code></li>
+<li>想无校准快速试验：看 <code>HQQ</code></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="15. 从工程角度，应该怎么选"></span><h2 id="15">15. 从工程角度，应该怎么选</h2>
+<p>下面给你一个实用决策树。</p>
+<span class="heading-anchor" id="15.1 我想做 QLoRA 微调"></span><h3 id="151-qlora">15.1 我想做 QLoRA 微调</h3>
+<p>优先：</p>
+<ul>
+<li><code>bitsandbytes 4-bit</code></li>
+</ul>
+<p>原因：</p>
+<ul>
+<li>和 Hugging Face、PEFT 集成最顺</li>
+<li>社区教程最多</li>
+<li>这是很多人真正进入量化世界的第一站</li>
+</ul>
+<span class="heading-anchor" id="15.2 我只想把模型塞进显卡并先跑起来"></span><h3 id="152">15.2 我只想把模型塞进显卡并先跑起来</h3>
+<p>优先：</p>
+<ul>
+<li><code>bitsandbytes 8-bit</code> 或 <code>4-bit</code></li>
+</ul>
+<p>原因：</p>
+<ul>
+<li>最省时间</li>
+<li>代码改动最小</li>
+</ul>
+<span class="heading-anchor" id="15.3 我想要比较正式的 4-bit GPU 推理部署"></span><h3 id="153-4-bit-gpu">15.3 我想要比较正式的 4-bit GPU 推理部署</h3>
+<p>优先：</p>
+<ul>
+<li><code>AWQ</code></li>
+<li>其次 <code>GPTQ</code></li>
+</ul>
+<p>如果你的场景是：</p>
+<ul>
+<li>聊天模型</li>
+<li>指令模型</li>
+<li>生产推理</li>
+</ul>
+<p>那通常先试 <code>AWQ</code>。</p>
+<span class="heading-anchor" id="15.4 我想在 Mac、CPU、本地桌面环境里运行"></span><h3 id="154-maccpu">15.4 我想在 Mac、CPU、本地桌面环境里运行</h3>
+<p>优先：</p>
+<ul>
+<li><code>GGUF</code></li>
+</ul>
+<p>原因：</p>
+<ul>
+<li>这是最自然的生态路径</li>
+<li>别把时间浪费在不适合本地部署的 GPU 路线上</li>
+</ul>
+<span class="heading-anchor" id="15.5 我没有校准数据，但想快速做低比特实验"></span><h3 id="155">15.5 我没有校准数据，但想快速做低比特实验</h3>
+<p>优先：</p>
+<ul>
+<li><code>HQQ</code></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="16. 一个最实用的入门路线"></span><h2 id="16">16. 一个最实用的入门路线</h2>
+<p>如果你是第一次系统学习量化，我建议按下面顺序走。</p>
+<span class="heading-anchor" id="第一步：先用 bitsandbytes 跑通 4-bit 加载"></span><h3 id="bitsandbytes-4-bit">第一步：先用 bitsandbytes 跑通 4-bit 加载</h3>
+<p>目标不是追求最强性能，而是先建立最基本的直觉：</p>
+<ul>
+<li>量化模型可以像普通模型一样加载</li>
+<li>显存明显下降</li>
+<li>质量并不会立刻崩掉</li>
+</ul>
+<span class="heading-anchor" id="第二步：再理解 QLoRA"></span><h3 id="qlora">第二步：再理解 QLoRA</h3>
+<p>这一步你会真正明白：</p>
+<ul>
+<li>为什么量化和微调经常一起出现</li>
+<li>为什么 4-bit 底座 + LoRA 是一条极其实用的工程路径</li>
+</ul>
+<span class="heading-anchor" id="第三步：再看 GPTQ 和 AWQ"></span><h3 id="gptq-awq">第三步：再看 GPTQ 和 AWQ</h3>
+<p>这一步你开始从“能跑”进入“怎么部署得更好”。</p>
+<p>重点理解：</p>
+<ul>
+<li>两者都偏推理部署</li>
+<li>两者都不是单纯的“HF 一键 4-bit”</li>
+<li>它们更像是专业化量化路线</li>
+</ul>
+<span class="heading-anchor" id="第四步：如果你做本地应用，再进入 GGUF"></span><h3 id="gguf">第四步：如果你做本地应用，再进入 GGUF</h3>
+<p>这一步你会理解：</p>
+<ul>
+<li>量化不只是 Python 里的一个配置项</li>
+<li>它也可以是一整条模型分发和部署路线</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="17. 最小可用实战：4-bit 推理"></span><h2 id="17-4-bit">17. 最小可用实战：4-bit 推理</h2>
+<p>下面给一个最小可用示例。这个例子不是为了覆盖所有高级参数，而是为了让你第一次真正跑通量化模型。</p>
+<span class="heading-anchor" id="17.1 安装"></span><h3 id="171">17.1 安装</h3>
+<pre><code class="language-bash">pip install bitsandbytes transformers accelerate
+</code></pre>
+<span class="heading-anchor" id="17.2 代码"></span><h3 id="172">17.2 代码</h3>
+<pre><code class="language-python">import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+
+model_name = "meta-llama/Llama-2-7b-hf"
+
+quant_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=quant_config,
+    device_map="auto",
+)
+
+prompt = "请用通俗语言解释什么是模型量化。"
+inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=200,
+    temperature=0.7,
+)
+
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+</code></pre>
+<span class="heading-anchor" id="17.3 你应该观察什么"></span><h3 id="173">17.3 你应该观察什么</h3>
+<p>跑通后，不要只盯着回答内容。</p>
+<p>更应该观察：</p>
+<ul>
+<li>模型是否成功加载</li>
+<li>显存是否明显下降</li>
+<li>推理速度是否可接受</li>
+<li>输出质量是否还能满足你的任务</li>
+</ul>
+<p>这四件事，才是量化的核心评估维度。</p>
+<hr/>
+<span class="heading-anchor" id="18. 最小可用实战：QLoRA 的基本结构"></span><h2 id="18-qlora">18. 最小可用实战：QLoRA 的基本结构</h2>
+<p>如果你已经学过 PEFT，这一节会把两块知识接起来。</p>
+<span class="heading-anchor" id="18.1 典型结构"></span><h3 id="181">18.1 典型结构</h3>
+<pre><code class="language-python">import torch
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-2-7b-hf",
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+
+model = prepare_model_for_kbit_training(model)
+
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+</code></pre>
+<span class="heading-anchor" id="18.2 这段代码真正表达了什么"></span><h3 id="182">18.2 这段代码真正表达了什么</h3>
+<ul>
+<li>基座模型以 4-bit 形式加载</li>
+<li>基座模型本体不做全量训练</li>
+<li>在上面挂 LoRA adapter</li>
+<li>真正训练的是很小的一部分新增参数</li>
+</ul>
+<p>这就是 <code>QLoRA</code> 的工程直觉。</p>
+<hr/>
+<span class="heading-anchor" id="19. 常见误区"></span><h2 id="19">19. 常见误区</h2>
+<span class="heading-anchor" id="19.1 误区一：4-bit 一定比 8-bit 更划算"></span><h3 id="191-4-bit-8-bit">19.1 误区一：4-bit 一定比 8-bit 更划算</h3>
+<p>不一定。</p>
+<p>如果你的任务对输出质量很敏感，或者显存其实还够，那么：</p>
+<ul>
+<li><code>8-bit</code> 可能更稳</li>
+<li>你未必需要上来就冲 <code>4-bit</code></li>
+</ul>
+<span class="heading-anchor" id="19.2 误区二：所有量化方法是同一类东西"></span><h3 id="192">19.2 误区二：所有量化方法是同一类东西</h3>
+<p>不是。</p>
+<p>再强调一次：</p>
+<ul>
+<li><code>AWQ</code> / <code>GPTQ</code> / <code>HQQ</code> 更像方法</li>
+<li><code>bitsandbytes</code> 更像工程接入方案</li>
+<li><code>GGUF</code> 更像格式与部署生态</li>
+</ul>
+<span class="heading-anchor" id="19.3 误区三：量化后速度一定更快"></span><h3 id="193">19.3 误区三：量化后速度一定更快</h3>
+<p>也不一定。</p>
+<p>是否更快，受很多因素影响：</p>
+<ul>
+<li>具体 kernel</li>
+<li>GPU 架构</li>
+<li>batch size</li>
+<li>上下文长度</li>
+<li>框架实现</li>
+</ul>
+<p>很多时候：</p>
+<ul>
+<li>显存更省是确定的</li>
+<li>速度更快是“通常如此，但依赖实现”</li>
+</ul>
+<span class="heading-anchor" id="19.4 误区四：量化后质量下降就说明方法不行"></span><h3 id="194">19.4 误区四：量化后质量下降就说明方法不行</h3>
+<p>不一定。</p>
+<p>你要先检查：</p>
+<ul>
+<li>量化档位是否过激</li>
+<li>任务是否本身对精度高度敏感</li>
+<li>模型是否适合这个量化路线</li>
+<li>运行时 kernel 是否正确</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="20. 常见排障"></span><h2 id="20">20. 常见排障</h2>
+<span class="heading-anchor" id="20.1 模型能加载，但输出明显变差"></span><h3 id="201">20.1 模型能加载，但输出明显变差</h3>
+<p>先排查：</p>
+<ul>
+<li>是不是压得太狠了，例如从可接受的 4-bit 继续压到更低</li>
+<li>是否用了不适合该模型的量化版本</li>
+<li>聊天模板、tokenizer、generation 配置是否匹配</li>
+</ul>
+<span class="heading-anchor" id="20.2 显存还是爆"></span><h3 id="202">20.2 显存还是爆</h3>
+<p>先排查：</p>
+<ul>
+<li>你压的是权重，但 <code>KV Cache</code> 仍然会涨</li>
+<li>上下文长度是否过大</li>
+<li>batch 是否过大</li>
+<li>生成长度是否过长</li>
+</ul>
+<p>很多人第一次做量化时，只盯着“模型权重体积”，却忽略了运行时开销。</p>
+<span class="heading-anchor" id="20.3 推理比预期慢"></span><h3 id="203">20.3 推理比预期慢</h3>
+<p>先排查：</p>
+<ul>
+<li>当前硬件是否适合该量化后端</li>
+<li>是否启用了更高性能 kernel</li>
+<li>是否选择了不适合当前 batch 的版本</li>
+<li>是否其实受限于 CPU、磁盘或数据传输</li>
+</ul>
+<span class="heading-anchor" id="20.4 本地部署一堆格式看不懂"></span><h3 id="204">20.4 本地部署一堆格式看不懂</h3>
+<p>记住这个最简化原则：</p>
+<ul>
+<li>Python + HF + 训练/实验：先看 <code>bitsandbytes</code></li>
+<li>GPU 推理模型分发：先看 <code>AWQ</code> / <code>GPTQ</code></li>
+<li>Ollama / Mac / CPU：先看 <code>GGUF</code></li>
+</ul>
+<p>不要一开始就同时啃所有生态。</p>
+<hr/>
+<span class="heading-anchor" id="21. 学习顺序建议"></span><h2 id="21">21. 学习顺序建议</h2>
+<p>如果你要把量化真正学扎实，我建议按下面顺序：</p>
+<ol>
+<li>先理解“为什么需要量化”</li>
+<li>再理解“权重量化”和“计算 dtype”不是一回事</li>
+<li>用 <code>bitsandbytes</code> 跑一个 4-bit 推理例子</li>
+<li>再跑一个 <code>QLoRA</code> 例子</li>
+<li>然后比较 <code>GPTQ</code> 和 <code>AWQ</code></li>
+<li>最后根据你的硬件进入 <code>GGUF</code> 路线</li>
+</ol>
+<p>这个顺序的好处是：</p>
+<ul>
+<li>先建立直觉</li>
+<li>再进入工程</li>
+<li>最后按场景细分</li>
+</ul>
+<p>而不是一上来被各种格式名淹没。</p>
+<hr/>
+<span class="heading-anchor" id="22. 一页总结"></span><h2 id="22">22. 一页总结</h2>
+<p>把整篇文档压缩成最重要的几句话，就是下面这些。</p>
+<span class="heading-anchor" id="22.1 Quantization 是什么"></span><h3 id="221-quantization">22.1 Quantization 是什么</h3>
+<p>它是把模型参数从高精度表示压缩到低精度表示，以降低显存、存储和带宽成本。</p>
+<span class="heading-anchor" id="22.2 它主要解决什么问题"></span><h3 id="222">22.2 它主要解决什么问题</h3>
+<ul>
+<li>大模型太大</li>
+<li>显卡放不下</li>
+<li>本地跑不动</li>
+<li>部署成本太高</li>
+</ul>
+<span class="heading-anchor" id="22.3 它和微调的关系"></span><h3 id="223">22.3 它和微调的关系</h3>
+<ul>
+<li>量化不是微调</li>
+<li>量化解决压缩与部署</li>
+<li>微调解决任务适配</li>
+<li><code>QLoRA</code> 把两者结合起来</li>
+</ul>
+<span class="heading-anchor" id="22.4 方案怎么选"></span><h3 id="224">22.4 方案怎么选</h3>
+<ul>
+<li>想快速入门或做 <code>QLoRA</code>：<code>bitsandbytes</code></li>
+<li>想做高质量 GPU 4-bit 推理：<code>AWQ</code> / <code>GPTQ</code></li>
+<li>想在 Mac、CPU、本地桌面工具上跑：<code>GGUF</code></li>
+<li>没有校准数据、想快速实验：<code>HQQ</code></li>
+</ul>
+<span class="heading-anchor" id="22.5 对初学者最实用的建议"></span><h3 id="225">22.5 对初学者最实用的建议</h3>
+<p>不要先追求“最先进量化方法”。</p>
+<p>先回答三个问题：</p>
+<ul>
+<li>你是要训练，还是要推理</li>
+<li>你用的是显卡，还是 CPU / Mac</li>
+<li>你最紧张的是显存，还是质量，还是接入复杂度</li>
+</ul>
+<p>量化不是一个单点技巧，而是一整套工程权衡。</p>
+<p>当你开始用“场景”来选量化路线，而不是用“名词热度”来选，你就真正入门了。</p>
+<hr/>
+<span class="heading-anchor" id="23. 下一步可以学什么"></span><h2 id="23">23. 下一步可以学什么</h2>
+<p>如果你准备继续往下学，我建议顺着这条线：</p>
+<ol>
+<li>先亲手跑一个 <code>bitsandbytes 4-bit</code> 推理示例</li>
+<li>再跑一个 <code>QLoRA</code> 微调示例</li>
+<li>对比同一个模型的 <code>AWQ</code>、<code>GPTQ</code>、<code>GGUF</code> 版本</li>
+<li>观察它们在下面四个维度的差异：</li>
+</ol>
+<ul>
+<li>显存</li>
+<li>速度</li>
+<li>输出质量</li>
+<li>接入复杂度</li>
+</ul>
+<p>真正的理解，不来自记住术语，而来自亲手比较。</p></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

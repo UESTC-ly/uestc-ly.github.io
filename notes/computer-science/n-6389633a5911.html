@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>协议编解码 · 李杨的学习笔记</title><meta name="description" content="TCP 只保证字节顺序，不保证业务消息边界。"><meta property="og:title" content="协议编解码 · 李杨的学习笔记"><meta property="og:description" content="TCP 只保证字节顺序，不保证业务消息边界。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-6389633a5911.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-6389633a5911.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>协议编解码</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/04-%E5%8D%8F%E8%AE%AE%E7%BC%96%E8%A7%A3%E7%A0%81.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">半包粘包本质</a></li><li><a href="#_5">增量解析的状态</a></li><li><a href="#framing">三类 framing</a></li><li><a href="#framing_1">framing 的攻击面</a></li><li><a href="#_6">字节序</a></li><li><a href="#_7">校验</a></li><li><a href="#_8">版本兼容</a></li><li><a href="#protobuf">序列化与 Protobuf</a></li><li><a href="#protobuf_1">Protobuf 演进边界</a></li><li><a href="#_9">工程实践/示例</a></li><li><a href="#_10">一个长度字段协议</a></li><li><a href="#_11">健壮解码器思路</a></li><li><a href="#_12">解码循环</a></li><li><a href="#_13">编码路径</a></li><li><a href="#_14">故障排查/观测</a></li><li><a href="#_15">协议错误定位</a></li><li><a href="#_16">测试矩阵</a></li><li><a href="#_17">推导示例</a></li><li><a href="#_18">为什么先检查长度再分配</a></li><li><a href="#_19">协议升级的灰度窗口</a></li><li><a href="#_20">如何讲粘包</a></li><li><a href="#_21">最小验收清单</a></li><li><a href="#_22">常见误区</a></li><li><a href="#_23">自测题</a></li><li><a href="#_24">实践任务</a></li><li><a href="#_25">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解半包、粘包的本质来自 TCP 字节流。</li>
+<li>掌握定长、分隔符、长度字段三类 framing 方法。</li>
+<li>能设计包含字节序、校验、版本兼容和序列化选择的协议。</li>
+<li>能写出健壮解码器的核心逻辑。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="半包粘包本质"></span><h3 id="_4">半包粘包本质</h3>
+<p>TCP 只保证字节顺序，不保证业务消息边界。</p>
+<p>发送端：</p>
+<pre><code class="language-text">send(msg1) send(msg2)
+</code></pre>
+<p>接收端可能看到：</p>
+<pre><code class="language-text">read: msg1 的一半
+read: msg1 剩余 + msg2
+read: msg2 的一部分
+</code></pre>
+<p>这不是 TCP 的 bug，而是字节流协议的正常行为。应用层必须定义 framing。</p>
+<span class="heading-anchor" id="增量解析的状态"></span><h3 id="_5">增量解析的状态</h3>
+<p>健壮解码器不能依赖一次 <code>read</code> 得到完整消息。它通常维护一个可增长输入缓冲区和解析游标，每次读入新字节后尝试解析零个、一个或多个 frame。解析失败要区分“数据还不够”和“协议错误”，前者保留缓冲区等待下次读，后者关闭连接并记录原因。</p>
+<pre><code class="language-text">append bytes -&gt; while can parse header/body -&gt; emit frame -&gt; compact buffer
+</code></pre>
+<p>如果解析器在半包时丢弃缓冲区，或者把协议错误当成 NeedMore，都会造成请求丢失、连接卡住或内存被恶意输入拖大。</p>
+<span class="heading-anchor" id="三类 framing"></span><h3 id="framing">三类 framing</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>格式</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定长</td>
+<td>每条消息固定 N 字节</td>
+<td>解析简单</td>
+<td>浪费空间，不适合变长</td>
+</tr>
+<tr>
+<td>分隔符</td>
+<td>payload 后跟 <code>\n</code> 或 <code>\r\n</code></td>
+<td>文本协议友好</td>
+<td>payload 转义、超长行攻击</td>
+</tr>
+<tr>
+<td>长度字段</td>
+<td>header 中写 payload 长度</td>
+<td>通用高效</td>
+<td>要校验长度、字节序和整数溢出</td>
+</tr>
+</tbody>
+</table></div>
+<p>网络服务最常见的是长度字段协议。</p>
+<span class="heading-anchor" id="framing 的攻击面"></span><h3 id="framing_1">framing 的攻击面</h3>
+<p>分隔符协议要限制最大行长，否则对端一直不发送分隔符会让缓冲区无限增长。长度字段协议要先检查 header，再检查 <code>len &lt;= maxFrameSize</code>，再判断完整 payload 是否到达。任何乘法、加法或 <code>readableBytes - headerSize</code> 都要先防止整数溢出和无符号下溢。</p>
+<span class="heading-anchor" id="字节序"></span><h3 id="_6">字节序</h3>
+<p>协议中的整数要明确端序。常见选择是网络字节序，即大端。不要把主机内存结构体直接 <code>send</code> 出去，因为结构体有字节序、对齐、padding 和 ABI 问题。</p>
+<span class="heading-anchor" id="校验"></span><h3 id="_7">校验</h3>
+<p>校验用于发现数据损坏或协议错位。常见层次：</p>
+<ul>
+<li>TCP checksum：传输层已有，但应用无法依赖它做业务完整性。</li>
+<li>magic number：快速判断是否对齐到本协议。</li>
+<li>header checksum 或 payload checksum：发现应用层数据损坏。</li>
+<li>认证码或签名：防篡改，需要密码学设计，不能用普通 CRC 替代。</li>
+</ul>
+<span class="heading-anchor" id="版本兼容"></span><h3 id="_8">版本兼容</h3>
+<p>协议演进要考虑：</p>
+<ul>
+<li>header 带 version。</li>
+<li>增加字段时保持旧客户端可忽略。</li>
+<li>删除字段要经历兼容窗口。</li>
+<li>长度字段允许跳过未知扩展。</li>
+<li>错误码和能力协商比“猜对端版本”更可靠。</li>
+</ul>
+<span class="heading-anchor" id="序列化与 Protobuf"></span><h3 id="protobuf">序列化与 Protobuf</h3>
+<p>序列化解决对象到字节的映射。常见选择：</p>
+<ul>
+<li>JSON：可读，调试友好，体积和解析成本较高。</li>
+<li>Protobuf：二进制紧凑，IDL 明确，跨语言友好。</li>
+<li>FlatBuffers/Cap'n Proto：强调少拷贝访问，使用复杂度更高。</li>
+</ul>
+<p>Protobuf 负责消息体结构，不负责 TCP framing。即使用 Protobuf，外层仍然需要长度字段或其他边界定义。具体语法和兼容规则以官方文档为准。</p>
+<span class="heading-anchor" id="Protobuf 演进边界"></span><h3 id="protobuf_1">Protobuf 演进边界</h3>
+<p>Protobuf 的字段编号是兼容性的核心资产，删除字段后不要复用 tag；新增字段通常能被旧端忽略，但“字段含义改变”“必填语义改变”“枚举默认值改变”仍可能破坏业务。协议演进应配合版本、能力协商或灰度发布，而不是只依赖序列化库。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_9">工程实践/示例</h2>
+<span class="heading-anchor" id="一个长度字段协议"></span><h3 id="_10">一个长度字段协议</h3>
+<pre><code class="language-text">0        4        6        8        12
++--------+--------+--------+--------+-----------+
+| magic  | ver/u16| type/u16| len/u32 | payload  |
++--------+--------+--------+--------+-----------+
+</code></pre>
+<p>规则：</p>
+<ul>
+<li>所有整数使用网络字节序。</li>
+<li><code>magic</code> 固定为协议标识。</li>
+<li><code>len</code> 是 payload 长度，不包括 header。</li>
+<li><code>len</code> 必须小于等于配置的 <code>maxFrameSize</code>。</li>
+<li>解码器必须能在数据不足时保留缓冲区等待下次读。</li>
+</ul>
+<span class="heading-anchor" id="健壮解码器思路"></span><h3 id="_11">健壮解码器思路</h3>
+<pre><code class="language-cpp">enum class DecodeResult {
+    NeedMore,
+    GotFrame,
+    ProtocolError
+};
+
+DecodeResult tryDecode(Buffer&amp; in, Frame&amp; out) {
+    constexpr size_t kHeaderSize = 12;
+    constexpr uint32_t kMagic = 0x12345678;
+    constexpr uint32_t kMaxFrame = 8 * 1024 * 1024;
+
+    if (in.readableBytes() &lt; kHeaderSize) return DecodeResult::NeedMore;
+
+    uint32_t magic = in.peekU32BE(0);
+    if (magic != kMagic) return DecodeResult::ProtocolError;
+
+    uint16_t version = in.peekU16BE(4);
+    uint16_t type = in.peekU16BE(6);
+    uint32_t len = in.peekU32BE(8);
+
+    if (!isSupportedVersion(version)) return DecodeResult::ProtocolError;
+    if (len &gt; kMaxFrame) return DecodeResult::ProtocolError;
+    if (in.readableBytes() - kHeaderSize &lt; len) return DecodeResult::NeedMore;
+
+    in.retrieve(kHeaderSize);
+    out.version = version;
+    out.type = type;
+    out.payload = in.readBytes(len);
+    return DecodeResult::GotFrame;
+}
+</code></pre>
+<p>注意 <code>in.readableBytes() - kHeaderSize</code> 前必须保证 <code>readableBytes &gt;= kHeaderSize</code>，避免无符号下溢。</p>
+<span class="heading-anchor" id="解码循环"></span><h3 id="_12">解码循环</h3>
+<pre><code class="language-cpp">void onBytes(Buffer&amp; input) {
+    while (true) {
+        Frame frame;
+        DecodeResult r = tryDecode(input, frame);
+        if (r == DecodeResult::NeedMore) break;
+        if (r == DecodeResult::ProtocolError) {
+            closeConnection();
+            break;
+        }
+        dispatch(frame);
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="编码路径"></span><h3 id="_13">编码路径</h3>
+<p>编码也要做边界检查。发送前先序列化 payload，检查大小，再写 header 和 payload：</p>
+<pre><code class="language-cpp">bool encode(const Frame&amp; frame, Buffer&amp; out) {
+    if (frame.payload.size() &gt; kMaxFrame) return false;
+    out.appendU32BE(kMagic);
+    out.appendU16BE(frame.version);
+    out.appendU16BE(frame.type);
+    out.appendU32BE(static_cast&lt;uint32_t&gt;(frame.payload.size()));
+    out.append(frame.payload);
+    return true;
+}
+</code></pre>
+<p>这段省略了 checksum 和压缩。返回 <code>false</code> 表示本地要发送的消息已经违反协议上限，通常应转成内部错误，而不是把超大 frame 写给对端。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_14">故障排查/观测</h2>
+<span class="heading-anchor" id="协议错误定位"></span><h3 id="_15">协议错误定位</h3>
+<p>协议日志不要直接打印完整 payload，容易泄露隐私并放大日志量。建议记录连接 id、frame type、version、payload length、decode result、错误 offset、magic 是否匹配和缓冲区长度。必要时用采样十六进制 dump 头部少量字节。</p>
+<span class="heading-anchor" id="测试矩阵"></span><h3 id="_16">测试矩阵</h3>
+<p>最小测试应覆盖：空输入、半个 header、完整 header 半个 body、一次多个 frame、错误 magic、不支持版本、超大 len、len 边界值、随机分片输入。对长度字段解码器，属性测试可以验证“任意分片后的输出消息序列等于完整输入解析结果”。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_17">推导示例</h2>
+<span class="heading-anchor" id="为什么先检查长度再分配"></span><h3 id="_18">为什么先检查长度再分配</h3>
+<p>错误做法是读取 <code>len</code> 后立即 <code>resize(len)</code>。恶意客户端只要发送一个很大的长度字段，就能让进程分配巨量内存。正确顺序是：确认 header 完整，解析长度，检查 <code>len &lt;= maxFrameSize</code>，确认缓冲区里已有足够 payload，再移动或复制 payload。</p>
+<pre><code class="language-text">header complete -&gt; validate magic/version/len -&gt; wait body -&gt; emit frame
+</code></pre>
+<span class="heading-anchor" id="协议升级的灰度窗口"></span><h3 id="_19">协议升级的灰度窗口</h3>
+<p>新增字段时，先让服务端能读旧新两种格式，再灰度客户端发送新字段，最后观察旧版本流量归零后才清理兼容路径。删除字段或改变枚举语义更危险，需要保留 reserved tag、兼容错误码和回滚方案。</p>
+<span class="heading-anchor" id="如何讲粘包"></span><h3 id="_20">如何讲粘包</h3>
+<p>“粘包”不是 TCP 把包粘坏了，而是应用把字节流误认为消息流。回答时先说明 TCP 只保证有序字节，再说明应用层 framing，最后给出增量解析和最大 frame 限制，才能覆盖正确性和安全边界。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_21">最小验收清单</h3>
+<ul>
+<li>解码器能返回 NeedMore/GotFrame/ProtocolError。</li>
+<li>长度字段有端序、上限和溢出检查。</li>
+<li>Protobuf 外层仍有 framing。</li>
+<li>测试覆盖随机分片和多 frame 输入。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_22">常见误区</h2>
+<ul>
+<li>认为 Protobuf 自动解决粘包。</li>
+<li>直接发送 C++ 结构体内存。</li>
+<li>不限制 frame 长度，给恶意客户端 OOM 入口。</li>
+<li>忽略整数溢出和无符号下溢。</li>
+<li>协议升级时只改服务端，不考虑旧客户端和灰度窗口。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_23">自测题</h2>
+<ol>
+<li>半包和粘包为什么是应用层必须处理的问题？</li>
+<li>分隔符协议如何防止超长行攻击？</li>
+<li>长度字段为什么要有最大值？</li>
+<li>Protobuf 的 tag 兼容机制能解决哪些问题，不能解决哪些问题？</li>
+<li>为什么不能直接 <code>send(&amp;obj, sizeof(obj), 0)</code>？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_24">实践任务</h2>
+<ul>
+<li>在 echo server 上实现 4 字节大端长度字段协议。</li>
+<li>加入最大 frame 限制，超过后关闭连接。</li>
+<li>写测试覆盖：一次读半包、一次读多包、错误长度、错误 magic。</li>
+<li>把 payload 从原始字符串替换为 Protobuf 消息。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_25">延伸阅读</h2>
+<ul>
+<li>Protocol Buffers 官方文档: https://protobuf.dev/</li>
+<li>Protobuf 编码说明: https://protobuf.dev/programming-guides/encoding/</li>
+<li><code>byteorder(3)</code>: https://man7.org/linux/man-pages/man3/htons.3.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

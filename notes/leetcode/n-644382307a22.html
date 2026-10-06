@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>N 皇后：逐行选择与冲突集合（51） · 李杨的学习笔记</title><meta name="description" content="LeetCode 51 的核心是：每层递归处理一行，为这一行选择一个不冲突的列，并用三个集合记录列和两类对角线是否已被占用。"><meta property="og:title" content="N 皇后：逐行选择与冲突集合（51） · 李杨的学习笔记"><meta property="og:description" content="LeetCode 51 的核心是：每层递归处理一行，为这一行选择一个不冲突的列，并用三个集合记录列和两类对角线是否已被占用。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-644382307a22.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-644382307a22.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">回溯</p><h1>N 皇后：逐行选择与冲突集合（51）</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E5%9B%9E%E6%BA%AF/N%20%E7%9A%87%E5%90%8E%EF%BC%8851%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、题意</a></li><li><a href="#_2">二、核心思路：一层处理一行</a></li><li><a href="#_3">三、如何编号两类对角线</a></li><li><a href="#1">1. 列</a></li><li><a href="#2">2. \ 方向对角线</a></li><li><a href="#3">3. / 方向对角线</a></li><li><a href="#4-2n-1">4. 为什么长度是 2n - 1</a></li><li><a href="#_4">四、合法性判断</a></li><li><a href="#n-4">五、示例推演：n = 4</a></li><li><a href="#c">六、C++ 代码</a></li><li><a href="#_5">七、变量含义</a></li><li><a href="#_6">八、常见错误</a></li><li><a href="#1-row-col">1. 直接用 row - col 作下标</a></li><li><a href="#2_1">2. 混淆两类对角线</a></li><li><a href="#3_1">3. 只恢复棋盘，没有恢复占用数组</a></li><li><a href="#4-row-n-1">4. 完成条件写成 row == n - 1</a></li><li><a href="#_7">九、复杂度</a></li><li><a href="#_8">十、方法归纳</a></li><li><a href="#_9">来源</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>LeetCode 51 的核心是：每层递归处理一行，为这一行选择一个不冲突的列，并用三个集合记录列和两类对角线是否已被占用。</p>
+<p>总览：<a href="n-d073ec9808d7.html">回溯算法专题</a></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="一、题意"></span><h2 id="_1">一、题意</h2>
+<p>在 <code>n × n</code> 棋盘中放置 <code>n</code> 个皇后，使任意两个皇后都不在：</p>
+<pre><code class="language-text">同一行、同一列或同一条斜线
+</code></pre>
+<p>返回所有合法棋盘，其中：</p>
+<pre><code class="language-text">'Q'：皇后
+'.'：空位
+</code></pre>
+<p><code>n = 4</code> 时有两种解：</p>
+<pre><code class="language-text">.Q..    ..Q.
+...Q    Q...
+Q...    ...Q
+..Q.    .Q..
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="二、核心思路：一层处理一行"></span><h2 id="_2">二、核心思路：一层处理一行</h2>
+<p>规定第 <code>row</code> 层递归只在第 <code>row</code> 行放置一个皇后：</p>
+<pre><code class="language-text">第 0 层：为第 0 行选择一列
+第 1 层：为第 1 行选择一列
+……
+第 n 层：所有行处理完成，保存棋盘
+</code></pre>
+<p>这样同一行天然只会有一个皇后，不需要额外记录行占用状态。</p>
+<p>当前行枚举所有列：</p>
+<pre><code class="language-cpp">for (int col = 0; col &lt; n; col++)
+</code></pre>
+<p>如果当前列和两条对角线都没有皇后，就执行：</p>
+<pre><code class="language-text">放置并标记 → 递归下一行 → 移除并恢复标记
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="三、如何编号两类对角线"></span><h2 id="_3">三、如何编号两类对角线</h2>
+<span class="heading-anchor" id="1. 列"></span><h3 id="1">1. 列</h3>
+<pre><code class="language-cpp">columns[col]
+</code></pre>
+<p>表示第 <code>col</code> 列是否已经有皇后。</p>
+<span class="heading-anchor" id="2. \ 方向对角线"></span><h3 id="2">2. <code>\</code> 方向对角线</h3>
+<p>同一条 <code>\</code> 对角线满足：</p>
+<pre><code class="language-text">row - col 相同
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-text">(0,0)、(1,1)、(2,2)
+</code></pre>
+<p><code>row - col</code> 可能为负数，所以整体加 <code>n - 1</code>：</p>
+<pre><code class="language-cpp">row - col + n - 1
+</code></pre>
+<span class="heading-anchor" id="3. / 方向对角线"></span><h3 id="3">3. <code>/</code> 方向对角线</h3>
+<p>同一条 <code>/</code> 对角线满足：</p>
+<pre><code class="language-text">row + col 相同
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-text">(0,3)、(1,2)、(2,1)、(3,0)
+</code></pre>
+<p>编号直接使用：</p>
+<pre><code class="language-cpp">row + col
+</code></pre>
+<span class="heading-anchor" id="4. 为什么长度是 2n - 1"></span><h3 id="4-2n-1">4. 为什么长度是 <code>2n - 1</code></h3>
+<p>两类对角线编号范围都是：</p>
+<pre><code class="language-text">0 ～ 2n - 2
+</code></pre>
+<p>因此各需要长度为 <code>2n - 1</code> 的状态数组。</p>
+<hr/>
+<span class="heading-anchor" id="四、合法性判断"></span><h2 id="_4">四、合法性判断</h2>
+<p>当前位置 <code>(row, col)</code> 的两个对角线编号：</p>
+<pre><code class="language-cpp">int mainIndex = row - col + n - 1;  // \ 对角线
+int antiIndex = row + col;          // / 对角线
+</code></pre>
+<p>任意状态已被占用时，当前位置不能放皇后：</p>
+<pre><code class="language-cpp">if (columns[col] ||
+    mainDiagonal[mainIndex] ||
+    antiDiagonal[antiIndex]) {
+    continue;
+}
+</code></pre>
+<p>可以把这三个数组理解为三类 <code>used</code>：</p>
+<pre><code class="language-text">columns：列的 used
+mainDiagonal：\ 对角线的 used
+antiDiagonal：/ 对角线的 used
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="五、示例推演：n = 4"></span><h2 id="n-4">五、示例推演：n = 4</h2>
+<p>一条成功路径是：</p>
+<pre><code class="language-text">第 0 行选第 1 列：.Q..
+第 1 行选第 3 列：...Q
+第 2 行选第 0 列：Q...
+第 3 行选第 2 列：..Q.
+</code></pre>
+<p>完整棋盘：</p>
+<pre><code class="language-text">.Q..
+...Q
+Q...
+..Q.
+</code></pre>
+<p>当递归进入：</p>
+<pre><code class="language-cpp">row == n
+</code></pre>
+<p>说明第 <code>0～n-1</code> 行都已放置皇后，可以保存当前棋盘。</p>
+<hr/>
+<span class="heading-anchor" id="六、C++ 代码"></span><h2 id="c">六、C++ 代码</h2>
+<pre><code class="language-cpp">class Solution {
+private:
+    vector&lt;vector&lt;string&gt;&gt; answer;
+    vector&lt;string&gt; board;
+
+    vector&lt;bool&gt; columns;
+    vector&lt;bool&gt; mainDiagonal;  // \：row - col + n - 1
+    vector&lt;bool&gt; antiDiagonal;  // /：row + col
+
+    void backtrack(int row, int n) {
+        // 所有行都已经放置完成
+        if (row == n) {
+            answer.push_back(board);
+            return;
+        }
+
+        // 为当前行枚举所有列
+        for (int col = 0; col &lt; n; col++) {
+            int mainIndex = row - col + n - 1;
+            int antiIndex = row + col;
+
+            if (columns[col] ||
+                mainDiagonal[mainIndex] ||
+                antiDiagonal[antiIndex]) {
+                continue;
+            }
+
+            // 1. 放置皇后并标记冲突集合
+            board[row][col] = 'Q';
+            columns[col] = true;
+            mainDiagonal[mainIndex] = true;
+            antiDiagonal[antiIndex] = true;
+
+            // 2. 处理下一行
+            backtrack(row + 1, n);
+
+            // 3. 移除皇后并恢复所有状态
+            board[row][col] = '.';
+            columns[col] = false;
+            mainDiagonal[mainIndex] = false;
+            antiDiagonal[antiIndex] = false;
+        }
+    }
+
+public:
+    vector&lt;vector&lt;string&gt;&gt; solveNQueens(int n) {
+        answer.clear();
+
+        board.assign(n, string(n, '.'));
+        columns.assign(n, false);
+        mainDiagonal.assign(2 * n - 1, false);
+        antiDiagonal.assign(2 * n - 1, false);
+
+        backtrack(0, n);
+        return answer;
+    }
+};
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="七、变量含义"></span><h2 id="_5">七、变量含义</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>row</code></td>
+<td>当前准备放置皇后的行</td>
+</tr>
+<tr>
+<td><code>col</code></td>
+<td>当前尝试的列</td>
+</tr>
+<tr>
+<td><code>board</code></td>
+<td>当前棋盘</td>
+</tr>
+<tr>
+<td><code>columns[col]</code></td>
+<td>第 <code>col</code> 列是否被占用</td>
+</tr>
+<tr>
+<td><code>mainDiagonal[row-col+n-1]</code></td>
+<td>当前 <code>\</code> 对角线是否被占用</td>
+</tr>
+<tr>
+<td><code>antiDiagonal[row+col]</code></td>
+<td>当前 <code>/</code> 对角线是否被占用</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="八、常见错误"></span><h2 id="_6">八、常见错误</h2>
+<span class="heading-anchor" id="1. 直接用 row - col 作下标"></span><h3 id="1-row-col">1. 直接用 <code>row - col</code> 作下标</h3>
+<p>当 <code>row &lt; col</code> 时会得到负数。必须平移：</p>
+<pre><code class="language-cpp">row - col + n - 1
+</code></pre>
+<span class="heading-anchor" id="2. 混淆两类对角线"></span><h3 id="2_1">2. 混淆两类对角线</h3>
+<pre><code class="language-text">\ 方向：row - col 相同
+/ 方向：row + col 相同
+</code></pre>
+<span class="heading-anchor" id="3. 只恢复棋盘，没有恢复占用数组"></span><h3 id="3_1">3. 只恢复棋盘，没有恢复占用数组</h3>
+<p>下面四个状态描述同一次选择，必须同步恢复：</p>
+<pre><code class="language-cpp">board[row][col] = '.';
+columns[col] = false;
+mainDiagonal[mainIndex] = false;
+antiDiagonal[antiIndex] = false;
+</code></pre>
+<span class="heading-anchor" id="4. 完成条件写成 row == n - 1"></span><h3 id="4-row-n-1">4. 完成条件写成 <code>row == n - 1</code></h3>
+<p><code>row == n - 1</code> 表示正准备处理最后一行，最后一个皇后尚未放置。正确条件是：</p>
+<pre><code class="language-cpp">row == n
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="九、复杂度"></span><h2 id="_7">九、复杂度</h2>
+<p>搜索规模通常用：</p>
+<pre><code class="language-text">O(n!)
+</code></pre>
+<p>表示；对角线限制会剪掉大量分支。每保存一个解还需要复制 <code>n × n</code> 棋盘。</p>
+<p>不计算返回结果：</p>
+<pre><code class="language-text">当前棋盘：O(n²)
+递归与三个占用数组：O(n)
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="十、方法归纳"></span><h2 id="_8">十、方法归纳</h2>
+<p>N 皇后可以理解为：</p>
+<blockquote>
+<p>每一行必须选择一个列的排列问题，同时增加两条对角线约束。</p>
+</blockquote>
+<p>模板：</p>
+<pre><code class="language-cpp">void backtrack(int row) {
+    if (row == n) {
+        保存棋盘;
+        return;
+    }
+
+    for (int col = 0; col &lt; n; col++) {
+        if (列或对角线冲突) {
+            continue;
+        }
+
+        放皇后并标记;
+        backtrack(row + 1);
+        移除皇后并恢复标记;
+    }
+}
+</code></pre>
+<p>记忆口诀：</p>
+<pre><code class="language-text">一层一行，循环选列；
+列不能重，两斜线不能撞；
+row 到 n 收答案；
+棋盘和标记必须一起恢复。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="来源"></span><h2 id="_9">来源</h2>
+<ul>
+<li>本次新增会话中用户发送的 LeetCode 51「N 皇后」题目截图；</li>
+<li>本次新增会话中关于逐行回溯、列与两类对角线编号、示例推演、复杂度和 C++ 实现的讨论。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

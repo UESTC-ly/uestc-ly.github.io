@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 11 课：多模型路由和降级 · 李杨的学习笔记</title><meta name="description" content="本页依据通用的大模型应用工程实践整理；项目当前可见资料未提供特定厂商、模型名称或既有路由实现，因此示例使用抽象接口。"><meta property="og:title" content="第 11 课：多模型路由和降级 · 李杨的学习笔记"><meta property="og:description" content="本页依据通用的大模型应用工程实践整理；项目当前可见资料未提供特定厂商、模型名称或既有路由实现，因此示例使用抽象接口。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-9d268efb0863.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-9d268efb0863.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 02-大模型API与Prompt</p><h1>第 11 课：多模型路由和降级</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/02-%E5%A4%A7%E6%A8%A1%E5%9E%8BAPI%E4%B8%8EPrompt/11-%E5%A4%9A%E6%A8%A1%E5%9E%8B%E8%B7%AF%E7%94%B1%E5%92%8C%E9%99%8D%E7%BA%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 为什么需要多模型路由</a></li><li><a href="#2">2. 路由前先定义任务与约束</a></li><li><a href="#3">3. 常见路由策略</a></li><li><a href="#31">3.1 静态规则路由</a></li><li><a href="#32">3.2 评分/加权路由</a></li><li><a href="#33">3.3 级联路由</a></li><li><a href="#34">3.4 混合策略</a></li><li><a href="#4">4. 降级不是简单地“换一个模型”</a></li><li><a href="#5">5. 一个抽象的实现骨架</a></li><li><a href="#6-prompt">6. Prompt、参数与模型版本管理</a></li><li><a href="#7">7. 观测、评测与测试</a></li><li><a href="#8">8. 课后清单</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本页依据通用的大模型应用工程实践整理；项目当前可见资料未提供特定厂商、模型名称或既有路由实现，因此示例使用抽象接口。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 为什么需要多模型路由"></span><h2 id="1">1. 为什么需要多模型路由</h2>
+<p>单一模型通常无法同时在质量、延迟、价格、上下文长度、工具调用、结构化输出和可用性上达到最优。<strong>多模型路由（routing）</strong>是在发起请求前，为任务选择合适模型或服务商的决策过程；<strong>降级（fallback）</strong>则是在首选路径不可用或不满足约束时，按预设策略切换到可兼容的后备路径。</p>
+<p>目标不是“永远使用最强的模型”，而是在明确的质量下限内优化：</p>
+<ul>
+<li>任务成功率和用户体验；</li>
+<li>P95/P99 延迟与可用性；</li>
+<li>单请求与整体成本；</li>
+<li>数据合规、地域和供应商风险；</li>
+<li>输出契约的一致性。</li>
+</ul>
+<span class="heading-anchor" id="2. 路由前先定义任务与约束"></span><h2 id="2">2. 路由前先定义任务与约束</h2>
+<p>每个请求先被描述为一个任务配置，而不只是“一段 prompt”。常见字段如下：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>示例</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务类型</td>
+<td>问答、摘要、代码、分类、视觉理解</td>
+<td>筛选能力匹配的候选模型</td>
+</tr>
+<tr>
+<td>质量等级</td>
+<td><code>basic</code>、<code>standard</code>、<code>premium</code></td>
+<td>决定评测阈值或预算</td>
+</tr>
+<tr>
+<td>输出契约</td>
+<td>纯文本、JSON Schema、工具调用</td>
+<td>排除不兼容模型</td>
+</tr>
+<tr>
+<td>上下文与模态</td>
+<td>token 数、图片、音频</td>
+<td>检查窗口和输入能力</td>
+</tr>
+<tr>
+<td>性能约束</td>
+<td>最大延迟、最大单次成本</td>
+<td>参与排序或直接拒绝</td>
+</tr>
+<tr>
+<td>数据约束</td>
+<td>租户、地区、敏感等级</td>
+<td>限制可使用的服务与缓存</td>
+</tr>
+</tbody>
+</table></div>
+<p>其中，<strong>能力与合规约束应当先于价格排序</strong>。例如，要求严格 JSON Schema 的任务不能仅因价格低而被路由到不支持该能力的模型。</p>
+<span class="heading-anchor" id="3. 常见路由策略"></span><h2 id="3">3. 常见路由策略</h2>
+<span class="heading-anchor" id="3.1 静态规则路由"></span><h3 id="31">3.1 静态规则路由</h3>
+<p>依据显式条件选择模型，例如“含图片使用多模态模型”“超过 32k token 使用长上下文模型”。它可解释、易审计，适合作为第一版和关键约束层，但规则过多会难维护。</p>
+<span class="heading-anchor" id="3.2 评分/加权路由"></span><h3 id="32">3.2 评分/加权路由</h3>
+<p>对通过硬约束的候选模型计算分数：</p>
+<div class="arithmatex">\[
+score(m)=w_qQ(m)-w_lL(m)-w_cC(m)+w_aA(m)
+\]</div>
+<p>其中 <span class="arithmatex">\(Q\)</span> 为离线评测质量，<span class="arithmatex">\(L\)</span> 为近期延迟，<span class="arithmatex">\(C\)</span> 为预估成本，<span class="arithmatex">\(A\)</span> 为近期可用性。质量、延迟等指标必须按任务类别和时间窗口更新，不能将不同类型任务的平均分混用。</p>
+<span class="heading-anchor" id="3.3 级联路由"></span><h3 id="33">3.3 级联路由</h3>
+<p>先尝试低成本模型；仅在结果置信度不足、校验失败或用户任务较难时升级到强模型。级联能降低成本，但要定义“升级信号”：分类置信度、规则检查、评审模型分数或用户显式重试等。不要把“模型自称有把握”作为唯一依据。</p>
+<span class="heading-anchor" id="3.4 混合策略"></span><h3 id="34">3.4 混合策略</h3>
+<p>生产中常见流程是：</p>
+<ol>
+<li>用硬规则过滤不兼容候选；</li>
+<li>按任务等级、预算和实时健康度排序；</li>
+<li>先调用首选模型；</li>
+<li>按失败类型决定重试、切换模型或直接返回可解释错误。</li>
+</ol>
+<span class="heading-anchor" id="4. 降级不是简单地“换一个模型”"></span><h2 id="4">4. 降级不是简单地“换一个模型”</h2>
+<p>后备模型必须满足与首选路径相同的最小契约。应为每条任务链维护兼容性矩阵：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>降级时的要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON 输出</td>
+<td>后备模型也支持结构化输出，或接入本地解析与校验流程</td>
+</tr>
+<tr>
+<td>工具调用</td>
+<td>工具参数 schema、调用语义和并行能力兼容</td>
+</tr>
+<tr>
+<td>上下文</td>
+<td>能容纳裁剪后的消息；必要时先摘要再调用</td>
+</tr>
+<tr>
+<td>多模态</td>
+<td>无多模态后备时，明确拒绝或先完成受控的文本化转换</td>
+</tr>
+<tr>
+<td>安全策略</td>
+<td>不因换模型而绕过内容审核、权限或数据隔离</td>
+</tr>
+</tbody>
+</table></div>
+<p>还要区分不同故障：</p>
+<ul>
+<li><strong>超时、连接错误、5xx、限流</strong>：通常先按第 10 课的退避策略重试；超过预算后可切换提供商或模型。</li>
+<li><strong>4xx 参数错误、鉴权错误、schema 不兼容</strong>：重试通常无效，应修复调用配置或停止请求。</li>
+<li><strong>内容被安全策略拒绝</strong>：不可通过换模型来绕过策略，应返回合规的提示。</li>
+<li><strong>输出质量不足或业务校验失败</strong>：可按级联策略升级模型，但应限制次数并记录原因。</li>
+</ul>
+<span class="heading-anchor" id="5. 一个抽象的实现骨架"></span><h2 id="5">5. 一个抽象的实现骨架</h2>
+<pre><code class="language-python">from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class ModelProfile:
+    name: str
+    supports_json_schema: bool
+    supports_tools: bool
+    max_context_tokens: int
+    estimated_cost: float
+
+
+def select_candidates(task, profiles: list[ModelProfile]) -&gt; list[ModelProfile]:
+    compatible = [
+        p for p in profiles
+        if (not task.requires_json_schema or p.supports_json_schema)
+        and (not task.requires_tools or p.supports_tools)
+        and p.max_context_tokens &gt;= task.input_tokens
+    ]
+    # 实际排序还应纳入近期健康度、延迟、任务评测分和租户策略。
+    return sorted(compatible, key=lambda p: p.estimated_cost)
+
+
+async def invoke_with_fallback(task, invoke, profiles):
+    failures = []
+    for profile in select_candidates(task, profiles):
+        try:
+            return await invoke(profile, task)
+        except TransientProviderError as exc:
+            failures.append({"model": profile.name, "reason": str(exc)})
+            continue
+    raise ServiceUnavailableError("所有兼容模型均暂不可用", failures)
+</code></pre>
+<p>这里的 <code>TransientProviderError</code>、<code>ServiceUnavailableError</code> 和 <code>invoke</code> 是应用自行定义的抽象。真实实现还应在单个模型内部设置超时、有限重试和总请求时间预算，避免后备链无限拉长用户等待时间。</p>
+<span class="heading-anchor" id="6. Prompt、参数与模型版本管理"></span><h2 id="6-prompt">6. Prompt、参数与模型版本管理</h2>
+<p>同一份 prompt 在不同模型上的表现可能不同。应把以下配置版本化并随调用记录：</p>
+<ul>
+<li>模型 ID/快照、服务商与区域；</li>
+<li>system prompt、模板版本和 few-shot 样例版本；</li>
+<li>温度、最大输出 token、工具定义与响应格式；</li>
+<li>路由规则版本和最终选择理由。</li>
+</ul>
+<p>建议将“业务意图”与“供应商请求格式”分层：上层产出统一的 <code>TaskRequest</code>，适配器再转换为具体 API 请求。这样替换服务商时不会将业务逻辑散落在各处。</p>
+<span class="heading-anchor" id="7. 观测、评测与测试"></span><h2 id="7">7. 观测、评测与测试</h2>
+<p>每次调用至少记录结构化元数据，而不记录不必要的敏感原文：</p>
+<ul>
+<li><code>request_id</code>、租户/环境、任务类别；</li>
+<li>路由候选、最终模型、切换次数和切换原因；</li>
+<li>延迟、输入/输出 token、成本估算、缓存命中情况；</li>
+<li>API 失败码、输出校验结果和用户反馈。</li>
+</ul>
+<p>用固定评测集比较不同路由策略的任务成功率、平均成本和 P95 延迟；灰度发布新规则，并为关键任务保留人工审核或可回滚开关。测试至少覆盖：候选过滤、后备顺序、不可重试错误不切换、输出契约在降级后仍成立，以及全链路时间预算。</p>
+<span class="heading-anchor" id="8. 课后清单"></span><h2 id="8">8. 课后清单</h2>
+<ul>
+<li>[ ] 为任务定义能力、质量、成本、延迟和数据约束。</li>
+<li>[ ] 先实现可解释的硬规则与兼容性矩阵，再考虑动态评分。</li>
+<li>[ ] 区分可重试故障、可切换故障和不可绕过的安全/配置错误。</li>
+<li>[ ] 为后备链设置最大次数、总超时和成本上限。</li>
+<li>[ ] 记录路由决策并使用真实评测集持续校准。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>项目一：高性能 KV 服务 · 李杨的学习笔记</title><meta name="description" content="实现一个 Linux C++ 内存 KV 服务，支持 GET/SET/DEL 、TTL 和基本统计。重点不是替代 Redis，而是把 Socket、epoll、Reactor、协议编解码、并发、定时器、优雅关闭和压测串起来。"><meta property="og:title" content="项目一：高性能 KV 服务 · 李杨的学习笔记"><meta property="og:description" content="实现一个 Linux C++ 内存 KV 服务，支持 GET/SET/DEL 、TTL 和基本统计。重点不是替代 Redis，而是把 Socket、epoll、Reactor、协议编解码、并发、定时器、优雅关闭和压测串起来。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-ff80b1a75dba.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-ff80b1a75dba.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 07-综合项目</p><h1>项目一：高性能 KV 服务</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/07-%E7%BB%BC%E5%90%88%E9%A1%B9%E7%9B%AE/01-%E9%A1%B9%E7%9B%AE%E4%B8%80-%E9%AB%98%E6%80%A7%E8%83%BDKV%E6%9C%8D%E5%8A%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 项目目标</a></li><li><a href="#_1">明确非目标</a></li><li><a href="#_2">组件所有权</a></li><li><a href="#2">2. 分阶段实现</a></li><li><a href="#m0">M0：阻塞式基线</a></li><li><a href="#m1-reactor">M1：非阻塞 Reactor</a></li><li><a href="#m2">M2：二进制协议与状态机</a></li><li><a href="#m3">M3：定时器、线程池与背压</a></li><li><a href="#m4">M4：生命周期与可观测性</a></li><li><a href="#3">3. 并发模型选择</a></li><li><a href="#kv_1">KV 数据结构设计</a></li><li><a href="#4">4. 故障与边界测试</a></li><li><a href="#_7">自动化测试矩阵</a></li><li><a href="#5">5. 性能报告模板</a></li><li><a href="#_8">负载模型</a></li><li><a href="#_9">容量粗估</a></li><li><a href="#6">6. 进阶挑战</a></li><li><a href="#7">7. 最终交付物</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 项目目标"></span><h2 id="1">1. 项目目标</h2>
+<p>实现一个 Linux C++ 内存 KV 服务，支持 <code>GET/SET/DEL</code>、TTL 和基本统计。重点不是替代 Redis，而是把 Socket、epoll、Reactor、协议编解码、并发、定时器、优雅关闭和压测串起来。</p>
+<span class="heading-anchor" id="明确非目标"></span><h3 id="_1">明确非目标</h3>
+<p>第一版不追求兼容 Redis 协议、分布式复制、无锁数据结构或极限 benchmark 排名。过早增加这些目标会掩盖真正需要验证的内容：连接与资源生命周期是否正确、协议能否增量解析、过载时内存是否有界、关闭时请求语义是否明确。</p>
+<span class="heading-anchor" id="组件所有权"></span><h3 id="_2">组件所有权</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>建议所有者</th>
+<th>不变量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>监听 fd</td>
+<td>acceptor 所属 event loop</td>
+<td>只在该 loop 注册、摘除和关闭</td>
+</tr>
+<tr>
+<td>连接 fd 与读写缓冲</td>
+<td>connection 所属 event loop</td>
+<td>同一时刻只由一个 loop 推进 I/O</td>
+</tr>
+<tr>
+<td>解码器状态</td>
+<td>connection</td>
+<td>已消费字节不会重复解析，未完成帧继续保留</td>
+</tr>
+<tr>
+<td>KV 分片</td>
+<td>固定 worker/分片</td>
+<td>单 key 的修改由唯一分片串行化或同一锁保护</td>
+</tr>
+<tr>
+<td>定时器</td>
+<td>event loop 或专用 timer owner</td>
+<td>取消后回调不能访问已销毁连接</td>
+</tr>
+<tr>
+<td>工作队列</td>
+<td>thread pool</td>
+<td>容量有界，关闭后不再接受新任务</td>
+</tr>
+</tbody>
+</table></div>
+<p>先写出所有权表，再决定使用裸引用、<code>unique_ptr</code>、<code>shared_ptr</code> 或消息传递。智能指针只是实现手段，不替代线程归属规则。</p>
+<span class="heading-anchor" id="2. 分阶段实现"></span><h2 id="2">2. 分阶段实现</h2>
+<span class="heading-anchor" id="M0：阻塞式基线"></span><h3 id="m0">M0：阻塞式基线</h3>
+<ul>
+<li>单线程阻塞 Socket；</li>
+<li>每行一条文本命令；</li>
+<li><code>unordered_map</code> 保存数据；</li>
+<li>单元测试覆盖命令解析和 TTL 判断。</li>
+</ul>
+<p>验收：明确记录单连接/多连接下的吞吐和延迟，观察阻塞点。</p>
+<p>基线的价值是提供对照。用 <code>strace -c</code> 统计系统调用，用一个慢客户端证明“单连接阻塞整个服务”，并记录服务在客户端不发送换行时停在哪里。</p>
+<span class="heading-anchor" id="M1：非阻塞 Reactor"></span><h3 id="m1-reactor">M1：非阻塞 Reactor</h3>
+<ul>
+<li>监听 fd 与连接 fd 全部非阻塞；</li>
+<li>epoll LT 模式起步；</li>
+<li>每连接独立读写缓冲；</li>
+<li>处理 <code>EINTR</code>、<code>EAGAIN</code>、短读、短写、对端关闭；</li>
+<li>只在写缓冲非空时关注可写事件。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+    C["Client"] --&gt; L["Listen Socket"]
+    L --&gt; E["epoll / EventLoop"]
+    E --&gt; Conn["Connection state"]
+    Conn --&gt; Codec["Frame decoder"]
+    Codec --&gt; Store["KV state machine"]
+    Store --&gt; Conn
+</pre>
+<p>验收：慢客户端不会阻塞其他连接；分片发送请求仍能正确解析；恶意超长帧被拒绝。</p>
+<span class="heading-anchor" id="事件处理细节"></span><h4 id="_3">事件处理细节</h4>
+<ul>
+<li>accept 循环持续到 <code>EAGAIN</code>；新连接立即设置非阻塞和 close-on-exec。</li>
+<li>可读事件循环读取到 <code>EAGAIN</code>；<code>read == 0</code> 表示对端关闭发送方向。</li>
+<li>先尝试直接写；剩余字节进入输出缓冲并按需启用 <code>EPOLLOUT</code>。</li>
+<li>输出缓冲清空后关闭 <code>EPOLLOUT</code>，否则可写 Socket 会让事件循环空转。</li>
+<li>错误/半关闭事件可能与可读事件一起到达，状态机决定先排空还是关闭。</li>
+<li>摘除 epoll 兴趣、取消定时器、关闭 fd 和销毁对象的顺序必须固定。</li>
+</ul>
+<p>event loop 还需要一个跨线程唤醒 fd（如 <code>eventfd</code> 或 pipe）。worker 完成任务后只把完成消息放入队列并唤醒 loop，由 loop 检查连接代数后写回，避免旧任务操作已经复用的 fd。</p>
+<span class="heading-anchor" id="M2：二进制协议与状态机"></span><h3 id="m2">M2：二进制协议与状态机</h3>
+<p>建议帧：<code>magic | version | type | request_id | body_length | body</code>。约束最大 body，采用网络字节序，解析前检查加法溢出和长度上限。</p>
+<p>状态机至少包含：读头、读体、处理、排队写、半关闭/关闭。<code>request_id</code> 让同连接多个在途请求可以关联响应；若不支持乱序，必须在协议中说明。</p>
+<p>验收：对解码器做 fuzz/property 测试；任意网络分片不改变消息结果；未知版本/命令返回稳定错误码。</p>
+<span class="heading-anchor" id="命令语义"></span><h4 id="_4">命令语义</h4>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>请求字段</th>
+<th>响应</th>
+<th>需要说明的边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td>key</td>
+<td>value / not-found</td>
+<td>value 最大长度、过期是否惰性删除</td>
+</tr>
+<tr>
+<td><code>SET</code></td>
+<td>key、value、可选 TTL</td>
+<td>stored / error</td>
+<td>覆盖是否重置 TTL、内存上限</td>
+</tr>
+<tr>
+<td><code>DEL</code></td>
+<td>key</td>
+<td>deleted count</td>
+<td>不存在时是否仍成功，即幂等语义</td>
+</tr>
+<tr>
+<td><code>EXPIRE</code></td>
+<td>key、TTL</td>
+<td>updated / not-found</td>
+<td>TTL 为零、负数和上限如何处理</td>
+</tr>
+<tr>
+<td><code>STATS</code></td>
+<td>可选分组</td>
+<td>指标快照</td>
+<td>统计是否精确、读取成本</td>
+</tr>
+</tbody>
+</table></div>
+<p>协议错误分为连接级与请求级：magic/长度失真可能使后续边界无法恢复，应关闭连接；未知命令但帧边界完整时可以返回错误并继续。错误响应应携带 <code>request_id</code>、稳定错误码和有限文本，不能回显任意恶意输入。</p>
+<span class="heading-anchor" id="增量解码测试"></span><h4 id="_5">增量解码测试</h4>
+<p>对同一合法帧枚举所有切分位置：一次输入、逐字节输入、随机分片输入必须产生相同消息。再生成长度小于头、大于限制、长度溢出、未知版本、多个帧拼接和合法帧后跟坏帧等输入。解析器只返回 <code>NeedMore/Frame/Error</code>，不在数据不足时越界读取。</p>
+<span class="heading-anchor" id="M3：定时器、线程池与背压"></span><h3 id="m3">M3：定时器、线程池与背压</h3>
+<ul>
+<li>最小堆或时间轮管理 TTL 与空闲连接；</li>
+<li>CPU/业务任务进入有界工作池；</li>
+<li>每连接和全局写缓冲有上限；</li>
+<li>队列满时选择拒绝、降级或暂停读；</li>
+<li>异步完成结果回到连接所属 event loop，再检查连接代数/生命周期。</li>
+</ul>
+<p>不要让工作线程直接无约束地操作连接 fd。事件循环应拥有连接状态，跨线程通过消息传递。</p>
+<p>验收：工作池饱和时内存稳定，错误率上升但进程不崩；慢读客户端达到阈值后被限速或断开。</p>
+<span class="heading-anchor" id="TTL 的两个时间问题"></span><h4 id="ttl">TTL 的两个时间问题</h4>
+<p>过期判断需要区分墙上时钟和单调时钟。进程内“距离现在还有多久”适合单调时钟，避免 NTP 调整导致倒退；若要持久化绝对到期时间，则需要墙上时间并在恢复时重新计算。定时器触发只保证“现在应该检查过期”，不能假设准点执行，因此 <code>GET</code> 仍需检查 TTL。</p>
+<p>可使用两种结构：</p>
+<ul>
+<li>最小堆：容易取得最近截止时间；更新 TTL 可能使用新节点 + 版本号惰性删除。</li>
+<li>时间轮：超时分桶，批量处理成本稳定；精度由 tick 决定，长短超时跨度大时可分层。</li>
+</ul>
+<span class="heading-anchor" id="背压链路"></span><h4 id="_6">背压链路</h4>
+<pre class="mermaid">flowchart LR
+    N["Network read"] --&gt; I["Input buffer"]
+    I --&gt; Q["Worker queue"]
+    Q --&gt; W["Workers"]
+    W --&gt; O["Output buffer"]
+    O --&gt; C["Client read speed"]
+</pre>
+<p>任何一段变慢都会向前堆积。为输入缓冲、任务队列、每连接输出缓冲和全局输出字节分别设上限；达到软阈值可暂停读事件，达到硬阈值返回过载或断开。只限制任务数不够，因为不同响应大小的内存成本差异很大。</p>
+<span class="heading-anchor" id="M4：生命周期与可观测性"></span><h3 id="m4">M4：生命周期与可观测性</h3>
+<p>关闭流程：</p>
+<ol>
+<li>收到终止请求；</li>
+<li>readiness 变为失败；</li>
+<li>停止 accept；</li>
+<li>拒绝或限制新请求；</li>
+<li>等待在途请求和写缓冲排空；</li>
+<li>到截止时间后取消/关闭；</li>
+<li>停止线程池、回收线程；</li>
+<li>刷新日志并退出。</li>
+</ol>
+<p>指标至少包含：当前连接、accept/关闭速率、请求 QPS、错误码、P50/P95/P99、事件循环延迟、读写缓冲字节、任务队列长度、拒绝数、TTL 数量、RSS/CPU/fd。</p>
+<p>验收：持续压测中发送终止信号，没有新请求进入，已接受请求在截止时间内完成或得到明确失败，进程无泄漏退出。</p>
+<span class="heading-anchor" id="3. 并发模型选择"></span><h2 id="3">3. 并发模型选择</h2>
+<p>可选演进：</p>
+<ul>
+<li>单 event loop + worker pool：简单，event loop 可能成为瓶颈。</li>
+<li>acceptor + 多 event loop：按连接分发，连接状态局部化。</li>
+<li>分片 KV：每个 loop/worker 拥有部分 key，减少共享锁，但跨分片操作复杂。</li>
+</ul>
+<p>每次只改变一个结构，用压测和火焰图决定是否演进。不要为了“无锁”提前引入难以验证的内存回收算法。</p>
+<span class="heading-anchor" id="KV 数据结构设计"></span><h3 id="kv_1">KV 数据结构设计</h3>
+<p>最简单的 <code>unordered_map&lt;string, Entry&gt;</code> 需要关注哈希攻击、rehash 停顿、字符串分配和全局锁竞争。演进顺序可以是：</p>
+<ol>
+<li>单线程 event loop 直接拥有 map，建立正确性基线；</li>
+<li>多个分片，每个分片一把 mutex，根据稳定 hash 选分片；</li>
+<li>分片由固定 worker 串行拥有，通过队列传递操作，减少共享写；</li>
+<li>只有剖析证明分配/锁是瓶颈时，再评估 arena、对象池或更复杂结构。</li>
+</ol>
+<p>分片数影响锁竞争和扫描成本。<code>STATS</code> 或全量快照需要遍历多个分片，不能假装是免费原子快照；可以返回弱一致统计并明确语义。</p>
+<span class="heading-anchor" id="4. 故障与边界测试"></span><h2 id="4">4. 故障与边界测试</h2>
+<ul>
+<li>客户端只发半个头后停住；</li>
+<li>声明超大 body 或随机字节；</li>
+<li>客户端不读响应，触发写缓冲上限；</li>
+<li>fd 接近上限，验证 accept 错误与恢复；</li>
+<li>工作线程故意变慢，观察队列、延迟和拒绝；</li>
+<li>关闭过程中持续建连和发送请求；</li>
+<li>系统时钟变化，TTL 使用单调时钟还是墙上时钟？</li>
+</ul>
+<span class="heading-anchor" id="自动化测试矩阵"></span><h3 id="_7">自动化测试矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>测试内容</th>
+<th>关键断言</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单元</td>
+<td>Buffer、Codec、TTL、命令状态机</td>
+<td>任意分片等价、边界不越界</td>
+</tr>
+<tr>
+<td>集成</td>
+<td>真 Socket + event loop</td>
+<td>短读短写、半关闭、并发连接</td>
+</tr>
+<tr>
+<td>并发</td>
+<td>多 worker、多分片 key</td>
+<td>无数据竞争、结果满足命令语义</td>
+</tr>
+<tr>
+<td>模糊测试</td>
+<td>随机帧、长度、命令序列</td>
+<td>不崩溃、内存有界、错误稳定</td>
+</tr>
+<tr>
+<td>故障</td>
+<td>队列满、fd 耗尽、慢客户端</td>
+<td>受控拒绝、其他请求继续服务</td>
+</tr>
+<tr>
+<td>生命周期</td>
+<td>启动失败、SIGTERM、强制截止</td>
+<td>无新流量、在途有明确结果、线程全部回收</td>
+</tr>
+</tbody>
+</table></div>
+<p>Debug/CI 构建分别运行 ASan+UBSan 和 TSan；它们解决的问题不同，不要只跑一次短压测就宣称没有并发缺陷。</p>
+<span class="heading-anchor" id="5. 性能报告模板"></span><h2 id="5">5. 性能报告模板</h2>
+<p>报告必须写清：CPU、内存、内核、编译优化、线程数、连接数、请求/响应大小、读写比例、key 分布、持续时间、预热方式、客户端是否成为瓶颈。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>并发</th>
+<th>QPS</th>
+<th>P50</th>
+<th>P95</th>
+<th>P99</th>
+<th>错误率</th>
+<th>CPU</th>
+<th>RSS</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>优化流程：建立基线 → 提出一个假设 → 用 <code>perf</code>/指标验证 → 做最小修改 → 相同负载复测 → 检查尾延迟和正确性回归。</p>
+<span class="heading-anchor" id="负载模型"></span><h3 id="_8">负载模型</h3>
+<p>至少测三类负载：</p>
+<ul>
+<li>均匀 key、固定小 value：观察网络与协议基线。</li>
+<li>Zipf 热点 key、读多写少：观察锁/分片倾斜和缓存局部性。</li>
+<li>大小 value 混合、包含慢客户端：观察分配、复制、输出背压和尾延迟。</li>
+</ul>
+<p>先做阶梯压测找到饱和点，再在饱和点以下持续运行。若 QPS 不再增长而排队延迟快速上升，说明已经越过容量拐点。报告客户端 CPU/网络，避免把压测机瓶颈误判成服务端能力。</p>
+<span class="heading-anchor" id="容量粗估"></span><h3 id="_9">容量粗估</h3>
+<p>若平均每连接状态为 <code>C</code> 字节、平均存储 key/value/元数据为 <code>E</code> 字节，则内存下界约为：</p>
+<pre><code class="language-text">memory ≈ connections × C + entries × E + buffers + allocator overhead + safety margin
+</code></pre>
+<p>实际值必须用 RSS、heap profile 和不同 key/value 分布测量。哈希桶、字符串容量、碎片和未发送响应可能让实际占用显著高于业务数据大小。</p>
+<span class="heading-anchor" id="6. 进阶挑战"></span><h2 id="6">6. 进阶挑战</h2>
+<ul>
+<li><code>SO_REUSEPORT</code> 多 acceptor 对照实验；</li>
+<li>批量处理 epoll 事件与系统调用；</li>
+<li>快照 + 增量日志持久化，并做崩溃恢复；</li>
+<li>主从复制的小型状态机实验；</li>
+<li>用成熟框架重写网络层，对比代码复杂度与性能。</li>
+</ul>
+<span class="heading-anchor" id="7. 最终交付物"></span><h2 id="7">7. 最终交付物</h2>
+<ul>
+<li>架构、线程模型、连接状态机和关闭时序图；</li>
+<li>协议规范、错误码和兼容策略；</li>
+<li>单元/集成/fuzz/故障测试命令与结果；</li>
+<li>至少两轮可复现压测及一次证据驱动优化；</li>
+<li>一个已知限制清单，例如不支持持久化、统计为弱一致、单机容量上限；</li>
+<li>从干净 Linux 环境构建、运行、压测和关闭的说明。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

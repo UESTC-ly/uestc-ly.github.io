@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-03 文本嵌入模型选择 · 李杨的学习笔记</title><meta name="description" content="模型选择常从一个没有边界的问题开始：“哪个嵌入模型最好？”这个问题缺少输入语言、
+文档类型、查询长度、检索目标、运行环境和预算，所以不存在脱离条件的唯一答案。"><meta property="og:title" content="05-03 文本嵌入模型选择 · 李杨的学习笔记"><meta property="og:description" content="模型选择常从一个没有边界的问题开始：“哪个嵌入模型最好？”这个问题缺少输入语言、
+文档类型、查询长度、检索目标、运行环境和预算，所以不存在脱离条件的唯一答案。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-0a3f69ead2fc.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-0a3f69ead2fc.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-03 文本嵌入模型选择</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/03-text-model-selection.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">不要先问“哪个模型最好”</a></li><li><a href="#_2">第一步：写清任务</a></li><li><a href="#_3">第二步：筛出可运行的候选</a></li><li><a href="#_4">语言与领域</a></li><li><a href="#_5">输入长度与输入模式</a></li><li><a href="#_6">维度与存储</a></li><li><a href="#_7">部署、延迟和吞吐</a></li><li><a href="#_8">许可证与可持续性</a></li><li><a href="#_9">第三步：建立代表性评估集</a></li><li><a href="#_10">第四步：比较候选而不是只看一个平均数</a></li><li><a href="#_11">排名指标不是最终答案指标</a></li><li><a href="#_12">一个选择例子：中英混合帮助中心</a></li><li><a href="#_13">建立表示版本契约</a></li><li><a href="#_14">常见选择误区</a></li><li><a href="#_15">安全与诚实边界</a></li><li><a href="#_16">候选表练习</a></li><li><a href="#_17">自测</a></li><li><a href="#_18">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 25 分钟候选表练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 05-01 与 05-02；知道文档块、查询、Top-K、相似度和表示版本</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真实候选验证可能需要下载模型或调用服务，并产生相应资源或费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用纸面候选表完成约束分析，不运行任何模型</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>把业务任务、语言、领域、延迟、成本和隐私约束写成模型选择条件；</li>
+<li>设计包含有答案与无答案查询的轻量检索评估集；</li>
+<li>区分公开榜单、供应商说明和本地任务证据；</li>
+<li>为选定模型定义可重现的表示版本与回退条件。</li>
+</ul>
+<span class="heading-anchor" id="不要先问“哪个模型最好”"></span><h2 id="_1">不要先问“哪个模型最好”</h2>
+<p>模型选择常从一个没有边界的问题开始：“哪个嵌入模型最好？”这个问题缺少输入语言、
+文档类型、查询长度、检索目标、运行环境和预算，所以不存在脱离条件的唯一答案。</p>
+<p>更可执行的问题是：</p>
+<blockquote>
+<p>在当前知识库、代表性查询、权限规则和资源约束下，哪个候选能让正确证据稳定进入候选集，
+同时满足延迟、成本、部署和数据治理要求？</p>
+</blockquote>
+<p>这把选择从品牌或榜单比较，转成可以记录、复现和重新评估的工程决策。</p>
+<span class="heading-anchor" id="第一步：写清任务"></span><h2 id="_2">第一步：写清任务</h2>
+<p>同样是文本检索，任务可能完全不同：</p>
+<ul>
+<li>用户用口语问题检索正式政策；</li>
+<li>用短商品名寻找长说明；</li>
+<li>用代码错误信息寻找故障文档；</li>
+<li>用中文问题检索中英混合资料；</li>
+<li>判断两段文字是否近似重复；</li>
+<li>在法律或医疗资料中寻找需要人工核对的候选证据。</li>
+</ul>
+<p>这些任务对语言、领域词汇、长短文本匹配和错误成本的要求不同。先写出“查询是什么、
+候选是什么、正确结果如何判断”，再列模型。</p>
+<p>一个任务说明至少应包含：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>约束</th>
+<th>要回答的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入</td>
+<td>查询与文档块是什么语言、长度和格式？</td>
+</tr>
+<tr>
+<td>目标</td>
+<td>需要找同义内容、相关主题、问答证据还是近重复？</td>
+</tr>
+<tr>
+<td>数据域</td>
+<td>是否包含专业术语、代码、表格标题或混合语言？</td>
+</tr>
+<tr>
+<td>错误成本</td>
+<td>漏掉正确证据和召回错误证据，哪个更危险？</td>
+</tr>
+<tr>
+<td>规模</td>
+<td>文档量、更新频率和查询并发大致处于什么范围？</td>
+</tr>
+<tr>
+<td>运行</td>
+<td>本地、私有环境还是外部服务？是否允许联网？</td>
+</tr>
+<tr>
+<td>治理</td>
+<td>数据分类、地区、保留、许可证和审计要求是什么？</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="第二步：筛出可运行的候选"></span><h2 id="_3">第二步：筛出可运行的候选</h2>
+<p>在比较检索效果前，先排除无法满足硬约束的候选。</p>
+<span class="heading-anchor" id="语言与领域"></span><h3 id="_4">语言与领域</h3>
+<p>模型说明支持某种语言，不等于能理解你的术语、缩写和查询习惯。需要用真实数据验证。
+专业领域还可能包含常见词的特殊含义，例如“召回”在检索系统和日常语言中含义不同。</p>
+<span class="heading-anchor" id="输入长度与输入模式"></span><h3 id="_5">输入长度与输入模式</h3>
+<p>模型能够接收的最大输入长度会影响长文本处理，但“能输入更长”不代表应该跳过合理切分。
+静默截断会让同一块的尾部信息消失。某些模型还区分查询与文档输入，或要求特定前缀；
+是否需要这些设置必须以所选模型的正式说明为准，不能把一个模型的惯例复制到所有模型。</p>
+<span class="heading-anchor" id="维度与存储"></span><h3 id="_6">维度与存储</h3>
+<p>更高维度通常意味着更多存储和传输开销，但维度本身不是质量排名。向量存储、索引和接口
+必须支持候选输出的维度与度量。若为了节省空间采用降维或截断，需要单独验证效果，不能
+假定前若干维保留了全部重要信息。</p>
+<span class="heading-anchor" id="部署、延迟和吞吐"></span><h3 id="_7">部署、延迟和吞吐</h3>
+<p>本地模型需要计算资源、模型文件和运维能力；外部服务减少部分部署工作，却引入网络、
+配额、可用性和数据治理依赖。延迟应分开观察单条请求、批量索引和高并发查询，不能用一次
+快速调用代表整个系统。</p>
+<span class="heading-anchor" id="许可证与可持续性"></span><h3 id="_8">许可证与可持续性</h3>
+<p>确认模型、代码、权重和服务条款是否允许目标用途。还要考虑版本能否固定、旧版本是否可
+继续使用、升级通知和退出路径。可变的产品能力、价格和条款应在采用时查阅当前官方来源，
+本章不登记具体供应商结论。</p>
+<span class="heading-anchor" id="第三步：建立代表性评估集"></span><h2 id="_9">第三步：建立代表性评估集</h2>
+<p>评估集不必一开始很大，但必须覆盖真实风险。可以从搜索日志、客服问题、业务测试用例和
+专家编写的困难问题中抽样，并在使用日志前完成必要的脱敏和授权。</p>
+<p>每个评估项至少包含：</p>
+<ul>
+<li>查询文本；</li>
+<li>允许作为正确证据的文本块或文档范围；</li>
+<li>产品、地区、时间、角色等必要过滤条件；</li>
+<li>是否应当无答案；</li>
+<li>标注依据与审核人；</li>
+<li>容易混淆的错误候选。</li>
+</ul>
+<p>不要只收集措辞与正文高度相似的简单问题。还应加入缩写、口语表达、否定条件、相近产品、
+旧版本、跨语言查询和确实没有答案的请求。</p>
+<span class="heading-anchor" id="第四步：比较候选而不是只看一个平均数"></span><h2 id="_10">第四步：比较候选而不是只看一个平均数</h2>
+<p>最直观的检查是：正确证据是否进入前 K 个候选。可以记录命中情况、排名和无答案查询的
+错误召回，再按语言、产品和难度分组观察。</p>
+<p>比较时应固定其他变量：使用相同语料版本、切分、元数据过滤、Top-K 和评估集。如果同时
+更换模型、切分大小和重排器，即使结果变好也无法知道是哪项变化造成的。</p>
+<p>平均结果可能掩盖关键失败。例如总体表现相近的两个候选，一个持续漏掉中文缩写，另一个
+在长政策上较弱。最终选择应结合业务风险，而不是只按总分排序。</p>
+<span class="heading-anchor" id="排名指标不是最终答案指标"></span><h3 id="_11">排名指标不是最终答案指标</h3>
+<p>嵌入评估首先衡量候选检索。最终回答还受到过滤、上下文构造和生成影响。回答变好不一定
+证明嵌入更好，回答变差也可能源于后续环节。保留中间候选才能分清责任。</p>
+<span class="heading-anchor" id="一个选择例子：中英混合帮助中心"></span><h2 id="_12">一个选择例子：中英混合帮助中心</h2>
+<p>假设帮助中心正文以中文为主，但包含英文产品名和错误码。用户可能输入“同步失败 E42
+怎么办”，正确证据是一段中文故障说明。</p>
+<p>团队先写出硬约束：数据不能离开指定环境；索引每天更新；查询延迟有内部目标；向量存储
+支持的维度有限。然后筛出三个可部署候选，用同一批文本块建立三个隔离索引。</p>
+<p>评估集包含常见问题、错误码、同义表达、旧版文档和无答案问题。结果显示：候选 A 在普通
+中文问题上较好，但常漏掉错误码；候选 B 对混合文本稳定，却需要更多计算资源；候选 C
+运行轻量，但在长短文本匹配上较弱。</p>
+<p>这时不存在只看榜单的自动答案。团队需要在业务重要性、资源和可运维性之间做决定，记录
+为什么接受哪些弱项，并为被接受的弱项设计监控或后备检索。这个结论只适用于当前评估集
+和约束，后续数据变化需要重新验证。</p>
+<span class="heading-anchor" id="建立表示版本契约"></span><h2 id="_13">建立表示版本契约</h2>
+<p>选定模型后，不要只在配置文件里写一个易变名称。表示版本应能回答：</p>
+<ul>
+<li>使用哪个模型和固定版本或可追踪标识；</li>
+<li>查询与文档分别采用什么输入模式；</li>
+<li>文本如何规范化、加前缀和处理超长输入；</li>
+<li>输出维度、数值类型、归一化方式和相似度度量；</li>
+<li>使用哪版切分数据与语料快照；</li>
+<li>何时生成，怎样找到失败与重试记录；</li>
+<li>哪些变化会触发重新评估或重建索引。</li>
+</ul>
+<p>可以把这些字段组合成内部表示版本，例如 <code>text-embedding-v1</code>。名称本身不重要，重要的是
+它能稳定指向一组可复现配置，而不是随服务端默认值悄悄变化。</p>
+<span class="heading-anchor" id="常见选择误区"></span><h2 id="_14">常见选择误区</h2>
+<ul>
+<li><strong>只看公开榜单：</strong> 榜单任务和你的语料、语言及过滤规则可能不同。</li>
+<li><strong>只比较单条延迟：</strong> 忽略批处理吞吐、并发、冷启动和失败重试。</li>
+<li><strong>只看向量维度：</strong> 把更高维误认为必然更准确。</li>
+<li><strong>忽略无答案查询：</strong> 模型总能给出相似候选，但候选不一定可回答。</li>
+<li><strong>把供应商默认值当契约：</strong> 默认模型、度量或预处理变化可能造成不可见漂移。</li>
+<li><strong>直接在线替换：</strong> 新旧向量混入同一空间，产生难以解释的排序。</li>
+<li><strong>忽略数据治理：</strong> 为了效果评估把未授权日志或敏感正文发送到不合适环境。</li>
+</ul>
+<span class="heading-anchor" id="安全与诚实边界"></span><h2 id="_15">安全与诚实边界</h2>
+<p>检索效果高不代表系统适合自动处理高风险判断。医疗、法律和金融资料中的候选仍需要明确
+来源、适用范围和专业审核流程。评估集本身也可能包含敏感问题与标注，需要限制访问。</p>
+<p>公开评测、论文和供应商材料可以提供候选线索，但不能替代当前任务实验。报告结论时应写
+清数据范围、时间、配置和未覆盖场景，不使用“最佳”“全面领先”等无范围表述。</p>
+<span class="heading-anchor" id="候选表练习"></span><h2 id="_16">候选表练习</h2>
+<p>为“中文内部制度问答”设计一张候选表，至少包含：语言与领域、部署位置、输入长度、维度、
+度量、批量吞吐、单查询延迟、数据治理、版本固定、许可证和退出方案。</p>
+<p>然后写出六条评估查询：两条普通问题、一条缩写、一条旧制度干扰、一条跨语言问题和一条
+无答案问题。为每条查询说明什么候选才算正确。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_17">自测</h2>
+<ol>
+<li>为什么“支持中文”仍需要在自己的中文数据上验证？</li>
+<li>评估两个模型时，为什么应尽量固定切分与过滤配置？</li>
+<li>为什么无答案查询是嵌入评估的重要部分？</li>
+<li>表示版本需要记录哪些会影响向量兼容性的配置？</li>
+<li>公开榜单适合承担什么作用，不适合承担什么作用？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_18">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，未对具体供应商、模型版本、价格或 Benchmark 作当前性声明。</li>
+<li>代码与实验：候选评估脚本和真实模型对比为后续计划；本章只定义选择与记录方法。</li>
+<li>
+<p>摘要：<a href="n-bbbd03ea33e7.html">05-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-e96ed97bbda3.html">05-02 相似度度量与归一化</a></p>
+</li>
+<li>下一章：<a href="n-84c42ad63496.html">05-04 图片与多模态嵌入</a></li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>实验与验证指南 · 李杨的学习笔记</title><meta name="description" content="学习后端开发的关键不是“看懂”，而是让概念在可控实验中产生可观察结果。本篇给出统一实验方法，适用于 C++ 并发、网络服务、Redis、消息队列、搜索与分布式系统。"><meta property="og:title" content="实验与验证指南 · 李杨的学习笔记"><meta property="og:description" content="学习后端开发的关键不是“看懂”，而是让概念在可控实验中产生可观察结果。本篇给出统一实验方法，适用于 C++ 并发、网络服务、Redis、消息队列、搜索与分布式系统。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-7911391248f8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-7911391248f8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发</p><h1>实验与验证指南</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/09-%E5%AE%9E%E9%AA%8C%E4%B8%8E%E9%AA%8C%E8%AF%81%E6%8C%87%E5%8D%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 实验的四类问题</a></li><li><a href="#2">2. 可复现实验环境</a></li><li><a href="#_2">环境清单</a></li><li><a href="#_3">构建矩阵</a></li><li><a href="#3">3. 正确性实验</a></li><li><a href="#_4">从不变量开始</a></li><li><a href="#_5">协议解析</a></li><li><a href="#_6">状态机</a></li><li><a href="#4">4. 并发实验</a></li><li><a href="#_7">常见注入方法</a></li><li><a href="#_8">死锁排查</a></li><li><a href="#_9">竞态证据</a></li><li><a href="#5">5. 网络实验</a></li><li><a href="#_10">流量形态</a></li><li><a href="#_11">需要观察的层次</a></li><li><a href="#6-redis">6. Redis 和数据库实验</a></li><li><a href="#_12">缓存故障</a></li><li><a href="#_13">一致性时间线</a></li><li><a href="#_14">数据库实验</a></li><li><a href="#7">7. 消息队列实验</a></li><li><a href="#_15">可靠性断点</a></li><li><a href="#_16">积压实验</a></li><li><a href="#_17">毒消息</a></li><li><a href="#8">8. 搜索质量实验</a></li><li><a href="#_18">离线集合</a></li><li><a href="#_19">分层评估</a></li><li><a href="#9">9. 分布式故障实验</a></li><li><a href="#_20">超时不确定性</a></li><li><a href="#_21">网络分区与慢节点</a></li><li><a href="#_22">时间问题</a></li><li><a href="#10">10. 性能实验</a></li><li><a href="#_23">延迟分布</a></li><li><a href="#_24">饱和点</a></li><li><a href="#_25">剖析闭环</a></li><li><a href="#11">11. 故障演练记录模板</a></li><li><a href="#12">12. 常见无效结论</a></li><li><a href="#13">13. 最终检查</a></li></ul></details><article class="note-content">
+<p>学习后端开发的关键不是“看懂”，而是让概念在可控实验中产生可观察结果。本篇给出统一实验方法，适用于 C++ 并发、网络服务、Redis、消息队列、搜索与分布式系统。</p>
+<span class="heading-anchor" id="1. 实验的四类问题"></span><h2 id="1">1. 实验的四类问题</h2>
+<p>每次实验先声明要回答哪类问题：</p>
+<ol>
+<li><strong>正确性</strong>：输入、状态转换和输出是否符合协议或业务不变量？</li>
+<li><strong>可靠性</strong>：依赖失败、进程退出、重复或超时后，系统能否保持已声明的语义？</li>
+<li><strong>性能</strong>：在指定环境和负载下，吞吐、延迟和资源使用怎样变化？</li>
+<li><strong>可运维性</strong>：出现异常时，日志、指标和 trace 能否在目标时间内定位到组件和原因？</li>
+</ol>
+<p>不要用一类证据替代另一类：压测不证明业务正确，单元测试不证明故障恢复，CPU 火焰图也不证明数据一致。</p>
+<span class="heading-anchor" id="2. 可复现实验环境"></span><h2 id="2">2. 可复现实验环境</h2>
+<span class="heading-anchor" id="环境清单"></span><h3 id="_2">环境清单</h3>
+<p>报告至少记录：</p>
+<pre><code class="language-text">OS / kernel:
+CPU / NUMA / virtualization:
+Memory / swap / cgroup limit:
+Disk / filesystem:
+Network topology and bandwidth:
+Compiler and build type:
+Service and client configuration:
+Dataset generator and random seed:
+Test command and duration:
+</code></pre>
+<p>网络、内核调度、文件系统和容器限制都会影响结果。macOS 上的功能实验不能直接代表 Linux epoll 行为；本地容器内的组件吞吐也不能外推生产集群。</p>
+<span class="heading-anchor" id="构建矩阵"></span><h3 id="_3">构建矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>构建</th>
+<th>目的</th>
+<th>典型设置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Debug</td>
+<td>调试、断言、快速定位</td>
+<td>符号完整、低优化、严格警告</td>
+</tr>
+<tr>
+<td>ASan/UBSan</td>
+<td>越界、UAF、部分未定义行为</td>
+<td>独立构建，保留符号</td>
+</tr>
+<tr>
+<td>TSan</td>
+<td>数据竞争</td>
+<td>单独运行，负载不必追求性能</td>
+</tr>
+<tr>
+<td>Release</td>
+<td>性能与部署候选</td>
+<td>优化开启、保留可剖析符号</td>
+</tr>
+</tbody>
+</table></div>
+<p>Sanitizer 会显著改变时间和内存行为，因此它的性能数字不能当作 Release 性能结论。反过来，Release 跑得快也不能替代 Sanitizer 检查。</p>
+<span class="heading-anchor" id="3. 正确性实验"></span><h2 id="3">3. 正确性实验</h2>
+<span class="heading-anchor" id="从不变量开始"></span><h3 id="_4">从不变量开始</h3>
+<p>例：有界队列的不变量可以写成：</p>
+<ul>
+<li><code>0 &lt;= size &lt;= capacity</code>；</li>
+<li>关闭后不再接受新元素；</li>
+<li>已接受元素要么被消费，要么以规定方式取消；</li>
+<li>消费者不会读到未构造对象；</li>
+<li>所有等待线程最终被关闭操作唤醒。</li>
+</ul>
+<p>测试应围绕不变量产生并发操作，而不是只检查某个固定执行顺序。</p>
+<span class="heading-anchor" id="协议解析"></span><h3 id="_5">协议解析</h3>
+<p>长度字段协议至少覆盖：</p>
+<ul>
+<li>完整帧、逐字节输入和随机分片；</li>
+<li>多帧粘在一次输入；</li>
+<li>头不完整、体不完整；</li>
+<li>长度为零、刚好等于上限、超过上限；</li>
+<li>加法溢出、未知版本/类型、随机字节；</li>
+<li>合法帧之后跟非法帧；</li>
+<li>解析错误后连接是关闭还是能够重新同步。</li>
+</ul>
+<p>性质测试：同一字节序列无论如何分片，得到的完整消息序列必须相同。</p>
+<span class="heading-anchor" id="状态机"></span><h3 id="_6">状态机</h3>
+<p>把文档任务、订单、连接或熔断器的状态转换写成表：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>当前状态</th>
+<th>事件</th>
+<th>新状态</th>
+<th>副作用</th>
+<th>重复事件结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>测试所有允许和禁止转换。并发状态更新使用条件写或版本号，断言只有一个竞争者成功。</p>
+<span class="heading-anchor" id="4. 并发实验"></span><h2 id="4">4. 并发实验</h2>
+<span class="heading-anchor" id="常见注入方法"></span><h3 id="_7">常见注入方法</h3>
+<ul>
+<li>在读取共享状态和写入之间插入 barrier，放大竞态窗口。</li>
+<li>随机让线程 yield 或短暂停顿，改变调度顺序。</li>
+<li>在线程池关闭与提交任务同时发生时重复运行。</li>
+<li>在定时器触发、取消和对象销毁之间建立竞争。</li>
+<li>让 worker 在连接关闭后才返回结果，检查代数/状态校验。</li>
+</ul>
+<p>仅靠 <code>sleep</code> 组织测试容易慢且不稳定；优先使用 latch/barrier/condition variable 明确控制到达点。</p>
+<span class="heading-anchor" id="死锁排查"></span><h3 id="_8">死锁排查</h3>
+<p>出现挂起时记录线程栈，检查：</p>
+<ul>
+<li>多把锁的获取顺序是否一致；</li>
+<li>条件变量谓词是否可能永远不成立；</li>
+<li>持锁线程是否在做阻塞 I/O、等待 future 或 join；</li>
+<li>线程池中的任务是否等待同一个已耗尽线程池执行子任务；</li>
+<li>关闭路径是否先销毁了负责唤醒的对象。</li>
+</ul>
+<span class="heading-anchor" id="竞态证据"></span><h3 id="_9">竞态证据</h3>
+<p>TSan 报告提供冲突访问栈，但修复仍要回到不变量和所有权。单纯把字段改成 atomic 可能消除数据竞争，却保留“检查后执行”业务竞态。</p>
+<span class="heading-anchor" id="5. 网络实验"></span><h2 id="5">5. 网络实验</h2>
+<span class="heading-anchor" id="流量形态"></span><h3 id="_10">流量形态</h3>
+<p>分别模拟：</p>
+<ul>
+<li>短连接突发；</li>
+<li>大量低活跃长连接；</li>
+<li>小请求/小响应；</li>
+<li>小请求/大响应并让客户端慢读；</li>
+<li>连接建立后不发送完整请求；</li>
+<li>同一连接 pipeline 多请求；</li>
+<li>半关闭、RST、超时和客户端进程崩溃。</li>
+</ul>
+<span class="heading-anchor" id="需要观察的层次"></span><h3 id="_11">需要观察的层次</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>信号</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用</td>
+<td>当前连接、在途请求、buffer 字节、队列、错误码</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td>线程状态、锁等待、分配和回调延迟</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td>accept/read/write/epoll_wait 的次数、错误和耗时</td>
+</tr>
+<tr>
+<td>TCP</td>
+<td>listen 队列、重传、RTT、各连接状态</td>
+</tr>
+<tr>
+<td>主机</td>
+<td>CPU、上下文切换、软中断、内存、带宽</td>
+</tr>
+</tbody>
+</table></div>
+<p>一次请求慢可能来自入口排队、事件循环没被调度、输出缓冲、TCP 重传或客户端不读。只看业务函数耗时会漏掉这些时间。</p>
+<span class="heading-anchor" id="6. Redis 和数据库实验"></span><h2 id="6-redis">6. Redis 和数据库实验</h2>
+<span class="heading-anchor" id="缓存故障"></span><h3 id="_12">缓存故障</h3>
+<p>构造一个热点 key 同时过期，让大量请求回源。比较：无保护、互斥重建、逻辑过期、随机 TTL 和预热。记录缓存 QPS、回源并发、数据库延迟、等待请求数和失败率。</p>
+<p>对大 key 测试时记录命令耗时、网络响应大小、事件循环阻塞和删除影响。不要只记录 key 占用字节。</p>
+<span class="heading-anchor" id="一致性时间线"></span><h3 id="_13">一致性时间线</h3>
+<p>并发执行读缓存、查数据库、更新数据库和删除缓存，并在每个步骤前后注入暂停。记录哪些交错能把旧值重新写回缓存，再验证版本号、短 TTL、CDC 或对账怎样缩小/修复窗口。</p>
+<span class="heading-anchor" id="数据库实验"></span><h3 id="_14">数据库实验</h3>
+<ul>
+<li>用不同数据分布读取执行计划，比较估算行数与实际行数。</li>
+<li>两个会话复现丢失更新、写偏差或锁等待。</li>
+<li>故意持有长事务，观察 MVCC 版本、锁和清理影响。</li>
+<li>缩小连接池，测池等待；扩大连接池，观察数据库是否因并发上升变慢。</li>
+<li>模拟主从延迟，验证读己之写策略。</li>
+</ul>
+<span class="heading-anchor" id="7. 消息队列实验"></span><h2 id="7">7. 消息队列实验</h2>
+<span class="heading-anchor" id="可靠性断点"></span><h3 id="_15">可靠性断点</h3>
+<p>在以下位置杀死消费者：</p>
+<ol>
+<li>收到消息后、业务前；</li>
+<li>数据库提交前；</li>
+<li>数据库提交后、offset/ack 前；</li>
+<li>offset/ack 后、日志/指标/下游通知前。</li>
+</ol>
+<p>同步请求还应单独测试“服务端业务提交后、客户端响应写回前崩溃”，它解释了为什么客户端超时后不能假定写入没有发生。</p>
+<p>记录消息是否重投、业务是否重复、幂等记录与业务变更是否处于同一事务。第三个断点是检验“至少一次 + 幂等”的关键场景。</p>
+<span class="heading-anchor" id="积压实验"></span><h3 id="_16">积压实验</h3>
+<p>逐步降低消费者处理率或让下游变慢，观察 backlog 条数和最老消息年龄。然后恢复容量并计算实际清空速度：</p>
+<pre><code class="language-text">net_drain_rate = consume_rate - produce_rate
+estimated_drain_time = backlog / net_drain_rate
+</code></pre>
+<p>若净清空率小于等于零，系统不会自行恢复。扩消费者前检查分区数、热点分区、GPU/DB/搜索下游和重试流量。</p>
+<span class="heading-anchor" id="毒消息"></span><h3 id="_17">毒消息</h3>
+<p>发送一个确定性失败输入，确认它不会无限占用同一分区：错误分类、有限重试、死信、告警、修复后重放和审计都要验证。</p>
+<span class="heading-anchor" id="8. 搜索质量实验"></span><h2 id="8">8. 搜索质量实验</h2>
+<span class="heading-anchor" id="离线集合"></span><h3 id="_18">离线集合</h3>
+<p>准备代表真实业务的查询和相关文档标注，包含短查询、长自然语言、专有名词、拼写变化、时间/租户过滤和“无正确答案”。训练/调参查询与最终评估查询分离，避免只对少数示例过拟合。</p>
+<span class="heading-anchor" id="分层评估"></span><h3 id="_19">分层评估</h3>
+<ul>
+<li>召回：Recall@K，正确文档是否进入候选。</li>
+<li>排序：MRR、NDCG 等，正确结果是否靠前。</li>
+<li>系统：P50/P95/P99、超时和资源成本。</li>
+<li>安全：租户/ACL 过滤是否始终成立。</li>
+<li>新鲜度：更新后多长时间可搜索，旧版本何时消失。</li>
+</ul>
+<p>比较 BM25、向量、RRF 融合和重排模型时使用同一集合与过滤条件。展示平均值之外，还要分析失败查询类型。</p>
+<span class="heading-anchor" id="9. 分布式故障实验"></span><h2 id="9">9. 分布式故障实验</h2>
+<span class="heading-anchor" id="超时不确定性"></span><h3 id="_20">超时不确定性</h3>
+<p>让服务端在提交业务后延迟响应，客户端先超时。验证客户端直接重试是否造成重复，幂等键或操作状态查询如何恢复确定性。</p>
+<span class="heading-anchor" id="网络分区与慢节点"></span><h3 id="_21">网络分区与慢节点</h3>
+<p>完全断网不是唯一故障；延迟、丢包、单向通信和慢磁盘更常造成超时与误判。观察健康检查、熔断、选举、重试和连接池如何相互作用，防止把慢依赖的工作转移成大量重试。</p>
+<span class="heading-anchor" id="时间问题"></span><h3 id="_22">时间问题</h3>
+<p>模拟墙上时钟回拨/跳跃，检查 TTL、Snowflake ID、租约和日志排序。时长测量使用单调时钟；跨节点绝对时间只在同步误差假设内有意义。</p>
+<span class="heading-anchor" id="10. 性能实验"></span><h2 id="10">10. 性能实验</h2>
+<span class="heading-anchor" id="延迟分布"></span><h3 id="_23">延迟分布</h3>
+<p>平均延迟会隐藏少量极慢请求。至少报告 P50、P95、P99 和错误率，并说明样本量。协调遗漏（压测客户端因服务变慢而少发请求）会低估真实排队延迟，应使用能维持预定到达率或明确说明闭环模型的工具。</p>
+<span class="heading-anchor" id="饱和点"></span><h3 id="_24">饱和点</h3>
+<p>阶梯增加负载，记录吞吐、延迟、错误、队列和资源：</p>
+<pre><code class="language-text">低负载：吞吐随负载增长，延迟稳定
+接近饱和：某项利用率/队列增长，尾延迟上升
+过载：吞吐不再增长甚至下降，超时和重试放大
+</code></pre>
+<p>系统安全容量应低于拐点，并为单实例故障、发布和流量突发留余量。</p>
+<span class="heading-anchor" id="剖析闭环"></span><h3 id="_25">剖析闭环</h3>
+<ol>
+<li>用指标定位 CPU、等待、内存、网络或下游方向；</li>
+<li>用 <code>perf</code>、火焰图、heap profile、锁/系统调用证据缩小范围；</li>
+<li>提出可证伪假设；</li>
+<li>做最小修改；</li>
+<li>在相同环境复测正确性与性能；</li>
+<li>检查是否把成本转移到尾延迟、内存或其他组件。</li>
+</ol>
+<span class="heading-anchor" id="11. 故障演练记录模板"></span><h2 id="11">11. 故障演练记录模板</h2>
+<pre><code class="language-text">实验名称：
+要验证的保证：
+环境与版本：
+稳态流量：
+故障注入点和持续时间：
+预期用户影响：
+预期日志/指标/trace：
+实际结果：
+自动检测时间：
+自动恢复时间：
+数据差异和对账结果：
+人工动作：
+未满足的假设：
+修复与回归测试：
+</code></pre>
+<span class="heading-anchor" id="12. 常见无效结论"></span><h2 id="12">12. 常见无效结论</h2>
+<ul>
+<li>“跑了一小时没崩，所以线程安全”：随机运行没有覆盖所有交错。</li>
+<li>“QPS 提高，所以优化成功”：可能牺牲了错误率、数据正确性、内存或 P99。</li>
+<li>“消息没丢”：如果没有在 ack/commit 边界注入崩溃，证据不足。</li>
+<li>“缓存一致”：没有枚举并发时间线和删除失败窗口。</li>
+<li>“支持优雅关闭”：只测试空载退出，没有测试长请求、长连接和截止时间。</li>
+<li>“高可用”：部署多副本但没验证共享依赖、容量、切换和恢复数据。</li>
+</ul>
+<span class="heading-anchor" id="13. 最终检查"></span><h2 id="13">13. 最终检查</h2>
+<ul>
+<li>[ ] 实验问题、假设和停止条件明确。</li>
+<li>[ ] 环境、配置、数据和命令可复现。</li>
+<li>[ ] 同时记录结果、错误和资源指标。</li>
+<li>[ ] 正常、边界、并发和故障路径均覆盖。</li>
+<li>[ ] 结论没有超出实验能够证明的范围。</li>
+<li>[ ] 失败实验也保留记录，并说明它推翻了什么假设。</li>
+<li>[ ] 修复后使用同一故障场景回归。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

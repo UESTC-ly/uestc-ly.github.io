@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08 - Cluster 分片与扩展 · 李杨的学习笔记</title><meta name="description" content="目标：理解 Redis Cluster 如何通过哈希槽实现数据分片、如何完成节点扩容和故障转移；能判断什么时候该用 Cluster，什么时候 Sentinel 或单机更合适。"><meta property="og:title" content="08 - Cluster 分片与扩展 · 李杨的学习笔记"><meta property="og:description" content="目标：理解 Redis Cluster 如何通过哈希槽实现数据分片、如何完成节点扩容和故障转移；能判断什么时候该用 Cluster，什么时候 Sentinel 或单机更合适。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-68485ce699d4.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-68485ce699d4.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>08 - Cluster 分片与扩展</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/08-Cluster%E5%88%86%E7%89%87%E4%B8%8E%E6%89%A9%E5%B1%95.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#1-cluster">1. 为什么需要 Cluster</a></li><li><a href="#2-hash-slot">2. 哈希槽（Hash Slot）</a></li><li><a href="#3-hash-tag">3. Hash Tag</a></li><li><a href="#4-cluster">4. Cluster 节点角色</a></li><li><a href="#5-moved-ask">5. MOVED 与 ASK 重定向</a></li><li><a href="#6-key">6. 多 key 操作限制</a></li><li><a href="#7-cluster-sentinel">7. Cluster 与 Sentinel 的区别</a></li><li><a href="#_3">关键命令 / 配置</a></li><li><a href="#cluster">Cluster 基础配置</a></li><li><a href="#_4">创建集群</a></li><li><a href="#cluster_1">使用 Cluster 客户端模式</a></li><li><a href="#_5">查看集群状态</a></li><li><a href="#_6">扩容与迁移</a></li><li><a href="#_7">故障转移相关命令</a></li><li><a href="#3-3-cluster">示例：本机创建 3 主 3 从 Cluster</a></li><li><a href="#1">1. 准备配置文件</a></li><li><a href="#2">2. 启动节点</a></li><li><a href="#3">3. 创建集群</a></li><li><a href="#4">4. 写入与查询</a></li><li><a href="#5-hash-tag">5. 验证 hash tag</a></li><li><a href="#6-master">6. 模拟 master 故障</a></li><li><a href="#_8">常见误区</a></li><li><a href="#1cluster">误区 1：Cluster 就是“自动无限扩容”</a></li><li><a href="#2cluster">误区 2：Cluster 解决所有高可用问题</a></li><li><a href="#3-redis-cluster">误区 3：所有 Redis 命令在 Cluster 中都一样</a></li><li><a href="#4hash-tag">误区 4：Hash tag 用得越多越好</a></li><li><a href="#5-cluster">误区 5：连接任意节点即可，不需要 Cluster 客户端</a></li><li><a href="#6">误区 6：只看节点数量，不看槽分布</a></li><li><a href="#7cluster">误区 7：Cluster 可以替代备份</a></li><li><a href="#_9">实践检查清单</a></li><li><a href="#_10">设计前检查</a></li><li><a href="#_11">部署检查</a></li><li><a href="#_12">扩容 / 缩容检查</a></li><li><a href="#_13">故障演练检查</a></li><li><a href="#_14">延伸阅读关键词</a></li><li><a href="#_15">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标：理解 Redis Cluster 如何通过哈希槽实现数据分片、如何完成节点扩容和故障转移；能判断什么时候该用 Cluster，什么时候 Sentinel 或单机更合适。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本章，你应该能够：</p>
+<ul>
+<li>解释 Redis Cluster 的核心模型：节点、哈希槽、主从复制、故障转移。</li>
+<li>理解 16384 个 hash slots 与 key 到 slot 的映射关系。</li>
+<li>读懂 <code>MOVED</code>、<code>ASK</code>、hash tag、多 key 操作限制等 Cluster 特有行为。</li>
+<li>使用 <code>redis-cli --cluster</code> 创建集群、查看状态、扩容、迁移槽。</li>
+<li>了解 Cluster 的高可用边界、数据一致性边界和常见运维风险。</li>
+<li>根据业务规模、数据量、吞吐量、可用性需求选择单机、Sentinel 或 Cluster。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="1. 为什么需要 Cluster"></span><h3 id="1-cluster">1. 为什么需要 Cluster</h3>
+<p>单个 Redis 实例受限于：</p>
+<ul>
+<li>单机内存容量。</li>
+<li>单线程命令执行模型下的单节点吞吐上限。</li>
+<li>单点故障风险。</li>
+<li>大实例 RDB / AOF 重写、恢复、迁移成本较高。</li>
+</ul>
+<p>Redis Cluster 通过 <strong>分片（sharding）</strong> 把数据分散到多个 master 节点，每个 master 负责一部分哈希槽，并可配置 replica 提供故障转移能力。</p>
+<p>适合场景：</p>
+<ul>
+<li>数据量超过单机内存舒适区。</li>
+<li>写入或读取压力超过单节点能力。</li>
+<li>希望 Redis 原生管理分片和主从故障转移。</li>
+</ul>
+<p>不一定适合场景：</p>
+<ul>
+<li>数据量很小，单机或 Sentinel 已足够。</li>
+<li>业务大量依赖跨 key 原子操作。</li>
+<li>客户端或运维体系尚不支持 Cluster。</li>
+</ul>
+<span class="heading-anchor" id="2. 哈希槽（Hash Slot）"></span><h3 id="2-hash-slot">2. 哈希槽（Hash Slot）</h3>
+<p>Redis Cluster 固定有 <strong>16384 个哈希槽</strong>，每个 key 会映射到一个 slot：</p>
+<pre><code class="language-text">slot = CRC16(key) mod 16384
+</code></pre>
+<p>Cluster 不是“每个节点负责一段 key 名称”，而是“每个 master 负责一组 slot”。例如：</p>
+<pre><code class="language-text">master-1: slots 0 - 5460
+master-2: slots 5461 - 10922
+master-3: slots 10923 - 16383
+</code></pre>
+<p>当客户端访问某个 key 时，需要知道该 key 属于哪个 slot，以及哪个节点负责这个 slot。</p>
+<span class="heading-anchor" id="3. Hash Tag"></span><h3 id="3-hash-tag">3. Hash Tag</h3>
+<p>如果 key 中包含 <code>{...}</code>，Redis Cluster 只对花括号内的内容计算 slot。</p>
+<p>示例：</p>
+<pre><code class="language-text">user:{1001}:profile
+user:{1001}:orders
+cart:{1001}
+</code></pre>
+<p>这些 key 的 hash tag 都是 <code>1001</code>，会落到同一个 slot，因此可以执行部分多 key 操作。</p>
+<p>常见用途：</p>
+<ul>
+<li>同一用户相关数据放在同一 slot。</li>
+<li>需要 <code>MGET</code>、<code>MSET</code>、Lua 脚本或事务同时操作多个 key。</li>
+</ul>
+<p>注意：hash tag 过度集中会造成热点 slot，削弱分片效果。</p>
+<span class="heading-anchor" id="4. Cluster 节点角色"></span><h3 id="4-cluster">4. Cluster 节点角色</h3>
+<p>Cluster 中的 Redis 节点分为：</p>
+<ul>
+<li><strong>Master</strong>：负责一部分 slots，处理这些 slots 的读写。</li>
+<li><strong>Replica</strong>：复制某个 master，master 故障时可被提升。</li>
+</ul>
+<p>Cluster 的高可用依赖 master-replica 结构。只有 master 没有 replica 时，该 master 故障后，它负责的 slots 会不可用，严重时整个集群进入不可用状态。</p>
+<span class="heading-anchor" id="5. MOVED 与 ASK 重定向"></span><h3 id="5-moved-ask">5. MOVED 与 ASK 重定向</h3>
+<p>Cluster 客户端访问错误节点时，会收到重定向响应。</p>
+<span class="heading-anchor" id="MOVED"></span><h4 id="moved">MOVED</h4>
+<p><code>MOVED</code> 表示某个 slot 已经稳定归属于另一个节点：</p>
+<pre><code class="language-text">(error) MOVED 3999 127.0.0.1:7001
+</code></pre>
+<p>客户端应更新 slot 路由表，之后直接访问正确节点。</p>
+<span class="heading-anchor" id="ASK"></span><h4 id="ask">ASK</h4>
+<p><code>ASK</code> 通常出现在 slot 迁移过程中，表示“这次请求临时去另一个节点问”。客户端一般需要先发送 <code>ASKING</code>，再执行命令。</p>
+<p>使用支持 Cluster 的客户端时，这些细节通常由客户端自动处理。</p>
+<span class="heading-anchor" id="6. 多 key 操作限制"></span><h3 id="6-key">6. 多 key 操作限制</h3>
+<p>Redis Cluster 要求大多数多 key 命令涉及的 key 必须在同一个 slot，否则会报错：</p>
+<pre><code class="language-text">(error) CROSSSLOT Keys in request don't hash to the same slot
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-bash">MSET user:1:name Alice user:2:name Bob
+</code></pre>
+<p>如果两个 key 不在同一个 slot，就会失败。</p>
+<p>使用 hash tag 后：</p>
+<pre><code class="language-bash">MSET user:{1}:name Alice user:{1}:email alice@example.com
+</code></pre>
+<p>这两个 key 位于同一 slot，可以执行。</p>
+<span class="heading-anchor" id="7. Cluster 与 Sentinel 的区别"></span><h3 id="7-cluster-sentinel">7. Cluster 与 Sentinel 的区别</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>Sentinel</th>
+<th>Cluster</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主要目标</td>
+<td>主从高可用</td>
+<td>分片扩展 + 高可用</td>
+</tr>
+<tr>
+<td>数据分布</td>
+<td>每个副本保存全量数据</td>
+<td>数据分散到多个 master</td>
+</tr>
+<tr>
+<td>扩容方式</td>
+<td>通常垂直扩容或手动拆分</td>
+<td>迁移 slots 到新节点</td>
+</tr>
+<tr>
+<td>客户端要求</td>
+<td>支持 Sentinel 发现 master</td>
+<td>支持 Cluster slot 路由</td>
+</tr>
+<tr>
+<td>多 key 操作</td>
+<td>单实例语义，限制少</td>
+<td>必须同 slot</td>
+</tr>
+<tr>
+<td>运维复杂度</td>
+<td>中等</td>
+<td>较高</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="关键命令 / 配置"></span><h2 id="_3">关键命令 / 配置</h2>
+<span class="heading-anchor" id="Cluster 基础配置"></span><h3 id="cluster">Cluster 基础配置</h3>
+<p>每个节点都需要开启 cluster 模式：</p>
+<pre><code class="language-conf">port 7000
+cluster-enabled yes
+cluster-config-file nodes-7000.conf
+cluster-node-timeout 5000
+appendonly yes
+</code></pre>
+<p>常用配置说明：</p>
+<pre><code class="language-conf"># 开启 Cluster 模式
+cluster-enabled yes
+
+# 节点自动维护的集群拓扑文件，不建议手工编辑
+cluster-config-file nodes.conf
+
+# 节点超时判断时间，影响故障检测速度
+cluster-node-timeout 5000
+
+# replica 是否允许在 master 故障时参与故障转移
+cluster-replica-no-failover no
+
+# 当部分 slots 不可用时，集群是否停止服务
+cluster-require-full-coverage yes
+</code></pre>
+<p>版本差异：旧资料里可能看到 <code>cluster-slave-no-failover</code>，Redis 5.0 后更推荐 <code>cluster-replica-no-failover</code>，旧名称通常仍兼容。</p>
+<span class="heading-anchor" id="创建集群"></span><h3 id="_4">创建集群</h3>
+<p>假设已有 6 个节点：<code>7000</code> 到 <code>7005</code>，创建 3 master + 3 replica：</p>
+<pre><code class="language-bash">redis-cli --cluster create \
+  127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 \
+  127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+  --cluster-replicas 1
+</code></pre>
+<span class="heading-anchor" id="使用 Cluster 客户端模式"></span><h3 id="cluster_1">使用 Cluster 客户端模式</h3>
+<pre><code class="language-bash"># -c 表示自动处理 MOVED / ASK 重定向
+redis-cli -c -p 7000
+
+SET user:1 Alice
+GET user:1
+CLUSTER KEYSLOT user:1
+CLUSTER NODES
+CLUSTER INFO
+</code></pre>
+<span class="heading-anchor" id="查看集群状态"></span><h3 id="_5">查看集群状态</h3>
+<pre><code class="language-bash">redis-cli --cluster check 127.0.0.1:7000
+redis-cli --cluster info 127.0.0.1:7000
+
+redis-cli -p 7000 CLUSTER INFO
+redis-cli -p 7000 CLUSTER NODES
+redis-cli -p 7000 CLUSTER SLOTS
+</code></pre>
+<span class="heading-anchor" id="扩容与迁移"></span><h3 id="_6">扩容与迁移</h3>
+<p>添加一个新节点：</p>
+<pre><code class="language-bash">redis-cli --cluster add-node 127.0.0.1:7006 127.0.0.1:7000
+</code></pre>
+<p>将新节点作为 replica：</p>
+<pre><code class="language-bash">redis-cli --cluster add-node 127.0.0.1:7007 127.0.0.1:7000 \
+  --cluster-slave --cluster-master-id &lt;master-node-id&gt;
+</code></pre>
+<p>Redis 7.x 文档中更推荐 <code>replica</code> 术语，但 <code>redis-cli --cluster</code> 的部分参数和输出仍可能保留 <code>slave</code> 历史名称。</p>
+<p>重新分配 slots：</p>
+<pre><code class="language-bash">redis-cli --cluster reshard 127.0.0.1:7000
+</code></pre>
+<p>自动均衡 slots：</p>
+<pre><code class="language-bash">redis-cli --cluster rebalance 127.0.0.1:7000
+</code></pre>
+<span class="heading-anchor" id="故障转移相关命令"></span><h3 id="_7">故障转移相关命令</h3>
+<pre><code class="language-bash"># 在 replica 上手动触发故障转移
+redis-cli -p 7003 CLUSTER FAILOVER
+
+# 更激进的手动切换，常用于特殊维护场景，需谨慎
+redis-cli -p 7003 CLUSTER FAILOVER TAKEOVER
+</code></pre>
+<span class="heading-anchor" id="示例：本机创建 3 主 3 从 Cluster"></span><h2 id="3-3-cluster">示例：本机创建 3 主 3 从 Cluster</h2>
+<blockquote>
+<p>学习环境示例，不代表生产部署建议。生产中应跨主机、跨机架或跨可用区部署，并配置认证、TLS、监控和备份。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 准备配置文件"></span><h3 id="1">1. 准备配置文件</h3>
+<p>目录结构：</p>
+<pre><code class="language-text">cluster-lab/
+  7000/redis.conf
+  7001/redis.conf
+  7002/redis.conf
+  7003/redis.conf
+  7004/redis.conf
+  7005/redis.conf
+</code></pre>
+<p>每个配置只需修改 <code>port</code>、<code>dir</code>、<code>cluster-config-file</code>：</p>
+<pre><code class="language-conf">port 7000
+dir ./7000
+cluster-enabled yes
+cluster-config-file nodes-7000.conf
+cluster-node-timeout 5000
+appendonly yes
+protected-mode no
+</code></pre>
+<span class="heading-anchor" id="2. 启动节点"></span><h3 id="2">2. 启动节点</h3>
+<pre><code class="language-bash">redis-server 7000/redis.conf
+redis-server 7001/redis.conf
+redis-server 7002/redis.conf
+redis-server 7003/redis.conf
+redis-server 7004/redis.conf
+redis-server 7005/redis.conf
+</code></pre>
+<span class="heading-anchor" id="3. 创建集群"></span><h3 id="3">3. 创建集群</h3>
+<pre><code class="language-bash">redis-cli --cluster create \
+  127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 \
+  127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+  --cluster-replicas 1
+</code></pre>
+<p>确认后，Redis 会分配 slots，并为每个 master 分配一个 replica。</p>
+<span class="heading-anchor" id="4. 写入与查询"></span><h3 id="4">4. 写入与查询</h3>
+<pre><code class="language-bash">redis-cli -c -p 7000
+
+127.0.0.1:7000&gt; SET user:1 Alice
+-&gt; Redirected to slot [10778] located at 127.0.0.1:7001
+OK
+127.0.0.1:7001&gt; GET user:1
+"Alice"
+127.0.0.1:7001&gt; CLUSTER KEYSLOT user:1
+(integer) 10778
+</code></pre>
+<span class="heading-anchor" id="5. 验证 hash tag"></span><h3 id="5-hash-tag">5. 验证 hash tag</h3>
+<pre><code class="language-bash">redis-cli -c -p 7000
+
+MSET user:{42}:name Bob user:{42}:email bob@example.com
+MGET user:{42}:name user:{42}:email
+CLUSTER KEYSLOT user:{42}:name
+CLUSTER KEYSLOT user:{42}:email
+</code></pre>
+<p>两个 <code>CLUSTER KEYSLOT</code> 的结果应相同。</p>
+<span class="heading-anchor" id="6. 模拟 master 故障"></span><h3 id="6-master">6. 模拟 master 故障</h3>
+<pre><code class="language-bash"># 查看节点关系
+redis-cli -p 7000 CLUSTER NODES
+
+# 停掉某个 master，例如 7000
+redis-cli -p 7000 SHUTDOWN NOSAVE
+
+# 等待 cluster-node-timeout 后查看集群状态
+redis-cli -p 7001 CLUSTER INFO
+redis-cli -p 7001 CLUSTER NODES
+</code></pre>
+<p>如果 7000 有健康 replica，Cluster 会尝试把它提升为新 master。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<span class="heading-anchor" id="误区 1：Cluster 就是“自动无限扩容”"></span><h3 id="1cluster">误区 1：Cluster 就是“自动无限扩容”</h3>
+<p>Cluster 能水平扩展，但扩容需要添加节点、迁移 slots、观察热点与客户端表现。迁移期间会产生 <code>ASK</code> 重定向和额外网络开销。</p>
+<span class="heading-anchor" id="误区 2：Cluster 解决所有高可用问题"></span><h3 id="2cluster">误区 2：Cluster 解决所有高可用问题</h3>
+<p>Cluster 可以自动故障转移，但仍是异步复制。master 故障时，未复制到 replica 的写入可能丢失。</p>
+<span class="heading-anchor" id="误区 3：所有 Redis 命令在 Cluster 中都一样"></span><h3 id="3-redis-cluster">误区 3：所有 Redis 命令在 Cluster 中都一样</h3>
+<p>多 key 命令、Lua 脚本、事务等必须考虑 key 是否在同一 slot。初学时最常见的错误就是 <code>CROSSSLOT</code>。</p>
+<span class="heading-anchor" id="误区 4：Hash tag 用得越多越好"></span><h3 id="4hash-tag">误区 4：Hash tag 用得越多越好</h3>
+<p>Hash tag 能让相关 key 同槽，但如果把大量 key 都放到同一个 tag，会制造热点，导致某个 master 压力过大。</p>
+<span class="heading-anchor" id="误区 5：连接任意节点即可，不需要 Cluster 客户端"></span><h3 id="5-cluster">误区 5：连接任意节点即可，不需要 Cluster 客户端</h3>
+<p>普通客户端不理解 slot 路由和重定向，会频繁收到 <code>MOVED</code> / <code>ASK</code>。生产中应使用成熟的 Redis Cluster 客户端或连接池。</p>
+<span class="heading-anchor" id="误区 6：只看节点数量，不看槽分布"></span><h3 id="6">误区 6：只看节点数量，不看槽分布</h3>
+<p>节点多不代表负载均衡。应检查 slots 分布、key 数量、内存占用、热 key 和命令耗时。</p>
+<span class="heading-anchor" id="误区 7：Cluster 可以替代备份"></span><h3 id="7cluster">误区 7：Cluster 可以替代备份</h3>
+<p>Cluster 解决分片和可用性，不解决误删除、程序 bug、批量覆盖等逻辑错误。仍需要 RDB / AOF / 离线备份和恢复演练。</p>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_9">实践检查清单</h2>
+<span class="heading-anchor" id="设计前检查"></span><h3 id="_10">设计前检查</h3>
+<ul>
+<li>[ ] 单机 Redis 是否已经无法满足内存、吞吐或可用性需求。</li>
+<li>[ ] 业务是否大量依赖跨 key 原子操作。</li>
+<li>[ ] 使用的客户端是否完整支持 Redis Cluster。</li>
+<li>[ ] key 命名是否有清晰规范，必要时是否设计 hash tag。</li>
+<li>[ ] 是否评估热 key、big key 对单个 slot / 节点的影响。</li>
+</ul>
+<span class="heading-anchor" id="部署检查"></span><h3 id="_11">部署检查</h3>
+<ul>
+<li>[ ] 至少 3 个 master，生产中每个 master 至少 1 个 replica。</li>
+<li>[ ] Master 与其 replica 不在同一故障域。</li>
+<li>[ ] <code>cluster-node-timeout</code> 与业务故障恢复目标匹配。</li>
+<li>[ ] 开启认证、必要时开启 TLS，并限制网络访问。</li>
+<li>[ ] 配置持久化与备份策略。</li>
+<li>[ ] 监控 <code>cluster_state</code>、slot 覆盖率、节点连接数、复制延迟和慢查询。</li>
+</ul>
+<span class="heading-anchor" id="扩容 / 缩容检查"></span><h3 id="_12">扩容 / 缩容检查</h3>
+<ul>
+<li>[ ] 扩容前记录 <code>CLUSTER NODES</code> 与 <code>redis-cli --cluster check</code> 输出。</li>
+<li>[ ] 迁移 slots 避开业务高峰。</li>
+<li>[ ] 迁移期间观察 <code>MOVED</code> / <code>ASK</code>、延迟、CPU、网络和错误率。</li>
+<li>[ ] 迁移后执行 <code>redis-cli --cluster rebalance</code> 或检查 slot 分布。</li>
+<li>[ ] 验证客户端路由表能自动刷新。</li>
+</ul>
+<span class="heading-anchor" id="故障演练检查"></span><h3 id="_13">故障演练检查</h3>
+<ul>
+<li>[ ] 演练 master 宕机后 replica 是否能被提升。</li>
+<li>[ ] 演练客户端是否能在故障转移后恢复写入。</li>
+<li>[ ] 明确故障期间可能的数据丢失窗口。</li>
+<li>[ ] 验证告警能覆盖节点失联、slot 不完整、复制中断。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_14">延伸阅读关键词</h2>
+<ul>
+<li>Redis Cluster hash slots</li>
+<li>Redis Cluster hash tags</li>
+<li>Redis MOVED ASK redirection</li>
+<li>Redis Cluster reshard rebalance</li>
+<li>Redis Cluster failover</li>
+<li>Redis CROSSSLOT</li>
+<li>Redis cluster-require-full-coverage</li>
+<li>Redis hot key big key</li>
+<li>Redis Cluster client routing</li>
+</ul>
+<span class="heading-anchor" id="小结"></span><h2 id="_15">小结</h2>
+<p>Redis Cluster 用 16384 个哈希槽把数据分散到多个 master，并通过 replica 和故障转移提高可用性。它适合解决单节点容量和吞吐瓶颈，但会带来客户端路由、多 key 限制、slot 迁移和运维复杂度。选择 Cluster 前，应先确认业务真的需要分片扩展，并设计好 key、客户端、监控、备份和故障演练。</p></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

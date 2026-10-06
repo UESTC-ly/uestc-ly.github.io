@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>IO 模型与 epoll · 李杨的学习笔记</title><meta name="description" content="阻塞/非阻塞关注调用线程是否等待资源就绪；同步/异步关注 IO 完成是谁负责推进和通知。"><meta property="og:title" content="IO 模型与 epoll · 李杨的学习笔记"><meta property="og:description" content="阻塞/非阻塞关注调用线程是否等待资源就绪；同步/异步关注 IO 完成是谁负责推进和通知。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-53f797e8b3df.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-53f797e8b3df.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>IO 模型与 epoll</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/02-IO%E6%A8%A1%E5%9E%8B%E4%B8%8Eepoll.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">概念分离</a></li><li><a href="#_4">用户视角与内核视角</a></li><li><a href="#selectpollepoll">select、poll、epoll</a></li><li><a href="#selectpollepoll_1">select/poll/epoll 取舍</a></li><li><a href="#lt-et">LT 与 ET</a></li><li><a href="#rdhuphuperr">RDHUP、HUP、ERR 的处理顺序</a></li><li><a href="#epolloneshot">EPOLLONESHOT</a></li><li><a href="#oneshot">ONESHOT 的重新武装</a></li><li><a href="#_5">惊群</a></li><li><a href="#reactor-proactor">Reactor 与 Proactor</a></li><li><a href="#reactor">Reactor 数据流</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#reactor_1">Reactor 事件循环伪代码</a></li><li><a href="#et">ET 读循环要点</a></li><li><a href="#_7">可写事件不要常开</a></li><li><a href="#_8">故障排查/观测</a></li><li><a href="#epoll">epoll 空转和漏事件</a></li><li><a href="#_9">最小复现实验</a></li><li><a href="#_10">推导示例</a></li><li><a href="#lt-et_1">LT 与 ET 的读路径对比</a></li><li><a href="#oneshot_1">ONESHOT 处理线程切换</a></li><li><a href="#epoll_1">如何讲 epoll 的优势</a></li><li><a href="#_11">最小验收清单</a></li><li><a href="#_12">常见误区</a></li><li><a href="#_13">自测题</a></li><li><a href="#_14">实践任务</a></li><li><a href="#_15">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>区分同步/异步与阻塞/非阻塞，不把两组概念混在一起。</li>
+<li>理解 <code>select</code>、<code>poll</code>、<code>epoll</code> 的差异和适用边界。</li>
+<li>掌握 epoll 的 LT、ET、<code>EPOLLONESHOT</code>、惊群问题和事件循环结构。</li>
+<li>能解释 Reactor 与 Proactor 的区别。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="概念分离"></span><h3 id="_3">概念分离</h3>
+<p>阻塞/非阻塞关注调用线程是否等待资源就绪；同步/异步关注 IO 完成是谁负责推进和通知。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>选项</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>等待方式</td>
+<td>阻塞</td>
+<td>调用线程在资源未就绪时睡眠</td>
+</tr>
+<tr>
+<td>等待方式</td>
+<td>非阻塞</td>
+<td>调用立即返回，需要之后重试</td>
+</tr>
+<tr>
+<td>完成模型</td>
+<td>同步</td>
+<td>应用线程主动发起读写，内核返回结果</td>
+</tr>
+<tr>
+<td>完成模型</td>
+<td>异步</td>
+<td>应用提交请求，完成后由内核/运行时通知</td>
+</tr>
+</tbody>
+</table></div>
+<p>Linux 下常见的 epoll Reactor 通常是“同步非阻塞 IO”：epoll 通知 fd 可读可写，应用线程再调用 <code>read</code>/<code>write</code>。</p>
+<span class="heading-anchor" id="用户视角与内核视角"></span><h3 id="_4">用户视角与内核视角</h3>
+<p>用户态看到的是“哪些 fd 有事件”；内核态维护的是兴趣集合、就绪队列和每个 fd 对应文件对象上的回调关系。<code>epoll_ctl</code> 修改兴趣集合，<code>epoll_wait</code> 把就绪事件复制回用户态。fd 关闭、复用和连接对象销毁如果没有顺序约束，就会出现旧事件携带旧指针的问题。</p>
+<p>事件循环的最小状态流：</p>
+<pre><code class="language-text">register interest -&gt; epoll_wait returns events -&gt; drain read/write -&gt; update interest -&gt; run timers
+</code></pre>
+<p><code>epoll_wait</code> 返回 0 只是超时，不是错误；返回 -1 且 <code>errno=EINTR</code> 通常继续循环；其他错误才需要记录并考虑重建或退出。</p>
+<span class="heading-anchor" id="select、poll、epoll"></span><h3 id="selectpollepoll">select、poll、epoll</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>特点</th>
+<th>典型问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>select</code></td>
+<td>fd 集合用位图表达，接口历史悠久</td>
+<td>fd 数量限制、每次复制和遍历</td>
+</tr>
+<tr>
+<td><code>poll</code></td>
+<td>用数组表达 fd，无固定 <code>FD_SETSIZE</code> 限制</td>
+<td>每次仍需线性扫描</td>
+</tr>
+<tr>
+<td><code>epoll</code></td>
+<td>内核维护兴趣集合，就绪事件返回给用户态</td>
+<td>使用复杂度更高，边沿触发要求严格 drain</td>
+</tr>
+</tbody>
+</table></div>
+<p>epoll 的优势主要来自：</p>
+<ul>
+<li>兴趣集合通过 <code>epoll_ctl</code> 增量维护。</li>
+<li><code>epoll_wait</code> 返回就绪 fd 列表，避免每次扫描全部 fd。</li>
+<li>适合大量长连接、活跃连接比例低的场景。</li>
+</ul>
+<span class="heading-anchor" id="select/poll/epoll 取舍"></span><h3 id="selectpollepoll_1">select/poll/epoll 取舍</h3>
+<p><code>select</code> 和 <code>poll</code> 在小规模工具程序中仍然有价值，接口简单、可移植性好。<code>epoll</code> 适合 Linux 大量连接服务，但它把复杂度转移到连接生命周期、边沿触发 drain、事件掩码更新和跨线程归属上。不要为了“高性能”在几十个 fd 的管理脚本里引入复杂 epoll 状态机。</p>
+<span class="heading-anchor" id="LT 与 ET"></span><h3 id="lt-et">LT 与 ET</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>行为</th>
+<th>工程要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LT 水平触发</td>
+<td>只要 fd 仍可读/可写，下次还会通知</td>
+<td>容错更好，适合初学和多数业务</td>
+</tr>
+<tr>
+<td>ET 边沿触发</td>
+<td>状态从不可用变可用时通知一次</td>
+<td>fd 必须非阻塞，读写直到 <code>EAGAIN</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>ET 模式常见 bug：收到一次可读事件只读一小段，缓冲区仍有数据，但之后没有新边沿，连接就“卡住”。</p>
+<span class="heading-anchor" id="RDHUP、HUP、ERR 的处理顺序"></span><h3 id="rdhuphuperr">RDHUP、HUP、ERR 的处理顺序</h3>
+<p><code>EPOLLRDHUP</code> 表示对端关闭了写方向，常用于发现半关闭；<code>EPOLLHUP</code> 和 <code>EPOLLERR</code> 可能与可读事件同时返回。稳妥顺序通常是先 drain 已到达数据，再读取 <code>SO_ERROR</code>，最后根据连接状态关闭或进入半关闭。直接看到 HUP 就释放对象，可能丢掉内核缓冲区里已经收到但未处理的数据。</p>
+<span class="heading-anchor" id="EPOLLONESHOT"></span><h3 id="epolloneshot">EPOLLONESHOT</h3>
+<p><code>EPOLLONESHOT</code> 表示事件触发一次后自动禁用该 fd 的事件，需要处理完后用 <code>epoll_ctl(..., EPOLL_CTL_MOD, ...)</code> 重新启用。</p>
+<p>它常用于多线程 Reactor，避免同一个连接被多个线程同时处理。但它不是自动并发安全：连接对象、输出缓冲区和关闭流程仍需要清晰的所有权规则。</p>
+<span class="heading-anchor" id="ONESHOT 的重新武装"></span><h3 id="oneshot">ONESHOT 的重新武装</h3>
+<p>使用 <code>EPOLLONESHOT</code> 后，每次处理完事件都要 <code>EPOLL_CTL_MOD</code> 重新启用。重新武装必须在连接状态、输入输出缓冲区和关闭标志都更新之后进行，否则可能漏事件或让另一个线程拿到过期状态。若处理过程中决定关闭，应先从 epoll 删除或保证后续事件不会再访问对象。</p>
+<span class="heading-anchor" id="惊群"></span><h3 id="_5">惊群</h3>
+<p>惊群指多个线程或进程同时等待同一类事件，但只有一个能真正处理，其他被唤醒后又失败或无事可做。</p>
+<p>常见来源：</p>
+<ul>
+<li>多进程/多线程同时 <code>accept</code> 同一个监听 fd。</li>
+<li>多线程等待同一个 epoll 实例。</li>
+<li>没有合理分配连接归属，导致跨线程争抢。</li>
+</ul>
+<p>Linux 提供了 <code>EPOLLEXCLUSIVE</code> 等机制缓解部分 accept 惊群，实际行为以 <code>epoll_ctl(2)</code> 文档和目标内核为准。工程上更常见的方案是一个 acceptor 接入后分发到固定 IO 线程。</p>
+<span class="heading-anchor" id="Reactor 与 Proactor"></span><h3 id="reactor-proactor">Reactor 与 Proactor</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>核心思想</th>
+<th>应用做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reactor</td>
+<td>就绪通知</td>
+<td>收到可读/可写后自己执行读写</td>
+</tr>
+<tr>
+<td>Proactor</td>
+<td>完成通知</td>
+<td>提交异步 IO，请求完成后处理结果</td>
+</tr>
+</tbody>
+</table></div>
+<p>epoll 更自然地实现 Reactor。Linux <code>io_uring</code> 可以支持更接近 Proactor 的完成模型，但具体能力、限制和内核版本相关，使用前应查官方文档。</p>
+<span class="heading-anchor" id="Reactor 数据流"></span><h3 id="reactor">Reactor 数据流</h3>
+<p>一个 Reactor 服务的职责不是只调用 <code>epoll_wait</code>，还包括定时器、跨线程唤醒和背压：</p>
+<pre><code class="language-text">fd event -&gt; Connection::handleEvent -&gt; read/write buffer -&gt; Codec -&gt; callback
+timer event -&gt; close idle / retry connect / deadline
+wakeup event -&gt; run queued cross-thread functors
+</code></pre>
+<p>这样拆分后，业务线程不用直接碰 fd；它只把结果投递回 IO 线程，IO 线程按连接状态决定是否还能发送。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<span class="heading-anchor" id="Reactor 事件循环伪代码"></span><h3 id="reactor_1">Reactor 事件循环伪代码</h3>
+<pre><code class="language-cpp">while (running) {
+    int n = epoll_wait(epollFd, events, maxEvents, timeoutMs);
+    for (int i = 0; i &lt; n; ++i) {
+        auto* conn = static_cast&lt;Connection*&gt;(events[i].data.ptr);
+
+        auto flags = events[i].events;
+        if (flags &amp; EPOLLIN) {
+            conn-&gt;readUntilEagain();
+        }
+        if (!conn-&gt;closed() &amp;&amp; (flags &amp; EPOLLOUT)) {
+            conn-&gt;writeUntilEagain();
+        }
+        // HUP/RDHUP 可能与可读数据同时出现：先 drain，再更新半关闭状态。
+        if (!conn-&gt;closed() &amp;&amp; (flags &amp; (EPOLLHUP | EPOLLRDHUP))) {
+            conn-&gt;markReadHalfClosed();  // 对端关闭发送方向，本端读方向将到达 EOF
+        }
+        if (!conn-&gt;closed() &amp;&amp; (flags &amp; EPOLLERR)) {
+            conn-&gt;recordSocketError();  // 用 SO_ERROR 读取并记录具体错误
+            conn-&gt;close();
+        }
+        if (!conn-&gt;closed()) {
+            conn-&gt;refreshInterest();
+        }
+    }
+    timerQueue.runExpired();
+}
+</code></pre>
+<p><code>EPOLLHUP</code>/<code>EPOLLRDHUP</code> 可能与 <code>EPOLLIN</code> 同时返回。若协议允许 TCP 半关闭，应该先读取已经到达的数据，再把对端读方向标为关闭，并由连接状态机决定排空写缓冲还是立即关闭；不要看到 HUP 就无条件丢弃未读数据。<code>EPOLLERR</code> 的具体错误可通过 <code>getsockopt(fd, SOL_SOCKET, SO_ERROR, ...)</code> 获取。</p>
+<span class="heading-anchor" id="ET 读循环要点"></span><h3 id="et">ET 读循环要点</h3>
+<pre><code class="language-cpp">void readUntilEagain(int fd, std::string&amp; input) {
+    char buf[4096];
+    while (true) {
+        ssize_t n = ::read(fd, buf, sizeof(buf));
+        if (n &gt; 0) {
+            input.append(buf, static_cast&lt;size_t&gt;(n));
+        } else if (n == 0) {
+            throw PeerClosed{};
+        } else if (errno == EINTR) {
+            continue;
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        } else {
+            throw IoError{};
+        }
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="可写事件不要常开"></span><h3 id="_7">可写事件不要常开</h3>
+<p>socket 大多数时候都是可写的。如果一直监听 <code>EPOLLOUT</code>，事件循环会被无意义唤醒。常见策略：</p>
+<ul>
+<li>输出缓冲区为空：只监听读事件。</li>
+<li>有未写完数据：打开写事件。</li>
+<li>写完后：关闭写事件。</li>
+</ul>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_8">故障排查/观测</h2>
+<span class="heading-anchor" id="epoll 空转和漏事件"></span><h3 id="epoll">epoll 空转和漏事件</h3>
+<p>CPU 空转常见原因是永久监听 <code>EPOLLOUT</code>、错误 fd 没从 epoll 删除、定时器 timeout 计算为 0 后循环忙等。漏事件常见原因是 ET 没读到 <code>EAGAIN</code>、ONESHOT 后忘记重新 <code>MOD</code>、跨线程关闭导致旧事件访问失效对象。</p>
+<p>建议记录：</p>
+<ul>
+<li>每轮 <code>epoll_wait</code> 返回数量和 timeout；</li>
+<li>每个事件的 mask、fd、连接 id；</li>
+<li>输入/输出缓冲区长度；</li>
+<li>interest mask 变化；</li>
+<li><code>EPOLLERR</code> 对应的 <code>SO_ERROR</code>。</li>
+</ul>
+<span class="heading-anchor" id="最小复现实验"></span><h3 id="_9">最小复现实验</h3>
+<p>用一个慢客户端只读不写、一个快客户端持续写入，再观察可写事件、输出缓冲区和高水位行为。用 ET 模式故意每次只读 1 字节，可以稳定复现“缓冲区还有数据但不再触发”的问题。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_10">推导示例</h2>
+<span class="heading-anchor" id="LT 与 ET 的读路径对比"></span><h3 id="lt-et_1">LT 与 ET 的读路径对比</h3>
+<p>LT 下如果一次只读 1KB，而内核缓冲区还有数据，下一次 <code>epoll_wait</code> 仍会返回可读。ET 下状态变化已经发生过，如果没有读到 <code>EAGAIN</code>，后续可能没有新的边沿触发。因此 ET 的代码复杂度来自“必须 drain”，不是来自 <code>epoll_wait</code> 调用本身。</p>
+<pre><code class="language-text">LT: readable remains true -&gt; next wait returns again
+ET: not-readable -&gt; readable edge delivered once -&gt; must drain to EAGAIN
+</code></pre>
+<span class="heading-anchor" id="ONESHOT 处理线程切换"></span><h3 id="oneshot_1">ONESHOT 处理线程切换</h3>
+<p>多线程共享 epoll 时，ONESHOT 可以避免两个工作线程同时处理同一 fd，但处理完后谁负责重新 <code>MOD</code> 必须清楚。常见做法是：事件线程取到事件后把连接交给工作线程，工作线程处理完只投递“重新启用”到连接 owner loop，由 owner loop 统一检查状态并 rearm。</p>
+<span class="heading-anchor" id="如何讲 epoll 的优势"></span><h3 id="epoll_1">如何讲 epoll 的优势</h3>
+<p>不要说“epoll 一定比 select 快”。更准确的说法是：epoll 让内核维护兴趣集合，<code>epoll_wait</code> 返回就绪列表，适合大量 fd 但活跃比例低的 Linux 服务；如果 fd 数很少或每个 fd 都很活跃，收益可能不明显，复杂度仍然存在。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_11">最小验收清单</h3>
+<ul>
+<li>ET 读写都 drain 到 <code>EAGAIN</code>。</li>
+<li><code>EPOLLERR/HUP/RDHUP</code> 有顺序处理。</li>
+<li><code>EPOLLOUT</code> 只在有待写数据时开启。</li>
+<li>ONESHOT 处理后有明确 rearm 线程。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_12">常见误区</h2>
+<ul>
+<li>把“非阻塞”叫成“异步”。epoll 通知的是就绪，不是读写完成。</li>
+<li>ET 模式不读到 <code>EAGAIN</code>。</li>
+<li>永久监听写事件，导致 CPU 空转。</li>
+<li>忽略 <code>EPOLLERR</code>/<code>EPOLLHUP</code>，连接异常后对象仍留在事件循环里。</li>
+<li>多线程处理同一连接却没有所有权和串行化策略。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_13">自测题</h2>
+<ol>
+<li>同步非阻塞 IO 和异步 IO 的区别是什么？</li>
+<li>epoll 为什么适合大量低活跃长连接？</li>
+<li>ET 模式为什么要求 fd 非阻塞？</li>
+<li><code>EPOLLONESHOT</code> 解决什么问题，不能解决什么问题？</li>
+<li>为什么可写事件通常按需开启？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_14">实践任务</h2>
+<ul>
+<li>用 epoll 写一个非阻塞 echo server。</li>
+<li>分别用 LT 和 ET 模式测试，故意只读一次观察 ET 卡住现象。</li>
+<li>给输出缓冲区加按需 <code>EPOLLOUT</code>。</li>
+<li>用两个线程错误处理同一连接，观察竞态风险，再用 one-shot 或连接归属修正。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_15">延伸阅读</h2>
+<ul>
+<li><code>select(2)</code>: https://man7.org/linux/man-pages/man2/select.2.html</li>
+<li><code>poll(2)</code>: https://man7.org/linux/man-pages/man2/poll.2.html</li>
+<li><code>epoll(7)</code>: https://man7.org/linux/man-pages/man7/epoll.7.html</li>
+<li><code>epoll_ctl(2)</code>: https://man7.org/linux/man-pages/man2/epoll_ctl.2.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

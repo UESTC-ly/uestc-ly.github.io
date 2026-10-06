@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-物理层与链路层：以太网、MAC、交换机、VLAN · 李杨的学习笔记</title><meta name="description" content="返回： 00-MOC ｜ 上一章： 02-网络分层模型与封装解封装 ｜ 下一章： 04-网络层：IP、子网划分、ARP、ICMP、路由"><meta property="og:title" content="03-物理层与链路层：以太网、MAC、交换机、VLAN · 李杨的学习笔记"><meta property="og:description" content="返回： 00-MOC ｜ 上一章： 02-网络分层模型与封装解封装 ｜ 下一章： 04-网络层：IP、子网划分、ARP、ICMP、路由"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-4492a7275a5d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-4492a7275a5d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机网络</p><h1>03-物理层与链路层：以太网、MAC、交换机、VLAN</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/03-%E7%89%A9%E7%90%86%E5%B1%82%E4%B8%8E%E9%93%BE%E8%B7%AF%E5%B1%82%EF%BC%9A%E4%BB%A5%E5%A4%AA%E7%BD%91%E3%80%81MAC%E3%80%81%E4%BA%A4%E6%8D%A2%E6%9C%BA%E3%80%81VLAN.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 物理层：信号的世界</a></li><li><a href="#2">2. 以太网帧</a></li><li><a href="#3-mac">3. MAC 地址</a></li><li><a href="#31">3.1 单播、广播、组播</a></li><li><a href="#4">4. 交换机如何转发</a></li><li><a href="#5">5. 广播域与冲突域</a></li><li><a href="#51">5.1 冲突域</a></li><li><a href="#52">5.2 广播域</a></li><li><a href="#6-arpip-mac">6. ARP：IP 到 MAC 的桥梁</a></li><li><a href="#7-vlan">7. VLAN：在一套物理网络上划分多个逻辑网络</a></li><li><a href="#71-access-trunk">7.1 Access 口与 Trunk 口</a></li><li><a href="#72-8021q-tag">7.2 802.1Q Tag</a></li><li><a href="#8-stp">8. STP：防止二层环路</a></li><li><a href="#9">9. 链路层排障思路</a></li><li><a href="#10">10. 本章小结</a></li><li><a href="#_1">深入展开：链路层只关心“下一跳”，不是“最终目的地”</a></li><li><a href="#1_1">1. 先理解“同一个局域网”</a></li><li><a href="#2_1">2. 交换机不是“群发器”</a></li><li><a href="#3-vlan">3. VLAN 是“逻辑切网”</a></li><li><a href="#4-access-trunk">4. Access 和 Trunk 用生活场景理解</a></li><li><a href="#5_1">5. 二层环路为什么可怕</a></li><li><a href="#6">6. 链路层问题的典型现象</a></li><li><a href="#7">7. 你应该会看的最小证据</a></li><li><a href="#_2">思维导图</a></li><li><a href="#1_2">1. 链路层核心对象</a></li><li><a href="#2_2">2. 交换机转发逻辑</a></li><li><a href="#3-vlan_1">3. VLAN 与二层环路</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>返回：<a href="n-be215f4e382a.html">00-MOC</a> ｜ 上一章：<a href="n-b4286dc9edff.html">02-网络分层模型与封装解封装</a> ｜ 下一章：<a href="n-1463f52008bb.html">04-网络层：IP、子网划分、ARP、ICMP、路由</a></p>
+</blockquote>
+<p>链路层解决的问题是：</p>
+<blockquote>
+<p>在同一条链路或同一个局域网中，如何把一帧数据交给正确的下一跳。</p>
+</blockquote>
+<p>它不负责跨越整个互联网，只负责“下一段路”。</p>
+<hr/>
+<span class="heading-anchor" id="1. 物理层：信号的世界"></span><h2 id="1">1. 物理层：信号的世界</h2>
+<p>物理层关心的是比特如何在介质上传输：</p>
+<ul>
+<li>双绞线：常见以太网网线</li>
+<li>光纤：长距离、高带宽、抗干扰</li>
+<li>无线电：Wi-Fi、蜂窝网络</li>
+<li>编码调制：把 0/1 映射为可传输信号</li>
+</ul>
+<p>常见工程现象：</p>
+<ul>
+<li>网线质量差导致丢包或协商到低速率</li>
+<li>光模块不匹配导致链路不起</li>
+<li>Wi-Fi 信号强但干扰大，吞吐仍然低</li>
+<li>速率、双工模式不匹配导致大量错误帧</li>
+</ul>
+<p>物理层问题通常先看：链路灯、网卡状态、协商速率、错误计数。</p>
+<hr/>
+<span class="heading-anchor" id="2. 以太网帧"></span><h2 id="2">2. 以太网帧</h2>
+<p>以太网在链路层传输“帧”。简化结构：</p>
+<pre><code class="language-text">目的 MAC | 源 MAC | 类型 EtherType | 载荷 Payload | FCS 校验
+</code></pre>
+<p>关键字段：</p>
+<ul>
+<li>目的 MAC：这一帧交给谁</li>
+<li>源 MAC：这一帧从谁来</li>
+<li>EtherType：上层载荷类型，例如 IPv4、IPv6、ARP</li>
+<li>FCS：帧校验序列，用于检测传输错误</li>
+</ul>
+<p>注意：MAC 地址只保证局域网或下一跳意义，不是互联网全局路由依据。</p>
+<hr/>
+<span class="heading-anchor" id="3. MAC 地址"></span><h2 id="3-mac">3. MAC 地址</h2>
+<p>MAC 地址通常写成：</p>
+<pre><code class="language-text">aa:bb:cc:dd:ee:ff
+</code></pre>
+<p>它是链路层地址，一般烧录在网卡中，也可以被软件修改。</p>
+<span class="heading-anchor" id="3.1 单播、广播、组播"></span><h3 id="31">3.1 单播、广播、组播</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>目的 MAC 示例</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单播</td>
+<td>某个具体 MAC</td>
+<td>发给一台设备</td>
+</tr>
+<tr>
+<td>广播</td>
+<td>ff:ff:ff:ff:ff:ff</td>
+<td>发给局域网内所有设备</td>
+</tr>
+<tr>
+<td>组播</td>
+<td>特定组播 MAC</td>
+<td>发给一组订阅者</td>
+</tr>
+</tbody>
+</table></div>
+<p>ARP 请求常用广播，因为发送者还不知道目标 IP 对应的 MAC。</p>
+<hr/>
+<span class="heading-anchor" id="4. 交换机如何转发"></span><h2 id="4">4. 交换机如何转发</h2>
+<p>交换机维护一张 MAC 地址表：</p>
+<pre><code class="language-text">MAC 地址 → 交换机端口
+</code></pre>
+<p>学习过程：</p>
+<ol>
+<li>收到帧后，记录“源 MAC 从哪个端口来”。</li>
+<li>查目的 MAC：
+   - 如果知道端口：只从目标端口转发。
+   - 如果不知道：泛洪到除入端口外的其他端口。</li>
+<li>表项会老化，过期后重新学习。</li>
+</ol>
+<p>这就是交换机比集线器高效的地方：它不会无脑把所有数据发给所有端口。</p>
+<hr/>
+<span class="heading-anchor" id="5. 广播域与冲突域"></span><h2 id="5">5. 广播域与冲突域</h2>
+<span class="heading-anchor" id="5.1 冲突域"></span><h3 id="51">5.1 冲突域</h3>
+<p>早期共享介质以太网中，多台设备同时发送会冲突。交换机每个端口通常是独立冲突域，现代全双工网络基本不用关心冲突。</p>
+<span class="heading-anchor" id="5.2 广播域"></span><h3 id="52">5.2 广播域</h3>
+<p>广播帧能到达的范围叫广播域。</p>
+<ul>
+<li>同一个 VLAN 通常是一个广播域。</li>
+<li>路由器默认隔离广播域。</li>
+<li>广播域太大会产生广播风暴风险。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. ARP：IP 到 MAC 的桥梁"></span><h2 id="6-arpip-mac">6. ARP：IP 到 MAC 的桥梁</h2>
+<p>ARP 处在网络层与链路层的交界处，解决：</p>
+<blockquote>
+<p>已知下一跳 IP，如何找到它的 MAC？</p>
+</blockquote>
+<p>流程：</p>
+<pre><code class="language-text">主机 A：谁是 192.168.1.1？请告诉 192.168.1.10
+网关：192.168.1.1 在我这里，我的 MAC 是 aa:bb:cc:dd:ee:ff
+主机 A：把结果放入 ARP 缓存
+</code></pre>
+<p>查看 ARP 缓存：</p>
+<pre><code class="language-bash">arp -a
+ip neigh
+</code></pre>
+<p>ARP 常见问题：</p>
+<ul>
+<li>ARP 缓存过期导致首次访问稍慢</li>
+<li>IP 冲突导致 ARP 结果混乱</li>
+<li>ARP 欺骗导致流量被中间人劫持</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. VLAN：在一套物理网络上划分多个逻辑网络"></span><h2 id="7-vlan">7. VLAN：在一套物理网络上划分多个逻辑网络</h2>
+<p>VLAN 用于隔离广播域。</p>
+<pre><code class="language-text">物理交换机
+├── VLAN 10：办公网
+├── VLAN 20：服务器网
+└── VLAN 30：访客网
+</code></pre>
+<p>同一台交换机上的不同 VLAN，默认不能直接二层通信。如果要互通，需要三层路由或三层交换。</p>
+<span class="heading-anchor" id="7.1 Access 口与 Trunk 口"></span><h3 id="71-access-trunk">7.1 Access 口与 Trunk 口</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>端口类型</th>
+<th>用途</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Access</td>
+<td>连接普通终端</td>
+<td>帧通常不带 VLAN Tag</td>
+</tr>
+<tr>
+<td>Trunk</td>
+<td>连接交换机/路由器/虚拟化主机</td>
+<td>可承载多个 VLAN，帧带 802.1Q Tag</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="7.2 802.1Q Tag"></span><h3 id="72-8021q-tag">7.2 802.1Q Tag</h3>
+<p>VLAN 标签插入在以太网帧中，用于标记这帧属于哪个 VLAN。</p>
+<hr/>
+<span class="heading-anchor" id="8. STP：防止二层环路"></span><h2 id="8-stp">8. STP：防止二层环路</h2>
+<p>交换机之间如果形成环路，广播帧可能无限循环，造成广播风暴。</p>
+<p>STP（生成树协议）通过阻塞部分端口，让二层拓扑变成无环树形结构。</p>
+<p>简化理解：</p>
+<pre><code class="language-text">物理上可以有冗余链路
+逻辑上只放行一棵无环树
+故障时重新收敛
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="9. 链路层排障思路"></span><h2 id="9">9. 链路层排障思路</h2>
+<p>常用命令：</p>
+<pre><code class="language-bash">ip link
+ifconfig
+arp -a
+ip neigh
+sudo tcpdump -e -n arp
+</code></pre>
+<p>检查顺序：</p>
+<ol>
+<li>网卡是否 up？</li>
+<li>是否有链路速率？</li>
+<li>是否能看到 ARP 请求与响应？</li>
+<li>是否存在 IP 冲突？</li>
+<li>是否接入了正确 VLAN？</li>
+<li>交换机 MAC 表是否学习到正确端口？</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="10. 本章小结"></span><h2 id="10">10. 本章小结</h2>
+<ul>
+<li>链路层处理同一局域网内的帧传输。</li>
+<li>MAC 地址用于下一跳交付，IP 地址用于跨网络寻址。</li>
+<li>交换机通过学习源 MAC 构建转发表。</li>
+<li>VLAN 用逻辑方式隔离广播域。</li>
+<li>ARP 是理解局域网通信的关键协议。</li>
+</ul>
+<span class="heading-anchor" id="深入展开：链路层只关心“下一跳”，不是“最终目的地”"></span><h2 id="_1">深入展开：链路层只关心“下一跳”，不是“最终目的地”</h2>
+<p>链路层最容易被忽略，因为日常开发很少直接操作 MAC 地址。但很多网络问题，比如 IP 冲突、ARP 欺骗、VLAN 配错、交换机环路，都发生在这一层。</p>
+<span class="heading-anchor" id="1. 先理解“同一个局域网”"></span><h3 id="1_1">1. 先理解“同一个局域网”</h3>
+<p>如果两台机器在同一个二层网络里，它们可以通过广播找到彼此。例如 A 想找 B 的 MAC：</p>
+<pre><code class="language-text">A 广播：谁是 192.168.1.20？
+B 单播回答：我是 192.168.1.20，我的 MAC 是 bb:bb:bb:bb:bb:bb
+</code></pre>
+<p>这个广播不会跨过路由器。路由器默认隔离广播域。所以 ARP 的影响范围通常是同一个 VLAN/广播域。</p>
+<span class="heading-anchor" id="2. 交换机不是“群发器”"></span><h3 id="2_1">2. 交换机不是“群发器”</h3>
+<p>交换机刚启动时不知道任何 MAC 在哪个端口。它靠学习源 MAC 建表：</p>
+<pre><code class="language-text">收到端口 1 的帧，源 MAC = AA
+于是记录：AA 在端口 1
+</code></pre>
+<p>下一次如果有帧发给 AA，交换机只从端口 1 转发。如果目的 MAC 不在表里，交换机会泛洪，这叫未知单播泛洪。</p>
+<span class="heading-anchor" id="3. VLAN 是“逻辑切网”"></span><h3 id="3-vlan">3. VLAN 是“逻辑切网”</h3>
+<p>同一台物理交换机可以被切成多个逻辑网络：</p>
+<pre><code class="language-text">VLAN 10：办公电脑
+VLAN 20：服务器
+VLAN 30：访客 Wi-Fi
+</code></pre>
+<p>不同 VLAN 默认二层不通。如果办公电脑要访问服务器 VLAN，需要三层路由或防火墙策略。</p>
+<p>这就是为什么你插在同一个交换机上，不一定能访问旁边机器：可能不在同一个 VLAN。</p>
+<span class="heading-anchor" id="4. Access 和 Trunk 用生活场景理解"></span><h3 id="4-access-trunk">4. Access 和 Trunk 用生活场景理解</h3>
+<ul>
+<li>Access 口：像普通门，只允许一个部门的人进出。连接电脑、打印机、摄像头等终端。</li>
+<li>Trunk 口：像主干电梯，可以承载多个部门的人，但每个人带着部门标签。连接交换机、路由器、虚拟化主机。</li>
+</ul>
+<p>802.1Q Tag 就是 VLAN 标签。普通终端通常看不到标签，交换机在 Access 口会加/去标签。</p>
+<span class="heading-anchor" id="5. 二层环路为什么可怕"></span><h3 id="5_1">5. 二层环路为什么可怕</h3>
+<p>IP 包有 TTL，循环一段时间会被丢弃。但以太网帧没有类似 TTL。如果交换机之间形成环路，广播帧可能无限复制，造成广播风暴：</p>
+<pre><code class="language-text">广播帧 → 交换机 A → 交换机 B → 交换机 C → 又回到 A → 不断循环
+</code></pre>
+<p>结果是链路打满、MAC 表震荡、网络瘫痪。STP 的作用就是在物理冗余链路中阻塞部分端口，让逻辑拓扑无环。</p>
+<span class="heading-anchor" id="6. 链路层问题的典型现象"></span><h3 id="6">6. 链路层问题的典型现象</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>同网段机器互 ping 不通</td>
+<td>VLAN 错、ARP 失败、防火墙、IP 冲突</td>
+</tr>
+<tr>
+<td>网络时断时续</td>
+<td>MAC 漂移、环路、网线/光模块问题</td>
+</tr>
+<tr>
+<td>首次访问慢一下</td>
+<td>ARP 缓存未命中，需要先 ARP</td>
+</tr>
+<tr>
+<td>整个局域网突然很慢</td>
+<td>广播风暴、未知单播泛洪、环路</td>
+</tr>
+<tr>
+<td>网关 MAC 变化</td>
+<td>VRRP 切换、ARP 欺骗、IP 冲突</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="7. 你应该会看的最小证据"></span><h3 id="7">7. 你应该会看的最小证据</h3>
+<pre><code class="language-bash">arp -a                         # 看 IP 到 MAC 的缓存
+sudo tcpdump -e -n arp          # 直接看 ARP 请求/响应
+ip link                         # 看网卡状态
+ifconfig                        # macOS/Linux 常用网卡信息
+</code></pre>
+<p>如果你能看懂 ARP 包，就已经能解释很多“明明 IP 配了但不通”的问题。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_2">思维导图</h2>
+<blockquote>
+<p>记忆建议：链路层只关心“这一跳怎么交付”，最终目的地由网络层继续处理。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 链路层核心对象"></span><h3 id="1_2">1. 链路层核心对象</h3>
+<pre class="mermaid">mindmap
+  root((链路层))
+    以太网帧
+      源MAC
+      目的MAC
+      类型和校验
+    MAC地址
+      单播
+      广播
+      组播
+    交换机
+      学习MAC表
+      转发或泛洪
+    VLAN
+      逻辑隔离广播域
+      Access和Trunk
+</pre>
+<span class="heading-anchor" id="2. 交换机转发逻辑"></span><h3 id="2_2">2. 交换机转发逻辑</h3>
+<pre class="mermaid">flowchart TD
+  A["收到以太网帧"] --&gt; B["学习源MAC所在端口"]
+  B --&gt; C{"目的MAC是否在表中"}
+  C --&gt;|是| D["只转发到目标端口"]
+  C --&gt;|否或广播| E["在同VLAN内泛洪"]
+  D --&gt; F["更新老化计时"]
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. VLAN 与二层环路"></span><h3 id="3-vlan_1">3. VLAN 与二层环路</h3>
+<pre class="mermaid">flowchart LR
+  A["一套物理交换网络"] --&gt; B["VLAN划分多个广播域"]
+  B --&gt; C["Access口承载一个VLAN"]
+  B --&gt; D["Trunk口携带多个VLAN标签"]
+  E["二层环路"] --&gt; F["广播风暴和MAC表震荡"]
+  F --&gt; G["STP阻塞冗余路径"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

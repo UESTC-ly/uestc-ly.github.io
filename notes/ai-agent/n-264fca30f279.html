@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07 APIRouter 与项目拆分 · 李杨的学习笔记</title><meta name="description" content="记忆句： 按业务收拢路由，在入口统一组装；先分清职责，再增加文件。"><meta property="og:title" content="07 APIRouter 与项目拆分 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 按业务收拢路由，在入口统一组装；先分清职责，再增加文件。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-264fca30f279.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-264fca30f279.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>07 APIRouter 与项目拆分</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/07_APIRouter%E4%B8%8E%E9%A1%B9%E7%9B%AE%E6%8B%86%E5%88%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-apirouter">1. 为什么需要 APIRouter</a></li><li><a href="#2">2. 注册时发生什么，请求时又发生什么</a></li><li><a href="#3-demo">3. 最小 demo：先在一个文件里看清组装</a></li><li><a href="#4">4. 真正拆成多个文件时，只搬职责</a></li><li><a href="#5">5. 路由、业务、数据访问到底怎么分</a></li><li><a href="#6">6. 常见误区与排查顺序</a></li><li><a href="#7">7. 合上笔记再回答</a></li><li><a href="#8">8. 可选配套与官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>按业务收拢路由，在入口统一组装；先分清职责，再增加文件。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 为什么需要 APIRouter"></span><h2 id="1-apirouter">1. 为什么需要 APIRouter</h2>
+<p>只有两三个接口时，把所有代码放在一个文件中很直观。但当用户、任务、订单都写进同一个文件，查找一个接口要来回翻页，修改权限规则也容易漏掉某个入口。问题不只是文件变长，而是不同业务混在一起，读者无法快速确定某段代码属于谁。</p>
+<p><code>APIRouter</code> 用来集中声明一组相关接口。例如任务模块有自己的 router，用户模块有自己的 router，主应用通过 <code>include_router</code> 把它们纳入同一个应用。这样每组接口可以拥有统一的路径前缀、文档标签和公共依赖。<a href="https://fastapi.tiangolo.com/tutorial/bigger-applications/">官方多文件应用教程</a></p>
+<p>可以把 router 看作商场里某一层的商铺名录，主应用负责把各层名录汇总到总导览。这个类比说明的是“收集和注册”，不表示每个 router 都是一个独立服务器。它们通常仍在同一个应用里处理请求，共享应用级配置。</p>
+<span class="heading-anchor" id="2. 注册时发生什么，请求时又发生什么"></span><h2 id="2">2. 注册时发生什么，请求时又发生什么</h2>
+<p>定义 <code>@router.get(...)</code> 时，接口先登记在 router 上。仅创建 router 并不会让外部用户访问到它；主应用调用 <code>include_router</code> 后，这些路由才被注册到应用中，并出现在该应用的接口文档里。</p>
+<p>因此，<code>include_router</code> 是应用组装阶段的工作，不需要在每次请求里调用。实际请求到来时，应用根据 HTTP 方法和完整路径匹配接口，再执行依赖解析和路由函数。</p>
+<p>路径可以由多层前缀拼起来，但前缀越多越需要明确每层负责什么。例如 <code>/api/v1</code> 表示 API 版本，<code>/tasks</code> 表示业务资源，<code>/{task_id}</code> 表示具体对象。前缀是 URL 的一部分；<code>tags</code> 只是接口文档中的分类标签，更改标签不会改变访问地址。</p>
+<span class="heading-anchor" id="3. 最小 demo：先在一个文件里看清组装"></span><h2 id="3-demo">3. 最小 demo：先在一个文件里看清组装</h2>
+<p>将下面代码复制到 <code>main.py</code>，运行 <code>python -m uvicorn main:app --reload</code>。依赖安装见<a href="n-3bc10661bfbf.html">学习地图</a>；切换前先停止上一章服务。</p>
+<pre><code class="language-python">from fastapi import APIRouter, FastAPI
+
+router = APIRouter(prefix="/tasks", tags=["任务"])
+
+@router.get("")
+def list_tasks():
+    return [{"id": 1, "title": "理解路由组装"}]
+
+app = FastAPI()
+app.include_router(router, prefix="/api/v1")
+</code></pre>
+<p>打开 <code>http://127.0.0.1:8000/docs</code>，在“任务”分类下找到 <code>GET /api/v1/tasks</code>，点击 <strong>Try it out</strong> 后执行，会得到一个任务列表。</p>
+<p>先口算完整路径：注册前缀 <code>/api/v1</code>，加上 router 前缀 <code>/tasks</code>，再加接口路径的空字符串，结果就是 <code>/api/v1/tasks</code>。如果只访问 <code>/tasks</code>，本例没有这个路径，因此返回 404；这与文档标签叫什么无关。</p>
+<p>为了看清“定义”和“注册”的区别，可以临时注释最后一行，再刷新 <code>/docs</code>：接口会消失。恢复该行后再继续学习即可。这个小实验比先搭一整套目录更容易理解 router 的职责。</p>
+<span class="heading-anchor" id="4. 真正拆成多个文件时，只搬职责"></span><h2 id="4">4. 真正拆成多个文件时，只搬职责</h2>
+<p>理解组装以后，再把 router 和相关路由函数移到业务模块，例如 <code>routers/tasks.py</code>。该模块负责定义自己的 router；入口 <code>main.py</code> 负责导入它、创建应用并调用 <code>include_router</code>。这是最初足够用的拆分，不需要立刻引入很多层。</p>
+<p>关键是导入方向：<strong>入口导入业务路由，业务路由不要反过来导入入口里的 app。</strong> 否则入口还没初始化完，业务模块又试图从入口取对象，容易形成循环导入。业务模块用自己的 router 装饰器注册接口即可，无需知道最终是哪一个 app 使用它。</p>
+<p>如果统一前缀或依赖写在 router 定义处，它通常属于该业务模块的默认规则；写在 <code>include_router</code> 处，则便于入口根据组装场景增加规则。例如入口统一加 <code>/api/v1</code>，模块专注自己的 <code>/tasks</code>。两处都配置前缀时会叠加，不会互相覆盖。</p>
+<span class="heading-anchor" id="5. 路由、业务、数据访问到底怎么分"></span><h2 id="5">5. 路由、业务、数据访问到底怎么分</h2>
+<p>可以从一个“完成任务”的需求理解职责。HTTP 层先接收任务 ID 和当前用户；业务层判断任务能否被此人完成、是否已经完成；数据访问层读取和保存数据库记录。拆分的目的，是让规则与存储细节各有归属，而不是机械规定每个函数都必须经过三层。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>职责</th>
+<th>主要回答的问题</th>
+<th>常见内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>路由层</td>
+<td>这个 HTTP 请求如何进入系统</td>
+<td>参数、状态码、依赖、响应模型</td>
+</tr>
+<tr>
+<td>业务层</td>
+<td>这件事按业务规则能否发生</td>
+<td>权限规则、状态变化、多步骤业务</td>
+</tr>
+<tr>
+<td>数据访问层</td>
+<td>数据从哪里读、怎样写</td>
+<td>查询、持久化、数据库细节</td>
+</tr>
+</tbody>
+</table></div>
+<p>只有一个简单查询时，直接在路由中调用数据库也能清楚表达意图。等同一套业务被多个接口复用，或一个路由开始同时做很多决定时，再拆出业务函数。<strong>出现清晰的职责边界才拆，比追求固定目录数量更容易维护。</strong></p>
+<p>请求模型与表模型也是两个职责：前者约定客户端能传什么、必须满足什么条件；后者描述数据库怎样保存数据。字段看起来相同，不意味着永远应该共用。例如数据库有内部审核标记，客户端就不应因此获得修改它的入口。</p>
+<span class="heading-anchor" id="6. 常见误区与排查顺序"></span><h2 id="6">6. 常见误区与排查顺序</h2>
+<p>接口访问不到时，先看 <code>/docs</code> 是否出现该接口。没有出现，优先检查是否导入并注册了 router；出现了，检查完整路径和 HTTP 方法。这样能区分“未组装进应用”和“请求地址写错”，比先怀疑服务器更有效。</p>
+<p>路由组的公共依赖适合统一身份检查，但不能仅凭 <code>tags=["管理员"]</code> 认为接口已经受保护。文档标签只有展示作用，真正的限制必须由依赖或业务检查执行。</p>
+<p><code>APIRouter</code> 也不是应用隔离机制。它帮助组织同一应用的接口，不能靠拆成不同 router 就获得独立进程、独立资源限制或独立部署。是否需要子应用或不同服务，是另一个层面的问题。</p>
+<span class="heading-anchor" id="7. 合上笔记再回答"></span><h2 id="7">7. 合上笔记再回答</h2>
+<ol>
+<li>router 已定义却没有出现在文档里，先检查什么？是否执行了 <code>app.include_router(router)</code>。</li>
+<li>把标签“任务”改成“待办”，请求路径会改变吗？不会。</li>
+<li>为什么业务路由尽量不导入 <code>main.py</code> 中的 app？减少耦合，并避免循环导入。</li>
+<li>小项目是否必须立刻分三层？不必，先让职责清楚，再根据复用和复杂度拆分。</li>
+</ol>
+<span class="heading-anchor" id="8. 可选配套与官方资料"></span><h2 id="8">8. 可选配套与官方资料</h2>
+<p><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch07.py">demos/ch07.py</a> 保留了可直接运行的配套版本；正文聚焦最小组装，配套的具体内容和接口以文件为准。真实多文件项目的更多组织方式见官方教程，不需要一次记住所有目录。</p>
+<p><a href="https://fastapi.tiangolo.com/tutorial/bigger-applications/">Bigger Applications</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

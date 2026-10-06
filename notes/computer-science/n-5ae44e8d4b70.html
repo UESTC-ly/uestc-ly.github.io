@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08. MySQL 关键差异 · 李杨的学习笔记</title><meta name="description" content="本章不是完整 MySQL 手册，而是帮助你在已经理解关系数据库基础后，掌握 MySQL 工程中最容易影响设计和排错的差异点："><meta property="og:title" content="08. MySQL 关键差异 · 李杨的学习笔记"><meta property="og:description" content="本章不是完整 MySQL 手册，而是帮助你在已经理解关系数据库基础后，掌握 MySQL 工程中最容易影响设计和排错的差异点："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5ae44e8d4b70.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5ae44e8d4b70.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>08. MySQL 关键差异</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/08-MySQL%E5%85%B3%E9%94%AE%E5%B7%AE%E5%BC%82.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#mysql-innodb">MySQL 与 InnoDB</a></li><li><a href="#_2">聚簇索引</a></li><li><a href="#_3">字符集与排序规则</a></li><li><a href="#_4">时间类型</a></li><li><a href="#json">JSON</a></li><li><a href="#_5">隔离级别与锁</a></li><li><a href="#id">自增 ID</a></li><li><a href="#upsert">UPSERT</a></li><li><a href="#explain">EXPLAIN</a></li><li><a href="#online-ddl">Online DDL</a></li><li><a href="#binlog">复制与 binlog</a></li><li><a href="#postgresql-mysql">PostgreSQL 与 MySQL 对照</a></li><li><a href="#mysql">MySQL 项目检查清单</a></li><li><a href="#_6">本章练习</a></li><li><a href="#mysql_1">深入展开：MySQL 面试和生产中最容易踩的点</a></li><li><a href="#1">1. 聚簇索引决定主键不是随便选的</a></li><li><a href="#2-collation">2. 字符集和 collation 会影响唯一性</a></li><li><a href="#3-innodb">3. InnoDB 锁范围和索引强相关</a></li><li><a href="#4-repeatable-read">4. Repeatable Read 不等于没有并发问题</a></li><li><a href="#5-online-ddl">5. Online DDL 要看具体操作</a></li><li><a href="#6-mysql">6. MySQL 排查慢查询的重点</a></li><li><a href="#7-postgresql-mysql">7. PostgreSQL 背景转 MySQL 的注意事项</a></li><li><a href="#_7">思维导图</a></li><li><a href="#1-innodb">1. InnoDB 关键模型</a></li><li><a href="#2">2. 主键设计影响</a></li><li><a href="#3">3. 生产注意点</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章不是完整 MySQL 手册，而是帮助你在已经理解关系数据库基础后，掌握 MySQL 工程中最容易影响设计和排错的差异点：</p>
+<ul>
+<li>InnoDB 的核心特性。</li>
+<li>聚簇索引与主键选择。</li>
+<li>字符集、时间类型、JSON、DDL 的注意事项。</li>
+<li>锁、隔离级别、复制和线上变更的常见坑。</li>
+<li>与 PostgreSQL 的对照。</li>
+</ul>
+<span class="heading-anchor" id="MySQL 与 InnoDB"></span><h2 id="mysql-innodb">MySQL 与 InnoDB</h2>
+<p>MySQL 是数据库系统，InnoDB 是最常用的存储引擎。现代 MySQL 业务表通常使用 InnoDB，因为它支持：</p>
+<ul>
+<li>事务。</li>
+<li>行级锁。</li>
+<li>外键。</li>
+<li>崩溃恢复。</li>
+<li>MVCC。</li>
+</ul>
+<p>建表时应明确或确认引擎：</p>
+<pre><code class="language-sql">CREATE TABLE users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+</code></pre>
+<span class="heading-anchor" id="聚簇索引"></span><h2 id="_2">聚簇索引</h2>
+<p>InnoDB 的表数据按主键聚簇存储。主键选择会影响二级索引和插入性能。</p>
+<p>建议：</p>
+<ul>
+<li>主键尽量短、稳定、递增或近似递增。</li>
+<li>不要使用会变化的业务字段做主键。</li>
+<li>随机 UUID 作为主键可能导致页分裂和缓存局部性差，可考虑有序 UUID/ULID 或自增 ID。</li>
+</ul>
+<span class="heading-anchor" id="字符集与排序规则"></span><h2 id="_3">字符集与排序规则</h2>
+<p>新项目通常应使用 <code>utf8mb4</code>，而不是老的 <code>utf8</code>。</p>
+<pre><code class="language-sql">CREATE DATABASE app
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_0900_ai_ci;
+</code></pre>
+<p>注意排序规则会影响大小写敏感、重音敏感、唯一约束比较行为。</p>
+<p>如果邮箱需要大小写不敏感唯一性，必须明确规范化策略，而不是靠默认 collation 碰运气。</p>
+<span class="heading-anchor" id="时间类型"></span><h2 id="_4">时间类型</h2>
+<p>MySQL 常见时间类型：</p>
+<ul>
+<li><code>TIMESTAMP</code>：与时区转换有关，范围相对有限。</li>
+<li><code>DATETIME</code>：保存字面日期时间，不自动转换时区。</li>
+</ul>
+<p>工程建议：</p>
+<ul>
+<li>统一应用层和数据库连接时区。</li>
+<li>存储绝对时间时保持 UTC 或明确时区策略。</li>
+<li>不要混用多种语义。</li>
+</ul>
+<span class="heading-anchor" id="JSON"></span><h2 id="json">JSON</h2>
+<p>MySQL 有 JSON 类型，也支持生成列配合索引。</p>
+<pre><code class="language-sql">CREATE TABLE events (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  payload JSON NOT NULL,
+  event_type VARCHAR(100) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type'))) STORED,
+  INDEX idx_events_event_type (event_type)
+);
+</code></pre>
+<p>和 PostgreSQL 一样：JSON 适合扩展属性，不适合承载核心关系和强约束。</p>
+<span class="heading-anchor" id="隔离级别与锁"></span><h2 id="_5">隔离级别与锁</h2>
+<p>MySQL InnoDB 默认隔离级别常见为 Repeatable Read。它通过 MVCC 和锁机制处理并发。</p>
+<p>需要特别理解：</p>
+<ul>
+<li>行锁依赖索引。如果条件无法使用索引，可能锁更多行。</li>
+<li>范围查询在某些隔离级别下会涉及 gap lock / next-key lock。</li>
+<li>死锁不是数据库坏了，而是并发写入中需要处理的正常异常。</li>
+</ul>
+<p>工程建议：</p>
+<ol>
+<li>更新和删除条件尽量命中索引。</li>
+<li>多表更新保持一致访问顺序。</li>
+<li>捕获死锁并重试幂等事务。</li>
+<li>避免长事务。</li>
+</ol>
+<span class="heading-anchor" id="自增 ID"></span><h2 id="id">自增 ID</h2>
+<pre><code class="language-sql">id BIGINT PRIMARY KEY AUTO_INCREMENT
+</code></pre>
+<p>自增 ID 简单、高效、局部性好。缺点是：</p>
+<ul>
+<li>暴露数量趋势。</li>
+<li>分库分表时需要额外 ID 方案。</li>
+<li>多主写入时冲突处理更复杂。</li>
+</ul>
+<p>不要因为“看起来不高级”就轻易放弃自增主键。</p>
+<span class="heading-anchor" id="UPSERT"></span><h2 id="upsert">UPSERT</h2>
+<p>MySQL 写法：</p>
+<pre><code class="language-sql">INSERT INTO user_settings (user_id, setting_key, setting_value)
+VALUES (1, 'theme', 'dark')
+ON DUPLICATE KEY UPDATE
+  setting_value = VALUES(setting_value),
+  updated_at = CURRENT_TIMESTAMP;
+</code></pre>
+<p>注意它依赖唯一键或主键冲突。</p>
+<span class="heading-anchor" id="EXPLAIN"></span><h2 id="explain">EXPLAIN</h2>
+<pre><code class="language-sql">EXPLAIN
+SELECT *
+FROM orders
+WHERE customer_id = 1
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>重点看：</p>
+<ul>
+<li><code>type</code>：访问类型，ALL 通常表示全表扫描。</li>
+<li><code>key</code>：实际使用的索引。</li>
+<li><code>rows</code>：估算扫描行数。</li>
+<li><code>Extra</code>：是否 Using filesort、Using temporary。</li>
+</ul>
+<p>MySQL 的执行计划字段和 PostgreSQL 不同，但目标一致：看数据库实际怎么取数。</p>
+<span class="heading-anchor" id="Online DDL"></span><h2 id="online-ddl">Online DDL</h2>
+<p>MySQL 支持多种在线 DDL 能力，但是否真正无锁取决于版本、操作类型、表结构和参数。</p>
+<p>大表变更前必须确认：</p>
+<ul>
+<li>是否会复制整表。</li>
+<li>是否会阻塞写入。</li>
+<li>是否影响复制延迟。</li>
+<li>是否需要 gh-ost、pt-online-schema-change 等外部工具。</li>
+</ul>
+<p>不要在业务高峰直接对大表执行未知代价的 <code>ALTER TABLE</code>。</p>
+<span class="heading-anchor" id="复制与 binlog"></span><h2 id="binlog">复制与 binlog</h2>
+<p>MySQL 复制常依赖 binlog。常见用途：</p>
+<ul>
+<li>主从复制。</li>
+<li>数据恢复。</li>
+<li>CDC 同步。</li>
+</ul>
+<p>注意：</p>
+<ul>
+<li>读写分离会有复制延迟。</li>
+<li>从库读可能读不到刚写入的数据。</li>
+<li>大事务会放大复制延迟。</li>
+</ul>
+<span class="heading-anchor" id="PostgreSQL 与 MySQL 对照"></span><h2 id="postgresql-mysql">PostgreSQL 与 MySQL 对照</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>PostgreSQL</th>
+<th>MySQL/InnoDB</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主键自增</td>
+<td>Identity / sequence</td>
+<td>AUTO_INCREMENT</td>
+</tr>
+<tr>
+<td>JSON</td>
+<td>JSONB 能力强</td>
+<td>JSON + 生成列索引常见</td>
+</tr>
+<tr>
+<td>全文搜索</td>
+<td>内置能力较强</td>
+<td>可用但复杂搜索常接搜索引擎</td>
+</tr>
+<tr>
+<td>并发建索引</td>
+<td><code>CREATE INDEX CONCURRENTLY</code></td>
+<td>Online DDL 视版本和操作而定</td>
+</tr>
+<tr>
+<td>聚簇存储</td>
+<td>堆表 + 独立索引</td>
+<td>主键聚簇</td>
+</tr>
+<tr>
+<td>RLS</td>
+<td>内置行级安全</td>
+<td>通常应用层实现</td>
+</tr>
+<tr>
+<td>扩展</td>
+<td>extension 生态强</td>
+<td>插件/引擎生态不同</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="MySQL 项目检查清单"></span><h2 id="mysql">MySQL 项目检查清单</h2>
+<ul>
+<li>[ ] 默认字符集使用 <code>utf8mb4</code>。</li>
+<li>[ ] 每张 InnoDB 表有短且稳定的主键。</li>
+<li>[ ] 外键和查询条件列有必要索引。</li>
+<li>[ ] 大表 DDL 前确认是否在线。</li>
+<li>[ ] 事务中不做慢外部调用。</li>
+<li>[ ] 读写分离场景处理复制延迟。</li>
+<li>[ ] 关键更新条件命中索引，避免锁范围扩大。</li>
+<li>[ ] 备份包含全量、增量/binlog 和恢复演练。</li>
+</ul>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_6">本章练习</h2>
+<ol>
+<li>解释 InnoDB 聚簇索引如何影响主键选择。</li>
+<li>把 PostgreSQL 的 UPSERT 改写成 MySQL 版本。</li>
+<li>找一个 MySQL 大表加列场景，写上线前检查清单。</li>
+<li>解释读写分离下“刚写完读不到”的原因和解决策略。</li>
+</ol>
+<p>下一章：<a href="n-f1016c7c1998.html">09-NoSQL缓存搜索与分析型数据库</a>。</p>
+<span class="heading-anchor" id="深入展开：MySQL 面试和生产中最容易踩的点"></span><h2 id="mysql_1">深入展开：MySQL 面试和生产中最容易踩的点</h2>
+<p>MySQL 的很多问题不是 SQL 语法问题，而是 InnoDB 存储特性、字符集、隔离级别和 DDL 行为带来的工程细节。</p>
+<span class="heading-anchor" id="1. 聚簇索引决定主键不是随便选的"></span><h3 id="1">1. 聚簇索引决定主键不是随便选的</h3>
+<p>InnoDB 表按主键组织数据。主键叶子节点就是整行数据，二级索引叶子节点保存主键值。因此主键越大，所有二级索引也会变大。</p>
+<p>随机 UUID 主键的风险：</p>
+<ul>
+<li>插入位置随机，页分裂更多。</li>
+<li>缓存局部性差。</li>
+<li>二级索引体积变大。</li>
+</ul>
+<p>常见折中：内部自增 bigint 做主键，对外暴露 <code>public_id</code>。这样既不暴露自增 ID，又保留 InnoDB 物理性能优势。</p>
+<span class="heading-anchor" id="2. 字符集和 collation 会影响唯一性"></span><h3 id="2-collation">2. 字符集和 collation 会影响唯一性</h3>
+<p><code>utf8mb4</code> 是现代 MySQL 项目更安全的默认选择。collation 会决定大小写是否敏感、重音是否敏感。</p>
+<p>例如邮箱唯一性不能只靠默认 collation。更稳妥做法是保存规范化邮箱：</p>
+<pre><code class="language-text">email_original      -- 用户输入展示
+email_normalized    -- lower/trim 后用于唯一约束
+</code></pre>
+<p>并对 <code>email_normalized</code> 建唯一索引。</p>
+<span class="heading-anchor" id="3. InnoDB 锁范围和索引强相关"></span><h3 id="3-innodb">3. InnoDB 锁范围和索引强相关</h3>
+<p>MySQL 中 UPDATE/DELETE 条件如果不命中索引，可能扫描并锁住大量行，造成线上阻塞。</p>
+<p>危险写法：</p>
+<pre><code class="language-sql">UPDATE orders SET status = 'expired'
+WHERE created_at &lt; '2026-01-01';
+</code></pre>
+<p>如果 <code>created_at</code> 没索引，可能影响很大。大批量更新应分批，并确保条件有索引。</p>
+<span class="heading-anchor" id="4. Repeatable Read 不等于没有并发问题"></span><h3 id="4-repeatable-read">4. Repeatable Read 不等于没有并发问题</h3>
+<p>MySQL InnoDB 默认常见隔离级别是 Repeatable Read，但这不意味着业务自动安全。丢失更新、状态机重复流转、幂等问题仍要靠条件更新、唯一约束和事务设计解决。</p>
+<p>例如支付回调仍应使用唯一键：</p>
+<pre><code class="language-sql">UNIQUE KEY uq_payment_event(provider, provider_event_id)
+</code></pre>
+<p>而不是相信隔离级别会阻止重复消息。</p>
+<span class="heading-anchor" id="5. Online DDL 要看具体操作"></span><h3 id="5-online-ddl">5. Online DDL 要看具体操作</h3>
+<p>大表变更前要确认：</p>
+<ul>
+<li>MySQL 版本。</li>
+<li>DDL algorithm：INSTANT、INPLACE、COPY。</li>
+<li>LOCK 级别。</li>
+<li>是否重建表。</li>
+<li>是否导致从库延迟。</li>
+<li>是否有长事务阻塞元数据锁。</li>
+</ul>
+<p>“支持 Online DDL”不代表任何 ALTER 都安全。生产上要演练，必要时用 gh-ost 或 pt-online-schema-change。</p>
+<span class="heading-anchor" id="6. MySQL 排查慢查询的重点"></span><h3 id="6-mysql">6. MySQL 排查慢查询的重点</h3>
+<p><code>EXPLAIN</code> 中重点看：</p>
+<ul>
+<li><code>type</code> 是否为 ALL。</li>
+<li><code>key</code> 是否使用预期索引。</li>
+<li><code>rows</code> 估算扫描行数。</li>
+<li><code>Extra</code> 是否有 <code>Using filesort</code>、<code>Using temporary</code>。</li>
+</ul>
+<p>但同样要结合锁等待、buffer pool、I/O、连接数。MySQL 慢不一定是单条 SQL 算得慢，也可能是在等元数据锁或行锁。</p>
+<span class="heading-anchor" id="7. PostgreSQL 背景转 MySQL 的注意事项"></span><h3 id="7-postgresql-mysql">7. PostgreSQL 背景转 MySQL 的注意事项</h3>
+<ul>
+<li>不要假设有 RLS。</li>
+<li>JSON 能用，但复杂 JSON 查询能力和索引方式不同。</li>
+<li>DDL 行为差异很大。</li>
+<li>时间类型语义要重新确认。</li>
+<li>自增、复制、binlog、主从延迟是 MySQL 运维重点。</li>
+</ul>
+<p>跨数据库开发时，不能只写“标准 SQL”，还要理解存储引擎差异。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_7">思维导图</h2>
+<blockquote>
+<p>记忆建议：MySQL 重点记 InnoDB 聚簇索引、锁范围、字符集时间类型和 Online DDL 边界。</p>
+</blockquote>
+<span class="heading-anchor" id="1. InnoDB 关键模型"></span><h3 id="1-innodb">1. InnoDB 关键模型</h3>
+<pre class="mermaid">mindmap
+  root((InnoDB))
+    聚簇索引
+      主键决定数据组织
+      二级索引存主键
+    事务日志
+      redo
+      undo
+      binlog协作
+    锁
+      行锁
+      间隙锁
+      next-key锁
+    复制
+      binlog
+      主从延迟
+</pre>
+<span class="heading-anchor" id="2. 主键设计影响"></span><h3 id="2">2. 主键设计影响</h3>
+<pre class="mermaid">flowchart TD
+  A["选择主键"] --&gt; B{"是否递增且稳定"}
+  B --&gt;|是| C["插入局部性好"]
+  B --&gt;|随机UUID| D["页分裂和二级索引变大"]
+  D --&gt; E["可考虑有序ID或内部自增主键"]
+  C --&gt; F["同时评估业务暴露风险"]
+</pre>
+<span class="heading-anchor" id="3. 生产注意点"></span><h3 id="3">3. 生产注意点</h3>
+<pre class="mermaid">flowchart LR
+  A["字符集和排序规则"] --&gt; B["影响比较和唯一性"]
+  C["时间类型"] --&gt; D["时区和精度要统一"]
+  E["Online DDL"] --&gt; F["逐项确认是否真无锁"]
+  G["EXPLAIN"] --&gt; H["看访问类型 行数 extra"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

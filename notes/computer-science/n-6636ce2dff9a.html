@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>C++ 模板、泛型编程与可变参数模板 · 李杨的学习笔记</title><meta name="description" content="模板是 C++ 的语言机制，泛型编程是使用模板编写类型无关代码的思想，模板元编程则利用模板在编译期进行类型处理、计算和代码选择。"><meta property="og:title" content="C++ 模板、泛型编程与可变参数模板 · 李杨的学习笔记"><meta property="og:description" content="模板是 C++ 的语言机制，泛型编程是使用模板编写类型无关代码的思想，模板元编程则利用模板在编译期进行类型处理、计算和代码选择。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-6636ce2dff9a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-6636ce2dff9a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">02-语言 / C++语法 / 专题</p><h1>C++ 模板、泛型编程与可变参数模板</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/C%2B%2B%E8%AF%AD%E6%B3%95/%E4%B8%93%E9%A2%98/C%2B%2B%E6%A8%A1%E6%9D%BF%E3%80%81%E6%B3%9B%E5%9E%8B%E7%BC%96%E7%A8%8B%E4%B8%8E%E5%8F%AF%E5%8F%98%E5%8F%82%E6%95%B0%E6%A8%A1%E6%9D%BF.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 三个概念的关系</a></li><li><a href="#2">2. 函数模板</a></li><li><a href="#3">3. 类模板</a></li><li><a href="#4">4. 非类型模板参数</a></li><li><a href="#5">5. 泛型编程：依赖能力而非具体类型</a></li><li><a href="#6">6. 模板特化</a></li><li><a href="#61">6.1 类模板全特化</a></li><li><a href="#62">6.2 类模板偏特化</a></li><li><a href="#7">7. 基础模板元编程与类型萃取</a></li><li><a href="#71">7.1 编译期计算</a></li><li><a href="#72-type_traits">7.2 type_traits</a></li><li><a href="#73-if-constexpr">7.3 if constexpr</a></li><li><a href="#8">8. 可变参数模板</a></li><li><a href="#81">8.1 模板参数包和函数参数包</a></li><li><a href="#82">8.2 参数包不是容器</a></li><li><a href="#83-sizeof">8.3 sizeof...</a></li><li><a href="#9">9. 参数包展开与折叠表达式</a></li><li><a href="#91-c17">9.1 C++17 折叠表达式</a></li><li><a href="#92-c1114">9.2 C++11/14 递归展开</a></li><li><a href="#10">10. 转发引用与完美转发</a></li><li><a href="#11-c20-concepts">11. C++20 Concepts</a></li><li><a href="#12">12. 默认参数与可变参数模板的区别</a></li><li><a href="#13-c">13. 与 C++ 版本的关系</a></li><li><a href="#14">14. 常见错误</a></li><li><a href="#141">14.1 直接使用参数包</a></li><li><a href="#142">14.2 转发时漏掉展开符</a></li><li><a href="#143-t">14.3 把所有 T&amp;&amp; 都当成转发引用</a></li><li><a href="#144">14.4 忘记模板的能力要求</a></li><li><a href="#15">15. 速记</a></li><li><a href="#16">16. 相关笔记与来源说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>模板是 C++ 的语言机制，泛型编程是使用模板编写类型无关代码的思想，模板元编程则利用模板在编译期进行类型处理、计算和代码选择。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 三个概念的关系"></span><h2 id="1">1. 三个概念的关系</h2>
+<pre><code class="language-text">模板：提供类型参数、非类型参数和实例化机制
+泛型编程：面向类型的能力编程，而不是绑定某个具体类型
+模板元编程：在编译期完成类型判断、类型变换、计算和分支选择
+</code></pre>
+<p>标准模板库 STL 是泛型编程的典型实践：容器、迭代器和算法通过模板协作。</p>
+<hr/>
+<span class="heading-anchor" id="2. 函数模板"></span><h2 id="2">2. 函数模板</h2>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+// T 是类型模板参数
+// 只要 T 支持比较和复制，这个模板就可以实例化
+
+template &lt;typename T&gt;
+T maxValue(const T&amp; left, const T&amp; right) {
+    return left &gt; right ? left : right;
+}
+
+int main() {
+    int intResult = maxValue(1, 2); // T 推导为 int
+
+    std::string first = "Alice";
+    std::string second = "Bob";
+    std::string textResult = maxValue(first, second); // T 推导为 std::string
+}
+</code></pre>
+<p>编译器根据调用推导 <code>T</code>，并生成所需的具体版本，这个过程称为模板实例化。</p>
+<p>也可以显式指定模板参数：</p>
+<pre><code class="language-cpp">double result = maxValue&lt;double&gt;(1.5, 2.5); // 显式指定 T 为 double
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="3. 类模板"></span><h2 id="3">3. 类模板</h2>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+
+// Box 可以保存任意满足构造要求的类型
+
+template &lt;typename T&gt;
+class Box {
+private:
+    T value_;
+
+public:
+    explicit Box(T value)
+        : value_(std::move(value)) {
+    }
+
+    const T&amp; value() const {
+        // 返回只读引用，避免复制大型对象
+        return value_;
+    }
+};
+
+int main() {
+    Box&lt;int&gt; numberBox(42);
+    Box&lt;double&gt; priceBox(3.14);
+}
+</code></pre>
+<p><code>std::vector&lt;int&gt;</code>、<code>std::map&lt;std::string, int&gt;</code> 都是类模板实例。</p>
+<hr/>
+<span class="heading-anchor" id="4. 非类型模板参数"></span><h2 id="4">4. 非类型模板参数</h2>
+<p>模板参数不一定是类型，也可以是编译期常量：</p>
+<pre><code class="language-cpp">#include &lt;cstddef&gt;
+
+// T 是类型参数，N 是非类型模板参数
+
+template &lt;typename T, std::size_t N&gt;
+class FixedArray {
+private:
+    T data_[N]{}; // 在对象内部保存固定长度数组
+
+public:
+    constexpr std::size_t size() const {
+        return N; // N 在编译期已经确定
+    }
+};
+
+FixedArray&lt;int, 10&gt; numbers;
+</code></pre>
+<p>标准库的 <code>std::array&lt;T, N&gt;</code> 就采用类似形式。</p>
+<hr/>
+<span class="heading-anchor" id="5. 泛型编程：依赖能力而非具体类型"></span><h2 id="5">5. 泛型编程：依赖能力而非具体类型</h2>
+<pre><code class="language-cpp">// 这个函数不要求类型继承某个公共基类
+// 只要求对象能够调用 speak()
+
+template &lt;typename T&gt;
+void makeSound(const T&amp; object) {
+    object.speak();
+}
+</code></pre>
+<p>这种方式常称为静态多态：具体调用在编译期确定。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>模板泛型/静态多态</th>
+<th>虚函数/运行时多态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主要机制</td>
+<td>模板</td>
+<td>继承与虚函数</td>
+</tr>
+<tr>
+<td>绑定时间</td>
+<td>编译期</td>
+<td>运行期</td>
+</tr>
+<tr>
+<td>是否需要公共基类</td>
+<td>不需要</td>
+<td>通常需要</td>
+</tr>
+<tr>
+<td>调用开销</td>
+<td>易于内联</td>
+<td>通常有间接调用</td>
+</tr>
+<tr>
+<td>常见代价</td>
+<td>编译时间、代码膨胀、报错复杂</td>
+<td><code>vptr</code>、间接调用和继承耦合</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="6. 模板特化"></span><h2 id="6">6. 模板特化</h2>
+<span class="heading-anchor" id="6.1 类模板全特化"></span><h3 id="61">6.1 类模板全特化</h3>
+<pre><code class="language-cpp">// 通用版本
+
+template &lt;typename T&gt;
+struct TypeName {
+    static const char* get() {
+        return "unknown";
+    }
+};
+
+// 针对 int 的全特化版本
+
+template &lt;&gt;
+struct TypeName&lt;int&gt; {
+    static const char* get() {
+        return "int";
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="6.2 类模板偏特化"></span><h3 id="62">6.2 类模板偏特化</h3>
+<pre><code class="language-cpp">// 默认认为不是指针
+
+template &lt;typename T&gt;
+struct IsPointer {
+    static constexpr bool value = false;
+};
+
+// 所有 T* 类型都匹配这个偏特化
+
+template &lt;typename T&gt;
+struct IsPointer&lt;T*&gt; {
+    static constexpr bool value = true;
+};
+
+static_assert(!IsPointer&lt;int&gt;::value);
+static_assert(IsPointer&lt;int*&gt;::value);
+</code></pre>
+<p>类模板可以偏特化；函数模板不能偏特化，通常使用函数重载或约束代替。</p>
+<hr/>
+<span class="heading-anchor" id="7. 基础模板元编程与类型萃取"></span><h2 id="7">7. 基础模板元编程与类型萃取</h2>
+<span class="heading-anchor" id="7.1 编译期计算"></span><h3 id="71">7.1 编译期计算</h3>
+<pre><code class="language-cpp">// 递归模板：计算 N 的阶乘
+
+template &lt;int N&gt;
+struct Factorial {
+    static constexpr int value = N * Factorial&lt;N - 1&gt;::value;
+};
+
+// 全特化作为递归终点
+
+template &lt;&gt;
+struct Factorial&lt;0&gt; {
+    static constexpr int value = 1;
+};
+
+static_assert(Factorial&lt;5&gt;::value == 120);
+</code></pre>
+<p>现代 C++ 的数值编译期计算通常优先使用更直观的 <code>constexpr</code> 函数：</p>
+<pre><code class="language-cpp">constexpr int factorial(int value) {
+    // constexpr 函数可在编译期求值
+    return value &lt;= 1 ? 1 : value * factorial(value - 1);
+}
+
+static_assert(factorial(5) == 120);
+</code></pre>
+<span class="heading-anchor" id="7.2 type_traits"></span><h3 id="72-type_traits">7.2 <code>type_traits</code></h3>
+<pre><code class="language-cpp">#include &lt;type_traits&gt;
+
+static_assert(std::is_integral_v&lt;int&gt;);
+static_assert(!std::is_integral_v&lt;double&gt;);
+static_assert(std::is_pointer_v&lt;int*&gt;);
+static_assert(std::is_same_v&lt;int, std::remove_reference_t&lt;int&amp;&gt;&gt;);
+</code></pre>
+<p>常用类型判断：</p>
+<pre><code class="language-text">std::is_same_v&lt;T, U&gt;
+std::is_integral_v&lt;T&gt;
+std::is_floating_point_v&lt;T&gt;
+std::is_pointer_v&lt;T&gt;
+std::is_const_v&lt;T&gt;
+std::is_base_of_v&lt;Base, Derived&gt;
+</code></pre>
+<p>常用类型变换：</p>
+<pre><code class="language-text">std::remove_reference_t&lt;T&gt;
+std::remove_const_t&lt;T&gt;
+std::remove_cvref_t&lt;T&gt;      // C++20
+std::add_pointer_t&lt;T&gt;
+</code></pre>
+<span class="heading-anchor" id="7.3 if constexpr"></span><h3 id="73-if-constexpr">7.3 <code>if constexpr</code></h3>
+<p>C++17 可以根据类型执行编译期分支：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;type_traits&gt;
+
+// 指针和非指针类型采用不同实现
+
+template &lt;typename T&gt;
+void printValue(const T&amp; value) {
+    if constexpr (std::is_pointer_v&lt;T&gt;) {
+        if (value != nullptr) {
+            std::cout &lt;&lt; *value &lt;&lt; '\n';
+        }
+    } else {
+        std::cout &lt;&lt; value &lt;&lt; '\n';
+    }
+}
+</code></pre>
+<p>未被选择的 <code>if constexpr</code> 分支在当前模板实例中会被丢弃，因此可以包含只对另一类类型有效的代码。</p>
+<hr/>
+<span class="heading-anchor" id="8. 可变参数模板"></span><h2 id="8">8. 可变参数模板</h2>
+<p>可变参数模板可以接收零个或多个类型与函数参数：</p>
+<pre><code class="language-cpp">// Args 是模板参数包，args 是函数参数包
+
+template &lt;typename... Args&gt;
+void log(Args&amp;&amp;... args) {
+    // 参数包必须展开后才能逐项使用
+}
+</code></pre>
+<span class="heading-anchor" id="8.1 模板参数包和函数参数包"></span><h3 id="81">8.1 模板参数包和函数参数包</h3>
+<pre><code class="language-cpp">template &lt;typename... Args&gt;
+</code></pre>
+<p>表示 <code>Args</code> 是零个或多个类型组成的模板参数包。</p>
+<pre><code class="language-cpp">Args&amp;&amp;... args
+</code></pre>
+<p>表示根据 <code>Args</code> 中的每个类型声明一组函数参数。</p>
+<p>例如调用：</p>
+<pre><code class="language-cpp">log(10, 3.14, "hello"); // 参数数量和类型都可以变化
+</code></pre>
+<p><code>Args</code> 会推导出一组与这些实参对应的类型。字符串字面量在转发引用下可能保留数组引用类型，因此实际推导结果可能比简化描述更精确。</p>
+<span class="heading-anchor" id="8.2 参数包不是容器"></span><h3 id="82">8.2 参数包不是容器</h3>
+<p><code>args</code> 不是数组、<code>vector</code> 或 <code>tuple</code>，不能直接用范围 <code>for</code> 遍历，也不能直接写 <code>std::cout &lt;&lt; args</code>。必须进行包展开。</p>
+<span class="heading-anchor" id="8.3 sizeof..."></span><h3 id="83-sizeof">8.3 <code>sizeof...</code></h3>
+<pre><code class="language-cpp">#include &lt;cstddef&gt;
+
+// 返回实参数量
+
+template &lt;typename... Args&gt;
+constexpr std::size_t argumentCount(Args&amp;&amp;... args) {
+    return sizeof...(args);
+}
+
+static_assert(argumentCount() == 0);
+static_assert(argumentCount(1, 2.0, "text") == 3);
+</code></pre>
+<p><code>sizeof...(Args)</code> 得到类型数量，<code>sizeof...(args)</code> 得到函数参数数量，二者在这里相同。</p>
+<hr/>
+<span class="heading-anchor" id="9. 参数包展开与折叠表达式"></span><h2 id="9">9. 参数包展开与折叠表达式</h2>
+<span class="heading-anchor" id="9.1 C++17 折叠表达式"></span><h3 id="91-c17">9.1 C++17 折叠表达式</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;utility&gt;
+
+// 输出任意数量、任意可输出类型的参数
+
+template &lt;typename... Args&gt;
+void log(Args&amp;&amp;... args) {
+    std::cout &lt;&lt; "[LOG] ";
+
+    // 对每个参数执行一次输出，并保留其原始值类别
+    ((std::cout &lt;&lt; std::forward&lt;Args&gt;(args)), ...);
+
+    std::cout &lt;&lt; '\n';
+}
+
+int main() {
+    int age = 18;
+    log("name=Tom, age=", age);
+}
+</code></pre>
+<p>这句：</p>
+<pre><code class="language-cpp">((std::cout &lt;&lt; std::forward&lt;Args&gt;(args)), ...);
+</code></pre>
+<p>可概念化为：</p>
+<pre><code class="language-text">std::cout &lt;&lt; 第一个参数;
+std::cout &lt;&lt; 第二个参数;
+std::cout &lt;&lt; 第三个参数;
+...
+</code></pre>
+<p>如果希望连续使用 <code>operator&lt;&lt;</code>，也可以写：</p>
+<pre><code class="language-cpp">(std::cout &lt;&lt; ... &lt;&lt; std::forward&lt;Args&gt;(args)); // 左折叠输出所有参数
+</code></pre>
+<span class="heading-anchor" id="9.2 C++11/14 递归展开"></span><h3 id="92-c1114">9.2 C++11/14 递归展开</h3>
+<p>C++17 之前没有折叠表达式，常用递归处理参数包：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;utility&gt;
+
+void log() {
+    // 无参数版本是递归终点
+    std::cout &lt;&lt; '\n';
+}
+
+template &lt;typename T, typename... Rest&gt;
+void log(T&amp;&amp; first, Rest&amp;&amp;... rest) {
+    // 每次处理第一个参数
+    std::cout &lt;&lt; std::forward&lt;T&gt;(first) &lt;&lt; ' ';
+
+    // 继续递归处理剩余参数
+    log(std::forward&lt;Rest&gt;(rest)...);
+}
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="10. 转发引用与完美转发"></span><h2 id="10">10. 转发引用与完美转发</h2>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+
+// T 由调用自动推导，T&amp;&amp; 是转发引用
+
+template &lt;typename T&gt;
+void wrapper(T&amp;&amp; value) {
+    // 调用者传左值就继续传左值，传右值就继续传右值
+    target(std::forward&lt;T&gt;(value));
+}
+</code></pre>
+<p>对于可变参数模板：</p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;utility&gt;
+
+// 将任意构造参数继续传给 T 的构造函数
+
+template &lt;typename T, typename... Args&gt;
+std::unique_ptr&lt;T&gt; createObject(Args&amp;&amp;... args) {
+    return std::make_unique&lt;T&gt;(
+        std::forward&lt;Args&gt;(args)...
+    );
+}
+</code></pre>
+<p>要点：</p>
+<ul>
+<li><code>Args&amp;&amp;...</code> 在模板推导场景中是一组转发引用；</li>
+<li>命名变量 <code>args</code> 在表达式中都是左值；</li>
+<li>使用 <code>std::forward&lt;Args&gt;(args)...</code> 才能保留每个实参原来的值类别；</li>
+<li><code>std::move</code> 是无条件转换为可移动形式，不能替代完美转发。</li>
+</ul>
+<p>更详细内容见：<a href="n-fa9bde03f86c.html">C++ 左值、右值、移动语义与完美转发</a>。</p>
+<hr/>
+<span class="heading-anchor" id="11. C++20 Concepts"></span><h2 id="11-c20-concepts">11. C++20 Concepts</h2>
+<p>Concepts 可以明确表达模板参数必须具备的能力：</p>
+<pre><code class="language-cpp">#include &lt;concepts&gt;
+
+// 要求 T 的两个对象支持加法
+
+template &lt;typename T&gt;
+concept Addable = requires(T left, T right) {
+    left + right;
+};
+
+// 只有满足 Addable 的类型才能实例化
+
+template &lt;Addable T&gt;
+T add(T left, T right) {
+    return left + right;
+}
+</code></pre>
+<p>它能让接口意图更清晰，并改善模板不满足要求时的错误信息。</p>
+<hr/>
+<span class="heading-anchor" id="12. 默认参数与可变参数模板的区别"></span><h2 id="12">12. 默认参数与可变参数模板的区别</h2>
+<p>默认参数适合参数结构固定、只允许省略末尾参数：</p>
+<pre><code class="language-cpp">#include &lt;string&gt;
+
+void connect(
+    const std::string&amp; host,
+    int port = 80,
+    bool secure = false
+) {
+    // 参数类型和最大数量都是固定的
+}
+</code></pre>
+<p>可变参数模板适合参数数量和类型都可变化：</p>
+<pre><code class="language-cpp">template &lt;typename... Args&gt;
+void log(Args&amp;&amp;... args) {
+    // 可以接收任意数量和类型的参数
+}
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>默认参数</th>
+<th>可变参数模板</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>参数最大数量</td>
+<td>固定</td>
+<td>不固定</td>
+</tr>
+<tr>
+<td>参数类型</td>
+<td>预先确定</td>
+<td>可以各不相同</td>
+</tr>
+<tr>
+<td>典型用途</td>
+<td>配置函数、构造函数</td>
+<td>日志、工厂、包装与转发</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="13. 与 C++ 版本的关系"></span><h2 id="13-c">13. 与 C++ 版本的关系</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>与本主题相关的常用能力</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C++11</td>
+<td>可变参数模板、右值引用、<code>std::forward</code>、类型萃取、<code>constexpr</code> 基础</td>
+</tr>
+<tr>
+<td>C++14</td>
+<td>泛型 Lambda、变量模板、放宽 <code>constexpr</code> 限制</td>
+</tr>
+<tr>
+<td>C++17</td>
+<td>折叠表达式、<code>if constexpr</code>、<code>*_v</code> 与 <code>*_t</code> 简写广泛使用</td>
+</tr>
+<tr>
+<td>C++20</td>
+<td>Concepts、<code>requires</code>、更强的非类型模板参数和 <code>constexpr</code> 能力</td>
+</tr>
+</tbody>
+</table></div>
+<p>秋招阶段应重点掌握模板基本语法、实例化、特化、参数包、折叠表达式、<code>type_traits</code>、<code>if constexpr</code>、完美转发，并了解 Concepts 的作用。</p>
+<hr/>
+<span class="heading-anchor" id="14. 常见错误"></span><h2 id="14">14. 常见错误</h2>
+<span class="heading-anchor" id="14.1 直接使用参数包"></span><h3 id="141">14.1 直接使用参数包</h3>
+<pre><code class="language-cpp">template &lt;typename... Args&gt;
+void wrongLog(Args&amp;&amp;... args) {
+    // std::cout &lt;&lt; args; // 错误：参数包没有展开
+}
+</code></pre>
+<span class="heading-anchor" id="14.2 转发时漏掉展开符"></span><h3 id="142">14.2 转发时漏掉展开符</h3>
+<pre><code class="language-cpp">// target(std::forward&lt;Args&gt;(args)); // 错误：Args 和 args 都是参数包
+
+target(std::forward&lt;Args&gt;(args)...); // 正确：逐项展开
+</code></pre>
+<span class="heading-anchor" id="14.3 把所有 T&amp;&amp; 都当成转发引用"></span><h3 id="143-t">14.3 把所有 <code>T&amp;&amp;</code> 都当成转发引用</h3>
+<pre><code class="language-cpp">void process(std::string&amp;&amp; value) {
+    // 这里的类型固定为 std::string&amp;&amp;，是普通右值引用
+}
+</code></pre>
+<p>只有模板参数由调用推导且形参形如 <code>T&amp;&amp;</code> 时，才是转发引用。</p>
+<span class="heading-anchor" id="14.4 忘记模板的能力要求"></span><h3 id="144">14.4 忘记模板的能力要求</h3>
+<p>模板并不意味着任何类型都能使用。调用了 <code>left + right</code>，传入类型就必须支持对应的 <code>operator+</code>；输出参数则要求存在合适的 <code>operator&lt;&lt;</code>。</p>
+<hr/>
+<span class="heading-anchor" id="15. 速记"></span><h2 id="15">15. 速记</h2>
+<pre><code class="language-text">template &lt;typename T&gt;：一个类型模板参数
+template &lt;typename... Args&gt;：零个或多个类型组成的参数包
+Args&amp;&amp;... args：一组转发引用形参
+sizeof...(Args)：参数包元素数量
+表达式...：参数包展开
+折叠表达式：C++17 以统一语法处理整个参数包
+std::forward&lt;Args&gt;(args)...：完美转发整个参数包
+if constexpr：编译期选择代码分支
+Concepts：显式描述模板参数能力要求
+</code></pre>
+<span class="heading-anchor" id="16. 相关笔记与来源说明"></span><h2 id="16">16. 相关笔记与来源说明</h2>
+<ul>
+<li><a href="n-15c5677cfc5f.html">C++ 语言基础与面向对象总结</a></li>
+<li><a href="n-fa9bde03f86c.html">C++ 左值、右值、移动语义与完美转发</a></li>
+<li><a href="n-fd6d54980b59.html">C++ 函数声明与类成员语法</a></li>
+</ul>
+<p>本文根据本次会话中的模板、泛型编程、模板元编程和可变参数模板讲解整理；具体语言规则以所使用的 C++ 标准版本和编译器支持为准。</p></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

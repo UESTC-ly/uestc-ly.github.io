@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04-幂等、分布式锁与分布式 ID · 李杨的学习笔记</title><meta name="description" content="幂等表示同一个业务请求执行一次或多次，最终效果一致。它不是接口“不会被调用多次”，而是“被调用多次也不破坏状态”。"><meta property="og:title" content="04-幂等、分布式锁与分布式 ID · 李杨的学习笔记"><meta property="og:description" content="幂等表示同一个业务请求执行一次或多次，最终效果一致。它不是接口“不会被调用多次”，而是“被调用多次也不破坏状态”。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-571f58333355.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-571f58333355.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>04-幂等、分布式锁与分布式 ID</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/04-%E5%B9%82%E7%AD%89-%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E4%B8%8E%E5%88%86%E5%B8%83%E5%BC%8FID.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">幂等</a></li><li><a href="#_4">幂等键与状态机</a></li><li><a href="#_5">幂等键生命周期</a></li><li><a href="#_6">分布式锁</a></li><li><a href="#fencing-token">Fencing Token 时序</a></li><li><a href="#id">分布式 ID</a></li><li><a href="#id_1">ID 方案决策表与监控</a></li><li><a href="#_7">工程实践/案例</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解幂等是重试、消息至少一次投递、回调重复的基础。</li>
+<li>掌握幂等键、唯一约束、状态机和去重表设计。</li>
+<li>理解分布式锁的适用边界和常见风险。</li>
+<li>掌握 Snowflake 类 ID 的结构、优点和时钟问题。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="幂等"></span><h3 id="_3">幂等</h3>
+<p>幂等表示同一个业务请求执行一次或多次，最终效果一致。它不是接口“不会被调用多次”，而是“被调用多次也不破坏状态”。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>风险</th>
+<th>幂等手段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HTTP 写请求重试</td>
+<td>重复创建订单</td>
+<td>幂等键 + 唯一索引</td>
+</tr>
+<tr>
+<td>支付回调重复</td>
+<td>重复入账</td>
+<td>支付流水唯一约束</td>
+</tr>
+<tr>
+<td>MQ 至少一次投递</td>
+<td>重复消费</td>
+<td>消息 ID 去重表</td>
+</tr>
+<tr>
+<td>状态更新乱序</td>
+<td>状态回退</td>
+<td>状态机约束 + 版本号</td>
+</tr>
+</tbody>
+</table></div>
+<p>理论保证：唯一约束可以保证同一 key 只成功写入一次；状态机可以保证非法状态转移被拒绝。</p>
+<p>工程假设：幂等 key 的生成规则稳定，保存期限覆盖最大重试窗口，调用方不会复用错误 key。</p>
+<p>实现取舍：去重表永久保存成本高，按业务窗口过期可能允许超长延迟消息重复生效。</p>
+<span class="heading-anchor" id="幂等键与状态机"></span><h3 id="_4">幂等键与状态机</h3>
+<p>创建订单可使用 <code>user_id + client_request_id</code> 作为幂等键。服务端处理流程：</p>
+<pre class="mermaid">flowchart TD
+  A["收到请求和幂等键"] --&gt; B{幂等记录存在?}
+  B -- 是 --&gt; C["返回上次结果"]
+  B -- 否 --&gt; D["开启事务"]
+  D --&gt; E["插入幂等记录 processing"]
+  E --&gt; F["执行业务写入"]
+  F --&gt; G["更新幂等记录 success/failed"]
+  G --&gt; H["提交并返回"]
+</pre>
+<p>状态机用于防乱序，例如订单状态：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>当前状态</th>
+<th>允许转移</th>
+<th>禁止转移</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CREATED</td>
+<td>PAID、CANCELLED</td>
+<td>SHIPPED</td>
+</tr>
+<tr>
+<td>PAID</td>
+<td>SHIPPED、REFUNDING</td>
+<td>CREATED</td>
+</tr>
+<tr>
+<td>SHIPPED</td>
+<td>FINISHED、REFUNDING</td>
+<td>CANCELLED</td>
+</tr>
+<tr>
+<td>FINISHED</td>
+<td>无或售后状态</td>
+<td>PAID</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="幂等键生命周期"></span><h3 id="_5">幂等键生命周期</h3>
+<p>幂等记录不是简单的“请求 ID 去重”。它要覆盖请求开始、处理中、成功、可重试失败、不可重试失败和过期清理。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>再次收到同 key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>processing</code></td>
+<td>请求正在执行或结果未知</td>
+<td>返回处理中、等待或查询业务状态</td>
+</tr>
+<tr>
+<td><code>success</code></td>
+<td>已完成并有确定结果</td>
+<td>返回第一次结果</td>
+</tr>
+<tr>
+<td><code>retryable_failed</code></td>
+<td>临时失败，允许重试</td>
+<td>重新执行或由后台恢复</td>
+</tr>
+<tr>
+<td><code>final_failed</code></td>
+<td>参数错误等确定失败</td>
+<td>返回同样失败</td>
+</tr>
+<tr>
+<td><code>expired</code></td>
+<td>超出去重窗口</td>
+<td>按业务规则拒绝或当新请求处理</td>
+</tr>
+</tbody>
+</table></div>
+<p>保存期限应覆盖客户端重试、网关重放、MQ 延迟、第三方回调补发和人工补偿窗口。过短会让迟到消息重新生效，过长会增加存储和索引成本。请求 payload 哈希也应写入幂等记录，防止调用方复用同一个 key 提交不同业务内容。</p>
+<span class="heading-anchor" id="分布式锁"></span><h3 id="_6">分布式锁</h3>
+<p>分布式锁用于跨进程互斥，但它不是事务，也不能替代数据约束。</p>
+<p>基础互斥至少需要：</p>
+<ul>
+<li>原子加锁：只在 key 不存在时设置锁值和过期时间。</li>
+<li>锁值唯一：释放时只能释放自己持有的锁。</li>
+<li>过期时间：持锁方崩溃后锁能自动释放。</li>
+<li>续租机制：长任务需要延长租约，但续租仍不能消除长时间暂停或网络分区。</li>
+</ul>
+<p>若锁保护数据库、文件、消息等外部可写资源，还应使用递增的 fencing token，并要求下游根据 token 拒绝旧持有者的写入。若下游不校验，token 本身不产生保护效果。</p>
+<p>常见实现：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>实现</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据库唯一索引</td>
+<td>简单，事务语义清晰</td>
+<td>性能有限，死锁/清理复杂</td>
+</tr>
+<tr>
+<td>Redis SET NX PX</td>
+<td>快，易用</td>
+<td>主从切换、暂停、过期导致并发持锁</td>
+</tr>
+<tr>
+<td>ZooKeeper/etcd 临时节点</td>
+<td>会话语义和顺序节点强</td>
+<td>运维成本高</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Fencing Token 时序"></span><h3 id="fencing-token">Fencing Token 时序</h3>
+<p>fencing token 是单调递增的持锁凭证。下游资源必须记住已接受的最大 token，并拒绝更小 token 的写入。</p>
+<pre><code class="language-text">T1: Client A 获得锁，token=10
+T2: A 长时间 GC 暂停，锁租约过期
+T3: Client B 获得锁，token=11，并写数据库
+T4: A 恢复后继续写，携带 token=10
+T5: 数据库比较 token，拒绝旧写入
+</code></pre>
+<p>若 T5 的下游不校验 token，fencing 只是一段无效元数据。分布式锁适合减少并发执行，不应作为余额、库存、订单状态正确性的唯一防线；这些关键状态仍要靠唯一索引、版本号、条件更新和状态机兜底。</p>
+<span class="heading-anchor" id="分布式 ID"></span><h3 id="id">分布式 ID</h3>
+<p>分布式 ID 需要在全局唯一、趋势递增、可排序、低延迟、可用性之间取舍。</p>
+<p>Snowflake 类结构通常是：</p>
+<pre><code class="language-text">| 时间戳 | 机器/机房 ID | 序列号 |
+</code></pre>
+<p>优点：本地生成、趋势递增、吞吐高。风险集中在时钟：</p>
+<ul>
+<li>时钟回拨可能生成重复 ID。</li>
+<li>同一毫秒序列号耗尽需要等待下一毫秒。</li>
+<li>机器 ID 配置冲突会导致重复。</li>
+<li>跨机房时间不一致会影响全局有序性。</li>
+</ul>
+<p>处理方式：</p>
+<ul>
+<li>监控 NTP 和时钟漂移。</li>
+<li>发现小幅回拨时等待；大幅回拨时拒绝发号并告警。</li>
+<li>机器 ID 由注册中心或部署系统分配，避免手工冲突。</li>
+<li>不把 Snowflake ID 当作严格全局递增事务序号。</li>
+</ul>
+<span class="heading-anchor" id="ID 方案决策表与监控"></span><h3 id="id_1">ID 方案决策表与监控</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据库自增</td>
+<td>简单、严格单点递增</td>
+<td>单点瓶颈，分库困难</td>
+</tr>
+<tr>
+<td>号段模式</td>
+<td>吞吐高、数据库压力低</td>
+<td>服务重启会浪费号段</td>
+</tr>
+<tr>
+<td>Snowflake</td>
+<td>本地生成、趋势递增</td>
+<td>时钟回拨、机器 ID 冲突</td>
+</tr>
+<tr>
+<td>UUID/随机 ID</td>
+<td>无中心依赖</td>
+<td>索引局部性差，可读性弱</td>
+</tr>
+<tr>
+<td>ULID/KSUID 类</td>
+<td>大致按时间排序</td>
+<td>仍依赖时钟和随机碰撞假设</td>
+</tr>
+</tbody>
+</table></div>
+<p>监控项包括：发号 QPS、序列号耗尽次数、等待下一毫秒次数、时钟回拨次数、NTP 偏移、机器 ID 冲突、ID 生成失败率、数据库唯一冲突。发现冲突时应先保护写入路径，停止可疑发号节点，再做数据影响面扫描。</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_7">工程实践/案例</h2>
+<p>支付回调处理建议：</p>
+<ol>
+<li>以第三方支付流水号建立唯一索引。</li>
+<li>回调进入后先查本地流水；已成功则直接返回成功。</li>
+<li>状态更新使用 <code>WHERE status IN (...)</code> 限制合法转移。</li>
+<li>下游发货消息通过 Outbox 或事务消息投递。</li>
+<li>所有重复回调记录计数，但不告警为错误。</li>
+</ol>
+<p>分布式锁只保护“执行过程互斥”，最终正确性仍应由数据库唯一约束、版本号或状态机兜底。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<ul>
+<li>
+<p>误区：接口方法是 PUT 就天然幂等。<br/>
+  修正：HTTP 语义不自动保证业务幂等，服务端状态写入仍需约束。</p>
+</li>
+<li>
+<p>误区：有分布式锁就不会并发写错。<br/>
+  修正：锁可能过期、误释放或脑裂，关键状态仍需数据层校验。</p>
+</li>
+<li>
+<p>误区：Redis 锁可以保护任意长任务。<br/>
+  修正：长任务需要续租和 fencing token，否则旧持有者可能继续写。</p>
+</li>
+<li>
+<p>误区：Snowflake ID 全局严格递增。<br/>
+  修正：它通常只是趋势递增，严格顺序仍需共识或单点序列。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>幂等键应该由客户端生成还是服务端生成？分别适合什么场景？</li>
+<li>为什么“先查再插”不能替代唯一索引？</li>
+<li>Redis 锁释放时为什么必须校验锁值？</li>
+<li>Snowflake 遇到时钟回拨有哪些处理策略？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<p>设计一个“优惠券领取接口”：同一用户同一券只能领取一次，接口允许客户端重试。写出表结构关键字段、唯一索引、幂等键、状态机和失败重试策略。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>Redis 官方文档：<a href="https://redis.io/docs/latest/commands/set/">SET</a> 与<a href="https://redis.io/docs/latest/develop/use/patterns/distributed-locks/">分布式锁模式</a>。</li>
+<li>Martin Kleppmann：<a href="https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html">How to do distributed locking</a>。</li>
+<li>Twitter Archive：<a href="https://github.com/twitter-archive/snowflake">Snowflake</a>。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

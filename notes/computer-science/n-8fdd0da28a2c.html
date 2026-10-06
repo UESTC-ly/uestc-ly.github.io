@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>分布式系统：分布式模型与故障 · 李杨的学习笔记</title><meta name="description" content="分布式系统最难的是某些节点失败而另一些节点仍继续运行。"><meta property="og:title" content="分布式系统：分布式模型与故障 · 李杨的学习笔记"><meta property="og:description" content="分布式系统最难的是某些节点失败而另一些节点仍继续运行。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8fdd0da28a2c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8fdd0da28a2c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 分布式系统</p><h1>分布式系统：分布式模型与故障</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/01-%E5%88%86%E5%B8%83%E5%BC%8F%E6%A8%A1%E5%9E%8B%E4%B8%8E%E6%95%85%E9%9A%9C.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">分章节讲解</a></li><li><a href="#1">1. 部分失败</a></li><li><a href="#2">2. 网络模型</a></li><li><a href="#3">3. 时钟与顺序</a></li><li><a href="#4-cap">4. CAP 理论</a></li><li><a href="#_7">关键对比表</a></li><li><a href="#_8">边界条件表</a></li><li><a href="#_9">常见误区总结</a></li><li><a href="#_10">自检题</a></li><li><a href="#_11">速记卡片</a></li><li><a href="#_12">深度扩展：底层原理与应用边界</a></li><li><a href="#1_1">1. 本章在「分布式系统」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_13">专题深化：具体机制、案例与追问</a></li><li><a href="#1_2">1. 具体案例：把「分布式模型与故障」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_1">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解部分失败、网络模型、时钟顺序和 CAP 的真实边界。</li>
+<li>能从底层机制、适用边界、工程实践和面试表达四个角度解释本章概念。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出至少一个不适用场景、一个常见误区和一个纠正方式。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>分布式系统最难的是某些节点失败而另一些节点仍继续运行。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>部分失败，网络不信，时钟不准</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((分布式模型与故障))
+    核心概念
+      部分失败
+      网络模型
+      时钟与顺序
+      CAP 理论
+    底层视角
+      资产与状态
+      边界与信任
+      失败与恢复
+    工程动作
+      识别前提
+      选择机制
+      设定边界
+      验证效果
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  N1["部分失败"]
+  N2["网络模型"]
+  N3["时钟与顺序"]
+  N4["CAP 理论"]
+  N1 --&gt; N2
+  N2 --&gt; N3
+  N3 --&gt; N4
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_6">分章节讲解</h2>
+<span class="heading-anchor" id="1. 部分失败"></span><h3 id="1">1. 部分失败</h3>
+<p><strong>核心定义：</strong> 部分失败指分布式系统中一部分节点、链路或依赖异常，而其他部分仍在运行；调用方常无法立即区分慢、丢包、暂停和宕机。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 本地调用要么返回要么抛异常，远程调用还会遇到超时、重复执行、请求到达但响应丢失等中间状态。
+- 部分失败要求所有跨网络交互都设置超时、重试、幂等、限流和降级。
+- 故障检测只能基于心跳、租约和超时做怀疑，不能在异步网络中获得绝对确定。</p>
+<p><strong>适用场景：</strong> 适用于微服务、数据库集群、消息系统、跨机房调用和任何远程依赖设计。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合把 RPC 当本地函数直接抽象掉；过度透明会隐藏延迟和失败语义。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上为每个远程调用定义超时预算、重试次数、幂等键和失败返回；面试中用“请求成功但响应丢失”说明为什么需要幂等。</p>
+<p><strong>常见误区与纠正方式：</strong> 把远程调用当本地调用；纠正方式是默认远程调用可能慢、失败、重复和乱序。</p>
+<p><strong>速记：</strong> 远程只有三种确定：会慢、会丢、会重复。</p>
+<span class="heading-anchor" id="2. 网络模型"></span><h3 id="2">2. 网络模型</h3>
+<p><strong>核心定义：</strong> 网络模型描述消息延迟、丢失、重复、乱序和分区等假设，算法正确性必须建立在明确的同步、异步或部分同步模型上。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 同步模型假设消息和处理有已知上界，异步模型没有任何时间上界，部分同步模型认为稳定后存在上界但未知。
+- 现实系统通常按部分同步设计：平时用超时推进，异常时允许误判并通过多数派/任期修正。
+- 网络分区会让不同节点看到不同世界，系统必须选择拒绝服务、降级或接受短期不一致。</p>
+<p><strong>适用场景：</strong> 适用于共识算法、故障检测、超时设置、跨地域复制和 CAP 权衡分析。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合在无界异步模型中用固定超时“证明”对方宕机；超时只能表示怀疑。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上通过 P99/P999 延迟、拥塞指标和故障演练校准超时；面试回答要先说明算法依赖的网络假设。</p>
+<p><strong>常见误区与纠正方式：</strong> 认为网络稳定时就不用考虑分区；纠正方式是在设计中明确分区发生时读写方案。</p>
+<p><strong>速记：</strong> 超时是怀疑，不是证明。</p>
+<span class="heading-anchor" id="3. 时钟与顺序"></span><h3 id="3">3. 时钟与顺序</h3>
+<p><strong>核心定义：</strong> 分布式系统中物理时钟会漂移，逻辑时钟用于表达事件先后，向量时钟可识别并发与因果关系。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 物理时钟适合近似时间和过期判断，但 NTP 调整、闰秒和虚拟化暂停会造成跳变。
+- Lamport 时钟能给事件一个符合因果的全序扩展，但不能判断两个事件是否并发。
+- 向量时钟记录每个节点版本，可判断 A 先于 B、B 先于 A 或二者并发，但元数据随节点数增长。</p>
+<p><strong>适用场景：</strong> 适用于冲突检测、版本合并、事件排序、缓存过期、租约和审计时间线。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合把数据库时间戳或本机时间直接当全局因果顺序。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上强一致路径使用日志索引/版本号，最终一致路径可用版本向量或业务时间加冲突规则；面试中区分“时间顺序”和“因果顺序”。</p>
+<p><strong>常见误区与纠正方式：</strong> 时间戳顺序不一定等于因果顺序；纠正方式是用逻辑时钟、版本号或单调序列描述写入顺序。</p>
+<p><strong>速记：</strong> 物理时钟看大概，逻辑时钟看因果。</p>
+<span class="heading-anchor" id="4. CAP 理论"></span><h3 id="4-cap">4. CAP 理论</h3>
+<p><strong>核心定义：</strong> CAP 指在网络分区发生时，系统无法同时保证线性一致性意义下的一致性和每个非故障节点都响应的可用性。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- P 不是可选功能，而是分布式系统必须面对的故障条件。
+- 选择 CP 意味着分区时拒绝部分请求以保护一致性；选择 AP 意味着继续服务但接受短期不一致并依赖合并。
+- CAP 关注分区时的极限取舍，日常延迟、隔离级别、数据模型还需要 PACELC 等视角补充。</p>
+<p><strong>适用场景：</strong> 适用于解释跨副本读写、网络分区下的服务方案、数据库选型和一致性等级讨论。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合把所有系统简单贴成“CA/CP/AP”标签，更不能说“分布式系统三选二”。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上对每类操作分别决策：余额扣减偏 CP，点赞计数可 AP；面试中强调“发生 P 时在 C 和 A 之间取舍”。</p>
+<p><strong>常见误区与纠正方式：</strong> CAP 是三选二配置题；纠正方式是先说明分区条件，再说明业务操作的 C/A 方案。</p>
+<p><strong>速记：</strong> P 来了，C/A 才真冲突。</p>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_7">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>解决的核心问题</th>
+<th>适用边界</th>
+<th>不适用/风险边界</th>
+<th>面试抓手</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>部分失败</td>
+<td>部分失败指分布式系统中一部分节点、链路或依赖异常，而其他部分仍在运行</td>
+<td>适用于微服务、数据库集群、消息系统、跨机房调用和任何远程依赖设计。</td>
+<td>不适合把 RPC 当本地函数直接抽象掉；过度透明会隐藏延迟和失败语义。</td>
+<td>远程只有三种确定：会慢、会丢、会重复。</td>
+</tr>
+<tr>
+<td>网络模型</td>
+<td>网络模型描述消息延迟、丢失、重复、乱序和分区等假设，算法正确性必须建立在明确的同步、异步或部分同步模型上。</td>
+<td>适用于共识算法、故障检测、超时设置、跨地域复制和 CAP 权衡分析。</td>
+<td>不适合在无界异步模型中用固定超时“证明”对方宕机；超时只能表示怀疑。</td>
+<td>超时是怀疑，不是证明。</td>
+</tr>
+<tr>
+<td>时钟与顺序</td>
+<td>分布式系统中物理时钟会漂移，逻辑时钟用于表达事件先后，向量时钟可识别并发与因果关系。</td>
+<td>适用于冲突检测、版本合并、事件排序、缓存过期、租约和审计时间线。</td>
+<td>不适合把数据库时间戳或本机时间直接当全局因果顺序。</td>
+<td>物理时钟看大概，逻辑时钟看因果。</td>
+</tr>
+<tr>
+<td>CAP 理论</td>
+<td>CAP 指在网络分区发生时，系统无法同时保证线性一致性意义下的一致性和每个非故障节点都响应的可用性。</td>
+<td>适用于解释跨副本读写、网络分区下的服务方案、数据库选型和一致性等级讨论。</td>
+<td>不适合把所有系统简单贴成“CA/CP/AP”标签，更不能说“分布式系统三选二”。</td>
+<td>P 来了，C/A 才真冲突。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="边界条件表"></span><h2 id="_8">边界条件表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>边界条件</th>
+<th>应优先检查什么</th>
+<th>如果忽视会怎样</th>
+<th>推荐纠正方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入跨信任边界</td>
+<td>身份、来源、格式、权限</td>
+<td>被伪造、篡改或越权利用</td>
+<td>边界处重新认证、授权、校验和审计</td>
+</tr>
+<tr>
+<td>控制依赖人工流程</td>
+<td>owner、时限、证据</td>
+<td>例外长期存在，风险不可追踪</td>
+<td>自动化门禁 + 风险接受有效期</td>
+</tr>
+<tr>
+<td>机制带来额外复杂度</td>
+<td>性能、可用性、维护成本</td>
+<td>安全控制被绕过或误伤业务</td>
+<td>用威胁和资产价值决定控制强度</td>
+</tr>
+<tr>
+<td>运行环境会变化</td>
+<td>配置、依赖、权限漂移</td>
+<td>文档正确但系统实际暴露</td>
+<td>持续扫描、基线检测和复盘更新</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_9">常见误区总结</h2>
+<ul>
+<li><strong>部分失败：</strong> 把远程调用当本地调用；纠正方式是默认远程调用可能慢、失败、重复和乱序。</li>
+<li><strong>网络模型：</strong> 认为网络稳定时就不用考虑分区；纠正方式是在设计中明确分区发生时读写方案。</li>
+<li><strong>时钟与顺序：</strong> 时间戳顺序不一定等于因果顺序；纠正方式是用逻辑时钟、版本号或单调序列描述写入顺序。</li>
+<li><strong>CAP 理论：</strong> CAP 是三选二配置题；纠正方式是先说明分区条件，再说明业务操作的 C/A 方案。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_10">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：分布式系统最难的是某些节点失败而另一些节点仍继续运行。</li>
+<li>任选两个概念，说出它们的适用场景和不适用场景。</li>
+<li>如果机制失效，最可能先出现在哪个边界？如何验证？</li>
+<li>面试中如何用“定义 → 机制 → 场景 → 权衡 → 误区”回答本章任一概念？</li>
+<li>给一个真实系统例子，说明你会怎样落地本章控制或设计。</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_11">速记卡片</h2>
+<ul>
+<li>章节口诀：部分失败，网络不信，时钟不准</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区 → 记忆点。</li>
+<li>工程落地：先列前提，再定机制，最后用日志、测试或演练验证。</li>
+<li>部分失败：远程只有三种确定：会慢、会丢、会重复。</li>
+<li>网络模型：超时是怀疑，不是证明。</li>
+<li>时钟与顺序：物理时钟看大概，逻辑时钟看因果。</li>
+<li>CAP 理论：P 来了，C/A 才真冲突。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_12">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「分布式系统」中的位置"></span><h3 id="1_1">1. 本章在「分布式系统」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>本章作用：</strong> 「分布式系统：分布式模型与故障」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是把远程调用当本地调用，忽视超时、重试、幂等、分区和一致性语义。</li>
+<li><strong>实践抓手：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 部分失败"></span><h4 id="31">3.1 部分失败</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 部分失败 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 部分失败，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 网络模型"></span><h4 id="32">3.2 网络模型</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 网络模型 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 网络模型，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 时钟与顺序"></span><h4 id="33">3.3 时钟与顺序</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 时钟与顺序 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 时钟与顺序，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 CAP 理论"></span><h4 id="34-cap">3.4 CAP 理论</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> CAP 理论 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 CAP 理论，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_13">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「分布式模型与故障」放进真实问题"></span><h3 id="1_2">1. 具体案例：把「分布式模型与故障」放进真实问题</h3>
+<p>例如下单链路要考虑请求超时、重复提交、消息至少一次投递、库存扣减幂等、读写一致性和补偿任务。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>远程调用无法区分慢、丢包和宕机，只能通过超时和重试管理不确定性。</li>
+<li>物理时钟不能直接代表因果顺序。</li>
+<li>CAP 讨论的是网络分区下 C 与 A 的取舍。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>部分失败</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>网络模型</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>时钟与顺序</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>CAP 理论</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「分布式系统」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_1">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>网络分区时选择什么语义？</li>
+<li>重试是否幂等？</li>
+<li>副本之间如何收敛或提交？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用故障注入、超时重试测试、乱序重复消息测试和一致性检查验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

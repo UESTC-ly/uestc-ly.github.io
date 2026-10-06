@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>BERT 详细教程：双向预训练语言模型入门到理解 · 李杨的学习笔记</title><meta name="description" content="BERT 全称是 Bidirectional Encoder Representations from Transformers ，中文通常叫："><meta property="og:title" content="BERT 详细教程：双向预训练语言模型入门到理解 · 李杨的学习笔记"><meta property="og:description" content="BERT 全称是 Bidirectional Encoder Representations from Transformers ，中文通常叫："><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-788f599cb359.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-788f599cb359.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>BERT 详细教程：双向预训练语言模型入门到理解</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/BERT.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">目录</a></li><li><a href="#21">2.1 它把“预训练 + 微调”变成了标准流程</a></li><li><a href="#22">2.2 它显著提升了理解类任务性能</a></li><li><a href="#23">2.3 它的重要性不只是“性能领先”</a></li><li><a href="#31">3.1 传统词向量有上下文缺失问题</a></li><li><a href="#32-rnnlstm">3.2 RNN/LSTM 虽然有上下文，但训练和并行性受限</a></li><li><a href="#33-elmo">3.3 ELMo 虽然引入上下文表示，但仍有方向性限制</a></li><li><a href="#34">3.4 很多模型是“为任务定制”，不是“通用基础模型”</a></li><li><a href="#41-transformer-encoder">4.1 用 Transformer Encoder 做文本编码</a></li><li><a href="#42">4.2 用双向上下文学习表示</a></li><li><a href="#43">4.3 先做预训练，再做微调</a></li><li><a href="#51">5.1 什么叫单向建模</a></li><li><a href="#52">5.2 什么叫双向建模</a></li><li><a href="#53">5.3 为什么这对理解类任务特别重要</a></li><li><a href="#54-bert">5.4 要注意：BERT 的“双向”不是无条件同时预测</a></li><li><a href="#61-transformer-encoder">6.1 主体是多层 Transformer Encoder 堆叠</a></li><li><a href="#62-self-attention">6.2 Self-Attention 在这里起什么作用</a></li><li><a href="#63-bert-encoder-decoder">6.3 为什么 BERT 用 encoder，不用 decoder</a></li><li><a href="#64-bert">6.4 可以把 BERT 看成什么</a></li><li><a href="#71-embedding">7.1 三类 embedding 相加</a></li><li><a href="#72-cls-sep">7.2 [CLS] 和 [SEP] 是干什么的</a></li><li><a href="#73-segment-embedding">7.3 Segment Embedding 在句子对任务里很有用</a></li><li><a href="#74">7.4 位置编码为什么重要</a></li><li><a href="#81">8.1 为什么不能直接按词建词表</a></li><li><a href="#82-wordpiece">8.2 WordPiece 的基本思想</a></li><li><a href="#83">8.3 一个直观例子</a></li><li><a href="#84-wordpiece">8.4 WordPiece 的好处</a></li><li><a href="#85">8.5 代价是什么</a></li><li><a href="#91-mlm">9.1 MLM：遮住一部分词，让模型猜回来</a></li><li><a href="#92-nsp">9.2 NSP：判断两句话是不是相邻</a></li><li><a href="#93">9.3 为什么要两个任务一起做</a></li><li><a href="#101">10.1 它让模型在上下文中恢复词义</a></li><li><a href="#102">10.2 为什么不是预测所有词</a></li><li><a href="#103-15-mask-801010">10.3 15% mask 比例和 80/10/10 规则</a></li><li><a href="#104">10.4 用公式怎么表达</a></li><li><a href="#105-mlm">10.5 MLM 的局限也值得知道</a></li><li><a href="#111">11.1 原始设计动机是合理的</a></li><li><a href="#112-nsp">11.2 NSP 想让模型学什么</a></li><li><a href="#113">11.3 后来为什么它受到质疑</a></li><li><a href="#114">11.4 学习时要怎么记</a></li><li><a href="#121">12.1 预训练阶段在做什么</a></li><li><a href="#122">12.2 微调阶段在做什么</a></li><li><a href="#123">12.3 为什么这种范式有效</a></li><li><a href="#124">12.4 微调和“固定编码器 + 线性层”有什么区别</a></li><li><a href="#131-bert-base">13.1 BERT-base</a></li><li><a href="#132-bert-large">13.2 BERT-large</a></li><li><a href="#133">13.3 怎么选</a></li><li><a href="#141">14.1 文本分类</a></li><li><a href="#142">14.2 句子对匹配</a></li><li><a href="#143">14.3 序列标注</a></li><li><a href="#144">14.4 抽取式问答</a></li><li><a href="#145">14.5 排序和检索重排</a></li><li><a href="#146">14.6 它不适合什么</a></li><li><a href="#151">15.1 表示能力强</a></li><li><a href="#152">15.2 通用性强</a></li><li><a href="#153">15.3 少样本下往往更有优势</a></li><li><a href="#154">15.4 生态成熟</a></li><li><a href="#155">15.5 方法论影响深远</a></li><li><a href="#161">16.1 不适合开放式生成</a></li><li><a href="#162">16.2 预训练和下游输入存在不完全一致</a></li><li><a href="#163">16.3 输入长度有限</a></li><li><a href="#164">16.4 计算成本不低</a></li><li><a href="#165-bert">16.5 原始 BERT 并不等于一切任务上的最优解</a></li><li><a href="#171-gpt">17.1 和 GPT 的区别</a></li><li><a href="#172-roberta">17.2 和 RoBERTa 的区别</a></li><li><a href="#173-albert">17.3 和 ALBERT 的区别</a></li><li><a href="#174-deberta">17.4 和 DeBERTa 的区别</a></li><li><a href="#175">17.5 一句话区分</a></li><li><a href="#181">18.1 先选对模型和语言版本</a></li><li><a href="#182">18.2 常见模型类怎么选</a></li><li><a href="#183">18.3 一个最小文本分类示例</a></li><li><a href="#184">18.4 微调时常见经验</a></li><li><a href="#185-bert">18.5 BERT 在工程里常见的真实用法</a></li><li><a href="#191">19.1 常见误区</a></li><li><a href="#bert_1">误区一：BERT 就是一个做分类的模型</a></li><li><a href="#_2">误区二：双向就是同时看到答案</a></li><li><a href="#bert_2">误区三：BERT 可以自然做聊天和长文本生成</a></li><li><a href="#tokenizer">误区四：Tokenizer 只是预处理小细节</a></li><li><a href="#bert_3">误区五：BERT 被后来模型超过，就没有学习价值了</a></li><li><a href="#192">19.2 面试高频问答</a></li><li><a href="#bert_4">问：BERT 最大的创新点是什么？</a></li><li><a href="#bert_5">问：BERT 为什么强？</a></li><li><a href="#bert_6">问：BERT 的两个预训练任务是什么？</a></li><li><a href="#bert_7">问：BERT 为什么不适合文本生成？</a></li><li><a href="#bert-gpt">问：BERT 和 GPT 最本质的区别是什么？</a></li><li><a href="#bert-roberta">问：BERT 和 RoBERTa 的区别是什么？</a></li><li><a href="#bert-cls">问：为什么 BERT 需要 [CLS]？</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="目录"></span><h2 id="_1">目录</h2>
+<ol>
+<li>BERT 是什么</li>
+<li>它为什么重要</li>
+<li>BERT 出现之前，NLP 模型有什么问题</li>
+<li>BERT 的核心思想是什么</li>
+<li>双向建模到底解决了什么</li>
+<li>BERT 的整体结构长什么样</li>
+<li>输入表示怎么构造</li>
+<li>Tokenizer 和 WordPiece 怎么理解</li>
+<li>BERT 的预训练任务是什么</li>
+<li>MLM 为什么有效</li>
+<li>NSP 为什么要设计出来</li>
+<li>BERT 的训练和微调范式</li>
+<li>BERT-base 和 BERT-large</li>
+<li>BERT 适合做什么任务</li>
+<li>BERT 的优点</li>
+<li>BERT 的局限</li>
+<li>BERT 和 GPT、RoBERTa、ALBERT、DeBERTa 的区别</li>
+<li>实战里怎么用 BERT</li>
+<li>常见误区和面试高频问答</li>
+<li>最终总结</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="1. BERT 是什么"></span><h1 id="1-bert">1. BERT 是什么</h1>
+<p><strong>BERT</strong> 全称是 <strong>Bidirectional Encoder Representations from Transformers</strong>，中文通常叫：</p>
+<blockquote>
+<p><strong>基于 Transformer 的双向编码表示模型。</strong></p>
+</blockquote>
+<p>如果只用一句话来理解它：</p>
+<blockquote>
+<p><strong>BERT 是一个先在海量文本上做预训练，再迁移到具体 NLP 任务上的通用语言表示模型。</strong></p>
+</blockquote>
+<p>这里面有三个关键词：</p>
+<ul>
+<li><strong>Transformer</strong>
+  说明它的底层骨架来自 Transformer 的 encoder</li>
+<li><strong>Bidirectional</strong>
+  说明它在建模一个词时，会同时利用左边和右边上下文</li>
+<li><strong>Representations</strong>
+  说明它的目标不是只做某一个具体任务，而是学到可以迁移的通用文本表示</li>
+</ul>
+<p>很多初学者刚接触时，会把 BERT 理解成“一个做分类的模型”或者“一个做填空的模型”。这都太窄了。更准确地说：</p>
+<blockquote>
+<p><strong>BERT 先通过预训练学习语言知识，再把学到的表示迁移到分类、匹配、问答、实体识别等各种下游任务。</strong></p>
+</blockquote>
+<p>所以 BERT 不是单一任务模型，而是一种通用预训练范式的代表。</p>
+<hr/>
+<span class="heading-anchor" id="2. 它为什么重要"></span><h1 id="2">2. 它为什么重要</h1>
+<p>BERT 之所以重要，不只是因为它在当年效果好，而是因为它改变了 NLP 做模型的主流方式。</p>
+<span class="heading-anchor" id="2.1 它把“预训练 + 微调”变成了标准流程"></span><h2 id="21">2.1 它把“预训练 + 微调”变成了标准流程</h2>
+<p>在 BERT 之前，很多 NLP 任务通常是：</p>
+<ul>
+<li>为每个任务单独设计模型</li>
+<li>在该任务标注数据上从头训练</li>
+<li>很依赖任务特定特征工程</li>
+</ul>
+<p>BERT 把思路变成了：</p>
+<ol>
+<li>先在大规模无标注文本上学语言知识</li>
+<li>再在小规模标注任务上微调</li>
+</ol>
+<p>这个思路后来几乎影响了整个深度学习时代的 NLP 研究。</p>
+<span class="heading-anchor" id="2.2 它显著提升了理解类任务性能"></span><h2 id="22">2.2 它显著提升了理解类任务性能</h2>
+<p>BERT 在提出后，在很多经典 NLP 基准上取得了明显提升，例如：</p>
+<ul>
+<li>文本分类</li>
+<li>句子对匹配</li>
+<li>自然语言推断</li>
+<li>命名实体识别</li>
+<li>抽取式问答</li>
+</ul>
+<p>这意味着它不只是一个“研究概念”，而是真正有广泛迁移能力的基础模型。</p>
+<span class="heading-anchor" id="2.3 它的重要性不只是“性能领先”"></span><h2 id="23">2.3 它的重要性不只是“性能领先”</h2>
+<p>更深一层看，BERT 的意义是：</p>
+<blockquote>
+<p><strong>它证明了语言模型可以先学通用表示，再服务于具体任务。</strong></p>
+</blockquote>
+<p>这个思想后来继续发展，最终走向了更大规模的预训练模型和今天的 LLM。</p>
+<p>换句话说，BERT 是现代大语言模型发展链条中的关键里程碑。</p>
+<hr/>
+<span class="heading-anchor" id="3. BERT 出现之前，NLP 模型有什么问题"></span><h1 id="3-bert-nlp">3. BERT 出现之前，NLP 模型有什么问题</h1>
+<p>理解 BERT，不能跳过它出现前的背景。只有先知道以前哪里不够好，才能理解 BERT 解决了什么。</p>
+<span class="heading-anchor" id="3.1 传统词向量有上下文缺失问题"></span><h2 id="31">3.1 传统词向量有上下文缺失问题</h2>
+<p>在 BERT 之前，大家常用：</p>
+<ul>
+<li>Word2Vec</li>
+<li>GloVe</li>
+<li>fastText</li>
+</ul>
+<p>这些方法能把词映射成向量，但通常有一个核心限制：</p>
+<blockquote>
+<p><strong>同一个词，无论出现在什么句子里，向量基本不变。</strong></p>
+</blockquote>
+<p>例如英文单词 <code>bank</code>：</p>
+<ul>
+<li>在 “open a bank account” 里更像“银行”</li>
+<li>在 “sit on the river bank” 里更像“河岸”</li>
+</ul>
+<p>但静态词向量通常很难根据上下文动态区分这种语义。</p>
+<span class="heading-anchor" id="3.2 RNN/LSTM 虽然有上下文，但训练和并行性受限"></span><h2 id="32-rnnlstm">3.2 RNN/LSTM 虽然有上下文，但训练和并行性受限</h2>
+<p>后来大家开始用：</p>
+<ul>
+<li>RNN</li>
+<li>LSTM</li>
+<li>GRU</li>
+</ul>
+<p>这些序列模型确实能建模上下文，但它们也有明显问题：</p>
+<ul>
+<li>计算是按时间步串行的，不利于并行</li>
+<li>长距离依赖建模不够稳定</li>
+<li>训练成本较高</li>
+<li>很难高效扩大规模</li>
+</ul>
+<span class="heading-anchor" id="3.3 ELMo 虽然引入上下文表示，但仍有方向性限制"></span><h2 id="33-elmo">3.3 ELMo 虽然引入上下文表示，但仍有方向性限制</h2>
+<p>在 BERT 之前，<strong>ELMo（Embeddings from Language Models）</strong> 已经开始做上下文化表示，这是非常重要的一步。</p>
+<p>但 ELMo 本质上还是：</p>
+<ul>
+<li>一个从左到右语言模型</li>
+<li>加一个从右到左语言模型</li>
+<li>最后把两边表示拼起来</li>
+</ul>
+<p>这和 BERT 的“真正双向条件建模”不完全一样。</p>
+<span class="heading-anchor" id="3.4 很多模型是“为任务定制”，不是“通用基础模型”"></span><h2 id="34">3.4 很多模型是“为任务定制”，不是“通用基础模型”</h2>
+<p>在 BERT 之前，一个很现实的问题是：</p>
+<ul>
+<li>做分类有分类模型</li>
+<li>做问答有问答模型</li>
+<li>做匹配有匹配模型</li>
+</ul>
+<p>模型设计常常和任务强绑定，迁移成本高。</p>
+<p>BERT 最重要的突破之一，就是把“一个统一的预训练文本编码器”放到了舞台中央。</p>
+<hr/>
+<span class="heading-anchor" id="4. BERT 的核心思想是什么"></span><h1 id="4-bert">4. BERT 的核心思想是什么</h1>
+<p>BERT 的核心思想可以拆成三层。</p>
+<span class="heading-anchor" id="4.1 用 Transformer Encoder 做文本编码"></span><h2 id="41-transformer-encoder">4.1 用 Transformer Encoder 做文本编码</h2>
+<p>BERT 的底层骨架是 Transformer 的 <strong>encoder</strong> 部分，而不是 decoder。</p>
+<p>这意味着它擅长的是：</p>
+<ul>
+<li>读取整段文本</li>
+<li>建模词和词之间的关系</li>
+<li>生成上下文化表示</li>
+</ul>
+<p>而不是像自回归生成模型那样一个词一个词往后写。</p>
+<span class="heading-anchor" id="4.2 用双向上下文学习表示"></span><h2 id="42">4.2 用双向上下文学习表示</h2>
+<p>BERT 和很多早期语言模型最大的不同是：</p>
+<blockquote>
+<p><strong>它在预训练时不只看左边，也看右边。</strong></p>
+</blockquote>
+<p>例如句子：</p>
+<blockquote>
+<p>我昨天去银行取钱</p>
+</blockquote>
+<p>模型在理解“银行”时，可以同时利用：</p>
+<ul>
+<li>左边的 “去”</li>
+<li>右边的 “取钱”</li>
+</ul>
+<p>这会使语义判断更稳。</p>
+<span class="heading-anchor" id="4.3 先做预训练，再做微调"></span><h2 id="43">4.3 先做预训练，再做微调</h2>
+<p>这也是 BERT 最重要的方法论之一。</p>
+<p>预训练阶段：</p>
+<ul>
+<li>利用海量无标注文本</li>
+<li>学习语言模式、上下文关系、句法语义知识</li>
+</ul>
+<p>微调阶段：</p>
+<ul>
+<li>在具体任务数据上加一个简单输出层</li>
+<li>用少量标注数据适配目标任务</li>
+</ul>
+<p>所以 BERT 真正的力量来自：</p>
+<blockquote>
+<p><strong>大规模预训练带来的通用表示能力。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="5. 双向建模到底解决了什么"></span><h1 id="5">5. 双向建模到底解决了什么</h1>
+<p>“双向”是 BERT 最常被提到的标签，但很多人其实并没有真正理解它的重要性。</p>
+<span class="heading-anchor" id="5.1 什么叫单向建模"></span><h2 id="51">5.1 什么叫单向建模</h2>
+<p>如果一个模型从左到右读句子，那么它在预测当前位置时，只能看到左边的内容。</p>
+<p>例如：</p>
+<blockquote>
+<p>The bank is near the river.</p>
+</blockquote>
+<p>如果模型是单向的，当它看到 <code>bank</code> 时，右边的 <code>near the river</code> 还没有进入可见范围，因此它更难判断 <code>bank</code> 是“银行”还是“河岸”。</p>
+<span class="heading-anchor" id="5.2 什么叫双向建模"></span><h2 id="52">5.2 什么叫双向建模</h2>
+<p>双向建模的意思是：</p>
+<blockquote>
+<p><strong>在表示某个词时，同时利用左侧和右侧上下文。</strong></p>
+</blockquote>
+<p>这会带来很直接的优势：</p>
+<ul>
+<li>歧义词更容易 disambiguation</li>
+<li>句法关系理解更准确</li>
+<li>跨句语义线索更容易整合</li>
+</ul>
+<span class="heading-anchor" id="5.3 为什么这对理解类任务特别重要"></span><h2 id="53">5.3 为什么这对理解类任务特别重要</h2>
+<p>很多理解任务并不是“往后生成”，而是：</p>
+<ul>
+<li>判断一句话属于什么类别</li>
+<li>判断两句话是否蕴含</li>
+<li>判断一个词属于什么实体类型</li>
+<li>判断答案在原文的哪个位置</li>
+</ul>
+<p>这些任务都更依赖完整上下文，而不是单向生成能力。</p>
+<p>所以 BERT 的双向 encoder 非常契合理解类任务。</p>
+<span class="heading-anchor" id="5.4 要注意：BERT 的“双向”不是无条件同时预测"></span><h2 id="54-bert">5.4 要注意：BERT 的“双向”不是无条件同时预测</h2>
+<p>这里容易产生误解。BERT 不是简单地“直接看答案再预测答案”，它是通过 <strong>Masked Language Modeling（MLM）</strong> 这个训练任务，让模型在部分位置被遮挡的条件下利用左右上下文恢复原词。</p>
+<p>也就是说：</p>
+<ul>
+<li>双向建模是真的</li>
+<li>但不是作弊式地把目标词也暴露给模型</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. BERT 的整体结构长什么样"></span><h1 id="6-bert">6. BERT 的整体结构长什么样</h1>
+<p>如果你把 BERT 看成一个网络结构，它的主体其实并不复杂，关键在于它把 Transformer Encoder 用在了大规模预训练上。</p>
+<span class="heading-anchor" id="6.1 主体是多层 Transformer Encoder 堆叠"></span><h2 id="61-transformer-encoder">6.1 主体是多层 Transformer Encoder 堆叠</h2>
+<p>每一层通常包含：</p>
+<ul>
+<li>Multi-Head Self-Attention</li>
+<li>前馈网络（Feed-Forward Network, FFN）</li>
+<li>残差连接</li>
+<li>LayerNorm</li>
+</ul>
+<p>这些层反复堆叠，逐层提炼更高层次的表示。</p>
+<span class="heading-anchor" id="6.2 Self-Attention 在这里起什么作用"></span><h2 id="62-self-attention">6.2 Self-Attention 在这里起什么作用</h2>
+<p>Self-Attention 的作用是：</p>
+<blockquote>
+<p><strong>让一个 token 在编码时，能够直接关注序列中其他 token。</strong></p>
+</blockquote>
+<p>这意味着模型可以更自然地表示：</p>
+<ul>
+<li>主谓关系</li>
+<li>修饰关系</li>
+<li>指代关系</li>
+<li>长距离依赖</li>
+</ul>
+<p>相比 RNN 按步传递信息，Self-Attention 能更直接地建立全局依赖。</p>
+<span class="heading-anchor" id="6.3 为什么 BERT 用 encoder，不用 decoder"></span><h2 id="63-bert-encoder-decoder">6.3 为什么 BERT 用 encoder，不用 decoder</h2>
+<p>因为 BERT 的目标不是文本生成，而是文本理解。Encoder 的特点是：</p>
+<ul>
+<li>输入序列整体可见</li>
+<li>每个位置都可利用完整上下文</li>
+<li>更适合做表征学习</li>
+</ul>
+<p>这决定了它在：</p>
+<ul>
+<li>分类</li>
+<li>匹配</li>
+<li>抽取</li>
+<li>排序</li>
+</ul>
+<p>这类任务上尤其合适。</p>
+<span class="heading-anchor" id="6.4 可以把 BERT 看成什么"></span><h2 id="64-bert">6.4 可以把 BERT 看成什么</h2>
+<p>一个很实用的心智模型是：</p>
+<blockquote>
+<p><strong>BERT 是一个把输入文本编码成上下文化向量表示的通用编码器。</strong></p>
+</blockquote>
+<p>你输入一句话、一对句子、一个问题和一段上下文，它都会先把它们变成一串上下文相关的表示，然后再交给具体任务头处理。</p>
+<hr/>
+<span class="heading-anchor" id="7. 输入表示怎么构造"></span><h1 id="7">7. 输入表示怎么构造</h1>
+<p>BERT 的输入设计非常经典，很多后续模型都在某种程度上沿用了它的思路。</p>
+<span class="heading-anchor" id="7.1 三类 embedding 相加"></span><h2 id="71-embedding">7.1 三类 embedding 相加</h2>
+<p>在原始 BERT 中，一个 token 的输入表示通常由三部分相加得到：</p>
+<ul>
+<li><strong>Token Embedding</strong>
+  表示这个 token 自身</li>
+<li><strong>Position Embedding</strong>
+  表示这个 token 在序列中的位置</li>
+<li><strong>Segment Embedding</strong>
+  表示这个 token 属于句子 A 还是句子 B</li>
+</ul>
+<p>所以一个输入向量并不是单独词向量，而是：</p>
+<blockquote>
+<p><strong>词信息 + 位置信息 + 句段信息</strong></p>
+</blockquote>
+<span class="heading-anchor" id="7.2 [CLS] 和 [SEP] 是干什么的"></span><h2 id="72-cls-sep">7.2 <code>[CLS]</code> 和 <code>[SEP]</code> 是干什么的</h2>
+<p>BERT 有两个非常常见的特殊 token：</p>
+<ul>
+<li><code>[CLS]</code>
+  放在序列开头，常用于汇聚整句或整段表示</li>
+<li><code>[SEP]</code>
+  用来分隔句子或标记结束</li>
+</ul>
+<p>例如单句输入：</p>
+<p><code>[CLS] 我喜欢机器学习 [SEP]</code></p>
+<p>句子对输入：</p>
+<p><code>[CLS] 句子A [SEP] 句子B [SEP]</code></p>
+<p>很多分类任务会直接取 <code>[CLS]</code> 对应位置的最终隐藏状态，送入分类头。</p>
+<span class="heading-anchor" id="7.3 Segment Embedding 在句子对任务里很有用"></span><h2 id="73-segment-embedding">7.3 Segment Embedding 在句子对任务里很有用</h2>
+<p>例如输入：</p>
+<ul>
+<li>句子 A：我喜欢自然语言处理</li>
+<li>句子 B：我也喜欢预训练模型</li>
+</ul>
+<p>模型需要知道哪些 token 属于第一句，哪些属于第二句。Segment Embedding 就是在做这个事情。</p>
+<p>通常可以理解成：</p>
+<ul>
+<li>句子 A 的 token_type_id 为 0</li>
+<li>句子 B 的 token_type_id 为 1</li>
+</ul>
+<span class="heading-anchor" id="7.4 位置编码为什么重要"></span><h2 id="74">7.4 位置编码为什么重要</h2>
+<p>Self-Attention 本身并不知道词序，因为它天然更像一个集合操作，而不是严格顺序模型。</p>
+<p>所以如果不加入位置信息，模型就很难区分：</p>
+<ul>
+<li>“狗咬人”</li>
+<li>“人咬狗”</li>
+</ul>
+<p>Position Embedding 正是在告诉模型：</p>
+<blockquote>
+<p><strong>这个 token 在序列的第几位。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="8. Tokenizer 和 WordPiece 怎么理解"></span><h1 id="8-tokenizer-wordpiece">8. Tokenizer 和 WordPiece 怎么理解</h1>
+<p>Tokenizer 不是简单的前处理，它直接决定模型怎么“看见”文本。</p>
+<span class="heading-anchor" id="8.1 为什么不能直接按词建词表"></span><h2 id="81">8.1 为什么不能直接按词建词表</h2>
+<p>如果直接把每个完整单词都放进词表，会出现几个问题：</p>
+<ul>
+<li>词表太大</li>
+<li>稀有词太多</li>
+<li>新词、错拼词、词形变化很难处理</li>
+</ul>
+<p>所以现代 NLP 模型通常不会只用“整词词表”，而会用 <strong>子词（subword）</strong>。</p>
+<span class="heading-anchor" id="8.2 WordPiece 的基本思想"></span><h2 id="82-wordpiece">8.2 WordPiece 的基本思想</h2>
+<p>BERT 使用的是 <strong>WordPiece</strong>。</p>
+<p>它的核心思想是：</p>
+<blockquote>
+<p><strong>把词拆成更小的、可复用的子词单元。</strong></p>
+</blockquote>
+<p>例如一个生僻词没有完整出现在词表里，也可能被拆成几个已知子词，从而避免彻底变成未知词。</p>
+<span class="heading-anchor" id="8.3 一个直观例子"></span><h2 id="83">8.3 一个直观例子</h2>
+<p>例如英文词：</p>
+<p><code>unbelievable</code></p>
+<p>可能被拆成：</p>
+<ul>
+<li><code>un</code></li>
+<li><code>##bel</code></li>
+<li><code>##iev</code></li>
+<li><code>##able</code></li>
+</ul>
+<p>这里的 <code>##</code> 可以理解为：</p>
+<blockquote>
+<p>这个子词不是一个新词开头，而是接在前面的词后面。</p>
+</blockquote>
+<span class="heading-anchor" id="8.4 WordPiece 的好处"></span><h2 id="84-wordpiece">8.4 WordPiece 的好处</h2>
+<p>它带来的好处包括：</p>
+<ul>
+<li>降低未登录词问题</li>
+<li>控制词表规模</li>
+<li>提高词形泛化能力</li>
+<li>对派生词、复合词更友好</li>
+</ul>
+<span class="heading-anchor" id="8.5 代价是什么"></span><h2 id="85">8.5 代价是什么</h2>
+<p>子词切分并不是没有代价。常见问题包括：</p>
+<ul>
+<li>一个词可能被切成很多片，序列变长</li>
+<li>长词、专有名词、术语可能切得比较碎</li>
+<li>tokenizer 不匹配会直接伤害效果</li>
+</ul>
+<p>这也是为什么实战里必须使用与模型匹配的 tokenizer。</p>
+<hr/>
+<span class="heading-anchor" id="9. BERT 的预训练任务是什么"></span><h1 id="9-bert">9. BERT 的预训练任务是什么</h1>
+<p>原始 BERT 有两个核心预训练任务：</p>
+<ul>
+<li><strong>MLM（Masked Language Modeling）</strong></li>
+<li><strong>NSP（Next Sentence Prediction）</strong></li>
+</ul>
+<p>很多人只记得它们的名字，但不理解为什么要这样设计。下面分开讲。</p>
+<span class="heading-anchor" id="9.1 MLM：遮住一部分词，让模型猜回来"></span><h2 id="91-mlm">9.1 MLM：遮住一部分词，让模型猜回来</h2>
+<p>MLM 的基本流程是：</p>
+<ol>
+<li>输入一段文本</li>
+<li>随机选一些 token 作为预测目标</li>
+<li>对这些位置做 mask 或替换</li>
+<li>让模型根据其余上下文预测原 token</li>
+</ol>
+<p>例如：</p>
+<p><code>我昨天去[MASK]取钱</code></p>
+<p>模型需要根据上下文恢复这里更可能是“银行”。</p>
+<span class="heading-anchor" id="9.2 NSP：判断两句话是不是相邻"></span><h2 id="92-nsp">9.2 NSP：判断两句话是不是相邻</h2>
+<p>NSP 的流程是：</p>
+<ul>
+<li>给模型句子 A 和句子 B</li>
+<li>让模型判断 B 是否是 A 在原文中的下一句</li>
+</ul>
+<p>这个任务的设计初衷是：</p>
+<ul>
+<li>帮助模型学习句间关系</li>
+<li>提升句子对任务能力</li>
+</ul>
+<span class="heading-anchor" id="9.3 为什么要两个任务一起做"></span><h2 id="93">9.3 为什么要两个任务一起做</h2>
+<p>原始设计思路是：</p>
+<ul>
+<li>MLM 学词级和局部上下文建模</li>
+<li>NSP 学句间和篇章层关系</li>
+</ul>
+<p>虽然这个设计后来受到一些质疑，但在 BERT 原始论文的语境中，它是一个相当自然的尝试。</p>
+<hr/>
+<span class="heading-anchor" id="10. MLM 为什么有效"></span><h1 id="10-mlm">10. MLM 为什么有效</h1>
+<p>MLM 是 BERT 最核心的训练目标。即使后来很多模型改掉了其他部分，MLM 仍然保留下来或影响了很多后续方案。</p>
+<span class="heading-anchor" id="10.1 它让模型在上下文中恢复词义"></span><h2 id="101">10.1 它让模型在上下文中恢复词义</h2>
+<p>如果模型想把被 mask 的词预测出来，它就必须理解：</p>
+<ul>
+<li>左边出现了什么</li>
+<li>右边出现了什么</li>
+<li>句子结构是什么</li>
+<li>哪些词经常一起出现</li>
+<li>当前语义最自然的补全是什么</li>
+</ul>
+<p>所以 MLM 学到的不只是词频，而是上下文条件下的语义和句法关系。</p>
+<span class="heading-anchor" id="10.2 为什么不是预测所有词"></span><h2 id="102">10.2 为什么不是预测所有词</h2>
+<p>如果让模型直接看到所有词再预测所有词，会产生“信息泄露”问题，因为目标词本身已经暴露。</p>
+<p>MLM 的精髓就在于：</p>
+<blockquote>
+<p><strong>只遮住一部分位置，让模型对这些位置做条件预测。</strong></p>
+</blockquote>
+<p>这样既能利用双向上下文，又不会让目标词直接泄露。</p>
+<span class="heading-anchor" id="10.3 15% mask 比例和 80/10/10 规则"></span><h2 id="103-15-mask-801010">10.3 15% mask 比例和 80/10/10 规则</h2>
+<p>原始 BERT 中，常见做法是：</p>
+<ul>
+<li>先随机选约 15% 的 token 作为预测目标</li>
+<li>这些目标中：</li>
+<li>80% 替换成 <code>[MASK]</code></li>
+<li>10% 替换成随机 token</li>
+<li>10% 保持原词不变</li>
+</ul>
+<p>这套设计背后的考虑是：</p>
+<ul>
+<li>如果 100% 都替换成 <code>[MASK]</code>，训练时输入分布和真实下游输入分布差异过大</li>
+<li>引入随机词和保持不变，可以缓解这种分布不一致</li>
+</ul>
+<span class="heading-anchor" id="10.4 用公式怎么表达"></span><h2 id="104">10.4 用公式怎么表达</h2>
+<p>如果原始序列是：</p>
+<p><code>x = (x_1, x_2, ..., x_n)</code></p>
+<p>设被选中做预测的位置集合为 <code>M</code>，那么 MLM 损失可以理解为：</p>
+<p><code>L_MLM = - Σ(i∈M) log P(x_i | x_\\M)</code></p>
+<p>其中 <code>x_\\M</code> 表示 mask 后的上下文。</p>
+<p>这句话的意思就是：</p>
+<blockquote>
+<p><strong>只在被选中的位置上计算损失，模型要根据其他上下文恢复原词。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="10.5 MLM 的局限也值得知道"></span><h2 id="105-mlm">10.5 MLM 的局限也值得知道</h2>
+<p>虽然 MLM 很强，但它也有代价：</p>
+<ul>
+<li>预训练和下游推理输入分布不完全一致</li>
+<li>不是天然适合生成任务</li>
+<li>只预测部分位置，训练目标和完全自回归不同</li>
+</ul>
+<p>这也是后来很多模型继续改进预训练目标的原因。</p>
+<hr/>
+<span class="heading-anchor" id="11. NSP 为什么要设计出来"></span><h1 id="11-nsp">11. NSP 为什么要设计出来</h1>
+<p>今天很多人一提 BERT 的 NSP，就只会说“后来很多人把它去掉了”。这句话不算错，但不够完整。</p>
+<span class="heading-anchor" id="11.1 原始设计动机是合理的"></span><h2 id="111">11.1 原始设计动机是合理的</h2>
+<p>很多 NLP 任务并不只是词级理解，还涉及：</p>
+<ul>
+<li>两句话是否语义一致</li>
+<li>第二句话是不是前一句的延续</li>
+<li>问题和段落是否相关</li>
+</ul>
+<p>所以在 BERT 提出时，研究者希望引入一个句间层面的任务，这是有直觉基础的。</p>
+<span class="heading-anchor" id="11.2 NSP 想让模型学什么"></span><h2 id="112-nsp">11.2 NSP 想让模型学什么</h2>
+<p>它希望模型学习：</p>
+<ul>
+<li>句子之间的连贯性</li>
+<li>跨句信息的衔接</li>
+<li>句子对关系</li>
+</ul>
+<p>这在问答、NLI、检索匹配等任务中看起来很有价值。</p>
+<span class="heading-anchor" id="11.3 后来为什么它受到质疑"></span><h2 id="113">11.3 后来为什么它受到质疑</h2>
+<p>后来的工作，例如 RoBERTa，发现 NSP 的收益没有预期中那么稳定。原因可能包括：</p>
+<ul>
+<li>“是否相邻”这个监督过于粗糙</li>
+<li>模型可能学习了浅层数据偏差</li>
+<li>连续文本上的 MLM 本身也能学习句间关系</li>
+</ul>
+<p>所以更准确的说法不是“NSP 完全错误”，而是：</p>
+<blockquote>
+<p><strong>NSP 是一个有合理动机的早期设计，但它未必是学习句间关系的最佳方式。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="11.4 学习时要怎么记"></span><h2 id="114">11.4 学习时要怎么记</h2>
+<p>最稳的记法是：</p>
+<ul>
+<li>BERT 原始设计包含 NSP</li>
+<li>它的目标是帮助句间关系建模</li>
+<li>后续研究发现它不是不可替代，甚至可能不是最优方案</li>
+</ul>
+<p>这样理解就既完整，又不容易在面试里答偏。</p>
+<hr/>
+<span class="heading-anchor" id="12. BERT 的训练和微调范式"></span><h1 id="12-bert">12. BERT 的训练和微调范式</h1>
+<p>这部分是 BERT 最具方法论价值的内容。</p>
+<span class="heading-anchor" id="12.1 预训练阶段在做什么"></span><h2 id="121">12.1 预训练阶段在做什么</h2>
+<p>预训练阶段使用的是海量无标注文本。模型通过 MLM 和 NSP 这类任务，从原始文本中自动构造监督信号。</p>
+<p>这里最关键的一点是：</p>
+<blockquote>
+<p><strong>不需要人工标注，也能从语言数据本身学习结构和语义。</strong></p>
+</blockquote>
+<p>这让大规模训练成为可能。</p>
+<span class="heading-anchor" id="12.2 微调阶段在做什么"></span><h2 id="122">12.2 微调阶段在做什么</h2>
+<p>当预训练完成后，模型已经具备一定通用语言理解能力。接下来只需要：</p>
+<ul>
+<li>在顶层接一个很小的任务头</li>
+<li>用具体任务的标注数据继续训练</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li>分类任务接 softmax 分类头</li>
+<li>NER 接 token-level 分类头</li>
+<li>QA 接起止位置预测头</li>
+</ul>
+<span class="heading-anchor" id="12.3 为什么这种范式有效"></span><h2 id="123">12.3 为什么这种范式有效</h2>
+<p>因为大多数任务都共享某些底层语言知识，例如：</p>
+<ul>
+<li>词义</li>
+<li>句法结构</li>
+<li>语义搭配</li>
+<li>上下文依赖</li>
+</ul>
+<p>预训练相当于先把这些基础能力学好，再让模型适配具体任务，这样：</p>
+<ul>
+<li>对标注数据依赖更小</li>
+<li>收敛更快</li>
+<li>泛化更强</li>
+</ul>
+<span class="heading-anchor" id="12.4 微调和“固定编码器 + 线性层”有什么区别"></span><h2 id="124">12.4 微调和“固定编码器 + 线性层”有什么区别</h2>
+<p>有些人会把 BERT 理解成“拿预训练表示出来，再训练个线性分类器”。这只对了一半。</p>
+<p>BERT 的经典做法更常见的是：</p>
+<blockquote>
+<p><strong>端到端微调整个模型，而不只是冻结底座。</strong></p>
+</blockquote>
+<p>也就是说：</p>
+<ul>
+<li>底层参数也会跟着任务一起更新</li>
+<li>模型能更好地适配目标任务分布</li>
+</ul>
+<p>当然，在数据很少或资源有限时，也可以只训练顶部层或冻结部分层。</p>
+<hr/>
+<span class="heading-anchor" id="13. BERT-base 和 BERT-large"></span><h1 id="13-bert-base-bert-large">13. BERT-base 和 BERT-large</h1>
+<p>原始 BERT 常见有两个经典规格。</p>
+<span class="heading-anchor" id="13.1 BERT-base"></span><h2 id="131-bert-base">13.1 BERT-base</h2>
+<p>常见配置是：</p>
+<ul>
+<li>12 层 Transformer Encoder</li>
+<li>hidden size 768</li>
+<li>12 个 attention heads</li>
+<li>参数量约 110M</li>
+</ul>
+<p>它的特点是：</p>
+<ul>
+<li>训练和推理成本相对可控</li>
+<li>适合作为很多任务的 baseline</li>
+<li>直到今天仍然很常用</li>
+</ul>
+<span class="heading-anchor" id="13.2 BERT-large"></span><h2 id="132-bert-large">13.2 BERT-large</h2>
+<p>常见配置是：</p>
+<ul>
+<li>24 层 Transformer Encoder</li>
+<li>hidden size 1024</li>
+<li>16 个 attention heads</li>
+<li>参数量约 340M</li>
+</ul>
+<p>它通常性能更强，但也意味着：</p>
+<ul>
+<li>显存占用更高</li>
+<li>推理更慢</li>
+<li>微调更吃资源</li>
+</ul>
+<span class="heading-anchor" id="13.3 怎么选"></span><h2 id="133">13.3 怎么选</h2>
+<p>实际工程里通常这样考虑：</p>
+<ul>
+<li>先用 <code>BERT-base</code> 做可行性验证</li>
+<li>效果瓶颈明显、资源允许时再尝试 <code>BERT-large</code></li>
+</ul>
+<p>不要一上来就默认更大一定更值得，因为：</p>
+<ul>
+<li>数据量不足时，大模型未必稳定</li>
+<li>推理成本可能不划算</li>
+<li>部署延迟约束可能更严格</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="14. BERT 适合做什么任务"></span><h1 id="14-bert">14. BERT 适合做什么任务</h1>
+<p>因为 BERT 是 encoder-only 的双向表征模型，所以它最擅长的是 <strong>理解类任务</strong>。</p>
+<span class="heading-anchor" id="14.1 文本分类"></span><h2 id="141">14.1 文本分类</h2>
+<p>例如：</p>
+<ul>
+<li>情感分析</li>
+<li>垃圾内容识别</li>
+<li>新闻分类</li>
+<li>意图识别</li>
+<li>主题判断</li>
+</ul>
+<p>这类任务通常使用 <code>[CLS]</code> 表示接一个分类头。</p>
+<span class="heading-anchor" id="14.2 句子对匹配"></span><h2 id="142">14.2 句子对匹配</h2>
+<p>例如：</p>
+<ul>
+<li>语义相似度</li>
+<li>自然语言推断（NLI）</li>
+<li>问句匹配</li>
+<li>FAQ 匹配</li>
+</ul>
+<p>这类任务很依赖句间关系和完整上下文理解，BERT 很适合。</p>
+<span class="heading-anchor" id="14.3 序列标注"></span><h2 id="143">14.3 序列标注</h2>
+<p>例如：</p>
+<ul>
+<li>命名实体识别（NER）</li>
+<li>词性标注</li>
+<li>关键词抽取</li>
+</ul>
+<p>这时常直接用每个 token 的上下文化表示做逐 token 分类。</p>
+<span class="heading-anchor" id="14.4 抽取式问答"></span><h2 id="144">14.4 抽取式问答</h2>
+<p>例如给一段文章和一个问题，让模型预测答案在原文中的起点和终点位置。</p>
+<p>BERT 在这类任务上很强，因为它擅长：</p>
+<ul>
+<li>对问题和上下文一起编码</li>
+<li>对细粒度位置关系建模</li>
+</ul>
+<span class="heading-anchor" id="14.5 排序和检索重排"></span><h2 id="145">14.5 排序和检索重排</h2>
+<p>在检索系统里，BERT 常用于：</p>
+<ul>
+<li>query-document 相关性打分</li>
+<li>cross-encoder reranker</li>
+</ul>
+<p>这类任务中，BERT 的强项是精排而不是大规模召回。</p>
+<span class="heading-anchor" id="14.6 它不适合什么"></span><h2 id="146">14.6 它不适合什么</h2>
+<p>BERT 通常不擅长：</p>
+<ul>
+<li>开放式文本生成</li>
+<li>长篇续写</li>
+<li>多轮对话生成</li>
+</ul>
+<p>因为它不是为自回归生成设计的。</p>
+<p>一句话记忆：</p>
+<blockquote>
+<p><strong>BERT 强在理解和编码，不强在逐词生成。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="15. BERT 的优点"></span><h1 id="15-bert">15. BERT 的优点</h1>
+<span class="heading-anchor" id="15.1 表示能力强"></span><h2 id="151">15.1 表示能力强</h2>
+<p>BERT 最大的优点就是：</p>
+<blockquote>
+<p><strong>它能把文本编码成上下文相关的高质量表示。</strong></p>
+</blockquote>
+<p>这使得很多任务都能从中受益。</p>
+<span class="heading-anchor" id="15.2 通用性强"></span><h2 id="152">15.2 通用性强</h2>
+<p>一个预训练好的 BERT，可以迁移到多种下游任务，不需要为每个任务完全重做底层模型。</p>
+<span class="heading-anchor" id="15.3 少样本下往往更有优势"></span><h2 id="153">15.3 少样本下往往更有优势</h2>
+<p>因为模型已经从大规模文本中学到了大量语言知识，所以在任务标注数据不多时，通常也能比从头训练效果更好。</p>
+<span class="heading-anchor" id="15.4 生态成熟"></span><h2 id="154">15.4 生态成熟</h2>
+<p>BERT 的工程生态极其成熟：</p>
+<ul>
+<li>Hugging Face 支持完善</li>
+<li>社区 checkpoint 丰富</li>
+<li>各种任务头和训练脚本都很齐全</li>
+</ul>
+<span class="heading-anchor" id="15.5 方法论影响深远"></span><h2 id="155">15.5 方法论影响深远</h2>
+<p>BERT 的价值不仅在于模型本身，更在于它把“预训练 + 微调”这条路线彻底推向主流。</p>
+<hr/>
+<span class="heading-anchor" id="16. BERT 的局限"></span><h1 id="16-bert">16. BERT 的局限</h1>
+<p>理解一个模型，不能只记住它的优点，也要知道边界。</p>
+<span class="heading-anchor" id="16.1 不适合开放式生成"></span><h2 id="161">16.1 不适合开放式生成</h2>
+<p>BERT 是双向 encoder，不是 decoder-only 自回归模型，所以它不擅长：</p>
+<ul>
+<li>自由续写</li>
+<li>对话生成</li>
+<li>长文内容创作</li>
+</ul>
+<span class="heading-anchor" id="16.2 预训练和下游输入存在不完全一致"></span><h2 id="162">16.2 预训练和下游输入存在不完全一致</h2>
+<p>因为训练阶段会用 <code>[MASK]</code>，但真实下游输入通常没有 <code>[MASK]</code>。这会带来一定的训练-推理分布差异。</p>
+<p>虽然 80/10/10 规则在缓解这个问题，但并没有彻底消除。</p>
+<span class="heading-anchor" id="16.3 输入长度有限"></span><h2 id="163">16.3 输入长度有限</h2>
+<p>标准 BERT 的输入长度通常是有限的，例如常见上限是 512 token 左右。</p>
+<p>这对超长文档场景会造成：</p>
+<ul>
+<li>截断</li>
+<li>信息丢失</li>
+<li>长距离依赖覆盖不全</li>
+</ul>
+<span class="heading-anchor" id="16.4 计算成本不低"></span><h2 id="164">16.4 计算成本不低</h2>
+<p>虽然今天看 BERT 不算特别大，但在它提出时已经是比较重的模型。Self-Attention 的复杂度也意味着长序列时成本会上升得比较快。</p>
+<span class="heading-anchor" id="16.5 原始 BERT 并不等于一切任务上的最优解"></span><h2 id="165-bert">16.5 原始 BERT 并不等于一切任务上的最优解</h2>
+<p>后来很多模型对它做了继续改进，例如：</p>
+<ul>
+<li>RoBERTa：强化训练策略</li>
+<li>ALBERT：压缩参数</li>
+<li>DeBERTa：改进位置和表示机制</li>
+</ul>
+<p>所以 BERT 更像一个起点和经典基线，而不是最终答案。</p>
+<hr/>
+<span class="heading-anchor" id="17. BERT 和 GPT、RoBERTa、ALBERT、DeBERTa 的区别"></span><h1 id="17-bert-gptrobertaalbertdeberta">17. BERT 和 GPT、RoBERTa、ALBERT、DeBERTa 的区别</h1>
+<p>这一章专门用来避免把几个常见模型混淆。</p>
+<span class="heading-anchor" id="17.1 和 GPT 的区别"></span><h2 id="171-gpt">17.1 和 GPT 的区别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>结构</th>
+<th>建模方向</th>
+<th>更擅长的事</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BERT</td>
+<td>encoder-only</td>
+<td>双向</td>
+<td>理解、分类、匹配、抽取</td>
+</tr>
+<tr>
+<td>GPT</td>
+<td>decoder-only</td>
+<td>自回归单向</td>
+<td>生成、续写、对话</td>
+</tr>
+</tbody>
+</table></div>
+<p>最核心的差别是：</p>
+<ul>
+<li>BERT 强在“读懂”</li>
+<li>GPT 强在“往后写”</li>
+</ul>
+<span class="heading-anchor" id="17.2 和 RoBERTa 的区别"></span><h2 id="172-roberta">17.2 和 RoBERTa 的区别</h2>
+<p>RoBERTa 的核心不是推翻 BERT，而是：</p>
+<ul>
+<li>去掉 NSP</li>
+<li>用更大数据</li>
+<li>训练更久</li>
+<li>batch 更大</li>
+<li>使用动态 masking</li>
+</ul>
+<p>所以可以理解成：</p>
+<blockquote>
+<p><strong>RoBERTa 是把 BERT 训练配方做得更充分的版本。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="17.3 和 ALBERT 的区别"></span><h2 id="173-albert">17.3 和 ALBERT 的区别</h2>
+<p>ALBERT 的重点是：</p>
+<ul>
+<li>参数共享</li>
+<li>embedding factorization</li>
+<li>降低参数量和训练成本</li>
+</ul>
+<p>所以：</p>
+<ul>
+<li><strong>BERT</strong> 更像原始标准版</li>
+<li><strong>ALBERT</strong> 更像轻量化和参数效率优化版</li>
+</ul>
+<span class="heading-anchor" id="17.4 和 DeBERTa 的区别"></span><h2 id="174-deberta">17.4 和 DeBERTa 的区别</h2>
+<p>DeBERTa 更偏向表示机制上的改进，例如：</p>
+<ul>
+<li>disentangled attention</li>
+<li>更强的位置建模</li>
+</ul>
+<p>所以它是在注意力机制和表示方式上继续往前推进。</p>
+<span class="heading-anchor" id="17.5 一句话区分"></span><h2 id="175">17.5 一句话区分</h2>
+<ul>
+<li><strong>BERT</strong>：双向预训练 encoder 的经典起点</li>
+<li><strong>RoBERTa</strong>：把 BERT 训练得更充分</li>
+<li><strong>ALBERT</strong>：让 BERT 更省参数</li>
+<li><strong>DeBERTa</strong>：在表示结构上继续改进</li>
+<li><strong>GPT</strong>：转向生成导向的 decoder-only 范式</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="18. 实战里怎么用 BERT"></span><h1 id="18-bert">18. 实战里怎么用 BERT</h1>
+<p>这一章从工程落地角度讲，如何真正用起来。</p>
+<span class="heading-anchor" id="18.1 先选对模型和语言版本"></span><h2 id="181">18.1 先选对模型和语言版本</h2>
+<p>先判断：</p>
+<ul>
+<li>任务是中文还是英文</li>
+<li>任务是分类、NER、问答还是匹配</li>
+<li>资源预算是多少</li>
+</ul>
+<p>比如：</p>
+<ul>
+<li>中文任务优先选中文 BERT</li>
+<li>英文任务可直接选 <code>bert-base-uncased</code> 等</li>
+<li>小型实验优先 base 版本</li>
+</ul>
+<span class="heading-anchor" id="18.2 常见模型类怎么选"></span><h2 id="182">18.2 常见模型类怎么选</h2>
+<p>在 Hugging Face 中常见对应关系是：</p>
+<ul>
+<li>文本分类：<code>AutoModelForSequenceClassification</code></li>
+<li>序列标注：<code>AutoModelForTokenClassification</code></li>
+<li>抽取式问答：<code>AutoModelForQuestionAnswering</code></li>
+<li>只提取编码表示：<code>AutoModel</code></li>
+</ul>
+<span class="heading-anchor" id="18.3 一个最小文本分类示例"></span><h2 id="183">18.3 一个最小文本分类示例</h2>
+<pre><code class="language-python">from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+model_name = "bert-base-uncased"
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(
+    model_name,
+    num_labels=2,
+)
+
+texts = [
+    "This movie is great!",
+    "This movie is terrible!",
+]
+
+inputs = tokenizer(
+    texts,
+    padding=True,
+    truncation=True,
+    max_length=128,
+    return_tensors="pt",
+)
+
+outputs = model(**inputs)
+logits = outputs.logits
+print(logits)
+</code></pre>
+<p>这段代码足够用来验证：</p>
+<ul>
+<li>tokenizer 是否匹配</li>
+<li>模型是否成功加载</li>
+<li>输出维度是否正确</li>
+</ul>
+<span class="heading-anchor" id="18.4 微调时常见经验"></span><h2 id="184">18.4 微调时常见经验</h2>
+<p>常见实践包括：</p>
+<ul>
+<li>学习率先试 <code>2e-5</code>、<code>3e-5</code>、<code>5e-5</code></li>
+<li>batch 不够可以用梯度累积</li>
+<li>文本很长时注意截断策略</li>
+<li>类别不均衡时考虑重加权或采样</li>
+<li>先从 base 模型开始做稳健 baseline</li>
+</ul>
+<span class="heading-anchor" id="18.5 BERT 在工程里常见的真实用法"></span><h2 id="185-bert">18.5 BERT 在工程里常见的真实用法</h2>
+<p>例如：</p>
+<ul>
+<li>评论情感分析</li>
+<li>用户意图识别</li>
+<li>搜索精排</li>
+<li>FAQ 匹配</li>
+<li>法律条文分类</li>
+<li>医疗实体识别</li>
+<li>金融公告理解</li>
+</ul>
+<p>这些场景的共同点是：</p>
+<blockquote>
+<p><strong>需要稳定的文本理解和打分能力，而不是自由生成。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="19. 常见误区和面试高频问答"></span><h1 id="19">19. 常见误区和面试高频问答</h1>
+<span class="heading-anchor" id="19.1 常见误区"></span><h2 id="191">19.1 常见误区</h2>
+<span class="heading-anchor" id="误区一：BERT 就是一个做分类的模型"></span><h3 id="bert_1">误区一：BERT 就是一个做分类的模型</h3>
+<p>不对。BERT 是通用预训练文本编码器，分类只是它的一个常见下游任务。</p>
+<span class="heading-anchor" id="误区二：双向就是同时看到答案"></span><h3 id="_2">误区二：双向就是同时看到答案</h3>
+<p>不对。BERT 是通过 MLM 在遮挡条件下利用左右上下文，不是把目标词直接暴露给模型。</p>
+<span class="heading-anchor" id="误区三：BERT 可以自然做聊天和长文本生成"></span><h3 id="bert_2">误区三：BERT 可以自然做聊天和长文本生成</h3>
+<p>不对。它不是为自回归生成设计的，真正强项是理解类任务。</p>
+<span class="heading-anchor" id="误区四：Tokenizer 只是预处理小细节"></span><h3 id="tokenizer">误区四：Tokenizer 只是预处理小细节</h3>
+<p>不对。Tokenizer 直接决定输入分布，不匹配的 tokenizer 会显著伤害效果。</p>
+<span class="heading-anchor" id="误区五：BERT 被后来模型超过，就没有学习价值了"></span><h3 id="bert_3">误区五：BERT 被后来模型超过，就没有学习价值了</h3>
+<p>不对。BERT 是理解预训练语言模型、理解 encoder-only 范式和理解现代 NLP 发展路线的基础。</p>
+<span class="heading-anchor" id="19.2 面试高频问答"></span><h2 id="192">19.2 面试高频问答</h2>
+<span class="heading-anchor" id="问：BERT 最大的创新点是什么？"></span><h3 id="bert_4">问：BERT 最大的创新点是什么？</h3>
+<p>答：使用 Transformer Encoder 做双向预训练表示学习，并通过预训练 + 微调范式把通用语言知识迁移到多种下游任务。</p>
+<span class="heading-anchor" id="问：BERT 为什么强？"></span><h3 id="bert_5">问：BERT 为什么强？</h3>
+<p>答：因为它能在大规模无标注语料上学到高质量上下文化表示，再用少量任务标注数据进行迁移，因此在很多理解任务上效果显著提升。</p>
+<span class="heading-anchor" id="问：BERT 的两个预训练任务是什么？"></span><h3 id="bert_6">问：BERT 的两个预训练任务是什么？</h3>
+<p>答：MLM 和 NSP。MLM 用于学习上下文化词表示，NSP 原本用于学习句间关系。</p>
+<span class="heading-anchor" id="问：BERT 为什么不适合文本生成？"></span><h3 id="bert_7">问：BERT 为什么不适合文本生成？</h3>
+<p>答：因为它是 encoder-only 的双向模型，不是 decoder-only 的自回归生成模型。</p>
+<span class="heading-anchor" id="问：BERT 和 GPT 最本质的区别是什么？"></span><h3 id="bert-gpt">问：BERT 和 GPT 最本质的区别是什么？</h3>
+<p>答：BERT 强调双向理解和编码，GPT 强调自回归生成。</p>
+<span class="heading-anchor" id="问：BERT 和 RoBERTa 的区别是什么？"></span><h3 id="bert-roberta">问：BERT 和 RoBERTa 的区别是什么？</h3>
+<p>答：RoBERTa 沿用 BERT 的主干思路，但通过去掉 NSP、扩大数据、延长训练、增大 batch、采用动态 masking 等方式，把预训练做得更充分。</p>
+<span class="heading-anchor" id="问：为什么 BERT 需要 [CLS]？"></span><h3 id="bert-cls">问：为什么 BERT 需要 <code>[CLS]</code>？</h3>
+<p>答：因为很多句级任务需要一个聚合整句信息的位置，<code>[CLS]</code> 通常承担这个角色，常被用于分类输出。</p>
+<hr/>
+<span class="heading-anchor" id="20. 最终总结"></span><h1 id="20">20. 最终总结</h1>
+<p>如果把整篇教程压缩成最核心的几句话，BERT 的本质可以概括为：</p>
+<blockquote>
+<p><strong>BERT 是一个基于 Transformer Encoder 的双向预训练语言模型。</strong></p>
+<p><strong>它的关键价值不只是一个模型名字，而是“预训练 + 微调”的通用范式。</strong></p>
+<p><strong>它强在理解和编码，不强在开放式生成。</strong></p>
+</blockquote>
+<p>从学习角度，你最应该带走的是下面这套框架：</p>
+<ol>
+<li>先理解为什么上下文化表示比静态词向量更强</li>
+<li>再理解为什么双向建模特别适合理解类任务</li>
+<li>然后掌握 MLM、NSP、输入表示和微调范式</li>
+<li>最后再把它放到 BERT 家族和生成模型的发展链条里看</li>
+</ol>
+<p>如果你把 BERT 学透了，后面继续学：</p>
+<ul>
+<li>RoBERTa</li>
+<li>ALBERT</li>
+<li>DeBERTa</li>
+<li>ELECTRA</li>
+<li>GPT</li>
+<li>T5</li>
+</ul>
+<p>都会容易很多，因为它们很多都是在 BERT 的基础上延展、修正或对比出来的。</p>
+<p>一句话收尾：</p>
+<blockquote>
+<p><strong>BERT 是现代 NLP 预训练时代真正的起爆点之一。</strong></p>
+</blockquote></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

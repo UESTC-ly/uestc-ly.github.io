@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Embedding 与向量检索 · 李杨的学习笔记</title><meta name="description" content="本章讨论 RAG 中从文本到向量、从向量到候选文档的完整链路。重点不只是“把文本存进向量数据库”，而是理解向量表示、相似度、索引、检索参数和评估指标之间的关系。"><meta property="og:title" content="Embedding 与向量检索 · 李杨的学习笔记"><meta property="og:description" content="本章讨论 RAG 中从文本到向量、从向量到候选文档的完整链路。重点不只是“把文本存进向量数据库”，而是理解向量表示、相似度、索引、检索参数和评估指标之间的关系。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-b9db3c16c8b0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-b9db3c16c8b0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>Embedding 与向量检索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/03-Embedding%E4%B8%8E%E5%90%91%E9%87%8F%E6%A3%80%E7%B4%A2.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-rag">1. 向量检索在 RAG 中的位置</a></li><li><a href="#2-embedding">2. Embedding 是什么</a></li><li><a href="#21">2.1 基本定义</a></li><li><a href="#22-embedding">2.2 Embedding 与关键词的区别</a></li><li><a href="#23">2.3 向量维度不是越大越好</a></li><li><a href="#3">3. 相似度计算</a></li><li><a href="#31">3.1 余弦相似度</a></li><li><a href="#32">3.2 点积</a></li><li><a href="#33">3.3 欧氏距离</a></li><li><a href="#34">3.4 选择度量时的原则</a></li><li><a href="#4-embedding">4. Embedding 模型的选择</a></li><li><a href="#41">4.1 主要考察维度</a></li><li><a href="#42">4.2 不要混用不兼容的向量</a></li><li><a href="#5">5. 文档向量化流程</a></li><li><a href="#51-chunk">5.1 从 Chunk 生成向量</a></li><li><a href="#52">5.2 向量化前的处理原则</a></li><li><a href="#53">5.3 批量、缓存和重试</a></li><li><a href="#54">5.4 更新和删除</a></li><li><a href="#6">6. 向量库中的记录设计</a></li><li><a href="#61">6.1 元数据过滤</a></li><li><a href="#62-chunk">6.2 Chunk 去重</a></li><li><a href="#7">7. 精确检索与近似最近邻检索</a></li><li><a href="#71-exact-search">7.1 精确最近邻检索（Exact Search）</a></li><li><a href="#72-ann">7.2 近似最近邻检索（ANN）</a></li><li><a href="#8-hnsw">8. HNSW</a></li><li><a href="#81">8.1 基本原理</a></li><li><a href="#82">8.2 重要参数</a></li><li><a href="#83-hnsw">8.3 HNSW 的适用场景和限制</a></li><li><a href="#9-ivf">9. IVF</a></li><li><a href="#91">9.1 基本原理</a></li><li><a href="#92">9.2 重要参数</a></li><li><a href="#93-ivf">9.3 IVF 的训练要求</a></li><li><a href="#94-ivf_flat-ivf_pq">9.4 IVF_FLAT 与 IVF_PQ</a></li><li><a href="#10-pq">10. PQ 与量化</a></li><li><a href="#101">10.1 为什么需要量化</a></li><li><a href="#102-product-quantization">10.2 Product Quantization</a></li><li><a href="#103">10.3 量化的代价</a></li><li><a href="#11">11. 如何选择索引类型</a></li><li><a href="#12">12. 查询流程与参数</a></li><li><a href="#121-top_k">12.1 top_k 不等于最终上下文数量</a></li><li><a href="#122-hnsw-ivf">12.2 HNSW 和 IVF 的查询参数</a></li><li><a href="#123">12.3 相似度阈值</a></li><li><a href="#13">13. 混合检索</a></li><li><a href="#131">13.1 为什么需要混合检索</a></li><li><a href="#132">13.2 分数融合与排名融合</a></li><li><a href="#14">14. 重排序与上下文压缩</a></li><li><a href="#141">14.1 为什么需要重排序</a></li><li><a href="#142">14.2 上下文压缩</a></li><li><a href="#15">15. 检索质量评估</a></li><li><a href="#151">15.1 构造评估集</a></li><li><a href="#152">15.2 召回指标</a></li><li><a href="#153">15.3 线上指标</a></li><li><a href="#154">15.4 区分检索问题和生成问题</a></li><li><a href="#16">16. 一个最小的本地检索示例</a></li><li><a href="#17-faiss">17. 以 FAISS 为例理解索引构建</a></li><li><a href="#171-hnsw">17.1 HNSW</a></li><li><a href="#172-ivf_flat">17.2 IVF_FLAT</a></li><li><a href="#173-ivf_pq">17.3 IVF_PQ</a></li><li><a href="#18">18. 常见问题与排查顺序</a></li><li><a href="#181">18.1 “检索结果完全不相关”</a></li><li><a href="#182">18.2 “结果相关，但答案所需内容缺失”</a></li><li><a href="#183">18.3 “召回率还可以，但延迟很高”</a></li><li><a href="#184">18.4 “分数看起来很高，但结果不相关”</a></li><li><a href="#185">18.5 “修改了模型但效果没有变化”</a></li><li><a href="#19">19. 生产化设计建议</a></li><li><a href="#191">19.1 版本化</a></li><li><a href="#192">19.2 可观测性</a></li><li><a href="#193">19.3 权限与多租户</a></li><li><a href="#194">19.4 索引维护</a></li><li><a href="#20">20. 推荐的调参流程</a></li><li><a href="#_8">第一步：建立精确检索基准</a></li><li><a href="#embedding-chunk">第二步：固定 Embedding 和 Chunk</a></li><li><a href="#_9">第三步：比较索引类型</a></li><li><a href="#_10">第四步：扫描查询参数</a></li><li><a href="#_11">第五步：加入重排序和混合检索</a></li><li><a href="#_12">第六步：进行线上灰度</a></li><li><a href="#21_1">21. 一页式检查清单</a></li><li><a href="#embedding_1">Embedding</a></li><li><a href="#_13">数据与元数据</a></li><li><a href="#_14">索引</a></li><li><a href="#_15">查询与评估</a></li><li><a href="#22">22. 总结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本章讨论 RAG 中从文本到向量、从向量到候选文档的完整链路。重点不只是“把文本存进向量数据库”，而是理解向量表示、相似度、索引、检索参数和评估指标之间的关系。</p>
+<p><strong>核心结论</strong>：Embedding 决定“文本如何被表示”，索引决定“如何高效找到相似向量”，检索策略决定“找到的内容是否真正适合回答问题”。三者需要一起设计和评估。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 向量检索在 RAG 中的位置"></span><h2 id="1-rag">1. 向量检索在 RAG 中的位置</h2>
+<p>一个典型的 RAG 流程可以拆成以下阶段：</p>
+<pre><code class="language-text">原始资料
+  ↓
+解析、清洗、切分 Chunk
+  ↓
+使用 Embedding 模型生成向量
+  ↓
+写入向量库，并建立向量索引
+  ↓
+用户问题 → 生成查询向量
+  ↓
+相似度检索 + 元数据过滤
+  ↓
+可选：混合检索、重排序、去重、上下文压缩
+  ↓
+把最终上下文交给大语言模型生成答案
+</code></pre>
+<p>向量检索解决的是“哪些文本片段与问题在语义上相关”，并不直接解决以下问题：</p>
+<ul>
+<li>文档是否已经被正确解析；</li>
+<li>Chunk 是否包含完整语义；</li>
+<li>用户问题是否存在歧义；</li>
+<li>检索到的内容是否足以支持答案；</li>
+<li>生成模型是否会忠实使用检索结果。</li>
+</ul>
+<p>因此，Embedding 与向量索引应被看作 RAG 检索层的一部分，而不是完整的知识库方案。</p>
+<hr/>
+<span class="heading-anchor" id="2. Embedding 是什么"></span><h2 id="2-embedding">2. Embedding 是什么</h2>
+<span class="heading-anchor" id="2.1 基本定义"></span><h3 id="21">2.1 基本定义</h3>
+<p>Embedding 模型把文本、图片或其他对象映射为固定维度的数值向量：</p>
+<div class="arithmatex">\[
+ f: \mathcal{X} \rightarrow \mathbb{R}^{d}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(\mathcal{X}\)</span> 是输入文本集合；</li>
+<li><span class="arithmatex">\(d\)</span> 是向量维度；</li>
+<li><span class="arithmatex">\(f(x)\)</span> 是文本 <span class="arithmatex">\(x\)</span> 的向量表示。</li>
+</ul>
+<p>例如，一段文本可能被表示成：</p>
+<pre><code class="language-text">[-0.021, 0.184, -0.337, ..., 0.052]
+</code></pre>
+<p>向量中的单个数字通常没有可解释的业务含义。Embedding 的价值在于：语义相近的文本，经过同一个模型编码后，往往会在向量空间中更接近。</p>
+<span class="heading-anchor" id="2.2 Embedding 与关键词的区别"></span><h3 id="22-embedding">2.2 Embedding 与关键词的区别</h3>
+<p>关键词检索通常关注词面是否匹配。例如：</p>
+<ul>
+<li>查询：“如何重置登录密码？”</li>
+<li>文档：“忘记口令后，可以通过账户设置重新设置凭证。”</li>
+</ul>
+<p>两段文本可能没有共享完全相同的关键词，但语义相近，向量检索有机会将其匹配出来。</p>
+<p>不过，向量检索并不意味着可以完全取代关键词检索：</p>
+<ul>
+<li>人名、产品编号、错误码、版本号等精确字符串通常更适合关键词检索；</li>
+<li>语义改写、同义表达、自然语言提问通常更适合向量检索；</li>
+<li>实际系统经常采用混合检索。</li>
+</ul>
+<span class="heading-anchor" id="2.3 向量维度不是越大越好"></span><h3 id="23">2.3 向量维度不是越大越好</h3>
+<p>更高的维度可能提供更强的表示能力，但也会带来：</p>
+<ul>
+<li>更高的存储成本；</li>
+<li>更大的内存占用；</li>
+<li>更高的索引构建和查询成本；</li>
+<li>在某些数据集上并不一定带来更高的召回率。</li>
+</ul>
+<p>选择模型时应使用目标领域的验证集比较效果，而不要只根据向量维度判断模型质量。</p>
+<hr/>
+<span class="heading-anchor" id="3. 相似度计算"></span><h2 id="3">3. 相似度计算</h2>
+<p>给定查询向量 <span class="arithmatex">\(q\)</span> 和文档向量 <span class="arithmatex">\(x\)</span>，常见的相似度或距离度量有三种。</p>
+<span class="heading-anchor" id="3.1 余弦相似度"></span><h3 id="31">3.1 余弦相似度</h3>
+<p>余弦相似度衡量两个向量夹角的大小：</p>
+<div class="arithmatex">\[
+\operatorname{cos\_sim}(q,x)=\frac{q \cdot x}{\lVert q \rVert_2\lVert x \rVert_2}
+\]</div>
+<p>取值通常在 <span class="arithmatex">\([-1,1]\)</span> 之间。对于经过归一化的向量，余弦相似度等于点积：</p>
+<div class="arithmatex">\[
+\lVert q \rVert_2=\lVert x \rVert_2=1
+\quad\Longrightarrow\quad
+\operatorname{cos\_sim}(q,x)=q\cdot x
+\]</div>
+<p>余弦相似度常用于文本语义检索，因为它更关注方向而不是向量长度。</p>
+<span class="heading-anchor" id="3.2 点积"></span><h3 id="32">3.2 点积</h3>
+<p>点积为：</p>
+<div class="arithmatex">\[
+q \cdot x=\sum_{i=1}^{d}q_i x_i
+\]</div>
+<p>它计算速度快，也容易利用高效的内积索引。需要注意的是，未归一化时，向量的长度会影响点积分数，因此不能直接把点积和余弦相似度混为一谈。</p>
+<span class="heading-anchor" id="3.3 欧氏距离"></span><h3 id="33">3.3 欧氏距离</h3>
+<p>欧氏距离为：</p>
+<div class="arithmatex">\[
+\lVert q-x \rVert_2=\sqrt{\sum_{i=1}^{d}(q_i-x_i)^2}
+\]</div>
+<p>距离越小表示越相近。对于已经归一化的向量，欧氏距离和余弦相似度之间存在单调关系，因此两者排序通常一致；但在未归一化时，排序结果可能明显不同。</p>
+<span class="heading-anchor" id="3.4 选择度量时的原则"></span><h3 id="34">3.4 选择度量时的原则</h3>
+<ol>
+<li>先确认 Embedding 模型推荐的相似度；</li>
+<li>建库和查询必须使用同一种度量；</li>
+<li>如果采用余弦相似度，通常要统一进行 L2 归一化；</li>
+<li>不要把不同模型、不同归一化方式产生的分数直接比较；</li>
+<li>混合检索时，应先对不同来源的分数进行归一化或使用排名融合。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="4. Embedding 模型的选择"></span><h2 id="4-embedding">4. Embedding 模型的选择</h2>
+<span class="heading-anchor" id="4.1 主要考察维度"></span><h3 id="41">4.1 主要考察维度</h3>
+<span class="heading-anchor" id="语言覆盖"></span><h4 id="_1">语言覆盖</h4>
+<p>确认模型是否能稳定处理目标语言、繁简体、英文缩写、代码、表格文本和专业术语。多语言模型不一定在每种语言上都达到同等效果。</p>
+<span class="heading-anchor" id="领域适配"></span><h4 id="_2">领域适配</h4>
+<p>通用模型适合一般知识库，但法律、医疗、金融、工业、软件工程等领域可能有大量特殊表达。应使用真实查询和文档构造小规模验证集，比较不同模型的召回结果。</p>
+<span class="heading-anchor" id="查询与文档的编码方式"></span><h4 id="_3">查询与文档的编码方式</h4>
+<p>部分模型要求对不同输入使用不同指令或前缀，例如将输入区分为“查询”和“文档”。如果模型有此要求，建库和查询必须严格遵守，否则会导致向量空间不匹配。</p>
+<span class="heading-anchor" id="输入长度"></span><h4 id="_4">输入长度</h4>
+<p>Embedding 模型通常有最大输入长度。超过限制的内容可能被截断，也可能由客户端报错。对长文本应在 Embedding 之前完成合理切分，而不是依赖模型静默截断。</p>
+<span class="heading-anchor" id="吞吐量与成本"></span><h4 id="_5">吞吐量与成本</h4>
+<p>需要同时考虑：</p>
+<ul>
+<li>单条编码延迟；</li>
+<li>批量编码吞吐量；</li>
+<li>是否支持本地部署；</li>
+<li>GPU 或 CPU 资源；</li>
+<li>API 调用费用；</li>
+<li>失败重试和限流策略。</li>
+</ul>
+<span class="heading-anchor" id="向量维度与索引兼容性"></span><h4 id="_6">向量维度与索引兼容性</h4>
+<p>向量数据库中的集合通常要求所有向量具有相同维度。更换 Embedding 模型后，维度、分布和相似度分数都可能变化，通常需要重新生成向量并重建索引。</p>
+<span class="heading-anchor" id="版本和许可"></span><h4 id="_7">版本和许可</h4>
+<p>生产环境应记录模型名称、版本、配置和许可证。模型升级可能改变检索排序，不能只更新依赖而不重新评估检索效果。</p>
+<span class="heading-anchor" id="4.2 不要混用不兼容的向量"></span><h3 id="42">4.2 不要混用不兼容的向量</h3>
+<p>以下做法容易产生隐蔽错误：</p>
+<ul>
+<li>文档使用模型 A，查询使用模型 B；</li>
+<li>文档使用模型 A 的旧版本，查询使用新版本；</li>
+<li>一部分文档经过归一化，另一部分没有归一化；</li>
+<li>不同语言或不同前缀规则的向量写入同一个集合；</li>
+<li>只修改了模型配置，却继续使用旧索引。</li>
+</ul>
+<p>建议为每个向量集合保存至少以下信息：</p>
+<pre><code class="language-text">embedding_model
+embedding_model_version
+embedding_dimension
+similarity_metric
+normalization
+created_at
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="5. 文档向量化流程"></span><h2 id="5">5. 文档向量化流程</h2>
+<span class="heading-anchor" id="5.1 从 Chunk 生成向量"></span><h3 id="51-chunk">5.1 从 Chunk 生成向量</h3>
+<p>向量化的输入通常不是整篇文档，而是前一阶段生成的 Chunk。每个 Chunk 应保留足够的上下文，使其脱离原文后仍能表达相对完整的意义。</p>
+<p>一个基本的数据结构可以是：</p>
+<pre><code class="language-python">chunk = {
+    "id": "manual-001#chunk-004",
+    "text": "具体的文本片段……",
+    "metadata": {
+        "document_id": "manual-001",
+        "title": "产品使用手册",
+        "section": "账户管理",
+        "page": 12,
+        "language": "zh-CN",
+    },
+}
+</code></pre>
+<p>向量化后，通常形成：</p>
+<pre><code class="language-python">record = {
+    "id": chunk["id"],
+    "vector": embedding,
+    "text": chunk["text"],
+    "metadata": chunk["metadata"],
+}
+</code></pre>
+<span class="heading-anchor" id="5.2 向量化前的处理原则"></span><h3 id="52">5.2 向量化前的处理原则</h3>
+<p>应避免在向量化前进行过度清洗。以下内容有时对检索非常重要：</p>
+<ul>
+<li>标题和章节路径；</li>
+<li>产品名、版本号和错误码；</li>
+<li>表格的字段名；</li>
+<li>条款编号、函数名和 API 名称；</li>
+<li>文档之间的层级关系。</li>
+</ul>
+<p>可以将标题路径拼接到 Chunk 前面，以增强上下文：</p>
+<pre><code class="language-text">文档：部署手册
+章节：数据库配置 &gt; 连接池
+
+连接池的最大连接数应根据并发请求量和数据库容量设置……
+</code></pre>
+<p>但不要重复拼接过多内容，否则会稀释 Chunk 的核心语义并增加 Token 成本。</p>
+<span class="heading-anchor" id="5.3 批量、缓存和重试"></span><h3 id="53">5.3 批量、缓存和重试</h3>
+<p>生产环境不要逐条无控制地调用 Embedding 服务。通常需要：</p>
+<ul>
+<li>使用批量请求提高吞吐量；</li>
+<li>对相同文本或相同内容哈希进行缓存；</li>
+<li>为每个批次设置超时；</li>
+<li>对临时网络错误进行指数退避重试；</li>
+<li>记录失败 Chunk，支持断点续跑；</li>
+<li>写入前校验向量维度、数值类型和 NaN/Inf；</li>
+<li>采用幂等 ID，避免重复写入。</li>
+</ul>
+<p>可以用文本内容和处理配置生成内容哈希：</p>
+<pre><code class="language-text">chunk_hash = hash(
+    normalized_text
+    + splitter_version
+    + embedding_model_version
+    + embedding_instruction
+)
+</code></pre>
+<p>只有当内容哈希或向量化配置发生变化时，才重新生成向量。</p>
+<span class="heading-anchor" id="5.4 更新和删除"></span><h3 id="54">5.4 更新和删除</h3>
+<p>文档内容更新后，不能只修改原始文本而保留旧向量。应当：</p>
+<ol>
+<li>重新解析和切分文档；</li>
+<li>找出新增、修改和删除的 Chunk；</li>
+<li>只对新增或修改的 Chunk 重新向量化；</li>
+<li>删除旧 Chunk 的向量记录；</li>
+<li>必要时重建或维护索引；</li>
+<li>更新文档版本和更新时间。</li>
+</ol>
+<p>如果向量库支持软删除，可以先标记为不可检索，再异步清理物理数据。</p>
+<hr/>
+<span class="heading-anchor" id="6. 向量库中的记录设计"></span><h2 id="6">6. 向量库中的记录设计</h2>
+<p>一个实用的向量记录通常包含四类信息：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>Chunk 的稳定唯一标识，用于更新、删除和去重</td>
+</tr>
+<tr>
+<td><code>vector</code></td>
+<td>Embedding 向量</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>用于最终拼接上下文的原文</td>
+</tr>
+<tr>
+<td><code>metadata</code></td>
+<td>文档、权限、时间、来源、章节等过滤信息</td>
+</tr>
+</tbody>
+</table></div>
+<p>推荐的元数据包括：</p>
+<pre><code class="language-text">document_id       原始文档 ID
+chunk_id          Chunk ID
+parent_id         父文档或父章节 ID
+title             标题
+section_path      章节路径
+source            文件、URL 或业务来源
+page              页码（如果存在）
+language          语言
+version           文档版本
+created_at        创建时间
+updated_at        更新时间
+access_scope      权限范围
+content_hash      内容哈希
+embedding_version 向量模型版本
+</code></pre>
+<span class="heading-anchor" id="6.1 元数据过滤"></span><h3 id="61">6.1 元数据过滤</h3>
+<p>查询时可以先使用租户、权限、文档类型、时间范围等条件过滤，再进行向量搜索，或者由向量数据库在索引查询中执行过滤。</p>
+<p>权限字段尤其重要：不能先检索所有文档，再把无权限文档交给大语言模型。正确做法是让权限约束尽可能早地进入检索流程。</p>
+<span class="heading-anchor" id="6.2 Chunk 去重"></span><h3 id="62-chunk">6.2 Chunk 去重</h3>
+<p>相邻 Chunk 可能存在较大重叠，同一文档的不同版本也可能产生重复内容。检索后应根据以下信息去重：</p>
+<ul>
+<li>相同 <code>chunk_id</code>；</li>
+<li>相同 <code>content_hash</code>；</li>
+<li>相同文档和高度相似的文本；</li>
+<li>同一父章节下的重复片段。</li>
+</ul>
+<p>去重可以避免 Top-K 结果被同一段内容占满。</p>
+<hr/>
+<span class="heading-anchor" id="7. 精确检索与近似最近邻检索"></span><h2 id="7">7. 精确检索与近似最近邻检索</h2>
+<span class="heading-anchor" id="7.1 精确最近邻检索（Exact Search）"></span><h3 id="71-exact-search">7.1 精确最近邻检索（Exact Search）</h3>
+<p>精确检索会把查询向量与所有候选向量逐一比较，再选出真正的 Top-K。</p>
+<p>假设数据库中有 <span class="arithmatex">\(N\)</span> 个、维度为 <span class="arithmatex">\(d\)</span> 的向量，暴力计算的主要复杂度约为：</p>
+<div class="arithmatex">\[
+O(Nd)
+\]</div>
+<p>优点：</p>
+<ul>
+<li>结果准确，可作为召回率基准；</li>
+<li>实现简单；</li>
+<li>适合小规模数据或离线评估。</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>数据规模变大后，查询延迟随 <span class="arithmatex">\(N\)</span> 增长；</li>
+<li>需要较多 CPU、内存或计算资源；</li>
+<li>不适合高并发的大规模在线查询。</li>
+</ul>
+<span class="heading-anchor" id="7.2 近似最近邻检索（ANN）"></span><h3 id="72-ann">7.2 近似最近邻检索（ANN）</h3>
+<p>ANN 不保证每次都返回全局真正的最近邻，而是通过索引缩小候选范围，在可接受的召回率损失下换取更低延迟。</p>
+<p>ANN 的核心权衡是：</p>
+<pre><code class="language-text">搜索范围更大 → 召回率更高、延迟更高
+搜索范围更小 → 延迟更低、可能漏召回
+</code></pre>
+<p>精确检索的结果可以作为 ANN 的“真值”或近似基准，用于计算 ANN 的召回率。</p>
+<hr/>
+<span class="heading-anchor" id="8. HNSW"></span><h2 id="8-hnsw">8. HNSW</h2>
+<span class="heading-anchor" id="8.1 基本原理"></span><h3 id="81">8.1 基本原理</h3>
+<p>HNSW（Hierarchical Navigable Small World）使用多层图结构组织向量：</p>
+<ul>
+<li>高层包含较少节点，用于快速跳跃到目标区域；</li>
+<li>低层包含更多节点，用于进行细粒度搜索；</li>
+<li>查询时从高层开始，逐层向更相似的节点移动；</li>
+<li>最终在底层扩大候选集合并返回 Top-K。</li>
+</ul>
+<p>它不需要像 IVF 那样先训练聚类中心，通常适合需要较低查询延迟和较高召回率的在线场景。</p>
+<span class="heading-anchor" id="8.2 重要参数"></span><h3 id="82">8.2 重要参数</h3>
+<span class="heading-anchor" id="M"></span><h4 id="m"><code>M</code></h4>
+<p>每个节点允许连接的邻居数量。一般来说：</p>
+<ul>
+<li><code>M</code> 增大：图连接更丰富，召回率可能提高；</li>
+<li>内存占用增大；</li>
+<li>建索引更慢；</li>
+<li>更新成本可能增加。</li>
+</ul>
+<span class="heading-anchor" id="efConstruction"></span><h4 id="efconstruction"><code>efConstruction</code></h4>
+<p>构建索引时搜索候选的范围。增大该值通常有助于生成质量更好的图，但会增加建库时间。</p>
+<span class="heading-anchor" id="efSearch"></span><h4 id="efsearch"><code>efSearch</code></h4>
+<p>查询时搜索候选的范围。增大该值通常提升召回率，但增加查询延迟。它是在线调节召回率和延迟的主要参数之一。</p>
+<span class="heading-anchor" id="8.3 HNSW 的适用场景和限制"></span><h3 id="83-hnsw">8.3 HNSW 的适用场景和限制</h3>
+<p>适合：</p>
+<ul>
+<li>需要低延迟查询；</li>
+<li>数据规模中等或较大；</li>
+<li>查询频繁；</li>
+<li>可以接受较高内存占用。</li>
+</ul>
+<p>限制：</p>
+<ul>
+<li>内存开销通常高于压缩索引；</li>
+<li>大规模批量构建时资源消耗明显；</li>
+<li>删除和大量更新可能需要额外维护；</li>
+<li>元数据过滤是否高效取决于具体向量库的实现。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="9. IVF"></span><h2 id="9-ivf">9. IVF</h2>
+<span class="heading-anchor" id="9.1 基本原理"></span><h3 id="91">9.1 基本原理</h3>
+<p>IVF（Inverted File）先使用聚类将向量空间划分为多个分区，每个分区有一个中心。查询时：</p>
+<ol>
+<li>计算查询向量与各个聚类中心的距离；</li>
+<li>选出最接近的若干分区；</li>
+<li>只在这些分区内搜索候选向量；</li>
+<li>返回最终 Top-K。</li>
+</ol>
+<p>这样可以避免扫描全部向量。</p>
+<span class="heading-anchor" id="9.2 重要参数"></span><h3 id="92">9.2 重要参数</h3>
+<h4 id="nlist"><code>nlist</code></h4>
+<p>分区数量。分区过少时，每个分区包含大量向量，查询仍然需要扫描较多数据；分区过多时，训练和管理成本增加，而且每个分区可能过于稀疏。</p>
+<h4 id="nprobe"><code>nprobe</code></h4>
+<p>一次查询要搜索的分区数量。它直接影响召回率和延迟：</p>
+<ul>
+<li><code>nprobe</code> 较小：查询更快，但可能漏掉真正邻居；</li>
+<li><code>nprobe</code> 较大：召回率更高，但需要扫描更多候选。</li>
+</ul>
+<span class="heading-anchor" id="9.3 IVF 的训练要求"></span><h3 id="93-ivf">9.3 IVF 的训练要求</h3>
+<p>IVF 通常需要使用代表性向量训练聚类中心。训练集应尽量覆盖真实数据分布。以下情况可能导致索引质量下降：</p>
+<ul>
+<li>训练样本太少；</li>
+<li>训练样本只来自某个单一主题；</li>
+<li>训练数据与线上数据分布差异很大；</li>
+<li>文档后来增加了大量新领域内容，却没有重新评估索引。</li>
+</ul>
+<span class="heading-anchor" id="9.4 IVF_FLAT 与 IVF_PQ"></span><h3 id="94-ivf_flat-ivf_pq">9.4 IVF_FLAT 与 IVF_PQ</h3>
+<ul>
+<li><strong>IVF_FLAT</strong>：使用 IVF 缩小候选范围，但保存原始向量，精度较好，存储成本较高；</li>
+<li><strong>IVF_PQ</strong>：在 IVF 的基础上再使用 PQ 压缩向量，存储和计算成本更低，但可能损失召回率。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. PQ 与量化"></span><h2 id="10-pq">10. PQ 与量化</h2>
+<span class="heading-anchor" id="10.1 为什么需要量化"></span><h3 id="101">10.1 为什么需要量化</h3>
+<p>原始向量通常使用 <code>float32</code> 存储。一个维度为 <span class="arithmatex">\(d\)</span> 的向量大约需要：</p>
+<div class="arithmatex">\[
+4d \text{ bytes}
+\]</div>
+<p>当向量数量达到百万级时，仅向量本身就可能占用较大空间。量化通过较低精度或编码方式压缩向量，减少内存和存储压力。</p>
+<span class="heading-anchor" id="10.2 Product Quantization"></span><h3 id="102-product-quantization">10.2 Product Quantization</h3>
+<p>PQ（Product Quantization）把一个高维向量拆分成多个子空间，分别对每个子空间进行聚类，并用较短的编码表示原始子向量。</p>
+<p>常见参数包括：</p>
+<ul>
+<li><code>m</code>：子空间数量；</li>
+<li><code>nbits</code>：每个子空间编码使用的比特数；</li>
+<li>子空间划分方式；</li>
+<li>训练所使用的样本量。</li>
+</ul>
+<p>编码后的向量更小，查询时可以使用预计算距离表加速比较。</p>
+<span class="heading-anchor" id="10.3 量化的代价"></span><h3 id="103">10.3 量化的代价</h3>
+<p>量化不是无损操作，可能带来：</p>
+<ul>
+<li>相似度排序变化；</li>
+<li>边界样本漏召回；</li>
+<li>短文本或细粒度语义的区分能力下降。</li>
+</ul>
+<p>比较稳妥的做法是：</p>
+<ol>
+<li>先用精确检索建立基准；</li>
+<li>再比较未压缩 ANN 与量化 ANN；</li>
+<li>评估 Recall@K、延迟、内存和成本；</li>
+<li>如果量化后先召回较多候选，再用原始向量或重排序模型复核。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="11. 如何选择索引类型"></span><h2 id="11">11. 如何选择索引类型</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>适合的起点</th>
+<th>主要原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据量小、需要准确基准</td>
+<td>精确检索</td>
+<td>结果可解释，便于评估</td>
+</tr>
+<tr>
+<td>在线查询、重视低延迟</td>
+<td>HNSW</td>
+<td>调参直观，查询速度快</td>
+</tr>
+<tr>
+<td>数据量较大、需要控制扫描范围</td>
+<td>IVF_FLAT</td>
+<td>通过分区减少候选</td>
+</tr>
+<tr>
+<td>内存或存储成本敏感</td>
+<td>IVF_PQ 或其他量化索引</td>
+<td>压缩向量，降低资源占用</td>
+</tr>
+<tr>
+<td>过滤条件复杂</td>
+<td>支持过滤的向量库索引</td>
+<td>避免无权限或无关数据进入候选</td>
+</tr>
+<tr>
+<td>规模、分布和更新模式不确定</td>
+<td>先精确检索，再对比 HNSW/IVF</td>
+<td>以真实数据验证而不是凭经验选择</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要只根据数据条数选择索引。还应同时考虑：</p>
+<ul>
+<li>向量维度；</li>
+<li>查询并发量；</li>
+<li>目标 p95/p99 延迟；</li>
+<li>可用内存；</li>
+<li>更新和删除频率；</li>
+<li>过滤条件；</li>
+<li>可接受的召回率损失；</li>
+<li>是否需要分片和多副本。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="12. 查询流程与参数"></span><h2 id="12">12. 查询流程与参数</h2>
+<p>一个完整的向量查询通常包括以下步骤：</p>
+<pre><code class="language-text">1. 接收用户问题
+2. 查询改写或补充上下文（可选）
+3. 使用与文档相匹配的 Embedding 模型编码
+4. 应用租户、权限、文档类型等过滤条件
+5. 执行向量 Top-K 检索
+6. 合并或去重候选 Chunk
+7. 使用重排序模型重新排序（可选）
+8. 截断到上下文预算
+9. 交给生成模型
+</code></pre>
+<span class="heading-anchor" id="12.1 top_k 不等于最终上下文数量"></span><h3 id="121-top_k">12.1 <code>top_k</code> 不等于最终上下文数量</h3>
+<p>向量检索的 <code>top_k</code> 是初始候选数量，而不是最终一定发送给大语言模型的数量。例如：</p>
+<ul>
+<li>初始向量检索取 20 条；</li>
+<li>去重后剩 14 条；</li>
+<li>重排序后选 6 条；</li>
+<li>根据 Token 预算最终发送 4 条。</li>
+</ul>
+<p>如果直接把很大的 <code>top_k</code> 全部拼入上下文，可能引入噪声、重复内容和相互冲突的信息。</p>
+<span class="heading-anchor" id="12.2 HNSW 和 IVF 的查询参数"></span><h3 id="122-hnsw-ivf">12.2 HNSW 和 IVF 的查询参数</h3>
+<p>常见的调参关系如下：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>索引</th>
+<th>主要查询参数</th>
+<th>增大参数的典型影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HNSW</td>
+<td><code>efSearch</code></td>
+<td>召回率提高，延迟和计算量增加</td>
+</tr>
+<tr>
+<td>IVF</td>
+<td><code>nprobe</code></td>
+<td>搜索更多分区，召回率提高，延迟增加</td>
+</tr>
+<tr>
+<td>PQ</td>
+<td>候选范围、重排数量</td>
+<td>候选更多或重排更充分，成本增加</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要在没有线上数据的情况下凭感觉设置参数。应在验证集上绘制“召回率—延迟”曲线，再选择目标点。</p>
+<span class="heading-anchor" id="12.3 相似度阈值"></span><h3 id="123">12.3 相似度阈值</h3>
+<p>可以设置最小相似度阈值，过滤明显无关的结果，但阈值不能跨模型、跨度量方式直接复用。原因包括：</p>
+<ul>
+<li>不同模型的向量分布不同；</li>
+<li>归一化方式不同；</li>
+<li>不同领域的文本相似度分布不同；</li>
+<li>查询长短不同；</li>
+<li>余弦、点积和距离的数值范围不同。</li>
+</ul>
+<p>阈值应通过真实的相关/不相关样本进行校准，并观察“无答案问题”的误召回情况。</p>
+<hr/>
+<span class="heading-anchor" id="13. 混合检索"></span><h2 id="13">13. 混合检索</h2>
+<span class="heading-anchor" id="13.1 为什么需要混合检索"></span><h3 id="131">13.1 为什么需要混合检索</h3>
+<p>向量检索擅长语义匹配，关键词检索擅长精确匹配。对于包含以下内容的问题，单一检索方式可能不够：</p>
+<ul>
+<li>错误码：<code>E11000</code>；</li>
+<li>产品型号：<code>ABC-2000</code>；</li>
+<li>API 名称：<code>create_session</code>；</li>
+<li>版本号：<code>v2.4.1</code>；</li>
+<li>固定条款编号或合同编号。</li>
+</ul>
+<p>混合检索可以同时获得两类候选：</p>
+<pre><code class="language-text">候选集合 = 语义检索结果 ∪ 关键词检索结果
+</code></pre>
+<span class="heading-anchor" id="13.2 分数融合与排名融合"></span><h3 id="132">13.2 分数融合与排名融合</h3>
+<p>不同检索器的分数尺度往往不同，不能简单相加。常见方案有：</p>
+<ol>
+<li>对分数做 Min-Max 或 Z-Score 归一化后加权；</li>
+<li>只使用排名进行融合；</li>
+<li>使用 Reciprocal Rank Fusion（RRF）。</li>
+</ol>
+<p>RRF 的一种形式为：</p>
+<div class="arithmatex">\[
+\operatorname{RRF}(d)=\sum_{r\in R}\frac{1}{k+\operatorname{rank}_r(d)}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(R\)</span> 是各个检索器；</li>
+<li><span class="arithmatex">\(\operatorname{rank}_r(d)\)</span> 是文档 <span class="arithmatex">\(d\)</span> 在检索器 <span class="arithmatex">\(r\)</span> 中的排名；</li>
+<li><span class="arithmatex">\(k\)</span> 是平滑常数。</li>
+</ul>
+<p>排名融合的优点是无需强行让不同检索器的原始分数处于同一尺度。</p>
+<hr/>
+<span class="heading-anchor" id="14. 重排序与上下文压缩"></span><h2 id="14">14. 重排序与上下文压缩</h2>
+<span class="heading-anchor" id="14.1 为什么需要重排序"></span><h3 id="141">14.1 为什么需要重排序</h3>
+<p>向量检索通常追求较高召回率，因此初始 Top-K 中可能包含一些“看起来相关、但并不能直接回答问题”的内容。重排序模型可以同时阅读查询和候选文本，再判断二者的相关性。</p>
+<p>常见流程：</p>
+<pre><code class="language-text">Embedding 检索 Top-20
+  ↓
+重排序模型重新计算相关性
+  ↓
+保留 Top-5 或 Top-8
+  ↓
+拼接上下文
+</code></pre>
+<p>Embedding 模型通常分别编码查询和文档，查询速度较快；Cross-Encoder 类重排序模型则同时输入查询和文档，效果可能更精细，但逐条计算成本更高。因此重排序应只作用于有限数量的候选。</p>
+<span class="heading-anchor" id="14.2 上下文压缩"></span><h3 id="142">14.2 上下文压缩</h3>
+<p>对于较长 Chunk，可以进一步：</p>
+<ul>
+<li>删除与问题无关的句子；</li>
+<li>只保留包含答案证据的段落；</li>
+<li>合并同一章节的相邻结果；</li>
+<li>保留标题、来源和页码等引用信息。</li>
+</ul>
+<p>压缩不能破坏代词指代、条件限制和例外条款。过度压缩可能让原本正确的结论失去必要上下文。</p>
+<hr/>
+<span class="heading-anchor" id="15. 检索质量评估"></span><h2 id="15">15. 检索质量评估</h2>
+<span class="heading-anchor" id="15.1 构造评估集"></span><h3 id="151">15.1 构造评估集</h3>
+<p>应使用真实业务问题或接近真实的测试问题，至少包含：</p>
+<ul>
+<li>问题文本；</li>
+<li>相关文档或相关 Chunk 的标注；</li>
+<li>问题类型；</li>
+<li>是否允许“没有答案”；</li>
+<li>可选的参考答案和证据来源。</li>
+</ul>
+<p>问题类型可以覆盖：</p>
+<ul>
+<li>事实查找；</li>
+<li>多跳问题；</li>
+<li>精确编号查询；</li>
+<li>章节总结；</li>
+<li>条件和例外判断；</li>
+<li>无答案问题；</li>
+<li>跨文档比较。</li>
+</ul>
+<span class="heading-anchor" id="15.2 召回指标"></span><h3 id="152">15.2 召回指标</h3>
+<span class="heading-anchor" id="Recall@K"></span><h4 id="recallk">Recall@K</h4>
+<p>如果标注的相关 Chunk 至少有一个出现在前 <span class="arithmatex">\(K\)</span> 条结果中，则认为该问题被召回：</p>
+<div class="arithmatex">\[
+\operatorname{Recall@K}=\frac{\text{前 }K\text{ 条中包含相关结果的问题数}}{\text{问题总数}}
+\]</div>
+<p>它适合衡量“有没有找到答案所需的材料”。</p>
+<span class="heading-anchor" id="Precision@K"></span><h4 id="precisionk">Precision@K</h4>
+<p>前 <span class="arithmatex">\(K\)</span> 条结果中相关结果所占比例：</p>
+<div class="arithmatex">\[
+\operatorname{Precision@K}=\frac{\text{前 }K\text{ 条中的相关结果数}}{K}
+\]</div>
+<span class="heading-anchor" id="MRR"></span><h4 id="mrr">MRR</h4>
+<p>MRR 更关注第一个相关结果出现得有多早：</p>
+<div class="arithmatex">\[
+\operatorname{MRR}=\frac{1}{|Q|}\sum_{i=1}^{|Q|}\frac{1}{\operatorname{rank}_i}
+\]</div>
+<span class="heading-anchor" id="nDCG@K"></span><h4 id="ndcgk">nDCG@K</h4>
+<p>当相关性有多级标注，例如“完全相关、部分相关、不相关”时，可以使用 nDCG@K 衡量排序质量。</p>
+<span class="heading-anchor" id="15.3 线上指标"></span><h3 id="153">15.3 线上指标</h3>
+<p>还应记录：</p>
+<ul>
+<li>p50、p95、p99 查询延迟；</li>
+<li>Embedding 服务延迟和失败率；</li>
+<li>每次查询的候选数量；</li>
+<li>重排序耗时；</li>
+<li>Token 使用量；</li>
+<li>空结果比例；</li>
+<li>用户追问或改写比例；</li>
+<li>引用被点击、采纳或反馈为有用的比例。</li>
+</ul>
+<span class="heading-anchor" id="15.4 区分检索问题和生成问题"></span><h3 id="154">15.4 区分检索问题和生成问题</h3>
+<p>当最终答案错误时，至少要分辨：</p>
+<ol>
+<li>相关 Chunk 根本没有被检索到：检索问题；</li>
+<li>相关 Chunk 被检索到，但排名太靠后：排序问题；</li>
+<li>相关 Chunk 已在上下文中，但被截断：上下文管理问题；</li>
+<li>上下文完整，但模型没有正确使用：生成或提示词问题；</li>
+<li>文档本身过时或互相矛盾：知识库治理问题。</li>
+</ol>
+<p>只看最终答案准确率，无法定位是哪一层需要改进。</p>
+<hr/>
+<span class="heading-anchor" id="16. 一个最小的本地检索示例"></span><h2 id="16">16. 一个最小的本地检索示例</h2>
+<p>下面的示例使用归一化向量和点积实现精确检索，适合理解原理和建立小规模基准。它不是生产级向量数据库实现。</p>
+<pre><code class="language-python">from __future__ import annotations
+
+import numpy as np
+
+
+def normalize(vectors: np.ndarray) -&gt; np.ndarray:
+    """对每一行向量做 L2 归一化。"""
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-12)
+    return vectors / norms
+
+
+def exact_search(
+    query_vector: np.ndarray,
+    document_vectors: np.ndarray,
+    top_k: int = 5,
+) -&gt; tuple[np.ndarray, np.ndarray]:
+    """使用归一化向量的点积计算余弦相似度。"""
+    query = normalize(query_vector.reshape(1, -1))[0]
+    documents = normalize(document_vectors)
+
+    scores = documents @ query
+    top_k = min(top_k, len(scores))
+    indices = np.argsort(-scores)[:top_k]
+    return indices, scores[indices]
+
+
+# 实际项目中，这些向量应由同一个 Embedding 模型生成。
+document_vectors = np.array(
+    [
+        [0.9, 0.1, 0.0],
+        [0.8, 0.2, 0.1],
+        [0.0, 0.1, 0.9],
+    ],
+    dtype=np.float32,
+)
+query_vector = np.array([0.85, 0.15, 0.05], dtype=np.float32)
+
+indices, scores = exact_search(query_vector, document_vectors, top_k=2)
+for index, score in zip(indices, scores):
+    print(index, float(score))
+</code></pre>
+<p>这个示例体现了几个基本要求：</p>
+<ul>
+<li>查询向量和文档向量维度一致；</li>
+<li>使用同一种归一化方式；</li>
+<li>点积结果越大表示越相似；</li>
+<li>先建立精确检索基准，再比较 ANN 索引。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="17. 以 FAISS 为例理解索引构建"></span><h2 id="17-faiss">17. 以 FAISS 为例理解索引构建</h2>
+<p>下面是说明 HNSW、IVF 和 IVF-PQ 参数关系的示意代码。真实项目还需要处理持久化、增量更新、过滤、分片、备份和版本切换。</p>
+<span class="heading-anchor" id="17.1 HNSW"></span><h3 id="171-hnsw">17.1 HNSW</h3>
+<pre><code class="language-python">import faiss
+import numpy as np
+
+# vectors 是 float32，且已经做过归一化
+vectors = np.asarray(vectors, dtype="float32")
+dimension = vectors.shape[1]
+
+index = faiss.IndexHNSWFlat(
+    dimension,
+    32,
+    faiss.METRIC_INNER_PRODUCT,
+)
+index.hnsw.efConstruction =  honderd = 200
+index.hnsw.efSearch = 64
+index.add(vectors)
+
+scores, ids = index.search(query_vectors, 10)
+</code></pre>
+<blockquote>
+<p>上面的参数仅用于说明位置，具体值必须通过评估集和延迟测试确定。实现时应避免把实验参数写死在业务逻辑中。</p>
+</blockquote>
+<span class="heading-anchor" id="17.2 IVF_FLAT"></span><h3 id="172-ivf_flat">17.2 IVF_FLAT</h3>
+<pre><code class="language-python">quantizer = faiss.IndexFlatIP(dimension)
+nlist = 1024
+
+index = faiss.IndexIVFFlat(
+    quantizer,
+    dimension,
+    nlist,
+    faiss.METRIC_INNER_PRODUCT,
+)
+
+# IVF 在 add 之前通常需要训练聚类中心。
+index.train(training_vectors)
+index.add(vectors)
+index.nprobe = 16
+
+scores, ids = index.search(query_vectors, 10)
+</code></pre>
+<span class="heading-anchor" id="17.3 IVF_PQ"></span><h3 id="173-ivf_pq">17.3 IVF_PQ</h3>
+<pre><code class="language-python">quantizer = faiss.IndexFlatIP(dimension)
+nlist = 1024
+m = 32       # 子空间数量，需要与维度和实现约束匹配
+nbits = 8    # 每个子空间的编码位数
+
+index = faiss.IndexIVFPQ(
+    quantizer,
+    dimension,
+    nlist,
+    m,
+    nbits,
+    faiss.METRIC_INNER_PRODUCT,
+)
+index.train(training_vectors)
+index.add(vectors)
+index.nprobe = 16
+</code></pre>
+<p>不同版本或发行方式的库接口可能存在差异，实际使用前应以当前依赖版本的 API 为准。示例的目的在于说明：</p>
+<ul>
+<li>HNSW 主要通过图连接和 <code>efSearch</code> 控制搜索范围；</li>
+<li>IVF 需要训练分区中心，并通过 <code>nprobe</code> 控制搜索分区数；</li>
+<li>IVF-PQ 在分区基础上进一步压缩向量。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="18. 常见问题与排查顺序"></span><h2 id="18">18. 常见问题与排查顺序</h2>
+<span class="heading-anchor" id="18.1 “检索结果完全不相关”"></span><h3 id="181">18.1 “检索结果完全不相关”</h3>
+<p>优先检查：</p>
+<ol>
+<li>查询和文档是否使用同一个模型及版本；</li>
+<li>向量维度是否一致；</li>
+<li>相似度度量是否一致；</li>
+<li>归一化是否一致；</li>
+<li>文本是否在 Embedding 前被截断或清空；</li>
+<li>查询是否使用了模型要求的指令前缀；</li>
+<li>是否把错误的字段写入了向量库；</li>
+<li>索引是否在更新后仍引用旧数据。</li>
+</ol>
+<span class="heading-anchor" id="18.2 “结果相关，但答案所需内容缺失”"></span><h3 id="182">18.2 “结果相关，但答案所需内容缺失”</h3>
+<p>可能原因：</p>
+<ul>
+<li>Chunk 太短，拆散了定义和条件；</li>
+<li>Chunk 太长，核心内容被稀释；</li>
+<li>标题和章节信息没有保留；</li>
+<li><code>top_k</code> 太小；</li>
+<li>元数据过滤过严；</li>
+<li>只检索单个 Chunk，没有补充相邻 Chunk 或父章节。</li>
+</ul>
+<span class="heading-anchor" id="18.3 “召回率还可以，但延迟很高”"></span><h3 id="183">18.3 “召回率还可以，但延迟很高”</h3>
+<p>可以依次尝试：</p>
+<ul>
+<li>减少初始候选数量；</li>
+<li>调低 HNSW 的 <code>efSearch</code> 或 IVF 的 <code>nprobe</code>；</li>
+<li>使用更适合当前规模的索引；</li>
+<li>对 Embedding 结果做缓存；</li>
+<li>减少不必要的重排序候选；</li>
+<li>使用批量查询或合理的并发控制；</li>
+<li>检查过滤条件是否导致索引无法有效缩小候选。</li>
+</ul>
+<span class="heading-anchor" id="18.4 “分数看起来很高，但结果不相关”"></span><h3 id="184">18.4 “分数看起来很高，但结果不相关”</h3>
+<p>分数只在同一个模型、同一种度量和相同处理流程内有可比性。不能把一个模型的 <code>0.8</code> 与另一个模型的 <code>0.8</code> 直接视为同等相关，也不能只看分数而不检查文本内容。</p>
+<span class="heading-anchor" id="18.5 “修改了模型但效果没有变化”"></span><h3 id="185">18.5 “修改了模型但效果没有变化”</h3>
+<p>可能仍在读取旧向量或旧索引。建议：</p>
+<ul>
+<li>给集合名或索引版本加上模型版本；</li>
+<li>记录每条向量的 <code>embedding_version</code>；</li>
+<li>使用小样本手工检查新旧向量；</li>
+<li>在切换前后运行同一套离线评估；</li>
+<li>采用双写、灰度和可回滚策略。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="19. 生产化设计建议"></span><h2 id="19">19. 生产化设计建议</h2>
+<span class="heading-anchor" id="19.1 版本化"></span><h3 id="191">19.1 版本化</h3>
+<p>向量集合至少应和以下版本绑定：</p>
+<pre><code class="language-text">collection_version
+embedding_model_version
+chunker_version
+cleaning_version
+index_config_version
+</code></pre>
+<p>重新向量化时，建议创建新版本集合并完成离线验证，再进行流量切换，而不是直接覆盖生产索引。</p>
+<span class="heading-anchor" id="19.2 可观测性"></span><h3 id="192">19.2 可观测性</h3>
+<p>每次检索最好记录但不泄露敏感内容的诊断信息：</p>
+<ul>
+<li>request_id；</li>
+<li>查询处理耗时；</li>
+<li>向量化耗时；</li>
+<li>索引查询耗时；</li>
+<li>初始 Top-K；</li>
+<li>过滤条件；</li>
+<li>重排序耗时；</li>
+<li>最终使用的 Chunk ID；</li>
+<li>模型和索引版本；</li>
+<li>是否命中缓存；</li>
+<li>是否返回“没有足够证据”。</li>
+</ul>
+<p>日志中应避免直接保存不必要的个人信息、密钥、密码和完整敏感文档。</p>
+<span class="heading-anchor" id="19.3 权限与多租户"></span><h3 id="193">19.3 权限与多租户</h3>
+<p>多租户系统需要在检索层明确租户边界。常见做法包括：</p>
+<ul>
+<li>每个租户独立集合；</li>
+<li>共享集合但强制使用租户过滤；</li>
+<li>将访问控制标签写入元数据，并在查询时验证；</li>
+<li>对高敏感数据使用物理隔离。</li>
+</ul>
+<p>不能仅依赖生成模型“不要回答无权限内容”，因为无权限内容一旦进入上下文，就已经产生了数据泄露风险。</p>
+<span class="heading-anchor" id="19.4 索引维护"></span><h3 id="194">19.4 索引维护</h3>
+<p>需要制定：</p>
+<ul>
+<li>初次构建流程；</li>
+<li>增量写入流程；</li>
+<li>删除和软删除策略；</li>
+<li>定期压缩或重建策略；</li>
+<li>备份和恢复方案；</li>
+<li>索引损坏后的回滚方案；</li>
+<li>模型升级后的迁移流程。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="20. 推荐的调参流程"></span><h2 id="20">20. 推荐的调参流程</h2>
+<p>不要同时修改所有参数。可以按以下顺序进行：</p>
+<span class="heading-anchor" id="第一步：建立精确检索基准"></span><h3 id="_8">第一步：建立精确检索基准</h3>
+<p>在较小数据集或离线环境中执行精确搜索，得到理想的 Top-K 结果，并记录 Recall@K、Precision@K、MRR 等指标。</p>
+<span class="heading-anchor" id="第二步：固定 Embedding 和 Chunk"></span><h3 id="embedding-chunk">第二步：固定 Embedding 和 Chunk</h3>
+<p>先固定模型、归一化方式、Chunk 策略和相似度度量，否则无法判断指标变化来自哪里。</p>
+<span class="heading-anchor" id="第三步：比较索引类型"></span><h3 id="_9">第三步：比较索引类型</h3>
+<p>在同一批向量上比较：</p>
+<ul>
+<li>精确检索；</li>
+<li>HNSW；</li>
+<li>IVF_FLAT；</li>
+<li>IVF_PQ 或其他量化索引。</li>
+</ul>
+<span class="heading-anchor" id="第四步：扫描查询参数"></span><h3 id="_10">第四步：扫描查询参数</h3>
+<p>例如逐步调整 <code>efSearch</code> 或 <code>nprobe</code>，记录：</p>
+<pre><code class="language-text">参数值 → Recall@K → p50 延迟 → p95 延迟 → 内存占用
+</code></pre>
+<p>选择满足业务延迟目标且召回率可接受的参数，而不是追求理论上的最大召回率。</p>
+<span class="heading-anchor" id="第五步：加入重排序和混合检索"></span><h3 id="_11">第五步：加入重排序和混合检索</h3>
+<p>在 ANN 参数稳定后，再加入关键词检索、重排序和去重，分别测量每一层带来的增益和成本。</p>
+<span class="heading-anchor" id="第六步：进行线上灰度"></span><h3 id="_12">第六步：进行线上灰度</h3>
+<p>离线效果良好的配置仍可能受到真实流量、过滤条件、并发和长尾查询影响。应通过小流量灰度观察延迟、错误率和用户反馈。</p>
+<hr/>
+<span class="heading-anchor" id="21. 一页式检查清单"></span><h2 id="21_1">21. 一页式检查清单</h2>
+<span class="heading-anchor" id="Embedding"></span><h3 id="embedding_1">Embedding</h3>
+<ul>
+<li>[ ] 查询和文档使用同一个模型及版本；</li>
+<li>[ ] 已确认语言、领域和输入长度适配；</li>
+<li>[ ] 已确认相似度度量和归一化方式；</li>
+<li>[ ] 已记录模型、维度、版本和配置；</li>
+<li>[ ] 已实现批量、缓存、重试和断点续跑；</li>
+<li>[ ] 已校验向量维度以及 NaN/Inf。</li>
+</ul>
+<span class="heading-anchor" id="数据与元数据"></span><h3 id="_13">数据与元数据</h3>
+<ul>
+<li>[ ] 每个 Chunk 有稳定唯一 ID；</li>
+<li>[ ] 保留标题、章节、来源和权限信息；</li>
+<li>[ ] 支持内容更新、删除和版本切换；</li>
+<li>[ ] 已处理重复 Chunk 和相邻 Chunk；</li>
+<li>[ ] 权限过滤发生在检索流程的足够早阶段。</li>
+</ul>
+<span class="heading-anchor" id="索引"></span><h3 id="_14">索引</h3>
+<ul>
+<li>[ ] 已使用精确检索建立基准；</li>
+<li>[ ] 已根据规模、延迟、内存和更新频率选择索引；</li>
+<li>[ ] HNSW 的 <code>M</code>、<code>efConstruction</code>、<code>efSearch</code> 已评估；</li>
+<li>[ ] IVF 的 <code>nlist</code>、<code>nprobe</code> 已评估；</li>
+<li>[ ] 使用量化时已测量召回率损失；</li>
+<li>[ ] 索引版本和向量版本可追踪。</li>
+</ul>
+<span class="heading-anchor" id="查询与评估"></span><h3 id="_15">查询与评估</h3>
+<ul>
+<li>[ ] <code>top_k</code> 与最终上下文数量分开设计；</li>
+<li>[ ] 已考虑混合检索、去重和重排序；</li>
+<li>[ ] 已准备相关、部分相关和无答案问题；</li>
+<li>[ ] 已测量 Recall@K、MRR、nDCG、延迟和成本；</li>
+<li>[ ] 能区分检索错误、排序错误、上下文错误和生成错误；</li>
+<li>[ ] 已准备灰度、监控、备份和回滚方案。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="22. 总结"></span><h2 id="22">22. 总结</h2>
+<p>Embedding 把文本语义映射到向量空间，但“语义相近”并不等于“能够回答问题”。高质量的向量检索系统至少需要同时关注：</p>
+<ol>
+<li><strong>表示质量</strong>：模型、语言、领域、输入格式和版本；</li>
+<li><strong>数据质量</strong>：Chunk 完整性、标题上下文、去重和元数据；</li>
+<li><strong>相似度一致性</strong>：余弦、点积或欧氏距离，以及归一化方式；</li>
+<li><strong>索引效率</strong>：精确检索、HNSW、IVF、PQ 的适用场景和参数；</li>
+<li><strong>检索策略</strong>：过滤、Top-K、混合检索、重排序和上下文压缩；</li>
+<li><strong>可验证性</strong>：Recall@K、MRR、nDCG、延迟、成本和线上反馈；</li>
+<li><strong>生产治理</strong>：版本、权限、更新、监控、备份和回滚。</li>
+</ol>
+<p>实践中最稳妥的路径是：先用简单的精确检索验证数据和模型，再逐步引入 ANN、混合检索、重排序和量化。每一步都用同一套评估集比较“效果提升”和“资源成本”，避免仅凭相似度分数或主观体验调参。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

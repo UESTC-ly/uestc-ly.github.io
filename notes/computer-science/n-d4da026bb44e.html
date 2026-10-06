@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>MySQL 索引与查询优化 · 李杨的学习笔记</title><meta name="description" content="适用范围：以 MySQL 8.x / InnoDB 为主。复习时先看“性能排查清单”，再回到具体章节定位原因。相关笔记： 01-MySQL基础与体系结构 、 04-InnoDB事务锁与日志 、 05-MySQL运维高可用安全与面试 、 05-MySQL运维高可用安全与面试 。"><meta property="og:title" content="MySQL 索引与查询优化 · 李杨的学习笔记"><meta property="og:description" content="适用范围：以 MySQL 8.x / InnoDB 为主。复习时先看“性能排查清单”，再回到具体章节定位原因。相关笔记： 01-MySQL基础与体系结构 、 04-InnoDB事务锁与日志 、 05-MySQL运维高可用安全与面试 、 05-MySQL运维高可用安全与面试 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-d4da026bb44e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-d4da026bb44e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / MySQL</p><h1>MySQL 索引与查询优化</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/MySQL/03-MySQL%E7%B4%A2%E5%BC%95%E4%B8%8E%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 一句话总览</a></li><li><a href="#2-btree">2. B+Tree 索引</a></li><li><a href="#21-btree">2.1 为什么是 B+Tree</a></li><li><a href="#22">2.2 页、局部性与范围扫描</a></li><li><a href="#3">3. 聚簇索引与二级索引</a></li><li><a href="#31-clustered-index">3.1 聚簇索引（Clustered Index）</a></li><li><a href="#32-secondary-index">3.2 二级索引（Secondary Index）</a></li><li><a href="#33">3.3 回表成本</a></li><li><a href="#4">4. 联合索引与最左前缀</a></li><li><a href="#41">4.1 联合索引的排序方式</a></li><li><a href="#42">4.2 最左前缀原则</a></li><li><a href="#43">4.3 范围条件后的列</a></li><li><a href="#44">4.4 联合索引列顺序</a></li><li><a href="#5">5. 覆盖索引</a></li><li><a href="#6-index-condition-pushdown-icp">6. 索引下推（Index Condition Pushdown, ICP）</a></li><li><a href="#7">7. 索引类型</a></li><li><a href="#71">7.1 普通索引</a></li><li><a href="#72">7.2 唯一索引</a></li><li><a href="#73">7.3 前缀索引</a></li><li><a href="#74">7.4 全文索引</a></li><li><a href="#75">7.5 空间索引</a></li><li><a href="#76">7.6 函数索引</a></li><li><a href="#77">7.7 不可见索引</a></li><li><a href="#8">8. 选择性与基数</a></li><li><a href="#81">8.1 定义</a></li><li><a href="#82">8.2 低选择性列也可能有用</a></li><li><a href="#83">8.3 查看统计信息</a></li><li><a href="#9-explain-explain-analyze">9. EXPLAIN 与 EXPLAIN ANALYZE</a></li><li><a href="#91-explain">9.1 EXPLAIN 看什么</a></li><li><a href="#92">9.2 访问类型大致优先级</a></li><li><a href="#93-explain-analyze">9.3 EXPLAIN ANALYZE</a></li><li><a href="#10">10. 优化器与统计信息</a></li><li><a href="#101">10.1 优化器做什么</a></li><li><a href="#102">10.2 统计信息失真</a></li><li><a href="#103-hint">10.3 不要滥用 hint</a></li><li><a href="#11">11. 慢查询日志</a></li><li><a href="#12-sql">12. 常见 SQL 优化</a></li><li><a href="#121-select">12.1 避免 SELECT *</a></li><li><a href="#122">12.2 避免对索引列做函数或隐式转换</a></li><li><a href="#123-like">12.3 LIKE 优化</a></li><li><a href="#124-or-union">12.4 OR 与 UNION</a></li><li><a href="#125-in-exists">12.5 IN 与 EXISTS</a></li><li><a href="#126">12.6 大批量写入</a></li><li><a href="#13">13. 分页优化</a></li><li><a href="#131">13.1 深分页问题</a></li><li><a href="#132">13.2 延迟关联</a></li><li><a href="#133">13.3 游标分页</a></li><li><a href="#14-join">14. JOIN 优化</a></li><li><a href="#141">14.1 基本原则</a></li><li><a href="#142-join">14.2 JOIN 字段类型必须一致</a></li><li><a href="#143">14.3 小表驱动大表不是绝对规则</a></li><li><a href="#144">14.4 避免无条件笛卡尔积</a></li><li><a href="#15">15. 排序、分组与临时表</a></li><li><a href="#151-order-by">15.1 ORDER BY 使用索引</a></li><li><a href="#152-filesort">15.2 filesort</a></li><li><a href="#153">15.3 临时表</a></li><li><a href="#16">16. 建索引的取舍</a></li><li><a href="#161">16.1 索引的成本</a></li><li><a href="#162">16.2 冗余索引</a></li><li><a href="#163">16.3 什么时候该建联合索引</a></li><li><a href="#17">17. 性能排查清单</a></li><li><a href="#171">17.1 先确认问题边界</a></li><li><a href="#172-sql">17.2 看真实 SQL</a></li><li><a href="#173">17.3 看执行计划</a></li><li><a href="#174">17.4 看索引设计</a></li><li><a href="#175">17.5 看数据分布与统计信息</a></li><li><a href="#176-join">17.6 看 JOIN、排序、分页</a></li><li><a href="#177">17.7 看系统与锁</a></li><li><a href="#18">18. 复习速记</a></li><li><a href="#19">19. 参考</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>适用范围：以 MySQL 8.x / InnoDB 为主。复习时先看“性能排查清单”，再回到具体章节定位原因。相关笔记：<a href="n-f6e6d518f76a.html">01-MySQL基础与体系结构</a>、<a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>、<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>、<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 一句话总览"></span><h2 id="1">1. 一句话总览</h2>
+<p>索引的核心价值不是“加速一切查询”，而是让 MySQL 少读数据、少排序、少回表、少临时表。优化查询时要同时看四件事：</p>
+<ol>
+<li><strong>访问路径</strong>：是否能用到合适索引。</li>
+<li><strong>过滤效率</strong>：索引列的选择性是否足够高。</li>
+<li><strong>额外代价</strong>：是否发生回表、排序、临时表、文件排序。</li>
+<li><strong>执行计划可信度</strong>：优化器统计信息是否准确。</li>
+</ol>
+<p>常见判断公式：</p>
+<pre><code class="language-text">查询成本 ≈ 扫描行数 + 回表次数 + 排序/临时表成本 + JOIN 中间结果成本
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="2. B+Tree 索引"></span><h2 id="2-btree">2. B+Tree 索引</h2>
+<p>InnoDB 默认使用 <strong>B+Tree</strong> 组织大多数普通索引。</p>
+<span class="heading-anchor" id="2.1 为什么是 B+Tree"></span><h3 id="21-btree">2.1 为什么是 B+Tree</h3>
+<p>B+Tree 的特点：</p>
+<ul>
+<li><strong>多路平衡树</strong>：树高低，通常 2～4 层即可覆盖大量数据。</li>
+<li><strong>非叶子节点只存键和指针</strong>：单页能放更多键，减少 I/O。</li>
+<li><strong>叶子节点有序并通过链表连接</strong>：适合范围扫描、排序、分页。</li>
+<li><strong>所有数据都在叶子层</strong>：路径长度稳定。</li>
+</ul>
+<p>适合的查询：</p>
+<pre><code class="language-sql">WHERE id = 100
+WHERE created_at BETWEEN '2026-01-01' AND '2026-02-01'
+ORDER BY created_at
+WHERE user_id = 1 ORDER BY created_at DESC
+</code></pre>
+<p>不擅长的查询：</p>
+<pre><code class="language-sql">WHERE name LIKE '%abc'       -- 前导通配符破坏有序匹配
+WHERE YEAR(created_at) = 2026 -- 对索引列做函数，普通索引通常失效
+WHERE a &lt;&gt; 10                -- 选择性可能很差，优化器可能放弃索引
+</code></pre>
+<span class="heading-anchor" id="2.2 页、局部性与范围扫描"></span><h3 id="22">2.2 页、局部性与范围扫描</h3>
+<p>InnoDB 以页为单位读写数据。B+Tree 索引的优势来自“按顺序定位 + 连续扫描”：</p>
+<ul>
+<li>等值查询：从根节点一路定位到叶子节点。</li>
+<li>范围查询：定位起点后沿叶子链表向后扫。</li>
+<li>排序优化：如果索引顺序和 <code>ORDER BY</code> 一致，可以避免额外排序。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="3. 聚簇索引与二级索引"></span><h2 id="3">3. 聚簇索引与二级索引</h2>
+<span class="heading-anchor" id="3.1 聚簇索引（Clustered Index）"></span><h3 id="31-clustered-index">3.1 聚簇索引（Clustered Index）</h3>
+<p>InnoDB 表数据本身按聚簇索引组织。聚簇索引的叶子节点保存整行数据。</p>
+<p>聚簇索引选择顺序：</p>
+<ol>
+<li>显式定义的 <code>PRIMARY KEY</code>。</li>
+<li>第一个非空唯一索引。</li>
+<li>InnoDB 内部生成隐藏 row id。</li>
+</ol>
+<p>实践建议：</p>
+<ul>
+<li>主键应稳定、短、递增或大致递增。</li>
+<li>避免频繁更新主键。</li>
+<li>避免过长主键，因为二级索引叶子节点会存主键值。</li>
+</ul>
+<span class="heading-anchor" id="3.2 二级索引（Secondary Index）"></span><h3 id="32-secondary-index">3.2 二级索引（Secondary Index）</h3>
+<p>二级索引叶子节点保存：</p>
+<pre><code class="language-text">二级索引键值 + 主键值
+</code></pre>
+<p>如果查询列不全在二级索引里，MySQL 需要根据主键再查聚簇索引，这叫 <strong>回表</strong>。</p>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE INDEX idx_user_created ON orders(user_id, created_at);
+
+SELECT amount
+FROM orders
+WHERE user_id = 10
+  AND created_at &gt;= '2026-01-01';
+</code></pre>
+<p>如果 <code>amount</code> 不在 <code>idx_user_created</code> 中，执行路径通常是：</p>
+<pre><code class="language-text">idx_user_created 定位记录 -&gt; 取主键 -&gt; 回聚簇索引读 amount
+</code></pre>
+<span class="heading-anchor" id="3.3 回表成本"></span><h3 id="33">3.3 回表成本</h3>
+<p>回表不一定慢，但大量随机回表会慢。优化方向：</p>
+<ul>
+<li>减少扫描行数。</li>
+<li>使用覆盖索引。</li>
+<li>只查询必要列，避免 <code>SELECT *</code>。</li>
+<li>对高频查询建立更贴合的联合索引。</li>
+</ul>
+<p>相关：<a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a> 中的锁范围也常受索引路径影响。</p>
+<hr/>
+<span class="heading-anchor" id="4. 联合索引与最左前缀"></span><h2 id="4">4. 联合索引与最左前缀</h2>
+<span class="heading-anchor" id="4.1 联合索引的排序方式"></span><h3 id="41">4.1 联合索引的排序方式</h3>
+<p>联合索引 <code>idx(a, b, c)</code> 的 B+Tree 排序不是三棵树，而是一棵按以下顺序排序的树：</p>
+<pre><code class="language-text">a -&gt; b -&gt; c
+</code></pre>
+<p>可以高效支持：</p>
+<pre><code class="language-sql">WHERE a = ?
+WHERE a = ? AND b = ?
+WHERE a = ? AND b = ? AND c = ?
+WHERE a = ? AND b BETWEEN ? AND ?
+WHERE a = ? ORDER BY b, c
+</code></pre>
+<p>通常不能完整利用：</p>
+<pre><code class="language-sql">WHERE b = ?
+WHERE c = ?
+WHERE b = ? AND c = ?
+</code></pre>
+<p>因为缺少最左列 <code>a</code>。</p>
+<span class="heading-anchor" id="4.2 最左前缀原则"></span><h3 id="42">4.2 最左前缀原则</h3>
+<p>最左前缀原则：联合索引从最左列开始连续匹配；中间断开后，后续列通常不能继续用于定位。</p>
+<p>对 <code>idx(a, b, c)</code>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>条件</th>
+<th>可用于定位的列</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>a = 1</code></td>
+<td>a</td>
+<td>命中最左列</td>
+</tr>
+<tr>
+<td><code>a = 1 AND b = 2</code></td>
+<td>a,b</td>
+<td>连续命中</td>
+</tr>
+<tr>
+<td><code>a = 1 AND c = 3</code></td>
+<td>a</td>
+<td>b 缺失，c 不能用于定位</td>
+</tr>
+<tr>
+<td><code>b = 2 AND c = 3</code></td>
+<td>无或较弱</td>
+<td>缺少 a</td>
+</tr>
+<tr>
+<td><code>a &gt; 1 AND b = 2</code></td>
+<td>a</td>
+<td>a 是范围条件，b 多数情况下不能继续缩小定位范围</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4.3 范围条件后的列"></span><h3 id="43">4.3 范围条件后的列</h3>
+<p>对 <code>idx(a, b, c)</code>：</p>
+<pre><code class="language-sql">WHERE a = 1 AND b &gt; 10 AND c = 3
+</code></pre>
+<p>通常：</p>
+<ul>
+<li><code>a</code> 用于等值定位。</li>
+<li><code>b</code> 用于范围扫描。</li>
+<li><code>c</code> 可能不能继续缩小扫描范围，但可能通过索引下推参与过滤。</li>
+</ul>
+<span class="heading-anchor" id="4.4 联合索引列顺序"></span><h3 id="44">4.4 联合索引列顺序</h3>
+<p>经验顺序：</p>
+<ol>
+<li>等值过滤列。</li>
+<li>高选择性列。</li>
+<li>范围列。</li>
+<li>排序 / 分组列。</li>
+<li>覆盖查询所需列。</li>
+</ol>
+<p>但不要机械套用。最终以真实 SQL、数据分布和 <code>EXPLAIN ANALYZE</code> 为准。</p>
+<hr/>
+<span class="heading-anchor" id="5. 覆盖索引"></span><h2 id="5">5. 覆盖索引</h2>
+<p>覆盖索引指查询需要的列都能从索引中取得，不需要回表。</p>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE INDEX idx_user_status_created
+ON orders(user_id, status, created_at);
+
+SELECT user_id, status, created_at
+FROM orders
+WHERE user_id = 10
+  AND status = 'PAID'
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>如果查询列都在 <code>idx_user_status_created</code> 中，执行计划可能显示：</p>
+<pre><code class="language-text">Extra: Using index
+</code></pre>
+<p>注意：</p>
+<ul>
+<li>覆盖索引不是越宽越好。</li>
+<li>宽索引会增加写入成本、页分裂概率、缓存占用。</li>
+<li>高频读路径值得覆盖；低频查询不要盲目加宽索引。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. 索引下推（Index Condition Pushdown, ICP）"></span><h2 id="6-index-condition-pushdown-icp">6. 索引下推（Index Condition Pushdown, ICP）</h2>
+<p>索引下推是 MySQL 在存储引擎层先用索引列过滤，减少回表。</p>
+<p>示例：</p>
+<pre><code class="language-sql">CREATE INDEX idx_user_created_status
+ON orders(user_id, created_at, status);
+
+SELECT *
+FROM orders
+WHERE user_id = 10
+  AND created_at &gt;= '2026-01-01'
+  AND status = 'PAID';
+</code></pre>
+<p>如果 <code>status</code> 不能继续作为定位条件，但它在索引里，ICP 可以在索引扫描阶段先过滤 <code>status</code>，减少回表。执行计划可能显示：</p>
+<pre><code class="language-text">Extra: Using index condition
+</code></pre>
+<p>ICP 的意义：</p>
+<ul>
+<li>不能改变 B+Tree 的排序规则。</li>
+<li>不能让“断开的列”重新变成完整定位条件。</li>
+<li>可以减少不必要的聚簇索引读取。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. 索引类型"></span><h2 id="7">7. 索引类型</h2>
+<span class="heading-anchor" id="7.1 普通索引"></span><h3 id="71">7.1 普通索引</h3>
+<pre><code class="language-sql">CREATE INDEX idx_email ON users(email);
+</code></pre>
+<p>用于加速查询，不保证唯一性。</p>
+<span class="heading-anchor" id="7.2 唯一索引"></span><h3 id="72">7.2 唯一索引</h3>
+<pre><code class="language-sql">CREATE UNIQUE INDEX uk_email ON users(email);
+</code></pre>
+<p>特点：</p>
+<ul>
+<li>保证键值唯一。</li>
+<li>可作为业务约束，不只是性能工具。</li>
+<li>对优化器更有价值，因为等值命中最多返回一行或少量行。</li>
+</ul>
+<span class="heading-anchor" id="7.3 前缀索引"></span><h3 id="73">7.3 前缀索引</h3>
+<pre><code class="language-sql">CREATE INDEX idx_name_prefix ON users(name(20));
+</code></pre>
+<p>适合较长字符串列。优点是索引更小，缺点是：</p>
+<ul>
+<li>选择性可能下降。</li>
+<li>不能完整覆盖原字段值。</li>
+<li>前缀长度需要按真实数据分布评估。</li>
+</ul>
+<p>评估方式：</p>
+<pre><code class="language-sql">SELECT
+  COUNT(DISTINCT name) / COUNT(*) AS full_selectivity,
+  COUNT(DISTINCT LEFT(name, 20)) / COUNT(*) AS prefix_selectivity
+FROM users;
+</code></pre>
+<span class="heading-anchor" id="7.4 全文索引"></span><h3 id="74">7.4 全文索引</h3>
+<pre><code class="language-sql">CREATE FULLTEXT INDEX ft_title_body ON articles(title, body);
+
+SELECT *
+FROM articles
+WHERE MATCH(title, body) AGAINST ('mysql optimizer');
+</code></pre>
+<p>适合自然语言搜索。不要用普通 B+Tree 索引硬扛大段文本包含搜索。</p>
+<span class="heading-anchor" id="7.5 空间索引"></span><h3 id="75">7.5 空间索引</h3>
+<p>空间索引用于 GIS 类型，例如 <code>POINT</code>、<code>GEOMETRY</code>。适合地理范围、位置关系查询。</p>
+<pre><code class="language-sql">CREATE SPATIAL INDEX sp_location ON stores(location);
+</code></pre>
+<span class="heading-anchor" id="7.6 函数索引"></span><h3 id="76">7.6 函数索引</h3>
+<p>MySQL 8.0 支持函数索引，可优化表达式查询。</p>
+<pre><code class="language-sql">CREATE INDEX idx_lower_email ON users ((LOWER(email)));
+
+SELECT *
+FROM users
+WHERE LOWER(email) = 'a@example.com';
+</code></pre>
+<p>如果查询经常对列做函数，优先考虑：</p>
+<ol>
+<li>能否改写为不对列做函数。</li>
+<li>能否增加生成列并建索引。</li>
+<li>是否需要函数索引。</li>
+</ol>
+<span class="heading-anchor" id="7.7 不可见索引"></span><h3 id="77">7.7 不可见索引</h3>
+<p>不可见索引不会被优化器默认使用，但仍会维护。</p>
+<pre><code class="language-sql">ALTER TABLE orders ALTER INDEX idx_old INVISIBLE;
+ALTER TABLE orders ALTER INDEX idx_old VISIBLE;
+</code></pre>
+<p>用途：</p>
+<ul>
+<li>删除索引前先灰度验证影响。</li>
+<li>判断某个索引是否真的被查询依赖。</li>
+</ul>
+<p>注意：不可见索引仍有写入维护成本，不是“禁用维护”。</p>
+<hr/>
+<span class="heading-anchor" id="8. 选择性与基数"></span><h2 id="8">8. 选择性与基数</h2>
+<span class="heading-anchor" id="8.1 定义"></span><h3 id="81">8.1 定义</h3>
+<ul>
+<li><strong>基数（cardinality）</strong>：索引列不同值的数量。</li>
+<li><strong>选择性（selectivity）</strong>：不同值数量 / 总行数。</li>
+</ul>
+<pre><code class="language-text">选择性越高，索引过滤效果通常越好。
+</code></pre>
+<p>示例：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>列</th>
+<th>可能值</th>
+<th>选择性</th>
+<th>是否适合单列索引</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>几乎每行不同</td>
+<td>高</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>email</code></td>
+<td>几乎每行不同</td>
+<td>高</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>gender</code></td>
+<td>少量值</td>
+<td>低</td>
+<td>通常不适合单独建索引</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>少量值</td>
+<td>低</td>
+<td>可放入联合索引，服务过滤/排序/覆盖</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="8.2 低选择性列也可能有用"></span><h3 id="82">8.2 低选择性列也可能有用</h3>
+<p>低选择性列不是永远不能建索引。它可能适合：</p>
+<ul>
+<li>和高选择性列组成联合索引。</li>
+<li>配合排序避免 filesort。</li>
+<li>覆盖高频查询。</li>
+<li>当目标值极少见时，例如 <code>status = 'FAILED'</code> 只占 0.1%。</li>
+</ul>
+<span class="heading-anchor" id="8.3 查看统计信息"></span><h3 id="83">8.3 查看统计信息</h3>
+<pre><code class="language-sql">SHOW INDEX FROM orders;
+ANALYZE TABLE orders;
+</code></pre>
+<p><code>SHOW INDEX</code> 中的 <code>Cardinality</code> 是估算值，不是精确值。统计信息过旧时，优化器可能选错执行计划。</p>
+<hr/>
+<span class="heading-anchor" id="9. EXPLAIN 与 EXPLAIN ANALYZE"></span><h2 id="9-explain-explain-analyze">9. EXPLAIN 与 EXPLAIN ANALYZE</h2>
+<span class="heading-anchor" id="9.1 EXPLAIN 看什么"></span><h3 id="91-explain">9.1 EXPLAIN 看什么</h3>
+<pre><code class="language-sql">EXPLAIN
+SELECT *
+FROM orders
+WHERE user_id = 10
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>重点字段：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>访问类型</td>
+<td><code>ALL</code> 通常危险；<code>range/ref/eq_ref/const</code> 更好</td>
+</tr>
+<tr>
+<td><code>possible_keys</code></td>
+<td>可能使用的索引</td>
+<td>候选索引，不等于实际使用</td>
+</tr>
+<tr>
+<td><code>key</code></td>
+<td>实际使用索引</td>
+<td>是否命中预期索引</td>
+</tr>
+<tr>
+<td><code>key_len</code></td>
+<td>使用索引长度</td>
+<td>判断联合索引用了几列</td>
+</tr>
+<tr>
+<td><code>rows</code></td>
+<td>预估扫描行数</td>
+<td>估算是否离谱</td>
+</tr>
+<tr>
+<td><code>filtered</code></td>
+<td>预估过滤比例</td>
+<td>过滤是否发生太晚</td>
+</tr>
+<tr>
+<td><code>Extra</code></td>
+<td>额外信息</td>
+<td>排序、临时表、覆盖索引、ICP</td>
+</tr>
+</tbody>
+</table></div>
+<p>常见 <code>Extra</code>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Extra</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Using index</code></td>
+<td>覆盖索引</td>
+</tr>
+<tr>
+<td><code>Using index condition</code></td>
+<td>索引下推</td>
+</tr>
+<tr>
+<td><code>Using where</code></td>
+<td>服务器层继续过滤</td>
+</tr>
+<tr>
+<td><code>Using filesort</code></td>
+<td>需要额外排序</td>
+</tr>
+<tr>
+<td><code>Using temporary</code></td>
+<td>使用临时表，常见于分组/去重/复杂排序</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9.2 访问类型大致优先级"></span><h3 id="92">9.2 访问类型大致优先级</h3>
+<p>从好到差大致为：</p>
+<pre><code class="language-text">system/const -&gt; eq_ref -&gt; ref -&gt; range -&gt; index -&gt; ALL
+</code></pre>
+<p>不要只看 <code>type</code>。一个扫描 10 行的 <code>ALL</code> 可能没问题，一个扫描 1000 万行的 <code>range</code> 也可能很慢。</p>
+<span class="heading-anchor" id="9.3 EXPLAIN ANALYZE"></span><h3 id="93-explain-analyze">9.3 EXPLAIN ANALYZE</h3>
+<p><code>EXPLAIN ANALYZE</code> 会实际执行查询，并返回真实耗时、真实行数、循环次数。</p>
+<pre><code class="language-sql">EXPLAIN ANALYZE
+SELECT *
+FROM orders
+WHERE user_id = 10
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>用途：</p>
+<ul>
+<li>对比优化器估算行数和实际行数。</li>
+<li>找出真正耗时的执行节点。</li>
+<li>判断是否存在统计信息失真。</li>
+</ul>
+<p>注意：它会执行 SQL。对写入语句或高成本查询要谨慎，先在测试环境或只读事务中验证。</p>
+<hr/>
+<span class="heading-anchor" id="10. 优化器与统计信息"></span><h2 id="10">10. 优化器与统计信息</h2>
+<span class="heading-anchor" id="10.1 优化器做什么"></span><h3 id="101">10.1 优化器做什么</h3>
+<p>优化器负责在多个执行方案中选择成本最低的路径，包括：</p>
+<ul>
+<li>选择哪个索引。</li>
+<li>决定 JOIN 顺序。</li>
+<li>判断是否使用范围扫描。</li>
+<li>判断是否使用排序、临时表、索引合并。</li>
+<li>估算扫描行数和过滤比例。</li>
+</ul>
+<p>优化器不是“总是正确”，它依赖统计信息和成本模型。</p>
+<span class="heading-anchor" id="10.2 统计信息失真"></span><h3 id="102">10.2 统计信息失真</h3>
+<p>常见原因：</p>
+<ul>
+<li>表数据变化很大，但统计信息未刷新。</li>
+<li>列值分布高度倾斜。</li>
+<li>多列相关性强，但优化器按独立分布估算。</li>
+<li>低基数列在不同值上的分布差异极大。</li>
+</ul>
+<p>处理方式：</p>
+<pre><code class="language-sql">ANALYZE TABLE orders;
+</code></pre>
+<p>对于分布倾斜明显的列，可以考虑直方图统计信息（是否使用取决于版本和场景）。</p>
+<span class="heading-anchor" id="10.3 不要滥用 hint"></span><h3 id="103-hint">10.3 不要滥用 hint</h3>
+<p>优化器 hint 或 <code>FORCE INDEX</code> 可以救急，但要谨慎：</p>
+<pre><code class="language-sql">SELECT *
+FROM orders FORCE INDEX (idx_user_created)
+WHERE user_id = 10
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>风险：</p>
+<ul>
+<li>数据分布变化后，强制索引可能反而变慢。</li>
+<li>掩盖统计信息问题。</li>
+<li>增加后续维护成本。</li>
+</ul>
+<p>优先级：</p>
+<pre><code class="language-text">改 SQL / 改索引 / 刷统计信息 &gt; 使用 hint
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="11. 慢查询日志"></span><h2 id="11">11. 慢查询日志</h2>
+<p>慢查询日志用于发现真实慢 SQL。</p>
+<p>常见配置项：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'slow_query_log';
+SHOW VARIABLES LIKE 'long_query_time';
+SHOW VARIABLES LIKE 'log_queries_not_using_indexes';
+</code></pre>
+<p>临时开启示例：</p>
+<pre><code class="language-sql">SET GLOBAL slow_query_log = ON;
+SET GLOBAL long_query_time = 1;
+</code></pre>
+<p>关注指标：</p>
+<ul>
+<li><code>Query_time</code>：执行总时间。</li>
+<li><code>Lock_time</code>：等待锁时间。</li>
+<li><code>Rows_examined</code>：扫描行数。</li>
+<li><code>Rows_sent</code>：返回行数。</li>
+</ul>
+<p>判断线索：</p>
+<pre><code class="language-text">Rows_examined 很高，Rows_sent 很低 -&gt; 过滤效率差，索引可能不合适
+Lock_time 高 -&gt; 关注锁竞争，见 [[04-InnoDB事务锁与日志]]
+Query_time 高但扫描少 -&gt; 可能是锁、网络、临时表、排序或资源瓶颈
+</code></pre>
+<p>生产环境建议使用 <code>pt-query-digest</code> 或平台化采集做聚合分析，避免只盯单条日志。</p>
+<hr/>
+<span class="heading-anchor" id="12. 常见 SQL 优化"></span><h2 id="12-sql">12. 常见 SQL 优化</h2>
+<span class="heading-anchor" id="12.1 避免 SELECT *"></span><h3 id="121-select">12.1 避免 SELECT *</h3>
+<p>问题：</p>
+<ul>
+<li>增加网络传输。</li>
+<li>增加回表概率。</li>
+<li>降低覆盖索引机会。</li>
+<li>表结构变化时影响调用方。</li>
+</ul>
+<p>建议：只取必要列。</p>
+<pre><code class="language-sql">SELECT id, status, created_at
+FROM orders
+WHERE user_id = 10;
+</code></pre>
+<span class="heading-anchor" id="12.2 避免对索引列做函数或隐式转换"></span><h3 id="122">12.2 避免对索引列做函数或隐式转换</h3>
+<p>低效写法：</p>
+<pre><code class="language-sql">WHERE DATE(created_at) = '2026-01-01'
+</code></pre>
+<p>更好写法：</p>
+<pre><code class="language-sql">WHERE created_at &gt;= '2026-01-01'
+  AND created_at &lt;  '2026-01-02'
+</code></pre>
+<p>隐式转换示例：</p>
+<pre><code class="language-sql">-- phone 是 varchar 时，不要写 phone = 13800138000
+WHERE phone = '13800138000'
+</code></pre>
+<span class="heading-anchor" id="12.3 LIKE 优化"></span><h3 id="123-like">12.3 LIKE 优化</h3>
+<p>可用索引：</p>
+<pre><code class="language-sql">WHERE name LIKE 'abc%'
+</code></pre>
+<p>通常难用普通 B+Tree 索引：</p>
+<pre><code class="language-sql">WHERE name LIKE '%abc'
+WHERE name LIKE '%abc%'
+</code></pre>
+<p>替代方案：全文索引、搜索引擎、倒排索引、冗余反转列等。</p>
+<span class="heading-anchor" id="12.4 OR 与 UNION"></span><h3 id="124-or-union">12.4 OR 与 UNION</h3>
+<p>复杂 <code>OR</code> 可能导致索引利用变差。可以评估改写为 <code>UNION ALL</code>：</p>
+<pre><code class="language-sql">SELECT id FROM orders WHERE user_id = 10
+UNION ALL
+SELECT id FROM orders WHERE merchant_id = 20;
+</code></pre>
+<p>前提：两边结果是否可能重复。如果可能重复，用 <code>UNION</code> 或增加排重条件。</p>
+<span class="heading-anchor" id="12.5 IN 与 EXISTS"></span><h3 id="125-in-exists">12.5 IN 与 EXISTS</h3>
+<p>不要机械地说 <code>IN</code> 一定慢或 <code>EXISTS</code> 一定快。应看：</p>
+<ul>
+<li>子查询结果规模。</li>
+<li>是否能半连接优化。</li>
+<li>关联列是否有索引。</li>
+<li><code>EXPLAIN ANALYZE</code> 的真实行数。</li>
+</ul>
+<span class="heading-anchor" id="12.6 大批量写入"></span><h3 id="126">12.6 大批量写入</h3>
+<p>批量写入优化方向：</p>
+<ul>
+<li>合并多行插入。</li>
+<li>控制事务大小。</li>
+<li>减少不必要二级索引。</li>
+<li>避免频繁随机主键插入。</li>
+<li>关注 redo log、binlog、刷盘策略，见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="13. 分页优化"></span><h2 id="13">13. 分页优化</h2>
+<span class="heading-anchor" id="13.1 深分页问题"></span><h3 id="131">13.1 深分页问题</h3>
+<p>低效写法：</p>
+<pre><code class="language-sql">SELECT *
+FROM orders
+ORDER BY id
+LIMIT 1000000, 20;
+</code></pre>
+<p>MySQL 需要跳过大量记录，再返回 20 条。即使使用索引，也可能扫描很多行。</p>
+<span class="heading-anchor" id="13.2 延迟关联"></span><h3 id="132">13.2 延迟关联</h3>
+<p>先用覆盖索引取主键，再回表取完整数据：</p>
+<pre><code class="language-sql">SELECT o.*
+FROM orders o
+JOIN (
+  SELECT id
+  FROM orders
+  ORDER BY id
+  LIMIT 1000000, 20
+) t ON t.id = o.id;
+</code></pre>
+<p>适合宽表。内部子查询尽量走覆盖索引。</p>
+<span class="heading-anchor" id="13.3 游标分页"></span><h3 id="133">13.3 游标分页</h3>
+<p>更推荐用“上一页最后一个值”继续查：</p>
+<pre><code class="language-sql">SELECT id, created_at, status
+FROM orders
+WHERE id &gt; 1000000
+ORDER BY id
+LIMIT 20;
+</code></pre>
+<p>如果按时间倒序：</p>
+<pre><code class="language-sql">SELECT id, created_at, status
+FROM orders
+WHERE (created_at, id) &lt; ('2026-06-01 12:00:00', 12345)
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+</code></pre>
+<p>配套索引：</p>
+<pre><code class="language-sql">CREATE INDEX idx_created_id ON orders(created_at, id);
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="14. JOIN 优化"></span><h2 id="14-join">14. JOIN 优化</h2>
+<span class="heading-anchor" id="14.1 基本原则"></span><h3 id="141">14.1 基本原则</h3>
+<p>JOIN 优化重点：让驱动表尽量小，让被驱动表能用索引快速匹配。</p>
+<pre><code class="language-sql">SELECT o.id, u.email
+FROM orders o
+JOIN users u ON u.id = o.user_id
+WHERE o.created_at &gt;= '2026-01-01';
+</code></pre>
+<p>建议：</p>
+<ul>
+<li><code>orders(created_at, user_id)</code> 支持过滤后连接。</li>
+<li><code>users(id)</code> 通常是主键。</li>
+<li>只返回必要列。</li>
+</ul>
+<span class="heading-anchor" id="14.2 JOIN 字段类型必须一致"></span><h3 id="142-join">14.2 JOIN 字段类型必须一致</h3>
+<p>避免：</p>
+<pre><code class="language-text">orders.user_id 是 BIGINT
+users.id 是 VARCHAR
+</code></pre>
+<p>类型不一致可能导致隐式转换，破坏索引使用或增加比较成本。</p>
+<span class="heading-anchor" id="14.3 小表驱动大表不是绝对规则"></span><h3 id="143">14.3 小表驱动大表不是绝对规则</h3>
+<p>优化器会估算成本并重排 JOIN 顺序。真正要看：</p>
+<ul>
+<li>过滤后行数。</li>
+<li>连接列索引。</li>
+<li>是否产生巨大中间结果。</li>
+<li><code>EXPLAIN ANALYZE</code> 的循环次数。</li>
+</ul>
+<span class="heading-anchor" id="14.4 避免无条件笛卡尔积"></span><h3 id="144">14.4 避免无条件笛卡尔积</h3>
+<pre><code class="language-sql">-- 危险：缺少 ON 条件
+SELECT *
+FROM users u
+JOIN orders o;
+</code></pre>
+<p>笛卡尔积会快速放大中间结果，拖垮排序、临时表和网络传输。</p>
+<hr/>
+<span class="heading-anchor" id="15. 排序、分组与临时表"></span><h2 id="15">15. 排序、分组与临时表</h2>
+<span class="heading-anchor" id="15.1 ORDER BY 使用索引"></span><h3 id="151-order-by">15.1 ORDER BY 使用索引</h3>
+<p>索引可以帮助排序，但条件苛刻。对索引 <code>idx(user_id, created_at)</code>：</p>
+<pre><code class="language-sql">WHERE user_id = 10
+ORDER BY created_at
+</code></pre>
+<p>通常可以利用索引顺序。</p>
+<p>不容易利用：</p>
+<pre><code class="language-sql">WHERE user_id &gt; 10
+ORDER BY created_at
+</code></pre>
+<p>因为范围扫描后整体顺序不一定满足 <code>created_at</code> 排序。</p>
+<span class="heading-anchor" id="15.2 filesort"></span><h3 id="152-filesort">15.2 filesort</h3>
+<p><code>Using filesort</code> 不一定是磁盘排序，也不一定必然很慢。它表示 MySQL 需要额外排序过程。</p>
+<p>优化方向：</p>
+<ul>
+<li>建立匹配 <code>WHERE + ORDER BY</code> 的联合索引。</li>
+<li>降低排序行数。</li>
+<li>减少排序字段宽度。</li>
+<li>使用覆盖索引。</li>
+<li>对业务允许的场景改成游标分页。</li>
+</ul>
+<span class="heading-anchor" id="15.3 临时表"></span><h3 id="153">15.3 临时表</h3>
+<p><code>Using temporary</code> 常见于：</p>
+<ul>
+<li><code>GROUP BY</code></li>
+<li><code>DISTINCT</code></li>
+<li>复杂 <code>ORDER BY</code></li>
+<li>派生表 / 子查询物化</li>
+<li>聚合后排序</li>
+</ul>
+<p>优化方向：</p>
+<ul>
+<li>先过滤再分组。</li>
+<li>让分组列或排序列匹配索引。</li>
+<li>减少中间结果列。</li>
+<li>拆分复杂查询。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="16. 建索引的取舍"></span><h2 id="16">16. 建索引的取舍</h2>
+<span class="heading-anchor" id="16.1 索引的成本"></span><h3 id="161">16.1 索引的成本</h3>
+<p>索引会带来：</p>
+<ul>
+<li>写入维护成本。</li>
+<li>占用磁盘和 Buffer Pool。</li>
+<li>页分裂和随机写。</li>
+<li>优化器选择空间变大。</li>
+<li>DDL 维护成本。</li>
+</ul>
+<p>不要把索引当作免费的加速器。</p>
+<span class="heading-anchor" id="16.2 冗余索引"></span><h3 id="162">16.2 冗余索引</h3>
+<p>例如已有：</p>
+<pre><code class="language-sql">INDEX idx_a_b(a, b)
+INDEX idx_a(a)
+</code></pre>
+<p><code>idx_a</code> 可能是冗余索引，因为 <code>idx_a_b</code> 的最左前缀已经包含 <code>a</code>。但删除前要确认：</p>
+<ul>
+<li>是否有查询依赖更小索引减少 I/O。</li>
+<li>是否有外键或唯一约束需求。</li>
+<li>是否能通过不可见索引验证。</li>
+</ul>
+<span class="heading-anchor" id="16.3 什么时候该建联合索引"></span><h3 id="163">16.3 什么时候该建联合索引</h3>
+<p>满足多个条件时更值得：</p>
+<ul>
+<li>SQL 高频且性能敏感。</li>
+<li>过滤条件稳定。</li>
+<li>返回行数远小于总行数。</li>
+<li>能同时服务过滤、排序、覆盖。</li>
+<li>写入成本可接受。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="17. 性能排查清单"></span><h2 id="17">17. 性能排查清单</h2>
+<span class="heading-anchor" id="17.1 先确认问题边界"></span><h3 id="171">17.1 先确认问题边界</h3>
+<ul>
+<li>[ ] 是单条 SQL 慢，还是整体数据库慢？</li>
+<li>[ ] 是偶发慢，还是稳定慢？</li>
+<li>[ ] 慢在执行、锁等待、网络、应用处理，还是连接池？</li>
+<li>[ ] 数据量、参数、时间段是否变化？</li>
+</ul>
+<span class="heading-anchor" id="17.2 看真实 SQL"></span><h3 id="172-sql">17.2 看真实 SQL</h3>
+<ul>
+<li>[ ] 从慢查询日志或 APM 取真实 SQL。</li>
+<li>[ ] 确认绑定参数，不只看模板。</li>
+<li>[ ] 记录返回行数和扫描行数。</li>
+<li>[ ] 确认是否 <code>SELECT *</code>。</li>
+</ul>
+<span class="heading-anchor" id="17.3 看执行计划"></span><h3 id="173">17.3 看执行计划</h3>
+<ul>
+<li>[ ] <code>EXPLAIN</code> 的 <code>key</code> 是否符合预期？</li>
+<li>[ ] <code>rows</code> 是否过大？</li>
+<li>[ ] <code>Extra</code> 是否有 <code>Using filesort</code> / <code>Using temporary</code>？</li>
+<li>[ ] 是否有 <code>Using index</code> 或 <code>Using index condition</code>？</li>
+<li>[ ] 用 <code>EXPLAIN ANALYZE</code> 对比估算和实际。</li>
+</ul>
+<span class="heading-anchor" id="17.4 看索引设计"></span><h3 id="174">17.4 看索引设计</h3>
+<ul>
+<li>[ ] 条件是否满足最左前缀？</li>
+<li>[ ] 联合索引列顺序是否匹配查询？</li>
+<li>[ ] 是否因为函数、隐式转换、前导通配符导致索引失效？</li>
+<li>[ ] 是否有大量回表？</li>
+<li>[ ] 是否可用覆盖索引？</li>
+<li>[ ] 是否有冗余或无效索引？</li>
+</ul>
+<span class="heading-anchor" id="17.5 看数据分布与统计信息"></span><h3 id="175">17.5 看数据分布与统计信息</h3>
+<ul>
+<li>[ ] 选择性是否足够？</li>
+<li>[ ] 是否存在严重数据倾斜？</li>
+<li>[ ] <code>SHOW INDEX</code> 的基数是否明显不可信？</li>
+<li>[ ] 是否需要 <code>ANALYZE TABLE</code>？</li>
+</ul>
+<span class="heading-anchor" id="17.6 看 JOIN、排序、分页"></span><h3 id="176-join">17.6 看 JOIN、排序、分页</h3>
+<ul>
+<li>[ ] JOIN 被驱动表连接列是否有索引？</li>
+<li>[ ] JOIN 后中间结果是否过大？</li>
+<li>[ ] 排序是否能利用索引？</li>
+<li>[ ] 是否深分页？能否改游标分页？</li>
+<li>[ ] 分组 / 去重是否产生大临时表？</li>
+</ul>
+<span class="heading-anchor" id="17.7 看系统与锁"></span><h3 id="177">17.7 看系统与锁</h3>
+<ul>
+<li>[ ] 慢查询中的 <code>Lock_time</code> 是否高？</li>
+<li>[ ] 是否有长事务阻塞，见 <a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>？</li>
+<li>[ ] Buffer Pool 命中率、I/O、CPU 是否异常？</li>
+<li>[ ] redo / binlog / replication 是否成为瓶颈，见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>？</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="18. 复习速记"></span><h2 id="18">18. 复习速记</h2>
+<ul>
+<li>B+Tree 适合等值、范围、排序，不适合前导模糊匹配。</li>
+<li>InnoDB 聚簇索引叶子节点存整行；二级索引叶子节点存主键。</li>
+<li>回表是二级索引到聚簇索引的再次查找；覆盖索引可以避免回表。</li>
+<li>联合索引遵守最左前缀；范围条件后的列通常不能继续定位。</li>
+<li>ICP 不能改变最左前缀，但能在索引层提前过滤，减少回表。</li>
+<li>索引选择看选择性、基数、查询频率、排序需求和写入成本。</li>
+<li><code>EXPLAIN</code> 看估算，<code>EXPLAIN ANALYZE</code> 看真实执行。</li>
+<li>慢查询优化先看 <code>Rows_examined / Rows_sent</code>，再看执行计划。</li>
+<li>深分页优先改游标分页或延迟关联。</li>
+<li>JOIN 优化重点是小中间结果和被驱动表索引。</li>
+<li><code>Using filesort</code> / <code>Using temporary</code> 是信号，不是结论；结合行数和耗时判断。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="19. 参考"></span><h2 id="19">19. 参考</h2>
+<ul>
+<li>MySQL 8.4 Reference Manual：InnoDB 索引、优化器、EXPLAIN、慢查询日志。</li>
+<li>官方文档入口：https://dev.mysql.com/doc/refman/8.4/en/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

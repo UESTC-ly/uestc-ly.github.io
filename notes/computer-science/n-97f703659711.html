@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Linux 系统编程 · 李杨的学习笔记</title><meta name="description" content="Linux 系统编程的关键是把 C++ 代码和内核对象对应起来：fd 是进程表项，线程共享地址空间和 fd 表，信号是受限异步通知，页缓存和虚拟内存会改变 I/O 与内存观测结果，调度决定代码何时真正运行。"><meta property="og:title" content="Linux 系统编程 · 李杨的学习笔记"><meta property="og:description" content="Linux 系统编程的关键是把 C++ 代码和内核对象对应起来：fd 是进程表项，线程共享地址空间和 fd 表，信号是受限异步通知，页缓存和虚拟内存会改变 I/O 与内存观测结果，调度决定代码何时真正运行。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-97f703659711.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-97f703659711.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 01-C++与Linux基础</p><h1>Linux 系统编程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/01-C%2B%2B%E4%B8%8ELinux%E5%9F%BA%E7%A1%80/03-Linux%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#1">1. 用户态、内核态与系统调用</a></li><li><a href="#_3">系统调用返回值的状态含义</a></li><li><a href="#2">2. 进程与线程</a></li><li><a href="#fd">进程、线程与 fd 表</a></li><li><a href="#3">3. 信号</a></li><li><a href="#_4">信号与事件循环</a></li><li><a href="#4-io">4. 文件 I/O 与缓存</a></li><li><a href="#mmap">mmap、页缓存和零拷贝边界</a></li><li><a href="#5">5. 虚拟内存</a></li><li><a href="#_5">虚拟内存的状态变化</a></li><li><a href="#6-cpu">6. 调度、上下文切换和 CPU</a></li><li><a href="#7">7. 资源限制</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#_7">故障排查/观测</a></li><li><a href="#_8">从症状到工具</a></li><li><a href="#_9">最小排查流程</a></li><li><a href="#_10">推导示例</a></li><li><a href="#pipe-eof">为什么 pipe EOF 依赖所有写端关闭</a></li><li><a href="#mmap_1">为什么 mmap 访问可能在普通读写之外失败</a></li><li><a href="#_11">如何解释一次系统调用成本</a></li><li><a href="#_12">最小验收清单</a></li><li><a href="#_13">常见误区</a></li><li><a href="#_14">自测题</a></li><li><a href="#_15">实践任务</a></li><li><a href="#_16">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解系统调用、文件描述符、进程、线程、信号和虚拟内存。</li>
+<li>能用 Linux 工具观察程序真实行为。</li>
+<li>为后续 Socket、epoll、零拷贝和性能分析建立模型。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>Linux 系统编程的关键是把 C++ 代码和内核对象对应起来：fd 是进程表项，线程共享地址空间和 fd 表，信号是受限异步通知，页缓存和虚拟内存会改变 I/O 与内存观测结果，调度决定代码何时真正运行。</p>
+<span class="heading-anchor" id="1. 用户态、内核态与系统调用"></span><h2 id="1">1. 用户态、内核态与系统调用</h2>
+<p>应用通过系统调用请求内核执行文件、网络、进程和内存管理。系统调用有切换与检查成本，但性能问题通常来自更大的因素：阻塞等待、数据复制、上下文切换、缓存失效或过多小调用。优化前应测量。</p>
+<p>Linux 将许多 I/O 对象暴露为 fd。fd 是进程文件描述符表中的整数索引，不是永久身份：关闭后数值可被快速复用。因此异步事件必须同时用连接对象生命周期、代数/序号或事件循环线程约束来防止“旧事件操作新连接”。</p>
+<span class="heading-anchor" id="系统调用返回值的状态含义"></span><h3 id="_3">系统调用返回值的状态含义</h3>
+<p>系统调用返回值经常同时表达“完成了多少”和“下一步该怎么做”。<code>read</code> 返回正数是本次复制到用户缓冲区的字节数；返回 0 在 pipe/socket 上常表示 EOF 或对端关闭；返回 -1 时再看 <code>errno</code>。<code>write</code> 返回正数只代表内核接受了这部分数据，不代表文件已落盘或对端应用已处理。</p>
+<p>对后端工程更重要的是把这些返回值接入状态机：<code>EINTR</code> 继续当前操作，<code>EAGAIN</code> 等待下一次就绪事件，<code>ENOMEM/EMFILE</code> 触发容量保护，其他永久错误关闭当前资源并保留诊断上下文。</p>
+<p>常用观察工具：</p>
+<pre><code class="language-bash">strace -f -tt -T ./server       # 系统调用、耗时与子线程/进程
+lsof -p &lt;pid&gt;                   # 进程打开的文件与 Socket
+ls -l /proc/&lt;pid&gt;/fd            # fd 视图
+cat /proc/&lt;pid&gt;/limits          # 资源限制
+ss -lntp                        # 监听 TCP Socket
+</code></pre>
+<span class="heading-anchor" id="2. 进程与线程"></span><h2 id="2">2. 进程与线程</h2>
+<p>进程拥有独立虚拟地址空间和资源视图；同一进程的线程共享地址空间、堆、全局对象和 fd 表，但有独立栈、寄存器和调度状态。</p>
+<p><code>fork()</code> 逻辑上复制进程，内存通常采用写时复制。多线程程序在 <code>fork</code> 后到 <code>exec</code> 前只能安全调用受限的 async-signal-safe 函数，否则可能继承“已加锁但持锁线程不存在”的状态。服务进程通常在启动线程前 fork，或 fork 后立即 exec。</p>
+<p>守护进程/服务管理优先交给 systemd 或容器运行时，不必重复实现传统 double-fork。应正确处理标准输出、退出码、健康检查和终止信号。</p>
+<span class="heading-anchor" id="进程、线程与 fd 表"></span><h3 id="fd">进程、线程与 fd 表</h3>
+<p>线程共享 fd 表，所以一个线程 <code>close(fd)</code> 会影响同进程其他线程。若另一个线程还在 epoll 事件里保存这个整数，fd 被复用后可能误操作新连接。解决方法不是“close 前加一把全局锁”这么粗暴，而是让 fd 的所有操作归属到固定事件循环，跨线程只投递命令。</p>
+<p><code>fork()</code> 后子进程继承打开的 fd。忘记关闭无用 pipe 端会让读端永远等不到 EOF；忘记设置 <code>FD_CLOEXEC</code> 会让被 <code>exec</code> 的子进程意外继承监听 socket、日志文件或数据库连接。网络服务创建 fd 后通常立即设置 <code>O_CLOEXEC</code> 或 <code>FD_CLOEXEC</code>。</p>
+<span class="heading-anchor" id="3. 信号"></span><h2 id="3">3. 信号</h2>
+<p>信号是异步通知，不适合在处理函数中执行复杂逻辑。常见做法：</p>
+<ul>
+<li>处理函数只设置 <code>sig_atomic_t</code> 标志或写入 self-pipe/eventfd；</li>
+<li>主事件循环收到可读事件后执行正常关闭流程；</li>
+<li>Linux 也可用 <code>signalfd</code> 把信号纳入事件循环；</li>
+<li>忽略或处理 <code>SIGPIPE</code>，网络写入仍要检查 <code>EPIPE</code>。</li>
+</ul>
+<p>信号处理函数中不要加普通互斥锁、分配内存、写复杂日志或调用非 async-signal-safe 函数。</p>
+<span class="heading-anchor" id="信号与事件循环"></span><h3 id="_4">信号与事件循环</h3>
+<p>self-pipe 和 <code>eventfd</code> 的目的都是把异步信号转换成普通 fd 可读事件。信号 handler 只写一个字节或设置标志，事件循环随后在正常线程上下文里执行停止 accept、连接排空和资源释放。这样可以避开 handler 中调用非 async-signal-safe 函数的风险。</p>
+<p><code>SIGPIPE</code> 是网络服务常见坑：忽略信号不等于写入成功，<code>send</code> 仍可能返回 <code>-1/EPIPE</code>。正确处理是忽略或屏蔽进程终止行为，同时在写路径把 <code>EPIPE/ECONNRESET</code> 转成连接关闭。</p>
+<span class="heading-anchor" id="4. 文件 I/O 与缓存"></span><h2 id="4-io">4. 文件 I/O 与缓存</h2>
+<p><code>read</code>/<code>write</code> 可能短读短写，被信号中断返回 <code>EINTR</code>，或在非阻塞模式返回 <code>EAGAIN/EWOULDBLOCK</code>。调用方需要循环和状态机，不能假设一次完成。</p>
+<p>页缓存使普通文件 I/O 看起来很快：写成功通常表示数据进入内核缓存，不必然已持久化到介质。需要持久性语义时研究 <code>fsync</code>/<code>fdatasync</code>、文件系统和存储设备的保证，以及“先写临时文件—同步—原子 rename—同步目录”的更新模式。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>技术</th>
+<th>减少的成本</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mmap</code></td>
+<td>显式 read/write 与部分复制</td>
+<td>缺页、映射失效、错误处理复杂</td>
+</tr>
+<tr>
+<td><code>sendfile</code></td>
+<td>文件到 Socket 的用户态搬运</td>
+<td>适用对象和平台有约束</td>
+</tr>
+<tr>
+<td><code>splice</code></td>
+<td>某些 fd 间数据搬运</td>
+<td>组合复杂、需测量收益</td>
+</tr>
+<tr>
+<td>direct I/O</td>
+<td>绕过页缓存</td>
+<td>对齐、设备特性和应用缓存复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>“零拷贝”是减少某些数据复制/上下文切换，不代表完全没有复制，也不保证一定更快。</p>
+<span class="heading-anchor" id="mmap、页缓存和零拷贝边界"></span><h3 id="mmap">mmap、页缓存和零拷贝边界</h3>
+<p><code>mmap</code> 把文件页映射进进程地址空间，访问时可能触发缺页，由内核把文件内容调入页缓存并建立页表映射。它适合随机读、共享映射或减少一次用户态缓冲复制；但错误路径更复杂，例如文件被截断后访问映射区域可能触发 <code>SIGBUS</code>。</p>
+<p><code>sendfile</code> 常用于静态文件发送，减少“内核 -&gt; 用户缓冲 -&gt; 内核 socket 缓冲”的搬运。它的收益受文件类型、TLS、内核版本、网卡能力和缓存命中影响。开启 TLS 后，数据通常需要进入加密路径，具体能否减少复制取决于框架和内核能力，不能简单套用普通明文 TCP 结论。</p>
+<span class="heading-anchor" id="5. 虚拟内存"></span><h2 id="5">5. 虚拟内存</h2>
+<p>进程地址空间通过页表映射到物理页或其他后备存储。常见概念：</p>
+<ul>
+<li>栈适合自动生命周期的小型局部对象；大对象和深递归可能耗尽线程栈。</li>
+<li>堆分配由分配器管理；释放给分配器不保证立即归还操作系统。</li>
+<li>缺页分为可快速建立映射的 minor fault 与需存储 I/O 的 major fault。</li>
+<li>RSS 是驻留物理内存近似值；VIRT 大不等于真正占用同等物理内存。</li>
+<li>OOM、swap 和内存压力会造成显著尾延迟，应结合 cgroup/容器限制观察。</li>
+</ul>
+<span class="heading-anchor" id="虚拟内存的状态变化"></span><h3 id="_5">虚拟内存的状态变化</h3>
+<p>分配内存不一定立即得到物理页。进程可能先获得虚拟地址范围，真正读写时才触发缺页。写时复制也依赖这个机制：<code>fork()</code> 后父子进程共享只读物理页，直到某一方写入才复制页面。</p>
+<p>工程上要区分：</p>
+<ul>
+<li>address space 增长：虚拟地址范围变大；</li>
+<li>RSS 增长：更多物理页驻留；</li>
+<li>page cache 增长：内核为文件缓存占用内存；</li>
+<li>allocator 保留：应用释放对象后分配器仍持有 arena。</li>
+</ul>
+<p>因此“进程 VIRT 很大”不是单独结论；要结合 RSS、cgroup memory、page fault、swap 和分配器统计。</p>
+<span class="heading-anchor" id="6. 调度、上下文切换和 CPU"></span><h2 id="6-cpu">6. 调度、上下文切换和 CPU</h2>
+<p>线程在可运行、睡眠、不可中断等待等状态间切换。高 CPU 不一定是计算有效：自旋、锁竞争、频繁唤醒也会耗费 CPU。常用检查：</p>
+<pre><code class="language-bash">top -H -p &lt;pid&gt;
+pidstat -p &lt;pid&gt; 1
+perf stat -p &lt;pid&gt;
+perf record -F 99 -g -p &lt;pid&gt;
+</code></pre>
+<p>CPU 亲和性和 NUMA 只应在测量证明跨核/跨节点访问是瓶颈后引入。绑定错误会造成负载不均或与容器 CPU 配额冲突。</p>
+<span class="heading-anchor" id="7. 资源限制"></span><h2 id="7">7. 资源限制</h2>
+<p>后端常见资源上限：fd、进程/线程数、地址空间、锁定内存、cgroup CPU/内存限制、TCP 队列。提高上限不是完整修复：必须同时检查连接生命周期、泄漏、过载保护和监控。</p>
+<p>服务要监控已用 fd、线程数、内存、连接状态、accept 错误和队列长度，并为 <code>EMFILE/ENFILE/ENOMEM</code> 设计受控失败行为。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<p>本篇示例以观测命令和状态推导为主。实践时应把每个实验做成可重复脚本：一个 fd 泄漏程序、一个 pipe EOF 程序、一个 mmap 截断实验、一个小写入与批量写入对比，再用 <code>strace</code>、<code>lsof</code>、<code>perf</code> 和 <code>/proc</code> 记录证据。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_7">故障排查/观测</h2>
+<span class="heading-anchor" id="从症状到工具"></span><h3 id="_8">从症状到工具</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>优先观察</th>
+<th>常见方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>fd 用尽</td>
+<td><code>/proc/&lt;pid&gt;/fd</code>、<code>lsof</code>、accept 错误计数</td>
+<td>连接泄漏、未关闭文件、TIME_WAIT 误判</td>
+</tr>
+<tr>
+<td>CPU 高</td>
+<td><code>top -H</code>、<code>perf top/record</code></td>
+<td>自旋、锁竞争、热函数、日志格式化</td>
+</tr>
+<tr>
+<td>延迟长尾</td>
+<td><code>pidstat</code>、<code>perf sched</code>、请求 trace</td>
+<td>阻塞 I/O、调度等待、major fault</td>
+</tr>
+<tr>
+<td>内存上涨</td>
+<td>RSS/cgroup、ASan/LSan、分配器统计</td>
+<td>泄漏、缓存无界、连接积压</td>
+</tr>
+<tr>
+<td>关闭卡住</td>
+<td>线程栈、连接状态计数、fd 列表</td>
+<td>有线程未唤醒、长事务、半关闭未处理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="最小排查流程"></span><h3 id="_9">最小排查流程</h3>
+<p>先确认进程是否仍在接收流量，再看资源是否达到上限，最后定位代码路径。不要直接重启后宣称修复；重启只能释放现场。应保留当时的 fd 数、连接状态、线程栈、最近错误日志和关键指标，才能判断是泄漏、过载还是外部依赖阻塞。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_10">推导示例</h2>
+<span class="heading-anchor" id="为什么 pipe EOF 依赖所有写端关闭"></span><h3 id="pipe-eof">为什么 pipe EOF 依赖所有写端关闭</h3>
+<p>pipe 的读端只有在所有写端 fd 都关闭后才读到 EOF。父进程创建 pipe 后 fork，父子都会继承读写两端；如果子进程只负责读但忘记关闭自己的写端，即使父进程关闭写端，内核仍认为还有写者存在，子进程 <code>read</code> 就可能一直阻塞。</p>
+<pre><code class="language-text">pipe -&gt; fork
+parent: close read end -&gt; write -&gt; close write end
+child: close write end -&gt; read until 0
+</code></pre>
+<p>这个例子可以迁移到 socket 和日志文件：fork/exec 前没有清理 fd，会让资源生命周期跨进程延长，表现为端口占用、EOF 不出现或文件无法轮转。</p>
+<span class="heading-anchor" id="为什么 mmap 访问可能在普通读写之外失败"></span><h3 id="mmap_1">为什么 mmap 访问可能在普通读写之外失败</h3>
+<p><code>mmap</code> 成功只说明映射建立，不代表之后每次内存访问都不会失败。访问新页面时可能缺页；如果底层文件被截断，访问原映射范围可能触发 <code>SIGBUS</code>。因此 mmap 适合明确所有权和文件大小稳定的场景，不适合把错误处理简单包装成普通指针访问。</p>
+<span class="heading-anchor" id="如何解释一次系统调用成本"></span><h3 id="_11">如何解释一次系统调用成本</h3>
+<p>系统调用成本不只是用户态/内核态切换。一次小 <code>write</code> 可能还包含参数检查、fd 查表、复制、锁、页缓存操作和调度影响。优化时先用 <code>strace -c</code> 看调用次数，再用 <code>perf</code> 看 CPU 栈，最后结合业务批量策略减少无意义小调用。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_12">最小验收清单</h3>
+<ul>
+<li>能解释 fd 复用风险。</li>
+<li>能说清 fork 后 fd 和锁的继承问题。</li>
+<li>能区分 page cache、RSS 和虚拟地址。</li>
+<li>能用工具证明瓶颈来自 CPU、I/O 还是调度。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_13">常见误区</h2>
+<ul>
+<li>fd 数字相同就代表同一连接：fd 可复用。</li>
+<li><code>write</code> 返回成功就已落盘：通常只说明进入相应内核路径/缓存。</li>
+<li>内存释放后 RSS 必然下降：分配器可能保留 arena 或碎片。</li>
+<li>提高 fd 限制就解决连接问题：泄漏和过载仍存在。</li>
+<li>信号处理函数就是普通回调：它有严格的异步安全限制。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_14">自测题</h2>
+<ol>
+<li>为什么多线程程序 fork 后直接做复杂工作危险？</li>
+<li>短写、<code>EINTR</code> 与 <code>EAGAIN</code> 分别应怎样处理？</li>
+<li>页缓存如何影响性能测试与持久性判断？</li>
+<li>fd 复用会怎样破坏异步连接管理？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_15">实践任务</h2>
+<ol>
+<li>用 <code>strace</code> 对比逐字节写和缓冲批量写的系统调用次数。</li>
+<li>编写父子进程通过 pipe 通信的程序，验证关闭无用 pipe 端对 EOF 的影响。</li>
+<li>创建 fd 泄漏，用 <code>/proc/&lt;pid&gt;/fd</code> 与 <code>lsof</code> 观察，再用 RAII 修复。</li>
+<li>对一个 CPU 密集和一个 I/O 等待程序分别采集 <code>perf stat</code>，解释差异。</li>
+</ol>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_16">延伸阅读</h2>
+<ul>
+<li><a href="https://www.kernel.org/doc/man-pages/">Linux man-pages 项目</a></li>
+<li><a href="https://man7.org/tlpi/">The Linux Programming Interface 相关资源</a></li>
+<li><a href="https://perf.wiki.kernel.org/">Linux perf Wiki</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

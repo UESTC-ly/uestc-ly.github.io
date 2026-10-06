@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>测试体系：单元测试、集成测试、接口测试 · 李杨的学习笔记</title><meta name="description" content="单元测试验证一个函数、类或模块的局部行为，要求快、稳定、易定位。C++ 常用 GoogleTest 或 Catch2，Python 常用 pytest。单元测试应少依赖真实网络、磁盘、数据库和时间。"><meta property="og:title" content="测试体系：单元测试、集成测试、接口测试 · 李杨的学习笔记"><meta property="og:description" content="单元测试验证一个函数、类或模块的局部行为，要求快、稳定、易定位。C++ 常用 GoogleTest 或 Catch2，Python 常用 pytest。单元测试应少依赖真实网络、磁盘、数据库和时间。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f4a708c32e9b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f4a708c32e9b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 02-测试与交付平台</p><h1>测试体系：单元测试、集成测试、接口测试</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/02-%E6%B5%8B%E8%AF%95%E4%B8%8E%E4%BA%A4%E4%BB%98%E5%B9%B3%E5%8F%B0/01-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心概念</a></li><li><a href="#_4">示例</a></li><li><a href="#c">C++ 单元测试</a></li><li><a href="#python">Python 单元测试</a></li><li><a href="#api">API 接口测试</a></li><li><a href="#_5">典型工作流</a></li><li><a href="#_6">常见坑</a></li><li><a href="#_7">排障步骤</a></li><li><a href="#_8">练习</a></li><li><a href="#_9">检查清单</a></li><li><a href="#_10">前置知识与完成标准</a></li><li><a href="#_11">测试层级与数据流</a></li><li><a href="#_12">从零可复现实验</a></li><li><a href="#_13">配置与命令逐段讲解</a></li><li><a href="#_14">教学配置与生产配置边界</a></li><li><a href="#_15">排障决策树</a></li><li><a href="#_16">练习与答案要点</a></li><li><a href="#_17">小结与官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>区分单元测试、集成测试、接口测试的目标、成本和失败含义。</li>
+<li>能为 C++、Python 和 HTTP API 编写可重复、可定位问题的测试。</li>
+<li>能把测试接入本地开发、代码审查和 CI 流程。</li>
+<li>能根据失败现象快速判断是代码、依赖、环境还是测试数据的问题。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_3">核心概念</h2>
+<p>单元测试验证一个函数、类或模块的局部行为，要求快、稳定、易定位。C++ 常用 GoogleTest 或 Catch2，Python 常用 pytest。单元测试应少依赖真实网络、磁盘、数据库和时间。</p>
+<p>集成测试验证多个模块或外部依赖的协作，例如服务连接真实数据库、消息队列或对象存储。它比单元测试慢，但能发现配置、协议、事务和序列化问题。</p>
+<p>接口测试从调用者视角验证 HTTP/gRPC API 的请求、响应、错误码、鉴权和兼容性。它关注契约，不应只覆盖“正常返回 200”，还要覆盖错误输入、权限、幂等、超时和版本兼容。</p>
+<p>测试金字塔通常是：大量单元测试，适量集成测试，少量但关键的端到端或接口回归测试。服务越靠近生产边界，测试成本越高，失败定位越需要日志、请求 ID 和环境记录。</p>
+<span class="heading-anchor" id="示例"></span><h2 id="_4">示例</h2>
+<span class="heading-anchor" id="C++ 单元测试"></span><h3 id="c">C++ 单元测试</h3>
+<pre><code class="language-cpp">#include &lt;gtest/gtest.h&gt;
+
+int add(int a, int b) {
+    return a + b;
+}
+
+TEST(MathTest, AddPositiveNumbers) {
+    EXPECT_EQ(add(2, 3), 5);
+}
+</code></pre>
+<p>生产注意事项：C++ 测试要打开 AddressSanitizer、UndefinedBehaviorSanitizer 或 Valgrind 类检查，避免“测试通过但存在内存错误”。涉及浮点数时使用近似断言，不直接比较 <code>double</code>。</p>
+<span class="heading-anchor" id="Python 单元测试"></span><h3 id="python">Python 单元测试</h3>
+<pre><code class="language-python">def normalize_name(value: str) -&gt; str:
+    return " ".join(value.strip().split()).lower()
+
+def test_normalize_name():
+    assert normalize_name("  Alice   Zhang ") == "alice zhang"
+</code></pre>
+<p>生产注意事项：pytest fixture 应保持作用域清晰。共享数据库、全局环境变量和当前时间会导致测试互相污染，优先使用临时目录、事务回滚和可注入时钟。</p>
+<span class="heading-anchor" id="API 接口测试"></span><h3 id="api">API 接口测试</h3>
+<pre><code class="language-bash">curl -sS -X POST http://127.0.0.1:8080/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alice"}'
+</code></pre>
+<p>更适合自动化的形式是用 pytest + requests：</p>
+<pre><code class="language-python">import requests
+
+def test_create_user(api_base_url):
+    resp = requests.post(f"{api_base_url}/api/users", json={"name": "alice"}, timeout=3)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["name"] == "alice"
+    assert "id" in body
+</code></pre>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_5">典型工作流</h2>
+<ol>
+<li>写业务代码前先列出输入、输出、错误条件和边界值。</li>
+<li>为纯逻辑写单元测试，例如解析、校验、计算、状态转换。</li>
+<li>为数据库、缓存、队列、第三方 SDK 写集成测试，使用可重建测试环境。</li>
+<li>为对外 API 写契约测试，固定状态码、字段、错误格式和幂等行为。</li>
+<li>本地运行快速测试，提交前运行目标模块测试，CI 运行全量测试和覆盖率统计。</li>
+<li>失败时先看第一处失败、测试数据、最近变更、依赖版本和环境差异。</li>
+</ol>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_6">常见坑</h2>
+<ul>
+<li>单元测试偷偷访问真实网络或真实数据库，导致慢和不稳定。</li>
+<li>只测成功路径，不测空值、重复请求、权限不足、超时和依赖失败。</li>
+<li>Mock 过多，测试只验证实现细节，没有验证真实行为。</li>
+<li>测试依赖执行顺序，单独运行或并发运行就失败。</li>
+<li>API 测试只校验状态码，不校验响应 schema 和错误语义。</li>
+<li>集成测试环境与生产配置差异过大，例如编码、时区、事务隔离级别不同。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_7">排障步骤</h2>
+<ol>
+<li>单独运行失败测试，确认是否稳定复现。</li>
+<li>查看失败断言前后的输入、输出、日志和随机种子。</li>
+<li>确认测试是否依赖当前时间、执行顺序、外部服务、环境变量或端口。</li>
+<li>对集成测试检查数据库迁移、测试数据初始化、容器健康状态和连接串。</li>
+<li>对 API 测试检查请求方法、路径、Header、鉴权、Content-Type 和响应体。</li>
+<li>若 CI 失败但本地通过，对比操作系统、依赖版本、CPU 架构、时区和并发度。</li>
+</ol>
+<span class="heading-anchor" id="练习"></span><h2 id="_8">练习</h2>
+<ol>
+<li>为一个字符串解析函数补齐空字符串、非法格式、超长输入测试。</li>
+<li>使用 pytest 为一个 Flask/FastAPI 接口写创建、查询、重复创建、非法参数测试。</li>
+<li>使用 Docker Compose 启动 PostgreSQL，为用户注册流程写集成测试。</li>
+<li>为 C++ 模块开启 AddressSanitizer，并制造一个越界访问观察测试失败信息。</li>
+</ol>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_9">检查清单</h2>
+<ul>
+<li>单元测试能在秒级运行，且不依赖外部服务。</li>
+<li>集成测试能一键创建和清理测试依赖。</li>
+<li>API 测试覆盖成功、失败、鉴权、幂等和兼容性场景。</li>
+<li>每个失败都有足够日志定位到输入、依赖或代码路径。</li>
+<li>CI 中测试命令固定、依赖固定、环境可复现。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h2 id="_10">前置知识与完成标准</h2>
+<p>前置知识：会读基本函数、类、HTTP 请求和 JSON；了解进程环境变量、临时目录、退出码；知道 CI 会在干净环境中重新拉代码、安装依赖并运行命令。</p>
+<p>完成标准：</p>
+<ul>
+<li>能解释测试金字塔和测试奖杯的差异，并说明本项目为何选择某一比例。</li>
+<li>能为同一业务能力拆出单元测试、集成测试和接口测试各自验证的边界。</li>
+<li>能写出至少一个 C++ 单元测试、一个 Python 单元测试和一个 HTTP API 测试。</li>
+<li>测试失败时能根据失败现象选择日志、断言、替身、环境和依赖版本的排查顺序。</li>
+</ul>
+<span class="heading-anchor" id="测试层级与数据流"></span><h2 id="_11">测试层级与数据流</h2>
+<p>测试金字塔强调大量便宜的单元测试托底，少量昂贵的端到端测试兜底；测试奖杯更强调集成测试的价值，适合微服务、前端组件和数据库交互较多的系统。两者不是互斥模型：纯算法模块更像金字塔，业务服务更像奖杯，关键是让每层失败都能定位不同问题。</p>
+<p>一次接口调用的测试数据流通常是：构造输入数据 -&gt; 替身或真实依赖准备状态 -&gt; 调用被测入口 -&gt; 采集返回值、状态码、事件或数据库变化 -&gt; 断言契约 -&gt; 清理状态。单元测试把数据流压缩在进程内，集成测试跨进程或跨存储，接口测试则从调用者边界观察完整契约。</p>
+<p>隔离的目标不是“让测试看起来更快”，而是切断不属于当前验证目标的变化源。常见替身包括 fake、stub、mock、spy 和本地模拟服务。fake 有可运行实现，例如内存仓库；stub 只返回固定值；mock 还验证调用方式；spy 记录调用但尽量少干预行为。替身越多，越容易验证实现细节；真实依赖越多，越容易慢和不稳定。</p>
+<p>确定性来自四类控制：固定时间、固定随机种子、固定测试数据、固定外部依赖版本。任何依赖当前日期、执行顺序、共享数据库、真实网络或系统时区的测试，都应默认被怀疑为潜在 flaky 测试。</p>
+<p>覆盖率只能回答“哪些代码被执行过”，不能证明断言有效、场景完整或没有并发问题。生产团队常把覆盖率作为变化趋势和遗漏提示，而不是唯一质量门禁；对核心解析、权限、计费、状态机可设更高阈值，对胶水代码和不可达防御分支则以审查说明补足。</p>
+<span class="heading-anchor" id="从零可复现实验"></span><h2 id="_12">从零可复现实验</h2>
+<p>目标：用 pytest 复现“全局时间导致测试不确定”，再用依赖注入修复。</p>
+<ol>
+<li>创建 <code>clock_demo.py</code>：</li>
+</ol>
+<pre><code class="language-python">from datetime import datetime
+
+def greeting(now=None):
+    current = now or datetime.now()
+    return "night" if current.hour &gt;= 18 else "day"
+</code></pre>
+<ol>
+<li>创建 <code>test_clock_demo.py</code>：</li>
+</ol>
+<pre><code class="language-python">from datetime import datetime
+from clock_demo import greeting
+
+def test_greeting_day():
+    assert greeting(datetime(2026, 1, 1, 9, 0, 0)) == "day"
+
+def test_greeting_night():
+    assert greeting(datetime(2026, 1, 1, 21, 0, 0)) == "night"
+</code></pre>
+<ol>
+<li>运行：</li>
+</ol>
+<pre><code class="language-bash">python -m pytest -q
+</code></pre>
+<p>预期结果：两个测试稳定通过。若把测试改成直接调用 <code>greeting()</code>，白天和晚上会得到不同结果，这就是时间未隔离导致的失败现象。验证方法是重复运行、改变系统时区或注入固定时间，确认结果是否仍一致。</p>
+<span class="heading-anchor" id="配置与命令逐段讲解"></span><h2 id="_13">配置与命令逐段讲解</h2>
+<pre><code class="language-bash">python -m pytest -q tests/unit
+</code></pre>
+<ul>
+<li><code>python -m pytest</code> 使用当前 Python 解释器环境加载 pytest，避免 <code>pytest</code> 命令指向另一个虚拟环境。</li>
+<li><code>-q</code> 减少噪声，适合本地快速反馈；CI 失败时可去掉 <code>-q</code> 或增加 <code>-vv</code>。</li>
+<li><code>tests/unit</code> 限定范围，适合提交前快速验证；合并前仍应跑更完整测试集。</li>
+</ul>
+<pre><code class="language-bash">pytest --maxfail=1 --disable-warnings --cov=my_service --cov-report=term-missing
+</code></pre>
+<ul>
+<li><code>--maxfail=1</code> 遇到第一处失败即停，适合快速定位最早失败。</li>
+<li><code>--disable-warnings</code> 可减少教学输出噪声，生产 CI 不应长期隐藏关键弃用告警。</li>
+<li><code>--cov=my_service</code> 统计目标包覆盖率，避免把测试代码也算入覆盖率。</li>
+<li><code>--cov-report=term-missing</code> 显示未覆盖行，便于补边界场景。</li>
+</ul>
+<pre><code class="language-bash">cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+</code></pre>
+<ul>
+<li><code>-S</code> 和 <code>-B</code> 分离源码目录与构建目录。</li>
+<li>Debug 与 ASan 便于捕获越界、use-after-free 等内存问题。</li>
+<li><code>ctest --output-on-failure</code> 只在失败时打印测试输出，CI 日志更可读。</li>
+</ul>
+<span class="heading-anchor" id="教学配置与生产配置边界"></span><h2 id="_14">教学配置与生产配置边界</h2>
+<p>教学配置可以使用本地临时目录、内存数据库、固定 token 和短超时，目的是让失败快速、可观察、易复现。生产配置必须使用独立测试环境、最小权限凭据、可审计数据初始化、隔离命名空间和稳定依赖锁文件。</p>
+<p>Mock 在教学中可直接写在测试文件里，便于看到输入输出；生产中应抽象在 fixture、factory 或测试工具模块里，但不要把替身做成比真实系统还复杂。接口测试在教学中可以用 <code>curl</code> 演示；生产中应写成自动化脚本，并校验 schema、错误格式、幂等键和鉴权边界。</p>
+<span class="heading-anchor" id="排障决策树"></span><h2 id="_15">排障决策树</h2>
+<pre><code class="language-text">测试失败
+├─ 单独运行仍失败？
+│  ├─ 是：看断言输入输出、最近代码变更、边界值
+│  └─ 否：怀疑执行顺序、共享状态、并发、随机数或时间
+├─ 只在 CI 失败？
+│  ├─ 是：对比 OS、Python/C++ 编译器、依赖锁、时区、CPU 架构
+│  └─ 否：继续看本地环境和依赖服务
+├─ 涉及外部依赖？
+│  ├─ 是：确认依赖健康、连接串、迁移、测试数据、替身行为
+│  └─ 否：缩小到纯函数或模块入口重跑
+└─ 覆盖率下降？
+   ├─ 新代码无测试：补成功、失败、边界和权限场景
+   └─ 删除代码导致：确认删除是否符合需求并更新阈值说明
+</code></pre>
+<span class="heading-anchor" id="练习与答案要点"></span><h2 id="_16">练习与答案要点</h2>
+<p>基础练习：为 <code>normalize_name</code> 增加空字符串、全空格、多语言字符、超长输入测试。答案要点：输入构造清晰；断言输出稳定；不依赖系统 locale；非法输入有明确异常或返回约定。</p>
+<p>进阶练习：为用户注册 API 写创建成功、重复邮箱、弱密码、未授权、幂等重试测试。答案要点：状态码、错误码、响应 schema、数据库副作用和幂等键都要断言；不要只判断 200 或 400。</p>
+<p>综合练习：用 Docker Compose 启动 PostgreSQL，pytest fixture 在每个测试前迁移 schema、每个测试后回滚事务。答案要点：数据库容器有健康检查；测试数据不共享；失败日志包含连接串主机、迁移版本和请求 ID。</p>
+<span class="heading-anchor" id="小结与官方延伸阅读"></span><h2 id="_17">小结与官方延伸阅读</h2>
+<p>测试体系的核心是把不同风险放在不同层验证：单元测试定位逻辑，集成测试验证协作，接口测试守住契约。好的测试失败时应告诉你“哪里坏了”，而不是只告诉你“系统坏了”。</p>
+<p>官方延伸阅读：</p>
+<ul>
+<li>pytest 文档：https://docs.pytest.org/en/stable/</li>
+<li>pytest monkeypatch：https://pytest.org/en/8.2.x/how-to/monkeypatch.html</li>
+<li>GoogleTest 断言参考：https://google.github.io/googletest/reference/assertions.html</li>
+<li>GoogleTest 测试参考：https://google.github.io/googletest/reference/testing.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

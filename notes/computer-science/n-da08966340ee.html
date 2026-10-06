@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-一致性哈希、选举与 Raft 基础 · 李杨的学习笔记</title><meta name="description" content="普通取模 hash(key) % N 在节点数 N 变化时会导致大量 key 重新映射。一致性哈希把节点和 key 映射到同一个哈希环，key 顺时针找到第一个节点。"><meta property="og:title" content="06-一致性哈希、选举与 Raft 基础 · 李杨的学习笔记"><meta property="og:description" content="普通取模 hash(key) % N 在节点数 N 变化时会导致大量 key 重新映射。一致性哈希把节点和 key 映射到同一个哈希环，key 顺时针找到第一个节点。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-da08966340ee.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-da08966340ee.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>06-一致性哈希、选举与 Raft 基础</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/06-%E4%B8%80%E8%87%B4%E6%80%A7%E5%93%88%E5%B8%8C-%E9%80%89%E4%B8%BE%E4%B8%8ERaft%E5%9F%BA%E7%A1%80.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">一致性哈希</a></li><li><a href="#_4">虚拟节点</a></li><li><a href="#_5">再平衡与热点控制</a></li><li><a href="#_6">选举问题</a></li><li><a href="#raft">Raft 基础</a></li><li><a href="#leader-election">Leader election</a></li><li><a href="#log-replication-commit">Log replication 与 commit</a></li><li><a href="#log-matching">Log Matching、回退与追赶</a></li><li><a href="#snapshotmembership-read">Snapshot、Membership 与 Read</a></li><li><a href="#raft_1">Raft 观测指标</a></li><li><a href="#_7">案例：配置中心为什么适合共识</a></li><li><a href="#_8">工程实践/案例</a></li><li><a href="#_9">常见误区</a></li><li><a href="#_10">自测题</a></li><li><a href="#_11">实践任务</a></li><li><a href="#_12">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解一致性哈希和虚拟节点如何降低节点变化时的数据迁移量。</li>
+<li>理解 leader election、term、log replication、commit 的基本语义。</li>
+<li>建立 Raft 安全性直觉：已提交日志不能丢、状态机按同一顺序执行。</li>
+<li>能区分分片路由、主从选举和共识算法的适用边界。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="一致性哈希"></span><h3 id="_3">一致性哈希</h3>
+<p>普通取模 <code>hash(key) % N</code> 在节点数 N 变化时会导致大量 key 重新映射。一致性哈希把节点和 key 映射到同一个哈希环，key 顺时针找到第一个节点。</p>
+<pre class="mermaid">flowchart LR
+  K1["key A"] --&gt; N1["节点1"]
+  K2["key B"] --&gt; N2["节点2"]
+  K3["key C"] --&gt; N3["节点3"]
+  N1 --&gt; N2 --&gt; N3 --&gt; N1
+</pre>
+<p>理论保证：理想哈希均匀时，新增或删除一个节点只影响环上相邻区间。</p>
+<p>工程假设：哈希函数分布足够均匀，节点容量差异可通过权重或虚拟节点表达。</p>
+<p>实现取舍：虚拟节点越多，负载越均匀，但路由表更大、维护成本更高。</p>
+<span class="heading-anchor" id="虚拟节点"></span><h3 id="_4">虚拟节点</h3>
+<p>虚拟节点把一个物理节点映射为多个环上位置。作用：</p>
+<ul>
+<li>平滑数据分布，减少热点。</li>
+<li>支持按机器规格设置不同虚拟节点数量。</li>
+<li>节点上下线时迁移更细粒度。</li>
+</ul>
+<span class="heading-anchor" id="再平衡与热点控制"></span><h3 id="_5">再平衡与热点控制</h3>
+<p>一致性哈希只减少节点变化时的重映射比例，不自动搬迁数据。工程实现还需要迁移任务、双读双写窗口、校验和限速。</p>
+<pre><code class="language-text">新增节点 N4
+  -&gt; 计算 N4 接管的 hash 区间
+  -&gt; 后台从相邻节点复制数据
+  -&gt; 复制期间读旧 owner，或新旧双读
+  -&gt; 校验完成后更新路由版本
+  -&gt; 清理旧 owner 上迁出数据
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>热点 key</td>
+<td>单 key 缓存复制、请求合并、局部限流</td>
+</tr>
+<tr>
+<td>节点容量不同</td>
+<td>按权重设置虚拟节点数量</td>
+</tr>
+<tr>
+<td>路由版本不一致</td>
+<td>请求携带路由版本，失败后刷新</td>
+</tr>
+<tr>
+<td>迁移影响线上</td>
+<td>限速、分批、低峰执行、校验后切换</td>
+</tr>
+</tbody>
+</table></div>
+<p>一致性哈希适合缓存、分片路由和无共享数据分布；如果每个 key 需要多个副本，还要单独设计副本放置策略，避免副本落在同一故障域。</p>
+<span class="heading-anchor" id="选举问题"></span><h3 id="_6">选举问题</h3>
+<p>选举用于在多个副本中确定一个 leader。它必须处理：</p>
+<ul>
+<li>多个节点同时认为自己是 leader。</li>
+<li>网络分区导致脑裂。</li>
+<li>旧 leader 恢复后继续写入。</li>
+<li>日志落后的节点被选成 leader。</li>
+</ul>
+<p>仅靠心跳和超时可以选出主，但不能自动保证数据安全；安全选举需要日志新旧比较、任期和多数派。</p>
+<span class="heading-anchor" id="Raft 基础"></span><h3 id="raft">Raft 基础</h3>
+<p>Raft 是一种管理复制日志的共识算法。节点角色：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>角色</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Follower</td>
+<td>被动接收 leader 心跳和日志，参与投票</td>
+</tr>
+<tr>
+<td>Candidate</td>
+<td>选举超时后发起投票</td>
+</tr>
+<tr>
+<td>Leader</td>
+<td>接收客户端写入，把日志复制给 follower</td>
+</tr>
+</tbody>
+</table></div>
+<p>Term 是逻辑任期。节点发现更大的 term 必须更新任期并退回 follower。Term 的作用类似分布式系统中的逻辑时间，用来识别过期 leader 和过期消息。</p>
+<p>Raft 的核心对象是复制日志，而不是“选主工具”。客户端命令先变成日志项；多数派确认后日志项 committed；各节点按日志顺序把 committed 项应用到状态机。安全性来自 term、投票限制、日志匹配和多数派交集共同作用。</p>
+<span class="heading-anchor" id="Leader election"></span><h3 id="leader-election">Leader election</h3>
+<pre class="mermaid">sequenceDiagram
+  participant F1 as Follower1
+  participant C as Candidate
+  participant F2 as Follower2
+  C-&gt;&gt;F1: RequestVote(term, lastLogIndex, lastLogTerm)
+  C-&gt;&gt;F2: RequestVote(term, lastLogIndex, lastLogTerm)
+  F1--&gt;&gt;C: vote granted
+  F2--&gt;&gt;C: vote granted
+  C-&gt;&gt;F1: AppendEntries heartbeat
+  C-&gt;&gt;F2: AppendEntries heartbeat
+</pre>
+<p>投票关键规则：</p>
+<ul>
+<li>一个节点在同一 term 最多投一票。</li>
+<li>候选人的日志至少和投票者一样新，才可能拿到票。</li>
+<li>获得多数派投票后成为 leader。</li>
+<li>随机选举超时降低 split vote 概率。</li>
+</ul>
+<span class="heading-anchor" id="Log replication 与 commit"></span><h3 id="log-replication-commit">Log replication 与 commit</h3>
+<p>leader 收到客户端命令后追加到本地日志，再通过 AppendEntries 复制给 follower。对于 leader <strong>当前 term</strong> 的日志条目，复制到多数派后可以推进 <code>commitIndex</code> 并应用到状态机；旧 term 的条目不能仅凭“它已复制到多数派”按同一规则直接提交，通常随之后某个当前 term 条目的提交而间接成为 committed。</p>
+<pre class="mermaid">flowchart TD
+  A["客户端写入 leader"] --&gt; B["leader 追加日志"]
+  B --&gt; C["AppendEntries 到 followers"]
+  C --&gt; D{多数派确认?}
+  D -- 是 --&gt; E["commit"]
+  E --&gt; F["应用到状态机"]
+  D -- 否 --&gt; G["继续重试复制"]
+</pre>
+<p>安全性直觉：</p>
+<ul>
+<li>多数派集合一定相交。</li>
+<li>已提交日志存在于某个多数派。</li>
+<li>新 leader 必须获得多数派投票。</li>
+<li>投票限制要求新 leader 日志足够新。</li>
+<li>因此新 leader 不会丢失已提交日志。</li>
+</ul>
+<p>Raft 的重要性质：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>性质</th>
+<th>直觉</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Election Safety</td>
+<td>一个 term 最多一个 leader</td>
+</tr>
+<tr>
+<td>Leader Append-Only</td>
+<td>leader 不覆盖或删除自己的日志</td>
+</tr>
+<tr>
+<td>Log Matching</td>
+<td>相同 index 和 term 的日志项之前内容相同</td>
+</tr>
+<tr>
+<td>Leader Completeness</td>
+<td>已提交日志会出现在后续 leader 日志中</td>
+</tr>
+<tr>
+<td>State Machine Safety</td>
+<td>不同节点不会在同一 index 应用不同命令</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Log Matching、回退与追赶"></span><h3 id="log-matching">Log Matching、回退与追赶</h3>
+<p>AppendEntries 会携带 <code>prevLogIndex</code> 和 <code>prevLogTerm</code>。Follower 只有在本地对应位置匹配时才接受新条目；不匹配时拒绝，leader 递减 nextIndex 或用优化信息快速回退，直到找到共同前缀，再覆盖冲突日志。</p>
+<pre><code class="language-text">Leader:   [1:a][1:b][2:c][3:d]
+Follower: [1:a][1:b][3:x]
+Append(prev=3, term=2) -&gt; reject
+Append(prev=2, term=1) -&gt; accept, delete [3:x], append [2:c][3:d]
+</code></pre>
+<p>这里使用 <code>[term:command]</code> 表示每个索引处的日志项：Follower 的索引 3 属于 term 3，与 leader 期望的 term 2 不匹配，因此第一次 AppendEntries 被拒绝。</p>
+<p>这条规则解释了为什么 leader append-only 不代表 follower append-only。Follower 的未提交冲突日志可以被覆盖；已经 committed 的日志依靠 leader completeness 不会被后续 leader 丢失。</p>
+<span class="heading-anchor" id="Snapshot、Membership 与 Read"></span><h3 id="snapshotmembership-read">Snapshot、Membership 与 Read</h3>
+<p>日志无限增长会拖慢恢复和占满磁盘，因此 Raft 系统会做 snapshot，把已应用状态机压缩成快照，并保留快照之后的日志。落后节点可以通过 InstallSnapshot 追上，再继续接收增量日志。</p>
+<p>成员变更不能简单一次性替换配置，否则新旧多数派可能不相交。Raft 论文提出 joint consensus 思路，让新旧配置在过渡阶段共同确认，降低脑裂风险。具体系统可能实现 learner、分阶段 add/remove member、自动压缩和限速，操作时要看官方运维文档。</p>
+<p>读也有层次：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>读方式</th>
+<th>直觉</th>
+<th>风险/成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Follower 本地读</td>
+<td>低延迟</td>
+<td>可能读旧值</td>
+</tr>
+<tr>
+<td>Leader 本地读</td>
+<td>简单</td>
+<td>旧 leader 若未确认任期可能返回过期读</td>
+</tr>
+<tr>
+<td>ReadIndex/线性读</td>
+<td>确认 leader 仍有多数派后读</td>
+<td>多一次协调或心跳等待</td>
+</tr>
+<tr>
+<td>Lease read</td>
+<td>依赖时钟和租约假设</td>
+<td>时钟/暂停异常下要谨慎</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Raft 观测指标"></span><h3 id="raft_1">Raft 观测指标</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>leader changes</td>
+<td>频繁选举说明网络、GC、磁盘或超时配置异常</td>
+</tr>
+<tr>
+<td>current term</td>
+<td>任期增长速度反映稳定性</td>
+</tr>
+<tr>
+<td>commit/apply latency</td>
+<td>写入到状态机生效的延迟</td>
+</tr>
+<tr>
+<td>replication lag</td>
+<td>follower 落后日志数量或字节</td>
+</tr>
+<tr>
+<td>fsync latency</td>
+<td>共识写路径常受磁盘尾延迟影响</td>
+</tr>
+<tr>
+<td>snapshot duration/size</td>
+<td>快照和恢复成本</td>
+</tr>
+<tr>
+<td>quorum availability</td>
+<td>多数派是否健康</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="案例：配置中心为什么适合共识"></span><h3 id="_7">案例：配置中心为什么适合共识</h3>
+<p>配置中心保存的是小体量、高价值元数据：服务开关、限流阈值、路由规则、灰度策略。它的写 QPS 通常不高，但错误配置或旧配置可能扩大事故，因此更适合用 Raft/类似共识系统保存权威状态。</p>
+<p>容量估算：假设 2000 个服务，每个服务 20 个配置项，每项平均 2KB，原始配置约 80MB；每天变更 5000 次，每次写入复制到 3 节点，多数派确认即可提交。瓶颈通常不是存储容量，而是写入 fsync 尾延迟、watch fanout、客户端长连接和错误配置传播。</p>
+<p>核心链路：</p>
+<pre><code class="language-text">管理员提交变更
+  -&gt; 校验 schema 和灰度范围
+  -&gt; 写入 Raft 日志
+  -&gt; 多数派提交
+  -&gt; 应用到状态机并生成版本
+  -&gt; watch 推送到客户端
+  -&gt; 客户端按版本生效并上报
+</code></pre>
+<p>失败路径：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失败</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>leader 宕机</td>
+<td>新 leader 选出后继续服务，客户端重试到新 leader</td>
+</tr>
+<tr>
+<td>少数 follower 落后</td>
+<td>不影响提交，但要监控复制 lag</td>
+</tr>
+<tr>
+<td>多数节点不可用</td>
+<td>拒绝新写入，避免产生无法保证的配置</td>
+</tr>
+<tr>
+<td>客户端 watch 断开</td>
+<td>带版本号重新拉取全量或增量</td>
+</tr>
+<tr>
+<td>错误配置发布</td>
+<td>灰度、校验、回滚版本、审计日志</td>
+</tr>
+</tbody>
+</table></div>
+<p>这个案例也说明：Raft 保护的是配置状态的顺序和提交安全，不负责判断配置业务上是否正确；业务校验、审批和灰度仍然是上层责任。</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_8">工程实践/案例</h2>
+<p>配置中心、服务发现元数据、分布式锁服务适合使用 etcd/Raft、ZooKeeper/Zab 这类共识或协调系统，因为它们更需要一致性和明确主节点。用户 feed、搜索索引、推荐缓存不适合每次写入都走共识，通常使用异步复制和最终一致。</p>
+<p>在使用 Raft 系统时：</p>
+<ul>
+<li>保持奇数节点，例如 3 或 5，便于多数派。</li>
+<li>不要把跨地域高延迟链路随意放进同一个强一致集群。</li>
+<li>关注磁盘 fsync、快照、日志压缩和网络尾延迟。</li>
+<li>客户端写入应走 leader；读强一致数据需使用线性读或读索引机制。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_9">常见误区</h2>
+<ul>
+<li>
+<p>误区：一致性哈希解决数据一致性。<br/>
+  修正：它解决 key 到节点的稳定路由，不解决副本一致性。</p>
+</li>
+<li>
+<p>误区：选出 leader 就等于安全。<br/>
+  修正：还要保证 leader 持有已提交日志，旧 leader 被任期机制压制。</p>
+</li>
+<li>
+<p>误区：Raft 多数派提交表示所有节点都写入了。<br/>
+  修正：多数派提交后即可安全提交，落后节点后续追赶。</p>
+</li>
+<li>
+<p>误区：Raft 能在多数节点不可用时继续写。<br/>
+  修正：多数派不可用时不能安全提交新写入。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_10">自测题</h2>
+<ol>
+<li>一致性哈希为什么需要虚拟节点？</li>
+<li>Raft 中 term 的作用是什么？</li>
+<li>为什么一个 term 最多只能有一个 leader？</li>
+<li>已提交日志为什么不会被后续 leader 丢失？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_11">实践任务</h2>
+<p>画一个 5 节点 Raft 集群，模拟 leader 宕机、两个 follower 发起选举、一个候选人获得 3 票成为 leader 的过程。标出每个节点的 term、角色和日志变化。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_12">延伸阅读</h2>
+<ul>
+<li>Diego Ongaro, John Ousterhout. <a href="https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro">In Search of an Understandable Consensus Algorithm</a>, USENIX ATC 2014.</li>
+<li>Raft 官方站点：<a href="https://raft.github.io/">The Raft Consensus Algorithm</a>.</li>
+<li>Raft 可视化：<a href="http://thesecretlivesofdata.com/raft/">The Secret Lives of Data - Raft</a>.</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02. Tool Calling 与 Structured Output · 李杨的学习笔记</title><meta name="description" content="Tool Calling 是让模型从“说答案”变成“请求系统执行动作”；Structured Output 是让模型输出可被程序稳定解析的数据结构。两者共同构成 Agent 行动能力的基础。"><meta property="og:title" content="02. Tool Calling 与 Structured Output · 李杨的学习笔记"><meta property="og:description" content="Tool Calling 是让模型从“说答案”变成“请求系统执行动作”；Structured Output 是让模型输出可被程序稳定解析的数据结构。两者共同构成 Agent 行动能力的基础。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-aa2526c7817f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-aa2526c7817f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>02. Tool Calling 与 Structured Output</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/02-Tool-Calling%E4%B8%8EStructured-Output.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-tool-calling">1. Tool Calling 的基本流程</a></li><li><a href="#2-function-tool">2. Function Tool 的组成</a></li><li><a href="#3-json-schema">3. JSON Schema 为什么关键？</a></li><li><a href="#4-structured-output-json-mode">4. Structured Output 与 JSON mode</a></li><li><a href="#_4">对比表</a></li><li><a href="#5">5. 工具描述怎么写才好？</a></li><li><a href="#_5">示例</a></li><li><a href="#6">6. 工具结果如何回传模型？</a></li><li><a href="#7">7. 工具调用失败如何处理？</a></li><li><a href="#8">8. 工具的幂等性</a></li><li><a href="#9">9. 工具权限和审批</a></li><li><a href="#10-toolformer">10. Toolformer 的启发</a></li><li><a href="#11">11. 学习自检</a></li><li><a href="#_6">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>Tool Calling 和普通文本输出有什么区别？</li>
+<li>为什么 Agent 开发必须重视 JSON Schema、参数校验和工具结果处理？</li>
+<li>Structured Output、JSON mode、Function Calling 分别解决什么问题？</li>
+<li>工具设计如何影响模型是否会正确调用？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>Tool Calling 是让模型从“说答案”变成“请求系统执行动作”；Structured Output 是让模型输出可被程序稳定解析的数据结构。两者共同构成 Agent 行动能力的基础。</p>
+<blockquote>
+<p>记忆口诀：<strong>自然语言给人看，结构化输出给程序用，工具调用让系统行动。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((Tool Calling))
+    工具定义
+      Name
+      Description
+      JSON Schema
+      Permissions
+    调用流程
+      选择工具
+      生成参数
+      参数校验
+      执行工具
+      返回结果
+    结构化输出
+      JSON Mode
+      Structured Output
+      Schema Validation
+    风险控制
+      最小权限
+      幂等性
+      重试
+      审批
+      审计
+</pre>
+<span class="heading-anchor" id="1. Tool Calling 的基本流程"></span><h2 id="1-tool-calling">1. Tool Calling 的基本流程</h2>
+<pre class="mermaid">flowchart LR
+  A["用户请求"] --&gt; B["模型判断需要工具"]
+  B --&gt; C["生成工具名和参数"]
+  C --&gt; D["Schema校验"]
+  D --&gt; E["系统执行工具"]
+  E --&gt; F["工具结果回传模型"]
+  F --&gt; G["模型生成最终回复"]
+</pre>
+<p>模型本身不真的执行工具。它只是生成一个结构化调用请求，实际执行由应用层完成。</p>
+<span class="heading-anchor" id="2. Function Tool 的组成"></span><h2 id="2-function-tool">2. Function Tool 的组成</h2>
+<p>一个工具至少包含：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>name</td>
+<td>工具唯一名称</td>
+</tr>
+<tr>
+<td>description</td>
+<td>告诉模型什么时候用这个工具</td>
+</tr>
+<tr>
+<td>parameters</td>
+<td>JSON Schema，定义输入参数</td>
+</tr>
+<tr>
+<td>execute</td>
+<td>应用层真实执行逻辑</td>
+</tr>
+<tr>
+<td>permissions</td>
+<td>谁可以调用、是否需要审批</td>
+</tr>
+<tr>
+<td>timeout</td>
+<td>防止工具卡死</td>
+</tr>
+<tr>
+<td>output schema</td>
+<td>约束工具返回结构</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["Tool Definition"] --&gt; B["Name"]
+  A --&gt; C["Description"]
+  A --&gt; D["Input Schema"]
+  A --&gt; E["Executor"]
+  A --&gt; F["Permission"]
+  A --&gt; G["Output Contract"]
+</pre>
+<span class="heading-anchor" id="3. JSON Schema 为什么关键？"></span><h2 id="3-json-schema">3. JSON Schema 为什么关键？</h2>
+<p>没有 schema，模型输出可能是：</p>
+<pre><code class="language-text">帮我查一下北京明天的天气吧，大概需要 location=北京 date=明天
+</code></pre>
+<p>有 schema 后，系统期望得到：</p>
+<pre><code class="language-json">{
+  "location": "北京",
+  "date": "2026-05-04"
+}
+</code></pre>
+<p>Schema 的作用：</p>
+<ul>
+<li>限定字段名。</li>
+<li>限定类型。</li>
+<li>限定必填项。</li>
+<li>限定枚举值。</li>
+<li>便于程序校验和重试。</li>
+</ul>
+<span class="heading-anchor" id="4. Structured Output 与 JSON mode"></span><h2 id="4-structured-output-json-mode">4. Structured Output 与 JSON mode</h2>
+<p>JSON mode 通常保证输出是合法 JSON，但不保证符合某个具体 schema。Structured Output 的目标是让模型输出匹配开发者提供的 JSON Schema。</p>
+<pre class="mermaid">flowchart TD
+  A["模型输出控制"] --&gt; B["普通文本"]
+  A --&gt; C["JSON Mode"]
+  C --&gt; C1["保证可解析JSON"]
+  A --&gt; D["Structured Output"]
+  D --&gt; D1["匹配JSON Schema"]
+  D --&gt; D2["类型更可靠"]
+</pre>
+<span class="heading-anchor" id="对比表"></span><h3 id="_4">对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>解决问题</th>
+<th>不解决问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON mode</td>
+<td>输出能被 JSON parser 解析</td>
+<td>不保证字段和类型完全正确</td>
+</tr>
+<tr>
+<td>Structured Output</td>
+<td>输出符合 schema</td>
+<td>不保证业务值一定正确</td>
+</tr>
+<tr>
+<td>Tool Calling</td>
+<td>让模型请求工具执行</td>
+<td>不负责工具真实权限和安全</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 工具描述怎么写才好？"></span><h2 id="5">5. 工具描述怎么写才好？</h2>
+<p>工具描述不是给人看的 API 文档，而是给模型做选择和填参的决策依据。</p>
+<p>好工具描述应该：</p>
+<ul>
+<li>单一职责。</li>
+<li>说明何时使用。</li>
+<li>说明何时不要使用。</li>
+<li>参数含义清晰。</li>
+<li>枚举值具体。</li>
+<li>返回结果可解释。</li>
+</ul>
+<pre class="mermaid">mindmap
+  root((好工具描述))
+    单一职责
+    输入清晰
+    输出稳定
+    边界明确
+    错误可处理
+    权限可审计
+</pre>
+<span class="heading-anchor" id="示例"></span><h3 id="_5">示例</h3>
+<p>不佳：</p>
+<pre><code class="language-text">search: 搜索东西
+</code></pre>
+<p>较好：</p>
+<pre><code class="language-text">search_documents: 在公司知识库中搜索与用户问题相关的文档片段。只用于需要外部资料的问题，不用于数学计算或创建订单。
+</code></pre>
+<span class="heading-anchor" id="6. 工具结果如何回传模型？"></span><h2 id="6">6. 工具结果如何回传模型？</h2>
+<p>工具返回给模型的结果应该：</p>
+<ul>
+<li>简洁。</li>
+<li>结构化。</li>
+<li>包含必要状态。</li>
+<li>不暴露敏感内部字段。</li>
+<li>明确错误原因。</li>
+</ul>
+<pre><code class="language-json">{
+  "status": "ok",
+  "order_id": "A123",
+  "shipping_status": "运输中",
+  "last_update": "2026-05-03 10:30"
+}
+</code></pre>
+<p>失败时：</p>
+<pre><code class="language-json">{
+  "status": "error",
+  "error_code": "ORDER_NOT_FOUND",
+  "message": "未找到该订单"
+}
+</code></pre>
+<span class="heading-anchor" id="7. 工具调用失败如何处理？"></span><h2 id="7">7. 工具调用失败如何处理？</h2>
+<pre class="mermaid">flowchart TD
+  A["工具调用"] --&gt; B{Schema是否通过}
+  B -- 否 --&gt; C["让模型修正参数或系统修复"]
+  B -- 是 --&gt; D["执行工具"]
+  D --&gt; E{是否成功}
+  E -- 是 --&gt; F["返回结果"]
+  E -- 否 --&gt; G{是否可重试}
+  G -- 是 --&gt; H["指数退避重试"]
+  G -- 否 --&gt; I["返回可解释错误"]
+</pre>
+<p>常见失败：</p>
+<ul>
+<li>参数缺失。</li>
+<li>参数类型错误。</li>
+<li>权限不足。</li>
+<li>外部 API 超时。</li>
+<li>工具返回空结果。</li>
+<li>工具执行产生副作用但模型误以为失败。</li>
+</ul>
+<span class="heading-anchor" id="8. 工具的幂等性"></span><h2 id="8">8. 工具的幂等性</h2>
+<p>对有副作用的工具，必须考虑幂等性。</p>
+<p>例如创建订单、发送邮件、转账、删除文件，都不能因为重试而重复执行。</p>
+<p>措施：</p>
+<ul>
+<li>使用 idempotency key。</li>
+<li>执行前确认。</li>
+<li>执行后记录 action id。</li>
+<li>重试前查询状态。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["请求执行"] --&gt; B["生成幂等ID"]
+  B --&gt; C{是否已执行}
+  C -- 是 --&gt; D["返回已有结果"]
+  C -- 否 --&gt; E["执行动作"]
+  E --&gt; F["记录结果"]
+</pre>
+<span class="heading-anchor" id="9. 工具权限和审批"></span><h2 id="9">9. 工具权限和审批</h2>
+<p>工具可以分级：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>级别</th>
+<th>示例</th>
+<th>策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只读</td>
+<td>搜索文档、查询天气</td>
+<td>可自动执行</td>
+</tr>
+<tr>
+<td>低风险写入</td>
+<td>创建草稿、生成文件</td>
+<td>可执行但记录日志</td>
+</tr>
+<tr>
+<td>高风险写入</td>
+<td>发邮件、改数据库</td>
+<td>人类审批</td>
+</tr>
+<tr>
+<td>危险操作</td>
+<td>删除、付款、外部发布</td>
+<td>强审批或禁止</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["工具调用"] --&gt; B{风险级别}
+  B -- 只读 --&gt; C["自动执行"]
+  B -- 低风险 --&gt; D["执行并记录"]
+  B -- 高风险 --&gt; E["请求人类审批"]
+  B -- 危险 --&gt; F["拒绝或强审批"]
+</pre>
+<span class="heading-anchor" id="10. Toolformer 的启发"></span><h2 id="10-toolformer">10. Toolformer 的启发</h2>
+<p>Toolformer 论文提出，模型可以学习何时调用 API、传什么参数、如何利用返回结果。这给 Agent 开发的启发是：工具调用不是外挂按钮，而是模型行为的一部分，需要数据、反馈和评估来优化。</p>
+<p>你在工程中要关注：</p>
+<ul>
+<li>工具是否被正确选择。</li>
+<li>参数是否正确。</li>
+<li>工具结果是否被正确使用。</li>
+<li>不该调用时是否避免调用。</li>
+</ul>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>JSON mode 和 Structured Output 有什么区别？</li>
+<li>为什么工具参数不能只靠 prompt 约束？</li>
+<li>工具 description 应该包含哪些信息？</li>
+<li>只读工具和写工具的安全策略有什么不同？</li>
+<li>为什么发送邮件工具需要幂等性和审批？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_6">参考</h2>
+<ul>
+<li>OpenAI Function Calling Help: https://help.openai.com/en/articles/8555517-function-calling-in-the-openai-api</li>
+<li>OpenAI Structured Outputs: https://platform.openai.com/docs/guides/structured-outputs</li>
+<li>OpenAI Structured Outputs Announcement: https://openai.com/index/introducing-structured-outputs-in-the-api/</li>
+<li>Toolformer: https://arxiv.org/abs/2302.04761</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

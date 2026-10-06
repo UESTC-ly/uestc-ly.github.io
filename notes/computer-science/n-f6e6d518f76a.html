@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01. MySQL 基础与体系结构 · 李杨的学习笔记</title><meta name="description" content="本章建立 MySQL 的长期复习框架。读完后应能回答："><meta property="og:title" content="01. MySQL 基础与体系结构 · 李杨的学习笔记"><meta property="og:description" content="本章建立 MySQL 的长期复习框架。读完后应能回答："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f6e6d518f76a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f6e6d518f76a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / MySQL</p><h1>01. MySQL 基础与体系结构</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/MySQL/01-MySQL%E5%9F%BA%E7%A1%80%E4%B8%8E%E4%BD%93%E7%B3%BB%E7%BB%93%E6%9E%84.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总览</a></li><li><a href="#mysql">MySQL 概览</a></li><li><a href="#mysql-8x-9x">版本路线：MySQL 8.x 与 9.x</a></li><li><a href="#_3">稳健理解</a></li><li><a href="#_4">版本选择清单</a></li><li><a href="#_5">安装与连接</a></li><li><a href="#_6">安装方式</a></li><li><a href="#_7">启动与确认客户端</a></li><li><a href="#_8">连接模板</a></li><li><a href="#_9">客户端/服务器模型</a></li><li><a href="#_10">角色划分</a></li><li><a href="#sql">一条 SQL 的典型路径</a></li><li><a href="#_11">逻辑架构</a></li><li><a href="#_12">连接层</a></li><li><a href="#sql_1">SQL 层</a></li><li><a href="#_13">存储引擎层</a></li><li><a href="#_14">文件与日志层</a></li><li><a href="#_15">存储引擎</a></li><li><a href="#innodb">InnoDB 基础</a></li><li><a href="#innodb_1">InnoDB 解决的问题</a></li><li><a href="#_16">聚簇索引</a></li><li><a href="#buffer-pool">Buffer Pool</a></li><li><a href="#redo-undo">Redo 与 Undo</a></li><li><a href="#mvcc">MVCC 与锁</a></li><li><a href="#_17">系统库</a></li><li><a href="#_18">配置文件</a></li><li><a href="#_19">常见配置文件位置</a></li><li><a href="#_20">配置文件结构</a></li><li><a href="#_21">配置排错原则</a></li><li><a href="#_22">字符集与排序规则</a></li><li><a href="#_23">推荐默认值</a></li><li><a href="#_24">排序规则后缀</a></li><li><a href="#_25">工程注意事项</a></li><li><a href="#_26">账号与权限入门</a></li><li><a href="#_27">最小权限示例</a></li><li><a href="#_28">权限原则</a></li><li><a href="#_29">常用工具</a></li><li><a href="#_30">学习路线</a></li><li><a href="#_31">第一阶段：基础使用</a></li><li><a href="#_32">第二阶段：查询与索引</a></li><li><a href="#_33">第三阶段：事务与并发</a></li><li><a href="#_34">第四阶段：日志、备份与恢复</a></li><li><a href="#_35">第五阶段：复制、高可用与运维</a></li><li><a href="#_36">快速复习清单</a></li><li><a href="#_37">本章练习</a></li><li><a href="#_38">验证记录</a></li><li><a href="#_39">参考资料</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章建立 MySQL 的长期复习框架。读完后应能回答：</p>
+<ul>
+<li>MySQL 是什么，适合解决哪些问题。</li>
+<li>MySQL 8.x/9.x 的版本线应如何稳健理解。</li>
+<li>如何安装、启动、连接 MySQL，并识别客户端与服务器的边界。</li>
+<li>MySQL 的逻辑架构如何从 SQL 请求走到存储引擎。</li>
+<li>InnoDB 为什么是现代 MySQL 的核心。</li>
+<li>系统库、配置文件、字符集、权限和常用工具分别负责什么。</li>
+<li>后续应按什么路线学习 <a href="n-b095ed427c3c.html">02-SQL语言与数据建模</a>、<a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>、<a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>、<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</li>
+</ul>
+<span class="heading-anchor" id="一句话总览"></span><h2 id="_2">一句话总览</h2>
+<p>MySQL 是一个关系型数据库管理系统。应用程序通过客户端协议把 SQL 发送给 MySQL Server，Server 负责连接、解析、优化、执行，再通过存储引擎读写数据文件和日志文件。</p>
+<pre><code class="language-text">应用程序 / 命令行客户端
+        │
+        │ MySQL Protocol（TCP/IP 或 Unix Socket）
+        ▼
+MySQL Server
+  ├─ 连接与权限
+  ├─ SQL 解析
+  ├─ 优化器
+  ├─ 执行器
+  └─ 存储引擎 API
+        │
+        ▼
+InnoDB / 其他存储引擎
+  ├─ 数据页与索引页
+  ├─ Buffer Pool
+  ├─ Redo Log
+  ├─ Undo Log
+  └─ 表空间文件
+</code></pre>
+<p>复习时先分清三层：</p>
+<ol>
+<li><strong>SQL 层</strong>：你写的 SQL、权限、优化器、执行计划。</li>
+<li><strong>存储引擎层</strong>：InnoDB 如何组织数据、索引、事务、锁和日志。</li>
+<li><strong>运维层</strong>：配置、账号、备份、复制、监控、升级。</li>
+</ol>
+<span class="heading-anchor" id="MySQL 概览"></span><h2 id="mysql">MySQL 概览</h2>
+<p>MySQL 的核心特点：</p>
+<ul>
+<li><strong>关系模型</strong>：用库、表、行、列、约束组织数据。</li>
+<li><strong>SQL 接口</strong>：用 <code>SELECT</code>、<code>INSERT</code>、<code>UPDATE</code>、<code>DELETE</code>、DDL、DCL 管理数据。</li>
+<li><strong>客户端/服务器架构</strong>：服务器进程长期运行，客户端按连接发送请求。</li>
+<li><strong>插件式存储引擎</strong>：同一个 MySQL Server 可以支持不同存储引擎；业务表通常使用 InnoDB。</li>
+<li><strong>事务能力</strong>：InnoDB 支持 ACID、MVCC、行级锁和崩溃恢复。</li>
+<li><strong>生态成熟</strong>：有复制、备份、连接器、监控、迁移和管理工具。</li>
+</ul>
+<p>适合 MySQL 的场景：</p>
+<ul>
+<li>Web 应用、订单、用户、支付、内容管理等 OLTP 业务。</li>
+<li>读多写少或中高并发的结构化数据服务。</li>
+<li>需要事务、索引、约束、备份恢复和复制的系统。</li>
+</ul>
+<p>不应只靠 MySQL 解决的场景：</p>
+<ul>
+<li>大规模全文检索：通常接入搜索引擎。</li>
+<li>超大规模离线分析：通常接入数仓或湖仓系统。</li>
+<li>极高写入吞吐的时序/日志场景：可能需要专用时序库、日志系统或分区架构。</li>
+</ul>
+<span class="heading-anchor" id="版本路线：MySQL 8.x 与 9.x"></span><h2 id="mysql-8x-9x">版本路线：MySQL 8.x 与 9.x</h2>
+<p>版本选择要看 <strong>官方支持周期、发布类型、业务稳定性和客户端兼容性</strong>，不要只看数字大小。以下表述截至 2026-06；生产升级前必须重新核对官方发布页面。</p>
+<span class="heading-anchor" id="稳健理解"></span><h3 id="_3">稳健理解</h3>
+<ul>
+<li><strong>MySQL 8.0</strong>：曾是很长时间的主流 8.x 版本，包含窗口函数、CTE、JSON 增强、默认 <code>utf8mb4</code>、数据字典等重要能力。新项目不应只因为“熟悉”就停留在旧小版本。</li>
+<li><strong>MySQL 8.4 LTS</strong>：8.x 长期支持线，适合需要稳定生命周期、保守升级节奏的生产系统。</li>
+<li><strong>MySQL 9.x</strong>：9.x 不是一个单一含义。早期 9.x 小版本属于更快迭代的创新发布线；后续 9.x 中也会出现 LTS 发布。生产选型时应看具体小版本的 release model，而不是把“9.x”简单等同于实验版或必然最新版。</li>
+<li><strong>升级策略</strong>：生产环境优先选择仍在支持期内的 LTS；需要新特性时，再评估创新发布线或新 LTS 的兼容性、驱动支持和回滚方案。</li>
+</ul>
+<span class="heading-anchor" id="版本选择清单"></span><h3 id="_4">版本选择清单</h3>
+<ul>
+<li>[ ] 目标版本是否仍在官方支持期内。</li>
+<li>[ ] 连接器、ORM、中间件是否支持目标版本。</li>
+<li>[ ] 认证插件、字符集、保留字、SQL 行为是否有不兼容变化。</li>
+<li>[ ] 备份恢复、复制、监控、审计工具是否兼容。</li>
+<li>[ ] 是否有完整的预生产升级演练和回滚方案。</li>
+</ul>
+<p>参考：<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>、<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="安装与连接"></span><h2 id="_5">安装与连接</h2>
+<span class="heading-anchor" id="安装方式"></span><h3 id="_6">安装方式</h3>
+<p>常见安装方式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>环境</th>
+<th>常见方式</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>macOS</td>
+<td>官方 DMG、Homebrew、Docker</td>
+<td>本地学习、开发环境</td>
+</tr>
+<tr>
+<td>Linux</td>
+<td>官方 Yum/APT 仓库、通用二进制包、Docker</td>
+<td>测试与生产环境</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>MySQL Installer、ZIP 包、Docker Desktop</td>
+<td>本地学习、开发环境</td>
+</tr>
+<tr>
+<td>云环境</td>
+<td>云厂商 RDS / Cloud SQL / HeatWave</td>
+<td>生产托管服务</td>
+</tr>
+</tbody>
+</table></div>
+<p>生产环境优先使用：</p>
+<ol>
+<li>官方仓库或云厂商托管服务。</li>
+<li>明确版本号，不使用不可控的“latest”。</li>
+<li>单独的数据目录、日志目录、备份目录。</li>
+<li>可重复执行的安装脚本或基础设施配置。</li>
+</ol>
+<span class="heading-anchor" id="启动与确认客户端"></span><h3 id="_7">启动与确认客户端</h3>
+<p>本机已验证以下命令可执行：</p>
+<pre><code class="language-bash">mysql --version
+</code></pre>
+<p>示例输出：</p>
+<pre><code class="language-text">mysql  Ver 9.7.0 for macos15 on arm64 (MySQL Community Server - GPL)
+</code></pre>
+<p>查看服务端可用的默认参数时，可先不用连接数据库：</p>
+<pre><code class="language-bash">mysqld --verbose --help | grep -E '^(character-set-server|collation-server|default-storage-engine)'
+</code></pre>
+<p>本机验证输出：</p>
+<pre><code class="language-text">character-set-server                                         utf8mb4
+collation-server                                             utf8mb4_0900_ai_ci
+default-storage-engine                                       InnoDB
+</code></pre>
+<span class="heading-anchor" id="连接模板"></span><h3 id="_8">连接模板</h3>
+<p>以下连接命令是模板，需要替换为真实主机、端口、账号和密码。本笔记未保存任何数据库密码；因此只验证了客户端命令存在，没有验证这些模板能登录你的实例。</p>
+<pre><code class="language-bash">mysql -h 127.0.0.1 -P 3306 -u app_user -p
+</code></pre>
+<p>使用 Unix Socket 连接本机服务：</p>
+<pre><code class="language-bash">mysql --protocol=SOCKET -u root -p
+</code></pre>
+<p>执行单条 SQL：</p>
+<pre><code class="language-bash">mysql -h 127.0.0.1 -P 3306 -u app_user -p -e "SELECT VERSION();"
+</code></pre>
+<p>连接排错顺序：</p>
+<ol>
+<li>MySQL Server 是否启动。</li>
+<li>主机与端口是否正确，默认端口通常是 <code>3306</code>。</li>
+<li>本机连接使用 TCP 还是 Socket。</li>
+<li>账号名和来源主机是否匹配，例如 <code>'app_user'@'%'</code> 与 <code>'app_user'@'localhost'</code> 是不同账号。</li>
+<li>防火墙、安全组、容器端口映射是否放通。</li>
+<li>认证插件与客户端版本是否兼容。</li>
+</ol>
+<span class="heading-anchor" id="客户端/服务器模型"></span><h2 id="_9">客户端/服务器模型</h2>
+<p>MySQL 不是“打开一个文件就读写数据”的程序，而是长期运行的服务器进程。客户端只是入口。</p>
+<span class="heading-anchor" id="角色划分"></span><h3 id="_10">角色划分</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>角色</th>
+<th>例子</th>
+<th>责任</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>客户端程序</td>
+<td><code>mysql</code>、应用程序、GUI 工具、连接器</td>
+<td>建立连接，发送 SQL，接收结果</td>
+</tr>
+<tr>
+<td>MySQL Server</td>
+<td><code>mysqld</code></td>
+<td>认证、权限、解析、优化、执行、调用存储引擎</td>
+</tr>
+<tr>
+<td>存储引擎</td>
+<td>InnoDB、MEMORY 等</td>
+<td>管理数据页、索引、锁、事务、日志</td>
+</tr>
+<tr>
+<td>数据文件</td>
+<td>表空间、日志、配置、临时文件</td>
+<td>持久化数据和运行状态</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="一条 SQL 的典型路径"></span><h3 id="sql">一条 SQL 的典型路径</h3>
+<ol>
+<li>客户端发起连接。</li>
+<li>Server 完成认证，检查账号来源和权限。</li>
+<li>客户端发送 SQL 文本。</li>
+<li>Server 解析 SQL，生成语法树。</li>
+<li>预处理阶段检查表、列、函数、权限等对象。</li>
+<li>优化器选择访问路径和连接顺序。</li>
+<li>执行器按计划调用存储引擎接口。</li>
+<li>存储引擎读取或修改数据页、索引页和日志。</li>
+<li>Server 返回结果集、影响行数或错误码。</li>
+</ol>
+<p>后续优化学习的重点是第 6 步到第 8 步，见 <a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>。</p>
+<span class="heading-anchor" id="逻辑架构"></span><h2 id="_11">逻辑架构</h2>
+<p>可以把 MySQL Server 分成四层理解。</p>
+<span class="heading-anchor" id="连接层"></span><h3 id="_12">连接层</h3>
+<p>连接层负责：</p>
+<ul>
+<li>网络连接或 Socket 连接。</li>
+<li>TLS/SSL 安全连接。</li>
+<li>用户认证。</li>
+<li>连接线程、连接状态、会话变量。</li>
+<li>初步权限检查。</li>
+</ul>
+<p>常见问题：</p>
+<ul>
+<li>连接数耗尽。</li>
+<li>慢连接或认证失败。</li>
+<li>连接池配置过大，把数据库压垮。</li>
+<li>应用端没有及时释放连接。</li>
+</ul>
+<span class="heading-anchor" id="SQL 层"></span><h3 id="sql_1">SQL 层</h3>
+<p>SQL 层负责：</p>
+<ul>
+<li>解析 SQL。</li>
+<li>校验对象和权限。</li>
+<li>查询重写。</li>
+<li>优化器生成执行计划。</li>
+<li>执行器处理结果集、排序、聚合、临时表。</li>
+</ul>
+<p>这里是 <code>EXPLAIN</code>、慢查询日志和优化器分析的主要关注区域。</p>
+<span class="heading-anchor" id="存储引擎层"></span><h3 id="_13">存储引擎层</h3>
+<p>存储引擎层通过统一接口向 SQL 层提供能力。InnoDB 负责现代业务表最重要的能力：</p>
+<ul>
+<li>聚簇索引组织表数据。</li>
+<li>二级索引。</li>
+<li>行级锁。</li>
+<li>MVCC。</li>
+<li>Redo/Undo 日志。</li>
+<li>崩溃恢复。</li>
+</ul>
+<span class="heading-anchor" id="文件与日志层"></span><h3 id="_14">文件与日志层</h3>
+<p>重要文件类型：</p>
+<ul>
+<li>表空间文件：保存表和索引数据。</li>
+<li>Redo Log：保证崩溃恢复。</li>
+<li>Undo Log：支持回滚和 MVCC。</li>
+<li>Binary Log：支持复制、恢复和 CDC。</li>
+<li>Error Log：记录启动、停止、崩溃和错误信息。</li>
+<li>Slow Query Log：记录慢 SQL。</li>
+<li>配置文件：保存启动参数和客户端参数。</li>
+</ul>
+<p>日志深入见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="存储引擎"></span><h2 id="_15">存储引擎</h2>
+<p>MySQL 的存储引擎决定表如何存储、是否支持事务、锁粒度和适用场景。</p>
+<p>查看存储引擎：</p>
+<pre><code class="language-sql">SHOW ENGINES;
+</code></pre>
+<p>查看表使用的引擎：</p>
+<pre><code class="language-sql">SHOW TABLE STATUS LIKE 'users';
+</code></pre>
+<p>建表时显式指定 InnoDB：</p>
+<pre><code class="language-sql">CREATE TABLE users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+</code></pre>
+<p>常见引擎对比：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>引擎</th>
+<th>是否常用于业务表</th>
+<th>关键特点</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>InnoDB</td>
+<td>是</td>
+<td>事务、行级锁、MVCC、崩溃恢复、外键</td>
+<td>现代 MySQL 默认与首选引擎</td>
+</tr>
+<tr>
+<td>MEMORY</td>
+<td>少量场景</td>
+<td>数据在内存中，重启丢失</td>
+<td>适合临时或缓存类数据，不替代 Redis</td>
+</tr>
+<tr>
+<td>CSV</td>
+<td>很少</td>
+<td>用 CSV 文件存储</td>
+<td>适合导入导出或特殊调试</td>
+</tr>
+<tr>
+<td>ARCHIVE</td>
+<td>很少</td>
+<td>压缩归档</td>
+<td>只适合特定归档场景</td>
+</tr>
+<tr>
+<td>MyISAM</td>
+<td>不建议新业务使用</td>
+<td>非事务、表级锁</td>
+<td>老系统可能仍存在，迁移需谨慎</td>
+</tr>
+<tr>
+<td>NDB</td>
+<td>特定场景</td>
+<td>集群存储引擎</td>
+<td>架构和运维模型不同于普通 InnoDB</td>
+</tr>
+</tbody>
+</table></div>
+<p>工程建议：</p>
+<ul>
+<li>新业务表默认使用 InnoDB。</li>
+<li>不要为了“读快”轻易选择 MyISAM；事务、安全恢复和锁粒度通常更重要。</li>
+<li>如果发现老表不是 InnoDB，先评估外键、全文索引、锁、停机窗口和数据校验，再迁移。</li>
+</ul>
+<span class="heading-anchor" id="InnoDB 基础"></span><h2 id="innodb">InnoDB 基础</h2>
+<p>InnoDB 是学习 MySQL 的核心，因为大多数生产表都依赖它。</p>
+<span class="heading-anchor" id="InnoDB 解决的问题"></span><h3 id="innodb_1">InnoDB 解决的问题</h3>
+<ul>
+<li><strong>事务</strong>：一组 SQL 要么全部成功，要么全部回滚。</li>
+<li><strong>并发</strong>：多个会话同时读写时保持一致性。</li>
+<li><strong>崩溃恢复</strong>：进程或机器异常后尽量恢复到一致状态。</li>
+<li><strong>索引组织</strong>：按主键组织数据，二级索引指向主键。</li>
+</ul>
+<span class="heading-anchor" id="聚簇索引"></span><h3 id="_16">聚簇索引</h3>
+<p>InnoDB 表数据按主键聚簇存储。主键不是单纯的约束，它决定数据行的物理组织方式。</p>
+<p>主键选择建议：</p>
+<ul>
+<li>短：减少二级索引体积。</li>
+<li>稳定：不要更新主键。</li>
+<li>尽量递增：减少页分裂，改善写入局部性。</li>
+<li>明确：每张业务表都应有主键。</li>
+</ul>
+<p>常见选择：</p>
+<pre><code class="language-sql">id BIGINT PRIMARY KEY AUTO_INCREMENT
+</code></pre>
+<p>随机 UUID 作为主键会影响插入局部性。若必须使用全局唯一 ID，可评估有序 UUID、ULID、雪花 ID 或业务无关的自增代理键。</p>
+<span class="heading-anchor" id="Buffer Pool"></span><h3 id="buffer-pool">Buffer Pool</h3>
+<p>Buffer Pool 是 InnoDB 的内存缓存，保存热数据页和索引页。</p>
+<p>复习重点：</p>
+<ul>
+<li>读查询命中 Buffer Pool 时不一定需要读磁盘。</li>
+<li>写入通常先修改内存页，再通过日志和刷脏机制落盘。</li>
+<li>Buffer Pool 太小会放大磁盘 I/O。</li>
+</ul>
+<span class="heading-anchor" id="Redo 与 Undo"></span><h3 id="redo-undo">Redo 与 Undo</h3>
+<ul>
+<li><strong>Redo Log</strong>：记录物理层面的变更，用于崩溃恢复。</li>
+<li><strong>Undo Log</strong>：保存旧版本，用于事务回滚和 MVCC 一致性读。</li>
+</ul>
+<p>口诀：</p>
+<ul>
+<li>Redo 负责“已经提交的修改不能丢”。</li>
+<li>Undo 负责“未提交的修改可以回滚，旧版本可以被读到”。</li>
+</ul>
+<span class="heading-anchor" id="MVCC 与锁"></span><h3 id="mvcc">MVCC 与锁</h3>
+<p>InnoDB 通过 MVCC 支持一致性读，通过行锁和间隙锁等机制控制并发写入。</p>
+<p>入门阶段先记住：</p>
+<ul>
+<li>普通 <code>SELECT</code> 多数情况下是快照读。</li>
+<li><code>UPDATE</code>、<code>DELETE</code>、<code>SELECT ... FOR UPDATE</code> 会涉及锁。</li>
+<li>行锁依赖索引；条件不命中索引时，锁范围可能扩大。</li>
+<li>长事务会拖累 Undo 清理和并发性能。</li>
+</ul>
+<p>深入见 <a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>。</p>
+<span class="heading-anchor" id="系统库"></span><h2 id="_17">系统库</h2>
+<p>MySQL 自带几个重要系统库。不要把它们当成普通业务库随意修改。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>系统库</th>
+<th>作用</th>
+<th>常见用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mysql</code></td>
+<td>保存账号、权限、时区、系统对象等元数据</td>
+<td>用户和权限管理、系统配置</td>
+</tr>
+<tr>
+<td><code>information_schema</code></td>
+<td>标准化元数据视图</td>
+<td>查看库、表、列、索引、约束</td>
+</tr>
+<tr>
+<td><code>performance_schema</code></td>
+<td>性能事件与等待信息</td>
+<td>分析连接、锁、I/O、语句性能</td>
+</tr>
+<tr>
+<td><code>sys</code></td>
+<td>基于 <code>performance_schema</code> 的易读视图</td>
+<td>快速定位慢 SQL、热点表、等待事件</td>
+</tr>
+</tbody>
+</table></div>
+<p>常用查询：</p>
+<pre><code class="language-sql">SELECT table_schema, table_name, engine
+FROM information_schema.tables
+WHERE table_schema = 'app';
+</code></pre>
+<pre><code class="language-sql">SELECT user, host
+FROM mysql.user;
+</code></pre>
+<p>权限注意：不同账号看到的系统库内容可能不同；生产排查时应使用只读诊断账号或受控 DBA 账号。</p>
+<span class="heading-anchor" id="配置文件"></span><h2 id="_18">配置文件</h2>
+<p>MySQL 可以从命令行参数、配置文件和持久化系统变量读取配置。生产环境应把关键配置纳入版本管理或基础设施管理。</p>
+<span class="heading-anchor" id="常见配置文件位置"></span><h3 id="_19">常见配置文件位置</h3>
+<p>不同平台不同，常见位置包括：</p>
+<ul>
+<li>Linux：<code>/etc/my.cnf</code>、<code>/etc/mysql/my.cnf</code>、<code>/etc/mysql/mysql.conf.d/</code>。</li>
+<li>macOS：<code>/etc/my.cnf</code>、<code>/usr/local/mysql/my.cnf</code>、Homebrew 安装目录下的配置路径。</li>
+<li>Windows：<code>my.ini</code>。</li>
+<li>Docker：通常通过挂载配置文件或环境变量注入。</li>
+</ul>
+<span class="heading-anchor" id="配置文件结构"></span><h3 id="_20">配置文件结构</h3>
+<p>典型结构：</p>
+<pre><code class="language-ini">[client]
+default-character-set=utf8mb4
+
+[mysqld]
+port=3306
+bind-address=127.0.0.1
+character-set-server=utf8mb4
+collation-server=utf8mb4_0900_ai_ci
+default-storage-engine=InnoDB
+</code></pre>
+<p>分组含义：</p>
+<ul>
+<li><code>[client]</code>：客户端程序读取，例如 <code>mysql</code>、<code>mysqldump</code>。</li>
+<li><code>[mysqld]</code>：服务器进程读取。</li>
+<li><code>[mysql]</code>：<code>mysql</code> 命令行客户端专用。</li>
+<li><code>[mysqldump]</code>：<code>mysqldump</code> 专用。</li>
+</ul>
+<span class="heading-anchor" id="配置排错原则"></span><h3 id="_21">配置排错原则</h3>
+<ol>
+<li>区分启动参数、全局变量、会话变量。</li>
+<li>修改配置文件后通常需要重启服务才能生效。</li>
+<li><code>SET GLOBAL</code> 只影响运行中实例，不一定持久化。</li>
+<li><code>SET PERSIST</code> 可持久化部分系统变量，但仍要纳入配置审计。</li>
+<li>不要在不知道影响面的情况下复制“性能优化模板”。</li>
+</ol>
+<p>查看变量：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'character_set_server';
+SHOW VARIABLES LIKE 'collation_server';
+SHOW VARIABLES LIKE 'default_storage_engine';
+</code></pre>
+<span class="heading-anchor" id="字符集与排序规则"></span><h2 id="_22">字符集与排序规则</h2>
+<p>字符集决定能存哪些字符，排序规则决定如何比较和排序字符。</p>
+<span class="heading-anchor" id="推荐默认值"></span><h3 id="_23">推荐默认值</h3>
+<p>新项目通常使用：</p>
+<pre><code class="language-sql">CREATE DATABASE app
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_0900_ai_ci;
+</code></pre>
+<p>原因：</p>
+<ul>
+<li><code>utf8mb4</code> 支持完整 Unicode，包括 emoji 和较多扩展字符。</li>
+<li>老的 <code>utf8</code> 在 MySQL 语境中容易与 <code>utf8mb3</code> 混淆，不应作为新项目默认选择。</li>
+<li><code>utf8mb4_0900_ai_ci</code> 是 MySQL 8.0 以来常见默认排序规则，基于 Unicode 9.0，大小写不敏感、重音不敏感。</li>
+</ul>
+<span class="heading-anchor" id="排序规则后缀"></span><h3 id="_24">排序规则后缀</h3>
+<p>常见后缀：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>后缀</th>
+<th>含义</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_ci</code></td>
+<td>case-insensitive</td>
+<td>大小写不敏感</td>
+</tr>
+<tr>
+<td><code>_cs</code></td>
+<td>case-sensitive</td>
+<td>大小写敏感</td>
+</tr>
+<tr>
+<td><code>_ai</code></td>
+<td>accent-insensitive</td>
+<td>重音不敏感</td>
+</tr>
+<tr>
+<td><code>_as</code></td>
+<td>accent-sensitive</td>
+<td>重音敏感</td>
+</tr>
+<tr>
+<td><code>_bin</code></td>
+<td>binary</td>
+<td>按字节比较</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程注意事项"></span><h3 id="_25">工程注意事项</h3>
+<ul>
+<li>唯一索引会受排序规则影响。</li>
+<li>登录名、邮箱、标签等字段要明确是否大小写敏感。</li>
+<li>跨库 join 或比较时，字符集/排序规则不一致可能导致隐式转换或报错。</li>
+<li>迁移老库时，要先评估字符集转换对索引长度、唯一性和应用展示的影响。</li>
+</ul>
+<p>深入见 <a href="n-b095ed427c3c.html">02-SQL语言与数据建模</a>。</p>
+<span class="heading-anchor" id="账号与权限入门"></span><h2 id="_26">账号与权限入门</h2>
+<p>MySQL 账号由 <strong>用户名 + 来源主机</strong> 共同决定。</p>
+<pre><code class="language-text">'app_user'@'127.0.0.1'
+'app_user'@'%'
+'app_user'@'localhost'
+</code></pre>
+<p>它们是不同账号。<code>localhost</code> 还可能走 Unix Socket，不一定等同于 <code>127.0.0.1</code>。</p>
+<span class="heading-anchor" id="最小权限示例"></span><h3 id="_27">最小权限示例</h3>
+<p>以下 SQL 是权限配置模板，需要在有权限的管理账号下执行，并替换密码和库名：</p>
+<pre><code class="language-sql">CREATE USER 'app_user'@'%' IDENTIFIED BY 'change-me-strong-password';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON app.*
+TO 'app_user'@'%';
+
+SHOW GRANTS FOR 'app_user'@'%';
+</code></pre>
+<p>只读账号：</p>
+<pre><code class="language-sql">CREATE USER 'app_readonly'@'%' IDENTIFIED BY 'change-me-strong-password';
+
+GRANT SELECT
+ON app.*
+TO 'app_readonly'@'%';
+</code></pre>
+<p>撤销权限：</p>
+<pre><code class="language-sql">REVOKE DELETE
+ON app.*
+FROM 'app_user'@'%';
+</code></pre>
+<span class="heading-anchor" id="权限原则"></span><h3 id="_28">权限原则</h3>
+<ul>
+<li>应用账号不要使用 <code>root</code>。</li>
+<li>生产账号按职责拆分：应用写账号、只读账号、迁移账号、备份账号、运维诊断账号。</li>
+<li>不要长期使用 <code>'user'@'%'</code> 暴露全网访问；应配合网络边界、TLS 和来源限制。</li>
+<li>不要把密码写入脚本、笔记或仓库；优先使用密钥管理、环境变量或 <code>mysql_config_editor</code>。</li>
+<li>升级前检查认证插件兼容性。现代 MySQL 默认倾向 <code>caching_sha2_password</code>，老客户端可能不兼容。</li>
+</ul>
+<p>深入见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="常用工具"></span><h2 id="_29">常用工具</h2>
+<p>本机验证存在的常用命令：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>作用</th>
+<th>本机验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mysql</code></td>
+<td>命令行客户端</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqladmin</code></td>
+<td>管理与状态检查</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqldump</code></td>
+<td>逻辑备份导出</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysql_config_editor</code></td>
+<td>保存加密登录路径</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqlcheck</code></td>
+<td>检查、修复、分析表</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqlshow</code></td>
+<td>快速查看库表</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqlimport</code></td>
+<td>导入文本数据</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>perror</code></td>
+<td>查询错误码含义</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqlrouter</code></td>
+<td>InnoDB Cluster/Router 相关路由</td>
+<td>已验证存在</td>
+</tr>
+<tr>
+<td><code>mysqlsh</code></td>
+<td>MySQL Shell，支持 AdminAPI 和脚本化管理</td>
+<td>本机未安装</td>
+</tr>
+</tbody>
+</table></div>
+<p>常用命令模板：</p>
+<pre><code class="language-bash">mysqladmin -h 127.0.0.1 -P 3306 -u app_user -p ping
+</code></pre>
+<pre><code class="language-bash">mysqldump -h 127.0.0.1 -P 3306 -u backup_user -p --single-transaction app &gt; app.sql
+</code></pre>
+<pre><code class="language-bash">perror 1045
+</code></pre>
+<p>备份提醒：<code>mysqldump</code> 是逻辑备份工具；大库生产备份通常还要评估物理备份、binlog、恢复时间目标和恢复演练。见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="学习路线"></span><h2 id="_30">学习路线</h2>
+<p>建议按“能用 → 能解释 → 能排错 → 能设计”的顺序学习。</p>
+<span class="heading-anchor" id="第一阶段：基础使用"></span><h3 id="_31">第一阶段：基础使用</h3>
+<ul>
+<li>安装 MySQL，熟悉 <code>mysql</code> 客户端。</li>
+<li>掌握库、表、列、主键、唯一约束、外键。</li>
+<li>掌握基础 DDL 和 DML。</li>
+<li>理解字符集、排序规则和时间类型。</li>
+</ul>
+<p>对应笔记：<a href="n-b095ed427c3c.html">02-SQL语言与数据建模</a>。</p>
+<span class="heading-anchor" id="第二阶段：查询与索引"></span><h3 id="_32">第二阶段：查询与索引</h3>
+<ul>
+<li>学会读 <code>EXPLAIN</code>。</li>
+<li>理解 B+Tree、聚簇索引、二级索引、覆盖索引。</li>
+<li>设计组合索引。</li>
+<li>识别全表扫描、filesort、临时表。</li>
+</ul>
+<p>对应笔记：<a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>。</p>
+<span class="heading-anchor" id="第三阶段：事务与并发"></span><h3 id="_33">第三阶段：事务与并发</h3>
+<ul>
+<li>理解 ACID、隔离级别、MVCC。</li>
+<li>区分快照读和当前读。</li>
+<li>理解行锁、间隙锁、next-key lock。</li>
+<li>学会处理死锁和长事务。</li>
+</ul>
+<p>对应笔记：<a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>。</p>
+<span class="heading-anchor" id="第四阶段：日志、备份与恢复"></span><h3 id="_34">第四阶段：日志、备份与恢复</h3>
+<ul>
+<li>理解 redo、undo、binlog、relay log。</li>
+<li>掌握逻辑备份和物理备份的差异。</li>
+<li>做恢复演练，而不是只做备份。</li>
+<li>理解时间点恢复和 binlog 保留策略。</li>
+</ul>
+<p>对应笔记：<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="第五阶段：复制、高可用与运维"></span><h3 id="_35">第五阶段：复制、高可用与运维</h3>
+<ul>
+<li>理解主从复制、GTID、复制延迟。</li>
+<li>理解读写分离的一致性问题。</li>
+<li>掌握监控指标、慢查询、容量规划。</li>
+<li>学习在线 DDL、迁移和版本升级。</li>
+</ul>
+<p>对应笔记：<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>、<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</p>
+<span class="heading-anchor" id="快速复习清单"></span><h2 id="_36">快速复习清单</h2>
+<ul>
+<li>[ ] MySQL Server 和 <code>mysql</code> 客户端不是同一个东西。</li>
+<li>[ ] 业务表默认使用 InnoDB。</li>
+<li>[ ] InnoDB 表按主键聚簇存储。</li>
+<li>[ ] <code>utf8mb4</code> 是新项目默认字符集。</li>
+<li>[ ] 排序规则会影响比较、排序和唯一约束。</li>
+<li>[ ] 账号由 <code>'user'@'host'</code> 共同决定。</li>
+<li>[ ] 应用账号不要使用 <code>root</code>。</li>
+<li>[ ] <code>information_schema</code> 看元数据，<code>performance_schema</code> 看性能事件，<code>sys</code> 提供易读视图。</li>
+<li>[ ] 配置变更要区分配置文件、<code>SET GLOBAL</code> 和 <code>SET PERSIST</code>。</li>
+<li>[ ] 生产升级要看具体小版本的 release model 和兼容性说明。</li>
+</ul>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_37">本章练习</h2>
+<ol>
+<li>画出一条 <code>SELECT</code> 从客户端到 InnoDB 的执行路径。</li>
+<li>解释 MySQL Server、InnoDB、表空间、binlog 的边界。</li>
+<li>为什么新业务表通常不建议使用 MyISAM？</li>
+<li>为什么邮箱唯一索引必须考虑排序规则？</li>
+<li>解释 <code>'app'@'localhost'</code> 和 <code>'app'@'%'</code> 为什么不是同一个账号。</li>
+<li>用自己的话说明 Redo Log 和 Undo Log 的区别。</li>
+</ol>
+<span class="heading-anchor" id="验证记录"></span><h2 id="_38">验证记录</h2>
+<ul>
+<li>已在本机验证 <code>mysql --version</code>、<code>mysqld --version</code>、<code>mysqladmin --version</code>、<code>mysqldump --version</code> 可执行。</li>
+<li>已在本机验证 <code>mysqld --verbose --help</code> 可显示默认字符集、排序规则和存储引擎。</li>
+<li>连接命令和 SQL 片段是学习模板；由于未使用真实数据库密码，本笔记未端到端登录实例执行这些 SQL。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h2 id="_39">参考资料</h2>
+<ul>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/mysql-releases.html">MySQL Reference Manual: MySQL Releases</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/installing.html">MySQL Reference Manual: Installing and Upgrading MySQL</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/storage-engines.html">MySQL Reference Manual: Storage Engines</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/innodb-storage-engine.html">MySQL Reference Manual: The InnoDB Storage Engine</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/charset.html">MySQL Reference Manual: Character Sets, Collations, Unicode</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/privilege-system.html">MySQL Reference Manual: The MySQL Access Privilege System</a></li>
+<li><a href="https://dev.mysql.com/doc/refman/9.7/en/server-option-variable-reference.html">MySQL Reference Manual: Server Option and Variable Reference</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

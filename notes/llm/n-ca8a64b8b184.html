@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>QLoRA 学习与实战入门 · 李杨的学习笔记</title><meta name="description" content="这份笔记的目标不是只告诉你“QLoRA 是 4-bit + LoRA”，而是让你真正知道它为什么有用、代码里每一步在干什么，以及出问题时该先查哪里。"><meta property="og:title" content="QLoRA 学习与实战入门 · 李杨的学习笔记"><meta property="og:description" content="这份笔记的目标不是只告诉你“QLoRA 是 4-bit + LoRA”，而是让你真正知道它为什么有用、代码里每一步在干什么，以及出问题时该先查哪里。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-ca8a64b8b184.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-ca8a64b8b184.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>QLoRA 学习与实战入门</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/QLoRA.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">你会学到什么</a></li><li><a href="#1-qlora">1. 为什么会有 QLoRA</a></li><li><a href="#2-qlora">2. 一句话理解 QLoRA</a></li><li><a href="#3-qloralora">3. QLoRA、LoRA、全参数微调的区别</a></li><li><a href="#4-qlora">4. 什么时候适合用 QLoRA，什么时候不适合</a></li><li><a href="#_2">适合</a></li><li><a href="#_3">不太适合</a></li><li><a href="#5">5. 核心心智模型</a></li><li><a href="#51">5.1 底座模型是量化加载的</a></li><li><a href="#52-lora-adapter">5.2 真正训练的仍然是 LoRA adapter</a></li><li><a href="#53">5.3 量化格式和计算精度不是一回事</a></li><li><a href="#54-qlora">5.4 QLoRA 是训练技巧，不是最终部署格式</a></li><li><a href="#6-nf4-double-quant">6. 为什么大家默认用 NF4 和 Double Quant</a></li><li><a href="#61-load_in_4bittrue">6.1 load_in_4bit=True</a></li><li><a href="#62-bnb_4bit_quant_typenf4">6.2 bnb_4bit_quant_type=&quot;nf4&quot;</a></li><li><a href="#63-bnb_4bit_compute_dtypetorchbfloat16">6.3 bnb_4bit_compute_dtype=torch.bfloat16</a></li><li><a href="#64-bnb_4bit_use_double_quanttrue">6.4 bnb_4bit_use_double_quant=True</a></li><li><a href="#7-prepare_model_for_kbit_training">7. prepare_model_for_kbit_training 到底在干什么</a></li><li><a href="#8-qlora">8. 一个最小可用的 QLoRA 示例</a></li><li><a href="#9-target_modules">9. target_modules 怎么选</a></li><li><a href="#_4">一个常见起点</a></li><li><a href="#_5">如果你想手动指定</a></li><li><a href="#_6">怎么确认模型实际层名</a></li><li><a href="#10-qlora">10. QLoRA 的完整训练时间线</a></li><li><a href="#_7">步骤一：准备量化配置</a></li><li><a href="#_8">步骤二：加载量化底座</a></li><li><a href="#k-bit">步骤三：做 k-bit 训练准备</a></li><li><a href="#lora-adapter">步骤四：注入 LoRA adapter</a></li><li><a href="#_9">步骤五：常规训练</a></li><li><a href="#adapter">步骤六：保存 adapter</a></li><li><a href="#11">11. 怎么计算训练资源开销</a></li><li><a href="#111">11.1 先算权重显存</a></li><li><a href="#112">11.2 再算梯度显存</a></li><li><a href="#113">11.3 再算优化器状态显存</a></li><li><a href="#114">11.4 最容易被低估的是激活值显存</a></li><li><a href="#115">11.5 一套实用的显存估算公式</a></li><li><a href="#116-lora-adalora">11.6 LoRA / AdaLoRA 参数量怎么粗估</a></li><li><a href="#117-7b">11.7 一个 7B 模型的粗略对比</a></li><li><a href="#118-52-bit-per-parameter">11.8 如何理解图里的 5.2 bit per parameter</a></li><li><a href="#119-gpu">11.9 GPU 小时怎么估算</a></li><li><a href="#1110-fine-tuning">11.10 不同 fine-tuning 策略下，应该重点看什么开销</a></li><li><a href="#12">12. 调参建议</a></li><li><a href="#121">12.1 先保守，再激进</a></li><li><a href="#122-bf16-fp16">12.2 BF16 优先于 FP16</a></li><li><a href="#123">12.3 显存还是紧时，先动这些旋钮</a></li><li><a href="#124">12.4 别忽略数据质量</a></li><li><a href="#13">13. 常见错误与排查</a></li><li><a href="#131-bitsandbytes-peft">13.1 环境里没有 bitsandbytes 或 peft</a></li><li><a href="#132-4-bit-oom">13.2 4-bit 了还是 OOM</a></li><li><a href="#133-dtype">13.3 报 dtype 相关错误</a></li><li><a href="#134-merge-adapter">13.4 merge adapter 失败</a></li><li><a href="#135">13.5 训练在跑，但指标几乎不动</a></li><li><a href="#14-qlora-trade-off">14. QLoRA 的真实 trade-off</a></li><li><a href="#_13">优点</a></li><li><a href="#_14">代价</a></li><li><a href="#15">15. 一个简单的上手流程</a></li><li><a href="#16">16. 总结</a></li><li><a href="#17">17. 下一步建议</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="你会学到什么"></span><h2 id="_1">你会学到什么</h2>
+<p>这份笔记的目标不是只告诉你“QLoRA 是 4-bit + LoRA”，而是让你真正知道它为什么有用、代码里每一步在干什么，以及出问题时该先查哪里。</p>
+<p>读完后，你应该能回答这些问题：</p>
+<ul>
+<li>QLoRA 到底解决了什么问题</li>
+<li>它和普通 LoRA、全参数微调的核心差异是什么</li>
+<li>为什么大家默认用 <code>NF4</code>、<code>double quant</code>、<code>prepare_model_for_kbit_training</code></li>
+<li>怎样写出一份最小可用的 QLoRA 训练骨架</li>
+<li>显存还是爆、dtype 不对、merge 失败时该怎么排查</li>
+</ul>
+<p>这份文档面向已经知道 LoRA 是什么，但还没有系统上手 QLoRA 的读者。</p>
+<hr/>
+<span class="heading-anchor" id="1. 为什么会有 QLoRA"></span><h2 id="1-qlora">1. 为什么会有 QLoRA</h2>
+<p>普通 LoRA 已经很省了，因为它只训练少量 adapter，而不是更新整套大模型权重。</p>
+<p>但它还有一个现实问题：<strong>底座模型本身仍然要以较高精度加载到显存里。</strong></p>
+<p>这意味着：</p>
+<ul>
+<li>7B 模型还能勉强接受</li>
+<li>13B、34B、70B 很快就会被显存卡死</li>
+<li>你明明只训练几百万到几千万 adapter 参数，却还得为整个底座模型支付高精度显存成本</li>
+</ul>
+<p>QLoRA 的核心思路是：</p>
+<ol>
+<li>把底座模型以 <code>4-bit</code> 量化形式加载，显著降低显存占用。</li>
+<li>底座权重冻结，不直接更新。</li>
+<li>在量化底座上挂 LoRA adapter，只训练这些 adapter。</li>
+<li>反向传播可以穿过量化底座，把学习信号传给 LoRA 参数。</li>
+</ol>
+<p>所以，QLoRA 本质上是：<strong>量化底座 + LoRA 训练</strong>。</p>
+<p>它不是在替代 LoRA，而是在让 LoRA 能够在更大模型、更小显存上落地。</p>
+<hr/>
+<span class="heading-anchor" id="2. 一句话理解 QLoRA"></span><h2 id="2-qlora">2. 一句话理解 QLoRA</h2>
+<p>如果把普通 LoRA 理解为“底座模型不动，只训练旁边的小 adapter”，那 QLoRA 就是：</p>
+<p><strong>把底座模型压缩到 4-bit 存起来，再在这个压缩底座上训练 LoRA adapter。</strong></p>
+<p>你真正省下来的主要不是 adapter 的开销，而是底座权重的显存。</p>
+<hr/>
+<span class="heading-anchor" id="3. QLoRA、LoRA、全参数微调的区别"></span><h2 id="3-qloralora">3. QLoRA、LoRA、全参数微调的区别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>底座权重</th>
+<th>可训练部分</th>
+<th>显存压力</th>
+<th>适合场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全参数微调</td>
+<td>高精度加载并更新</td>
+<td>全部参数</td>
+<td>最高</td>
+<td>小模型或大算力环境</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>高精度加载但冻结</td>
+<td>LoRA adapter</td>
+<td>中等</td>
+<td>7B 到 13B 常规 PEFT</td>
+</tr>
+<tr>
+<td>QLoRA</td>
+<td>4-bit 加载并冻结</td>
+<td>LoRA adapter</td>
+<td>最低</td>
+<td>显存紧张但仍想训大模型</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里要特别分清楚两个概念：</p>
+<ul>
+<li><strong>LoRA</strong> 解决的是“训练哪些参数”</li>
+<li><strong>QLoRA</strong> 解决的是“底座模型怎么以更省显存的方式参与训练”</li>
+</ul>
+<p>所以，QLoRA 不是另一个 adapter 算法，它更像是 LoRA 的显存优化训练方案。</p>
+<hr/>
+<span class="heading-anchor" id="4. 什么时候适合用 QLoRA，什么时候不适合"></span><h2 id="4-qlora">4. 什么时候适合用 QLoRA，什么时候不适合</h2>
+<span class="heading-anchor" id="适合"></span><h3 id="_2">适合</h3>
+<ul>
+<li>你想微调 7B、13B、34B 甚至更大的模型，但显存有限</li>
+<li>你接受少量精度损失，换取更低训练成本</li>
+<li>你要做的是指令微调、领域适配、风格迁移这类典型 PEFT 任务</li>
+<li>你想先快速验证一个方向，而不是立刻投入全参数微调成本</li>
+</ul>
+<span class="heading-anchor" id="不太适合"></span><h3 id="_3">不太适合</h3>
+<ul>
+<li>你的模型很小，完全没必要上 4-bit 训练链路</li>
+<li>你追求极致上限，算力和显存都很充足</li>
+<li>你的目标只是做推理部署，而不是训练</li>
+<li>你当前连普通 LoRA 流程都没跑通</li>
+</ul>
+<p>一句实务建议：</p>
+<p><strong>显存是第一瓶颈时，优先看 QLoRA；显存不是问题时，先从普通 LoRA 开始更稳。</strong></p>
+<hr/>
+<span class="heading-anchor" id="5. 核心心智模型"></span><h2 id="5">5. 核心心智模型</h2>
+<p>理解 QLoRA，抓住下面四件事就够了。</p>
+<span class="heading-anchor" id="5.1 底座模型是量化加载的"></span><h3 id="51">5.1 底座模型是量化加载的</h3>
+<p>QLoRA 通常使用 <code>bitsandbytes</code> 把底座模型以 4-bit 形式加载，而不是 FP16/BF16 全精度。</p>
+<p>这一步解决的是“模型装不进显存”的问题。</p>
+<span class="heading-anchor" id="5.2 真正训练的仍然是 LoRA adapter"></span><h3 id="52-lora-adapter">5.2 真正训练的仍然是 LoRA adapter</h3>
+<p>QLoRA 不是训练量化权重本身，而是在量化后的底座上继续挂 LoRA adapter。</p>
+<p>所以训练时更新的是：</p>
+<ul>
+<li><code>lora_A</code></li>
+<li><code>lora_B</code></li>
+<li>以及必要时少量额外可训练模块</li>
+</ul>
+<p>底座权重本身通常仍然冻结。</p>
+<span class="heading-anchor" id="5.3 量化格式和计算精度不是一回事"></span><h3 id="53">5.3 量化格式和计算精度不是一回事</h3>
+<p>很多初学者会把下面两件事混在一起：</p>
+<ul>
+<li><strong>存储精度</strong>：比如 4-bit</li>
+<li><strong>计算精度</strong>：比如 <code>torch.bfloat16</code></li>
+</ul>
+<p>QLoRA 常见配置是：</p>
+<ul>
+<li>用 <code>4-bit</code> 存底座</li>
+<li>用 <code>BF16</code> 或 <code>FP16</code> 做计算</li>
+</ul>
+<p>所以你会同时看到：</p>
+<ul>
+<li><code>load_in_4bit=True</code></li>
+<li><code>bnb_4bit_compute_dtype=torch.bfloat16</code></li>
+</ul>
+<span class="heading-anchor" id="5.4 QLoRA 是训练技巧，不是最终部署格式"></span><h3 id="54-qlora">5.4 QLoRA 是训练技巧，不是最终部署格式</h3>
+<p>很多人第一次接触 QLoRA 会误以为：</p>
+<ul>
+<li>训练时是 4-bit</li>
+<li>部署时也必须维持同样格式</li>
+</ul>
+<p>其实不一定。训练完后你保存的是 adapter。部署时你可以：</p>
+<ul>
+<li>保持 adapter 形式加载</li>
+<li>或者把 adapter merge 到一个非量化底座</li>
+<li>或者走你自己的推理量化路线</li>
+</ul>
+<p>QLoRA 的重点是<strong>让训练阶段更省显存</strong>。</p>
+<hr/>
+<span class="heading-anchor" id="6. 为什么大家默认用 NF4 和 Double Quant"></span><h2 id="6-nf4-double-quant">6. 为什么大家默认用 NF4 和 Double Quant</h2>
+<p>QLoRA 代码里最常见的一段通常是：</p>
+<pre><code class="language-python">bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True
+)
+</code></pre>
+<p>这四行不是模板咒语，而是有明确原因的。</p>
+<span class="heading-anchor" id="6.1 load_in_4bit=True"></span><h3 id="61-load_in_4bittrue">6.1 <code>load_in_4bit=True</code></h3>
+<p>表示底座模型按 4-bit 量化形式加载。相比 16-bit，显存占用可以大幅下降。</p>
+<span class="heading-anchor" id='6.2 bnb_4bit_quant_type="nf4"'></span><h3 id="62-bnb_4bit_quant_typenf4">6.2 <code>bnb_4bit_quant_type="nf4"</code></h3>
+<p><code>NF4</code> 是给接近正态分布权重设计的 4-bit 量化格式，对 Transformer 权重通常更合适。</p>
+<p>和 <code>FP4</code> 相比，经验上：</p>
+<ul>
+<li><code>NF4</code> 更适合 LLM</li>
+<li><code>FP4</code> 更像备选项</li>
+</ul>
+<p>一个简单结论就够用了：<strong>做 Transformer/LLM，先默认用 <code>NF4</code>。</strong></p>
+<span class="heading-anchor" id="6.3 bnb_4bit_compute_dtype=torch.bfloat16"></span><h3 id="63-bnb_4bit_compute_dtypetorchbfloat16">6.3 <code>bnb_4bit_compute_dtype=torch.bfloat16</code></h3>
+<p>这控制的是实际计算精度，不是底座存储精度。</p>
+<p>常见选择：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>torch.bfloat16</code></td>
+<td>更稳，通常是首选</td>
+</tr>
+<tr>
+<td><code>torch.float16</code></td>
+<td>也常见，但更容易数值不稳定</td>
+</tr>
+<tr>
+<td><code>torch.float32</code></td>
+<td>调试时可用，训练太慢</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果硬件支持，优先考虑 <code>BF16</code>。</p>
+<span class="heading-anchor" id="6.4 bnb_4bit_use_double_quant=True"></span><h3 id="64-bnb_4bit_use_double_quanttrue">6.4 <code>bnb_4bit_use_double_quant=True</code></h3>
+<p>这表示对量化过程中的缩放常数再做一次量化，进一步节省显存。</p>
+<p>它不是“效果增强器”，更像是额外的显存优化。对大模型时通常值得开。</p>
+<hr/>
+<span class="heading-anchor" id="7. prepare_model_for_kbit_training 到底在干什么"></span><h2 id="7-prepare_model_for_kbit_training">7. <code>prepare_model_for_kbit_training</code> 到底在干什么</h2>
+<p>这一步经常被直接复制，但不理解它，后面排错会很痛苦。</p>
+<pre><code class="language-python">from peft import prepare_model_for_kbit_training
+
+model = prepare_model_for_kbit_training(model)
+</code></pre>
+<p>它的作用可以粗略理解为：</p>
+<ul>
+<li>把模型调整到适合低比特训练的状态</li>
+<li>处理一些需要保持更高稳定性的模块</li>
+<li>配合梯度检查点等手段，让训练更稳、更省</li>
+</ul>
+<p>实践上，你几乎可以把这一步当成 QLoRA 流程的标准动作。省掉它，不一定立刻报错，但常常会让后续训练更脆弱。</p>
+<hr/>
+<span class="heading-anchor" id="8. 一个最小可用的 QLoRA 示例"></span><h2 id="8-qlora">8. 一个最小可用的 QLoRA 示例</h2>
+<p>下面是一份可以直接改造成你项目脚本的骨架代码。它没有绑定特定数据集格式，但核心步骤是完整的。</p>
+<pre><code class="language-python">import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+
+model_name = "Qwen/Qwen2.5-7B-Instruct"
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True
+)
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+    torch_dtype=torch.bfloat16
+)
+
+model.gradient_checkpointing_enable()
+model = prepare_model_for_kbit_training(model)
+
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type=TaskType.CAUSAL_LM,
+    target_modules="all-linear"
+)
+
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+</code></pre>
+<p>这段代码里最值得注意的是：</p>
+<ul>
+<li>底座是 4-bit 加载的</li>
+<li>训练目标仍然是 LoRA adapter</li>
+<li><code>target_modules="all-linear"</code> 是 QLoRA 中很常见的起点</li>
+<li><code>gradient_checkpointing</code> 和 <code>prepare_model_for_kbit_training</code> 通常配合使用</li>
+</ul>
+<p>如果你要接 Trainer，可以继续这样写：</p>
+<pre><code class="language-python">from transformers import Trainer, TrainingArguments
+
+training_args = TrainingArguments(
+    output_dir="./qlora_output",
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,
+    learning_rate=2e-4,
+    num_train_epochs=3,
+    warmup_steps=100,
+    bf16=True,
+    logging_steps=10,
+    save_steps=200,
+    optim="paged_adamw_8bit",
+    report_to="none"
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset
+)
+
+trainer.train()
+model.save_pretrained("./qlora_adapter")
+tokenizer.save_pretrained("./qlora_adapter")
+</code></pre>
+<p>这里的 <code>optim="paged_adamw_8bit"</code> 也是 QLoRA 训练里常见的选择，因为它能进一步减轻优化器状态的显存压力。</p>
+<hr/>
+<span class="heading-anchor" id="9. target_modules 怎么选"></span><h2 id="9-target_modules">9. <code>target_modules</code> 怎么选</h2>
+<p>QLoRA 和普通 LoRA 一样，也需要决定把 adapter 挂到哪些层。</p>
+<span class="heading-anchor" id="一个常见起点"></span><h3 id="_4">一个常见起点</h3>
+<pre><code class="language-python">target_modules = "all-linear"
+</code></pre>
+<p>这是很多 QLoRA 配置喜欢的默认项，因为它对不同 Transformer 架构的覆盖更直接。</p>
+<span class="heading-anchor" id="如果你想手动指定"></span><h3 id="_5">如果你想手动指定</h3>
+<p>对 Llama / Qwen / Mistral 这类模型，常见写法是：</p>
+<pre><code class="language-python">target_modules = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj"
+]
+</code></pre>
+<p>如果你只想先做保守尝试，也可以只挂注意力投影层：</p>
+<pre><code class="language-python">target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+</code></pre>
+<span class="heading-anchor" id="怎么确认模型实际层名"></span><h3 id="_6">怎么确认模型实际层名</h3>
+<pre><code class="language-python">for name, module in model.named_modules():
+    if "proj" in name or "linear" in name:
+        print(name)
+</code></pre>
+<p>这一步很重要。很多“QLoRA 没效果”的根因，最后都不是量化问题，而是 <code>target_modules</code> 根本没匹配上。</p>
+<hr/>
+<span class="heading-anchor" id="10. QLoRA 的完整训练时间线"></span><h2 id="10-qlora">10. QLoRA 的完整训练时间线</h2>
+<p>把训练过程按顺序拆开，你就不会被代码里一堆配置吓到。</p>
+<span class="heading-anchor" id="步骤一：准备量化配置"></span><h3 id="_7">步骤一：准备量化配置</h3>
+<p>目标是用 <code>BitsAndBytesConfig</code> 指定：</p>
+<ul>
+<li>4-bit 加载</li>
+<li><code>NF4</code></li>
+<li>计算 dtype</li>
+<li>是否启用 double quant</li>
+</ul>
+<span class="heading-anchor" id="步骤二：加载量化底座"></span><h3 id="_8">步骤二：加载量化底座</h3>
+<p>这一步决定你能不能把目标模型装进显存。</p>
+<span class="heading-anchor" id="步骤三：做 k-bit 训练准备"></span><h3 id="k-bit">步骤三：做 k-bit 训练准备</h3>
+<p>也就是 <code>prepare_model_for_kbit_training</code>。它不是可有可无的美化步骤，而是 QLoRA 稳定训练的重要一环。</p>
+<span class="heading-anchor" id="步骤四：注入 LoRA adapter"></span><h3 id="lora-adapter">步骤四：注入 LoRA adapter</h3>
+<p>这时才进入 PEFT 的核心阶段。底座仍冻结，真正训练的是 adapter。</p>
+<span class="heading-anchor" id="步骤五：常规训练"></span><h3 id="_9">步骤五：常规训练</h3>
+<p>从 Trainer 视角看，这一步和普通 LoRA 已经很像了：</p>
+<ul>
+<li>喂数据</li>
+<li>前向</li>
+<li>反向</li>
+<li>更新 adapter 参数</li>
+</ul>
+<span class="heading-anchor" id="步骤六：保存 adapter"></span><h3 id="adapter">步骤六：保存 adapter</h3>
+<p>训练结束后，通常先保存 adapter，而不是一上来就 merge 整个模型。</p>
+<hr/>
+<span class="heading-anchor" id="11. 怎么计算训练资源开销"></span><h2 id="11">11. 怎么计算训练资源开销</h2>
+<p>这一章给你一套够实用的估算框架。它不是论文级精确建模，但足够回答这些工程问题：</p>
+<ul>
+<li>这张卡大概能不能训得动</li>
+<li>为什么全参数微调和 LoRA 显存差这么多</li>
+<li>为什么 QLoRA 能把 7B/13B 模型塞进消费级显卡</li>
+<li>训练一轮大概要多少 step、多少 GPU 小时</li>
+</ul>
+<p>先给一个最重要的结论：</p>
+<p><strong>训练资源开销通常由四部分组成：权重、梯度、优化器状态、激活值。</strong></p>
+<p>可以写成：</p>
+<pre><code class="language-text">总显存 ≈ 权重显存 + 梯度显存 + 优化器状态显存 + 激活值显存 + 其他开销
+</code></pre>
+<p>这里的“其他开销”包括：</p>
+<ul>
+<li>CUDA kernel workspace</li>
+<li>临时张量</li>
+<li>dataloader / padding 带来的波动</li>
+<li>分布式通信缓冲</li>
+</ul>
+<p>所以你手工算出来的数，通常应该被当成<strong>下界</strong>，不是最终实测值。</p>
+<span class="heading-anchor" id="11.1 先算权重显存"></span><h3 id="111">11.1 先算权重显存</h3>
+<p>最基础的公式是：</p>
+<pre><code class="language-text">权重显存 ≈ 参数量 × 每个参数所占字节数
+</code></pre>
+<p>常见精度对应关系：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>精度</th>
+<th>每参数字节数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FP32</td>
+<td>4 bytes</td>
+</tr>
+<tr>
+<td>FP16 / BF16</td>
+<td>2 bytes</td>
+</tr>
+<tr>
+<td>INT8</td>
+<td>1 byte</td>
+</tr>
+<tr>
+<td>INT4 / 4-bit</td>
+<td>0.5 byte</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如一个 <code>7B</code> 模型：</p>
+<ul>
+<li>FP16 / BF16 权重约 <code>7 × 2 = 14 GB</code></li>
+<li>INT8 权重大约 <code>7 GB</code></li>
+<li>4-bit 权重大约 <code>3.5 GB</code></li>
+</ul>
+<p>但要注意，QLoRA 里的 4-bit 不是完全“裸 0.5 byte/param”，因为还要存量化相关的缩放信息。工程上更稳妥的说法是：</p>
+<ul>
+<li><strong>理论下界</strong>：<code>参数量 × 0.5 byte</code></li>
+<li><strong>实际占用</strong>：通常会比理论值略高一点</li>
+</ul>
+<span class="heading-anchor" id="11.2 再算梯度显存"></span><h3 id="112">11.2 再算梯度显存</h3>
+<p>梯度只为<strong>可训练参数</strong>保存，所以：</p>
+<pre><code class="language-text">梯度显存 ≈ 可训练参数量 × 梯度字节数
+</code></pre>
+<p>如果是：</p>
+<ul>
+<li>全参数微调：可训练参数量约等于全模型参数量</li>
+<li>LoRA / QLoRA：可训练参数量只是 adapter 参数</li>
+</ul>
+<p>这也是 LoRA 类方法省显存的关键原因之一。</p>
+<span class="heading-anchor" id="11.3 再算优化器状态显存"></span><h3 id="113">11.3 再算优化器状态显存</h3>
+<p>如果你用 AdamW，一般至少会维护：</p>
+<ul>
+<li>一阶矩 <code>m</code></li>
+<li>二阶矩 <code>v</code></li>
+</ul>
+<p>粗略估算：</p>
+<pre><code class="language-text">AdamW 状态显存 ≈ 可训练参数量 × 8 bytes
+</code></pre>
+<p>这里的 <code>8 bytes</code> 指的是两个 FP32 状态：</p>
+<ul>
+<li><code>m</code>：4 bytes</li>
+<li><code>v</code>：4 bytes</li>
+</ul>
+<p>如果你的实现里还有 master weights 或额外状态，实际占用会更高。所以工程上可以把它理解为：</p>
+<pre><code class="language-text">AdamW 优化器状态 ≈ 可训练参数量 × 8~12 bytes
+</code></pre>
+<p>如果改成 8-bit optimizer，比如：</p>
+<pre><code class="language-python">optim="paged_adamw_8bit"
+</code></pre>
+<p>那么优化器状态开销通常还能继续下降。</p>
+<span class="heading-anchor" id="11.4 最容易被低估的是激活值显存"></span><h3 id="114">11.4 最容易被低估的是激活值显存</h3>
+<p>很多人只会算“模型参数占多少 GB”，但训练时真正经常把你显存打爆的是激活值。</p>
+<p>激活值显存与下面几个因素高度相关：</p>
+<ul>
+<li><code>per_device_train_batch_size</code></li>
+<li><code>max_seq_length</code></li>
+<li>模型层数</li>
+<li>hidden size</li>
+<li>是否开启 <code>gradient_checkpointing</code></li>
+</ul>
+<p>工程上不需要死背复杂公式，先记住这几个趋势：</p>
+<ul>
+<li>batch size 翻倍，激活显存通常近似翻倍</li>
+<li>sequence length 增大，激活显存会上升很快</li>
+<li>长上下文任务里，激活值经常比 LoRA adapter 本身贵得多</li>
+<li>开启 <code>gradient_checkpointing</code> 会降低激活显存，但会增加一点计算时间</li>
+</ul>
+<p>所以你看到“QLoRA 明明只训练少量参数，为什么还是 OOM”，答案往往不是 adapter 太大，而是：</p>
+<ul>
+<li>batch 太大</li>
+<li>seq 太长</li>
+<li>没开 checkpointing</li>
+</ul>
+<span class="heading-anchor" id="11.5 一套实用的显存估算公式"></span><h3 id="115">11.5 一套实用的显存估算公式</h3>
+<p>把上面几项合起来，可以用下面这套近似公式。</p>
+<span class="heading-anchor" id="全参数微调"></span><h4 id="_10">全参数微调</h4>
+<pre><code class="language-text">总显存 ≈
+全模型权重 +
+全模型梯度 +
+全模型优化器状态 +
+激活值
+</code></pre>
+<p>如果底座是 BF16，且优化器是 AdamW，可以先用：</p>
+<pre><code class="language-text">总显存 ≈ 参数量 × (2 + 2 + 8~12) bytes + 激活值
+       ≈ 参数量 × 12~16 bytes + 激活值
+</code></pre>
+<span class="heading-anchor" id="LoRA"></span><h4 id="lora">LoRA</h4>
+<pre><code class="language-text">总显存 ≈
+全模型权重 +
+LoRA 参数梯度 +
+LoRA 参数优化器状态 +
+激活值
+</code></pre>
+<p>也就是：</p>
+<pre><code class="language-text">总显存 ≈
+全模型参数量 × 底座字节数 +
+LoRA参数量 × (梯度字节数 + 优化器状态字节数) +
+激活值
+</code></pre>
+<p>底座仍然很贵，只是梯度和优化器状态只保留在 LoRA adapter 上。</p>
+<span class="heading-anchor" id="QLoRA"></span><h4 id="qlora_1">QLoRA</h4>
+<pre><code class="language-text">总显存 ≈
+量化底座权重 +
+LoRA 参数梯度 +
+LoRA 参数优化器状态 +
+激活值
+</code></pre>
+<p>和 LoRA 最大的差异就是第一项：</p>
+<ul>
+<li>LoRA：底座可能是 BF16，约 <code>2 bytes/param</code></li>
+<li>QLoRA：底座是 4-bit，理论约 <code>0.5 bytes/param</code></li>
+</ul>
+<p>这就是 QLoRA 最核心的节省来源。</p>
+<span class="heading-anchor" id="AdaLoRA"></span><h4 id="adalora">AdaLoRA</h4>
+<p>AdaLoRA 的估算思路与 LoRA 相同，只是 LoRA 参数量不再由固定 rank 决定，而是由动态 rank 分配决定。</p>
+<p>粗略上可以把它当成：</p>
+<pre><code class="language-text">AdaLoRA 开销 ≈ LoRA 开销
+</code></pre>
+<p>只是把 LoRA 参数量里的固定 <code>r</code>，换成“训练中或最终平均 rank”。</p>
+<span class="heading-anchor" id="11.6 LoRA / AdaLoRA 参数量怎么粗估"></span><h3 id="116-lora-adalora">11.6 LoRA / AdaLoRA 参数量怎么粗估</h3>
+<p>如果某个线性层从 <code>d_in</code> 映射到 <code>d_out</code>，LoRA 新增参数大致是：</p>
+<pre><code class="language-text">LoRA 参数量 ≈ r × (d_in + d_out)
+</code></pre>
+<p>如果这个层本身近似是方阵，也就是 <code>d_in ≈ d_out ≈ d</code>，那么可以近似成：</p>
+<pre><code class="language-text">LoRA 参数量 ≈ 2rd
+</code></pre>
+<p>如果一共有 <code>L</code> 个目标层，则：</p>
+<pre><code class="language-text">总 LoRA 参数量 ≈ Σ r × (d_in + d_out)
+</code></pre>
+<p>或者更粗糙一点：</p>
+<pre><code class="language-text">总 LoRA 参数量 ≈ 目标层数 × 2rd
+</code></pre>
+<p>这也是为什么：</p>
+<ul>
+<li><code>r</code> 翻倍，adapter 参数量近似翻倍</li>
+<li><code>target_modules</code> 扩大，adapter 参数量也会跟着明显上升</li>
+</ul>
+<span class="heading-anchor" id="11.7 一个 7B 模型的粗略对比"></span><h3 id="117-7b">11.7 一个 7B 模型的粗略对比</h3>
+<p>假设：</p>
+<ul>
+<li>模型大小：<code>7B</code></li>
+<li>底座精度：BF16 或 4-bit</li>
+<li>LoRA / QLoRA adapter：<code>20M</code> 可训练参数</li>
+<li>AdamW 类优化器</li>
+<li>不把激活值写死，只单独看“模型状态显存”</li>
+</ul>
+<p>那么可以得到一个很粗的量级估算：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>底座权重</th>
+<th>梯度</th>
+<th>优化器状态</th>
+<th>模型状态总量级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全参数微调 BF16</td>
+<td>~14 GB</td>
+<td>~14 GB</td>
+<td>~56-84 GB</td>
+<td>~84-112 GB</td>
+</tr>
+<tr>
+<td>LoRA BF16</td>
+<td>~14 GB</td>
+<td>~40 MB</td>
+<td>~160-240 MB</td>
+<td>~14.2-14.3 GB</td>
+</tr>
+<tr>
+<td>QLoRA 4-bit</td>
+<td>~3.5-4.5 GB</td>
+<td>~40 MB</td>
+<td>~160-240 MB</td>
+<td>~3.7-4.8 GB</td>
+</tr>
+<tr>
+<td>AdaLoRA BF16</td>
+<td>与 LoRA 类似</td>
+<td>取决于平均 rank</td>
+<td>取决于平均 rank</td>
+<td>通常接近或略低于 LoRA</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表最重要的不是绝对数字，而是结构差异：</p>
+<ul>
+<li><strong>全参数微调</strong>：梯度和优化器状态跟着全模型走，极贵</li>
+<li><strong>LoRA</strong>：底座贵，但训练态开销只落在 adapter 上</li>
+<li><strong>QLoRA</strong>：连底座也便宜了，所以整体显存进一步下降</li>
+<li><strong>AdaLoRA</strong>：本质还是 LoRA 路线，只是 adapter 预算会动态变化</li>
+</ul>
+<span class="heading-anchor" id="11.8 如何理解图里的 5.2 bit per parameter"></span><h3 id="118-52-bit-per-parameter">11.8 如何理解图里的 <code>5.2 bit per parameter</code></h3>
+<p>你给的这张图非常适合建立直觉，因为它把 QLoRA 的优势压缩成了一个核心问题：</p>
+<p><strong>如果把训练开销平均分摊到“每个底座参数”，QLoRA 大概只需要 <code>5.2 bits/parameter</code>。</strong></p>
+<p>先看图左边的四项：</p>
+<ul>
+<li><code>Weight: 4 bit</code></li>
+<li><code>Weight gradient: ~0.4 bit</code></li>
+<li><code>Optimizer state: ~0.8 bit</code></li>
+<li><code>Adapter weights: ~0.4 bit</code></li>
+</ul>
+<p>它们加起来就是：</p>
+<pre><code class="language-text">4 + 0.4 + 0.8 + 0.4 = 5.2 bit per parameter
+</code></pre>
+<p>这里最容易误解的一点是：</p>
+<p><strong>这不是说模型里的每个参数真的都同时存着 5.2 bit 的同构结构，而是把总训练内存平均摊到了“每个底座参数”上。</strong></p>
+<p>也就是说，这是一种“归一化后的平均成本”表达。</p>
+<p>你可以把它写成：</p>
+<pre><code class="language-text">平均每个底座参数的训练开销
+≈ 底座权重位宽
++ adapter参数占比 × (adapter权重位宽 + 梯度位宽 + 优化器状态位宽)
+</code></pre>
+<p>如果记：</p>
+<ul>
+<li><code>N_base</code>：底座参数量</li>
+<li><code>N_adapter</code>：LoRA adapter 参数量</li>
+<li><code>ρ = N_adapter / N_base</code></li>
+</ul>
+<p>那么更形式化一点：</p>
+<pre><code class="language-text">bits_per_base_param
+≈ b_base + ρ × (b_adapter + b_grad + b_opt)
+</code></pre>
+<p>图里的 <code>0.4 / 0.8 / 0.4</code> 本质上就是把 adapter 相关状态，按 <code>ρ</code> 折算到了整个底座模型上。</p>
+<p>换句话说：</p>
+<ul>
+<li>adapter 本身很小</li>
+<li>但为了便于和全参数微调比较，作者把它的开销均摊到了每个底座参数</li>
+</ul>
+<p>这样不同策略就能放在同一张表里直接比较。</p>
+<span class="heading-anchor" id="为什么 LoRA 是 17.6 bits/parameter"></span><h4 id="lora-176-bitsparameter">为什么 LoRA 是 <code>17.6 bits/parameter</code></h4>
+<p>图里 LoRA 的逻辑和 QLoRA 一样，只不过底座还是 16-bit：</p>
+<pre><code class="language-text">16 + 0.4 + 0.8 + 0.4 = 17.6 bits/parameter
+</code></pre>
+<p>所以从 LoRA 到 QLoRA，最关键的变化不是 adapter 变了，而是：</p>
+<pre><code class="language-text">底座权重: 16 bit -&gt; 4 bit
+</code></pre>
+<p>也就是只改了第一项，其他 adapter 相关项基本保留原来的量级。</p>
+<p>这就是 QLoRA 显存大幅下降的根本原因。</p>
+<span class="heading-anchor" id="为什么 70B 模型会落到约 46 GB"></span><h4 id="70b-46-gb">为什么 70B 模型会落到约 <code>46 GB</code></h4>
+<p>图里最后一行写的是：</p>
+<pre><code class="language-text">70B model -&gt; 46 GB of GPU memory
+</code></pre>
+<p>按这张图的算法，直接算就行：</p>
+<pre><code class="language-text">70e9 × 5.2 bits / 8
+= 45.5e9 bytes
+≈ 45.5 GB
+</code></pre>
+<p>四舍五入后就是图里的 <code>46 GB</code>。</p>
+<p>这也解释了为什么它说：</p>
+<ul>
+<li>全参数微调：太贵</li>
+<li>LoRA：虽然便宜很多，但 70B 仍然偏重</li>
+<li>QLoRA：开始接近“多张消费级 GPU 可承受”的范围</li>
+</ul>
+<span class="heading-anchor" id="图右边三列到底在画什么"></span><h4 id="_11">图右边三列到底在画什么</h4>
+<p>右侧三个小图其实是在对比三种训练方式的显存构成：</p>
+<span class="heading-anchor" id="Full Finetuning"></span><h5 id="full-finetuning">Full Finetuning</h5>
+<ul>
+<li>底座模型是 <code>16-bit Transformer</code></li>
+<li>所有参数都要更新</li>
+<li>所以需要完整的梯度和大块优化器状态</li>
+</ul>
+<p>这就是为什么左边 full finetuning 会高到 <code>96 bits/parameter</code>。</p>
+<span class="heading-anchor" id="LoRA"></span><h5 id="lora_1">LoRA</h5>
+<ul>
+<li>底座仍然是 <code>16-bit Transformer</code></li>
+<li>但只训练上面那几个 adapter 小块</li>
+<li>优化器状态也只为 adapter 保存</li>
+</ul>
+<p>所以它比全参数微调已经轻很多，但底座还是 16-bit，模型一大仍然会重。</p>
+<span class="heading-anchor" id="QLoRA"></span><h5 id="qlora_2">QLoRA</h5>
+<ul>
+<li>底座变成 <code>4-bit Transformer</code></li>
+<li>adapter 仍然保留用于训练</li>
+<li>红色箭头表示 <code>paged optimizer</code> 的分页流动，必要时会在 CPU 和 GPU 之间搬运状态</li>
+</ul>
+<p>这一步的意义不是“让训练变便宜一点点”，而是把最贵的底座权重从 16-bit 直接砍到 4-bit。</p>
+<span class="heading-anchor" id="红色箭头为什么指向 CPU"></span><h4 id="cpu">红色箭头为什么指向 CPU</h4>
+<p>图右边 QLoRA 模块旁边有一个 CPU 虚线框，红色箭头连过去，这表示：</p>
+<ul>
+<li>某些优化器状态不一定一直常驻 GPU</li>
+<li>当显存出现瞬时峰值时，可以利用分页机制把部分状态放到 CPU</li>
+<li>在真正需要做 optimizer step 时，再取回 GPU</li>
+</ul>
+<p>这也是 QLoRA 论文里 <code>paged optimizers</code> 的直觉图示。</p>
+<p>它主要解决的是：</p>
+<ul>
+<li>长序列</li>
+<li>大 batch</li>
+<li>某些 step 出现的显存尖峰</li>
+</ul>
+<p>而不是替代 4-bit 量化本身。</p>
+<span class="heading-anchor" id="这张图最值得记住的结论"></span><h4 id="_12">这张图最值得记住的结论</h4>
+<p>如果你只记一句话，那就是：</p>
+<p><strong>QLoRA 之所以省，不是因为 LoRA 本身突然更小了，而是因为“占大头的底座权重”从 16-bit 变成了 4-bit。</strong></p>
+<p>也因此，这张图最核心的对比不是：</p>
+<ul>
+<li>LoRA vs QLoRA 的 adapter 部分</li>
+</ul>
+<p>而是：</p>
+<ul>
+<li><code>16-bit base model</code> vs <code>4-bit base model</code></li>
+</ul>
+<span class="heading-anchor" id="为什么有时会看到 5.6 bits 而不是 5.2 bits"></span><h4 id="56-bits-52-bits">为什么有时会看到 <code>5.6 bits</code> 而不是 <code>5.2 bits</code></h4>
+<p>你在不同讲义或二手资料里，有时会看到：</p>
+<ul>
+<li><code>5.2 bits/parameter</code></li>
+<li><code>5.6 bits/parameter</code></li>
+</ul>
+<p>这通常不是“谁完全错了”，而是因为不同资料会在下面几件事上做不同近似：</p>
+<ul>
+<li>是否把量化常数的额外开销单列</li>
+<li>是否把 double quant 的收益计入最终数字</li>
+<li>adapter 参数占比 <code>ρ</code> 采用什么近似</li>
+<li>是否做了四舍五入</li>
+</ul>
+<p>所以阅读时更重要的是理解结构：</p>
+<ul>
+<li>QLoRA 的基座大约是 <code>4-bit</code></li>
+<li>额外训练态开销来自 adapter、梯度和优化器状态</li>
+<li>总平均成本远低于 16-bit 底座的 LoRA，更远低于全参数微调</li>
+</ul>
+<span class="heading-anchor" id="11.9 GPU 小时怎么估算"></span><h3 id="119-gpu">11.9 GPU 小时怎么估算</h3>
+<p>除了显存，你通常还关心训练要跑多久、花多少钱。</p>
+<p>先定义几个量：</p>
+<ul>
+<li><code>N_tokens</code>：总训练 token 数</li>
+<li><code>global_batch_tokens</code>：每一步全局处理 token 数</li>
+<li><code>step_time</code>：每个 step 花费秒数</li>
+<li><code>num_gpus</code>：GPU 数量</li>
+</ul>
+<p>那么：</p>
+<pre><code class="language-text">训练步数 ≈ N_tokens / global_batch_tokens
+</code></pre>
+<p>其中：</p>
+<pre><code class="language-text">global_batch_tokens ≈
+per_device_train_batch_size ×
+gradient_accumulation_steps ×
+num_gpus ×
+平均有效序列长度
+</code></pre>
+<p>于是：</p>
+<pre><code class="language-text">总训练时间 ≈ 训练步数 × step_time
+GPU小时 ≈ 总训练时间(小时) × num_gpus
+训练成本 ≈ GPU小时 × 单卡时价
+</code></pre>
+<p>举个例子，假设：</p>
+<ul>
+<li>总训练 token：<code>20B</code></li>
+<li>单卡 batch size：<code>2</code></li>
+<li>gradient accumulation：<code>8</code></li>
+<li>GPU 数量：<code>1</code></li>
+<li>平均有效序列长度：<code>1024</code></li>
+</ul>
+<p>那么：</p>
+<pre><code class="language-text">global_batch_tokens ≈ 2 × 8 × 1 × 1024 = 16384
+训练步数 ≈ 20,000,000,000 / 16,384 ≈ 1,220,703
+</code></pre>
+<p>如果平均每 step 是 <code>0.8s</code>，则：</p>
+<pre><code class="language-text">总时间 ≈ 976,562 秒 ≈ 271.3 小时
+GPU小时 ≈ 271.3
+</code></pre>
+<p>如果单卡每小时 <code>¥12</code>，那训练成本大约就是：</p>
+<pre><code class="language-text">271.3 × 12 ≈ ¥3256
+</code></pre>
+<p>当然，真实训练里：</p>
+<ul>
+<li>padding 会降低有效 token 利用率</li>
+<li>eval、save checkpoint、数据预处理会额外耗时</li>
+<li>QLoRA 虽然省显存，但单 step 不一定总比 LoRA 更快</li>
+</ul>
+<p>所以时间和成本估算通常也应留一点冗余。</p>
+<span class="heading-anchor" id="11.10 不同 fine-tuning 策略下，应该重点看什么开销"></span><h3 id="1110-fine-tuning">11.10 不同 fine-tuning 策略下，应该重点看什么开销</h3>
+<p>如果你要快速判断选哪种策略，可以直接看这张表：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>最主要瓶颈</th>
+<th>你最该算的东西</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全参数微调</td>
+<td>权重 + 梯度 + 优化器状态</td>
+<td>总参数量、优化器状态倍数</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>底座权重 + 激活值</td>
+<td>底座精度、seq length、batch size</td>
+</tr>
+<tr>
+<td>QLoRA</td>
+<td>激活值 + 量化底座 + adapter 状态</td>
+<td>4-bit 底座、batch、seq、checkpointing</td>
+</tr>
+<tr>
+<td>AdaLoRA</td>
+<td>激活值 + 动态 adapter 预算</td>
+<td>平均 rank、target modules、训练步数</td>
+</tr>
+</tbody>
+</table></div>
+<p>工程上最实用的决策逻辑通常是：</p>
+<ol>
+<li>如果卡根本装不下 BF16 底座，优先 QLoRA。</li>
+<li>如果 BF16 底座能装下，但全参训不起，优先 LoRA。</li>
+<li>如果 LoRA 已经能训，想进一步优化 adapter 预算，再看 AdaLoRA。</li>
+<li>如果你追求极致效果且算力充足，再考虑全参数微调。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="12. 调参建议"></span><h2 id="12">12. 调参建议</h2>
+<p>下面这些建议不是唯一正确答案，但足够作为第一版实验起点。</p>
+<span class="heading-anchor" id="12.1 先保守，再激进"></span><h3 id="121">12.1 先保守，再激进</h3>
+<p>第一版建议先这样起：</p>
+<ul>
+<li><code>r=16</code></li>
+<li><code>lora_alpha=32</code></li>
+<li><code>lora_dropout=0.05</code></li>
+<li><code>target_modules="all-linear"</code></li>
+<li><code>bnb_4bit_quant_type="nf4"</code></li>
+<li><code>bnb_4bit_use_double_quant=True</code></li>
+</ul>
+<p>等 baseline 跑稳后，再去尝试更高 rank 或更广的 target modules。</p>
+<span class="heading-anchor" id="12.2 BF16 优先于 FP16"></span><h3 id="122-bf16-fp16">12.2 BF16 优先于 FP16</h3>
+<p>如果你的硬件支持 BF16，优先用：</p>
+<pre><code class="language-python">bnb_4bit_compute_dtype=torch.bfloat16
+</code></pre>
+<p>因为它通常更稳，尤其是在长序列和较大模型时。</p>
+<span class="heading-anchor" id="12.3 显存还是紧时，先动这些旋钮"></span><h3 id="123">12.3 显存还是紧时，先动这些旋钮</h3>
+<p>优先级通常是：</p>
+<ol>
+<li>降低 <code>per_device_train_batch_size</code></li>
+<li>增大 <code>gradient_accumulation_steps</code></li>
+<li>开启 <code>gradient_checkpointing</code></li>
+<li>缩短 <code>max_seq_length</code></li>
+<li>确保 <code>double quant</code> 已打开</li>
+</ol>
+<p>很多人一上来就怀疑 QLoRA 失效，其实只是 batch 或序列长度设置过大。</p>
+<span class="heading-anchor" id="12.4 别忽略数据质量"></span><h3 id="124">12.4 别忽略数据质量</h3>
+<p>QLoRA 省的是显存，不会自动修复差数据。如果：</p>
+<ul>
+<li>指令模板混乱</li>
+<li>输出字段脏</li>
+<li>任务定义本身不一致</li>
+</ul>
+<p>那么 LoRA、QLoRA、全参微调都会一起变差。</p>
+<hr/>
+<span class="heading-anchor" id="13. 常见错误与排查"></span><h2 id="13">13. 常见错误与排查</h2>
+<span class="heading-anchor" id="13.1 环境里没有 bitsandbytes 或 peft"></span><h3 id="131-bitsandbytes-peft">13.1 环境里没有 <code>bitsandbytes</code> 或 <code>peft</code></h3>
+<p>先安装基础依赖：</p>
+<pre><code class="language-bash">pip install bitsandbytes transformers peft accelerate datasets
+</code></pre>
+<p>如果还要用 TRL：</p>
+<pre><code class="language-bash">pip install trl
+</code></pre>
+<span class="heading-anchor" id="13.2 4-bit 了还是 OOM"></span><h3 id="132-4-bit-oom">13.2 4-bit 了还是 OOM</h3>
+<p>先查下面几件事：</p>
+<ul>
+<li>batch size 是否过大</li>
+<li>序列长度是否过长</li>
+<li>是否开了梯度检查点</li>
+<li>是否启用了 <code>bnb_4bit_use_double_quant=True</code></li>
+<li>是否把 <code>device_map</code>、<code>max_memory</code> 设得过于理想化</li>
+</ul>
+<p>必要时可以显式限制显存预算：</p>
+<pre><code class="language-python">model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+    max_memory={0: "20GB", "cpu": "80GB"}
+)
+</code></pre>
+<span class="heading-anchor" id="13.3 报 dtype 相关错误"></span><h3 id="133-dtype">13.3 报 dtype 相关错误</h3>
+<p>典型现象包括：</p>
+<ul>
+<li><code>expected scalar type BFloat16 but found Float</code></li>
+<li>matmul 相关 dtype 不一致</li>
+</ul>
+<p>优先检查：</p>
+<ul>
+<li><code>bnb_4bit_compute_dtype</code></li>
+<li><code>torch_dtype</code></li>
+<li>训练参数里的 <code>bf16=True</code> / <code>fp16=True</code></li>
+</ul>
+<p>最稳的做法通常是统一成 BF16 路线。</p>
+<span class="heading-anchor" id="13.4 merge adapter 失败"></span><h3 id="134-merge-adapter">13.4 merge adapter 失败</h3>
+<p>这类问题经常发生在你直接拿量化底座去 merge 时。</p>
+<p>更稳妥的流程是：</p>
+<ol>
+<li>重新以更高精度加载原始底座</li>
+<li>再加载训练好的 adapter</li>
+<li>最后执行 <code>merge_and_unload()</code></li>
+</ol>
+<p>示例：</p>
+<pre><code class="language-python">from transformers import AutoModelForCausalLM
+from peft import PeftModel
+import torch
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    base_model_name,
+    torch_dtype=torch.float16,
+    device_map="auto"
+)
+
+model = PeftModel.from_pretrained(base_model, "./qlora_adapter")
+merged_model = model.merge_and_unload()
+</code></pre>
+<span class="heading-anchor" id="13.5 训练在跑，但指标几乎不动"></span><h3 id="135">13.5 训练在跑，但指标几乎不动</h3>
+<p>优先排查：</p>
+<ul>
+<li><code>target_modules</code> 是否命中</li>
+<li>数据是否正确格式化</li>
+<li>学习率是否过低或过高</li>
+<li>LoRA rank 是否太小</li>
+</ul>
+<p>不要把所有问题都归咎于“量化损伤太大”。</p>
+<hr/>
+<span class="heading-anchor" id="14. QLoRA 的真实 trade-off"></span><h2 id="14-qlora-trade-off">14. QLoRA 的真实 trade-off</h2>
+<p>QLoRA 很强，但不是免费的午餐。</p>
+<span class="heading-anchor" id="优点"></span><h3 id="_13">优点</h3>
+<ul>
+<li>显存需求显著降低</li>
+<li>能在消费级 GPU 上训练更大的模型</li>
+<li>和 LoRA 训练流程兼容度高</li>
+<li>往往是“想训大模型但预算有限”时最现实的方案</li>
+</ul>
+<span class="heading-anchor" id="代价"></span><h3 id="_14">代价</h3>
+<ul>
+<li>训练链路更复杂</li>
+<li>dtype、量化配置、硬件支持更容易踩坑</li>
+<li>不是所有模型和环境都能无脑复制同一份配置</li>
+<li>在极致质量追求下，仍可能不如高精度训练</li>
+</ul>
+<p>所以工程上最稳的判断标准是：</p>
+<p><strong>如果没有 QLoRA 你根本训不起来，那它的价值就非常直接；如果你本来就训得动高精度 LoRA，那就需要权衡额外复杂度是否值得。</strong></p>
+<hr/>
+<span class="heading-anchor" id="15. 一个简单的上手流程"></span><h2 id="15">15. 一个简单的上手流程</h2>
+<p>如果你现在就要在项目里试 QLoRA，可以按这个顺序：</p>
+<ol>
+<li>先选一个你确实能加载成功的基座模型。</li>
+<li>用 <code>NF4 + BF16 + double quant</code> 起步，不要一开始就魔改配置。</li>
+<li>先跑一个小数据子集，确认 loss 在动、显存没炸、保存正常。</li>
+<li>再扩大数据量和训练步数。</li>
+<li>只在 baseline 稳定后，再去调 rank、target modules、优化器和序列长度。</li>
+</ol>
+<p>这比一开始就堆满高级技巧更有效。</p>
+<hr/>
+<span class="heading-anchor" id="16. 总结"></span><h2 id="16">16. 总结</h2>
+<p>QLoRA 的核心不是“把 LoRA 变成另一个算法”，而是：</p>
+<p><strong>用 4-bit 量化把底座显存压下来，同时保留 LoRA 这种低成本训练方式。</strong></p>
+<p>你真正要记住的是下面四句话：</p>
+<ul>
+<li>QLoRA = 量化底座 + LoRA adapter。</li>
+<li>4-bit 是存储方式，<code>BF16/FP16</code> 是计算方式。</li>
+<li><code>NF4</code> 通常是 Transformer/LLM 的默认首选。</li>
+<li><code>prepare_model_for_kbit_training</code> 和梯度检查点通常是标准动作。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="17. 下一步建议"></span><h2 id="17">17. 下一步建议</h2>
+<p>如果你准备继续深入，建议下一步做下面几件事：</p>
+<ol>
+<li>在同一数据集上对比 <code>LoRA</code> 和 <code>QLoRA</code> 的显存与效果。</li>
+<li>记录 <code>r</code>、batch size、seq length 对显存和指标的影响。</li>
+<li>再决定是否要结合 <code>TRL</code>、<code>FSDP</code>、<code>DeepSpeed</code> 或更复杂的训练栈。</li>
+</ol>
+<p>如果你愿意，我下一步可以继续帮你补：</p>
+<ul>
+<li><code>QLoRA + TRL/SFTTrainer</code> 的完整训练脚本</li>
+<li><code>LoRA / QLoRA / AdaLoRA</code> 的对比笔记</li>
+<li><code>Qwen / Llama / Mistral</code> 的 <code>target_modules</code> 速查表</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

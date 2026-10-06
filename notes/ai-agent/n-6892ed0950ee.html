@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 07 课：流式输出 · 李杨的学习笔记</title><meta name="description" content="所属阶段：第二阶段——大模型 API 与 Prompt 前置课程： 第 06 课：Function Calling / Tool Calling 后续课程： 第 08 课：多轮对话和上下文管理"><meta property="og:title" content="第 07 课：流式输出 · 李杨的学习笔记"><meta property="og:description" content="所属阶段：第二阶段——大模型 API 与 Prompt 前置课程： 第 06 课：Function Calling / Tool Calling 后续课程： 第 08 课：多轮对话和上下文管理"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-6892ed0950ee.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-6892ed0950ee.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 02-大模型API与Prompt</p><h1>第 07 课：流式输出</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/02-%E5%A4%A7%E6%A8%A1%E5%9E%8BAPI%E4%B8%8EPrompt/07-%E6%B5%81%E5%BC%8F%E8%BE%93%E5%87%BA.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、学习目标</a></li><li><a href="#_2">二、为什么需要流式输出</a></li><li><a href="#21">2.1 非流式调用</a></li><li><a href="#22">2.2 流式调用</a></li><li><a href="#_3">三、核心概念</a></li><li><a href="#31-streaming">3.1 Streaming</a></li><li><a href="#32-chunk">3.2 Chunk</a></li><li><a href="#33-delta">3.3 Delta</a></li><li><a href="#34-sse">3.4 SSE</a></li><li><a href="#_4">四、环境配置</a></li><li><a href="#_5">五、同步流式输出</a></li><li><a href="#51">5.1 最小示例</a></li><li><a href="#52">5.2 一边展示，一边收集完整答案</a></li><li><a href="#_6">六、异步流式输出</a></li><li><a href="#_7">七、结束原因与用量统计</a></li><li><a href="#71-finish_reason">7.1 finish_reason</a></li><li><a href="#72-usage">7.2 Usage</a></li><li><a href="#tool-calling">八、流式 Tool Calling</a></li><li><a href="#81">8.1 正确处理原则</a></li><li><a href="#structured-output">九、流式 Structured Output</a></li><li><a href="#fastapi">十、在 FastAPI 中转发模型流</a></li><li><a href="#_8">十一、超时、取消与重试</a></li><li><a href="#111">11.1 流式请求有多个时间维度</a></li><li><a href="#112">11.2 客户端取消</a></li><li><a href="#113">11.3 重试边界</a></li><li><a href="#_9">十二、背压与并发控制</a></li><li><a href="#121">12.1 什么是背压</a></li><li><a href="#122">12.2 并发控制</a></li><li><a href="#_10">十三、流式输出的可观测性</a></li><li><a href="#_11">十四、常见误区</a></li><li><a href="#1-chunk-token">误区 1：一个 Chunk 就是一个 Token</a></li><li><a href="#2-chunk">误区 2：每个 Chunk 都能读取到文本</a></li><li><a href="#3">误区 3：流式输出能降低模型费用</a></li><li><a href="#4-json">误区 4：收到部分 JSON 就可以执行</a></li><li><a href="#5">误区 5：连接中断后直接自动重试即可</a></li><li><a href="#6">误区 6：使用异步客户端就可以无限并发</a></li><li><a href="#7">误区 7：前端关闭后，服务端会自动停止所有工作</a></li><li><a href="#8sse-websocket">误区 8：SSE 和 WebSocket 是同一个东西</a></li><li><a href="#_12">十五、实践任务</a></li><li><a href="#1">任务 1：命令行流式聊天</a></li><li><a href="#2">任务 2：中断处理</a></li><li><a href="#3-json">任务 3：流式 JSON</a></li><li><a href="#4web-sse">任务 4：Web SSE 转发</a></li><li><a href="#_13">十六、自测题</a></li><li><a href="#_14">参考答案</a></li><li><a href="#_15">十七、本课小结</a></li><li><a href="#_16">相关笔记</a></li><li><a href="#_17">来源说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>所属阶段：第二阶段——大模型 API 与 Prompt<br/>
+前置课程：<a href="n-9a343f7b5d80.html">第 06 课：Function Calling / Tool Calling</a><br/>
+后续课程：<a href="n-32c6b4ee662c.html">第 08 课：多轮对话和上下文管理</a></p>
+</blockquote>
+<span class="heading-anchor" id="一、学习目标"></span><h2 id="_1">一、学习目标</h2>
+<p>完成本课后，应能够：</p>
+<ol>
+<li>解释非流式输出与流式输出的区别；</li>
+<li>理解流式响应、SSE、Chunk 和 Delta 的关系；</li>
+<li>使用 OpenAI 兼容接口实现同步与异步流式输出；</li>
+<li>正确拼接文本、结束原因和用量信息；</li>
+<li>处理流式输出中的超时、中断、重试和取消；</li>
+<li>理解 Structured Output 与 Tool Calling 在流式场景中的特殊处理方式；</li>
+<li>在 Web 服务中把模型流安全地转发给前端。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="二、为什么需要流式输出"></span><h2 id="_2">二、为什么需要流式输出</h2>
+<span class="heading-anchor" id="2.1 非流式调用"></span><h3 id="21">2.1 非流式调用</h3>
+<p>非流式调用会等待模型生成完整回答后，一次性返回结果：</p>
+<pre><code class="language-python">response = client.chat.completions.create(
+    model=model,
+    messages=[{"role": "user", "content": "解释什么是 RAG"}],
+)
+
+print(response.choices[0].message.content)
+</code></pre>
+<p>它的优点是代码简单，拿到响应时内容通常已经完整，适合：</p>
+<ul>
+<li>短文本生成；</li>
+<li>后台批处理；</li>
+<li>只关心最终结果的任务；</li>
+<li>需要在返回前完成整体 JSON 校验的接口。</li>
+</ul>
+<p>缺点是首字等待时间较长。即使模型已经生成了一部分内容，用户仍然看不到。</p>
+<span class="heading-anchor" id="2.2 流式调用"></span><h3 id="22">2.2 流式调用</h3>
+<p>流式调用会在生成过程中分批返回增量内容：</p>
+<pre><code class="language-text">请求发出
+   ↓
+等待首个数据块
+   ↓
+Chunk 1 → Chunk 2 → Chunk 3 → ... → 完成
+</code></pre>
+<p>它的主要价值是改善用户感知延迟。用户不必等整段回答生成完毕，就能开始阅读。</p>
+<p>典型场景包括：</p>
+<ul>
+<li>聊天机器人逐字展示回答；</li>
+<li>长文章、代码或报告生成；</li>
+<li>Agent 执行过程的状态反馈；</li>
+<li>服务端把模型结果实时转发给浏览器。</li>
+</ul>
+<blockquote>
+<p>流式输出通常不能显著缩短“完整答案生成时间”，主要优化的是首个可见内容的等待时间和交互体验。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="三、核心概念"></span><h2 id="_3">三、核心概念</h2>
+<span class="heading-anchor" id="3.1 Streaming"></span><h3 id="31-streaming">3.1 Streaming</h3>
+<p>Streaming 表示服务端不等待整个响应完成，而是在同一个连接上持续发送数据块。</p>
+<p>模型生成过程可以抽象为：</p>
+<pre><code class="language-text">完整答案 = delta_1 + delta_2 + delta_3 + ... + delta_n
+</code></pre>
+<p>其中每个 <code>delta</code> 都是相对于已接收内容的新增部分。</p>
+<span class="heading-anchor" id="3.2 Chunk"></span><h3 id="32-chunk">3.2 Chunk</h3>
+<p>Chunk 是 SDK 每次迭代得到的响应对象。一个 Chunk 不一定对应一个完整单词，也不保证只含一个 Token。</p>
+<p>Chunk 可能包含：</p>
+<ul>
+<li>角色信息；</li>
+<li>文本增量；</li>
+<li>Tool Call 增量；</li>
+<li>结束原因；</li>
+<li>用量统计；</li>
+<li>空内容或提供商扩展字段。</li>
+</ul>
+<p>因此，不应假设每个 Chunk 都有可打印的文本。</p>
+<span class="heading-anchor" id="3.3 Delta"></span><h3 id="33-delta">3.3 Delta</h3>
+<p>在 Chat Completions 接口中，增量内容通常位于：</p>
+<pre><code class="language-python">chunk.choices[0].delta
+</code></pre>
+<p>普通文本一般位于：</p>
+<pre><code class="language-python">chunk.choices[0].delta.content
+</code></pre>
+<p><code>delta</code> 表示“这次新增了什么”，不是到当前为止的完整答案。应用需要自行拼接。</p>
+<span class="heading-anchor" id="3.4 SSE"></span><h3 id="34-sse">3.4 SSE</h3>
+<p>许多 OpenAI 兼容接口底层使用 Server-Sent Events（SSE）传输流式结果。其 HTTP 响应常见类型为：</p>
+<pre><code class="language-text">Content-Type: text/event-stream
+</code></pre>
+<p>原始事件可能形如：</p>
+<pre><code class="language-text">data: {"choices":[{"delta":{"content":"你"}}]}
+
+data: {"choices":[{"delta":{"content":"好"}}]}
+
+data: [DONE]
+</code></pre>
+<p>使用官方或兼容 SDK 时，SDK 通常已经完成 SSE 解析，业务代码只需遍历 Chunk。</p>
+<blockquote>
+<p>SSE 是单向的服务端到客户端数据流。若业务需要真正的双向实时通信，可以考虑 WebSocket，但不要因为模型输出是流式的就默认必须使用 WebSocket。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="四、环境配置"></span><h2 id="_4">四、环境配置</h2>
+<p>建议通过环境变量保存配置：</p>
+<pre><code class="language-bash">export LLM_API_KEY="your-api-key"
+export LLM_BASE_URL="https://your-provider.example/v1"
+export LLM_MODEL="your-model-name"
+</code></pre>
+<p>安装 Python SDK：</p>
+<pre><code class="language-bash">pip install openai
+</code></pre>
+<p>创建同步客户端：</p>
+<pre><code class="language-python">import os
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ["LLM_API_KEY"],
+    base_url=os.environ["LLM_BASE_URL"],
+)
+
+model = os.environ["LLM_MODEL"]
+</code></pre>
+<blockquote>
+<p>不同兼容服务对 <code>stream_options</code>、Usage、结束标记和扩展字段的支持可能不同，应以实际服务文档和联调结果为准。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="五、同步流式输出"></span><h2 id="_5">五、同步流式输出</h2>
+<span class="heading-anchor" id="5.1 最小示例"></span><h3 id="51">5.1 最小示例</h3>
+<p>同步客户端使用普通 <code>for</code> 循环读取流：</p>
+<pre><code class="language-python">import os
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ["LLM_API_KEY"],
+    base_url=os.environ["LLM_BASE_URL"],
+)
+
+stream = client.chat.completions.create(
+    model=os.environ["LLM_MODEL"],
+    messages=[
+        {"role": "user", "content": "用三句话解释向量数据库。"}
+    ],
+    stream=True,
+)
+
+for chunk in stream:
+    if not chunk.choices:
+        continue
+
+    content = chunk.choices[0].delta.content
+    if content is not None:
+        print(content, end="", flush=True)
+
+print()
+</code></pre>
+<p>关键点：</p>
+<ol>
+<li>请求参数必须包含 <code>stream=True</code>；</li>
+<li>返回值不再是普通完整响应，而是可迭代的流；</li>
+<li><code>chunk.choices</code> 可能为空；</li>
+<li><code>delta.content</code> 可能是 <code>None</code>；</li>
+<li><code>flush=True</code> 可以避免终端缓冲导致内容不能及时显示。</li>
+</ol>
+<span class="heading-anchor" id="5.2 一边展示，一边收集完整答案"></span><h3 id="52">5.2 一边展示，一边收集完整答案</h3>
+<p>真实应用通常既要实时展示，也要保留完整结果：</p>
+<pre><code class="language-python">parts: list[str] = []
+finish_reason = None
+
+stream = client.chat.completions.create(
+    model=os.environ["LLM_MODEL"],
+    messages=[{"role": "user", "content": "介绍 Python 生成器。"}],
+    stream=True,
+)
+
+for chunk in stream:
+    if not chunk.choices:
+        continue
+
+    choice = chunk.choices[0]
+    content = choice.delta.content
+
+    if content:
+        parts.append(content)
+        print(content, end="", flush=True)
+
+    if choice.finish_reason is not None:
+        finish_reason = choice.finish_reason
+
+full_text = "".join(parts)
+
+print("\n\n---")
+print("结束原因：", finish_reason)
+print("完整字符数：", len(full_text))
+</code></pre>
+<p>不要在循环中不断执行：</p>
+<pre><code class="language-python">full_text += content
+</code></pre>
+<p>少量文本问题不大，但对于长文本，先放入列表、最后 <code>"".join(parts)</code> 通常更清晰，也能避免大量重复字符串复制。</p>
+<hr/>
+<span class="heading-anchor" id="六、异步流式输出"></span><h2 id="_6">六、异步流式输出</h2>
+<p>Web 服务需要同时处理多个请求时，通常使用异步客户端：</p>
+<pre><code class="language-python">import asyncio
+import os
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI(
+    api_key=os.environ["LLM_API_KEY"],
+    base_url=os.environ["LLM_BASE_URL"],
+)
+
+
+async def main() -&gt; None:
+    stream = await client.chat.completions.create(
+        model=os.environ["LLM_MODEL"],
+        messages=[
+            {"role": "user", "content": "解释 async for 的作用。"}
+        ],
+        stream=True,
+    )
+
+    parts: list[str] = []
+
+    async for chunk in stream:
+        if not chunk.choices:
+            continue
+
+        content = chunk.choices[0].delta.content
+        if content:
+            parts.append(content)
+            print(content, end="", flush=True)
+
+    print("\n完整结果：", "".join(parts))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</code></pre>
+<p>同步与异步的主要差异：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>客户端</th>
+<th>读取方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>命令行脚本、简单任务</td>
+<td><code>OpenAI</code></td>
+<td><code>for chunk in stream</code></td>
+</tr>
+<tr>
+<td>FastAPI、高并发服务</td>
+<td><code>AsyncOpenAI</code></td>
+<td><code>async for chunk in stream</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>异步流式调用不会让单次模型生成变快，但能减少等待网络数据时对线程的占用，更适合 I/O 密集型并发服务。</p>
+<hr/>
+<span class="heading-anchor" id="七、结束原因与用量统计"></span><h2 id="_7">七、结束原因与用量统计</h2>
+<span class="heading-anchor" id="7.1 finish_reason"></span><h3 id="71-finish_reason">7.1 <code>finish_reason</code></h3>
+<p>流式传输接近结束时，Choice 中可能出现 <code>finish_reason</code>。常见值包括：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stop</code></td>
+<td>正常停止或命中停止序列</td>
+</tr>
+<tr>
+<td><code>length</code></td>
+<td>达到最大输出长度</td>
+</tr>
+<tr>
+<td><code>tool_calls</code></td>
+<td>模型决定调用工具</td>
+</tr>
+<tr>
+<td><code>content_filter</code></td>
+<td>内容受到安全策略限制，具体支持取决于提供商</td>
+</tr>
+</tbody>
+</table></div>
+<p>处理结束原因非常重要。例如，<code>length</code> 表示回答可能被截断，不能把它当作完整结果直接入库。</p>
+<span class="heading-anchor" id="7.2 Usage"></span><h3 id="72-usage">7.2 Usage</h3>
+<p>某些 OpenAI 兼容服务支持在最后的 Chunk 中返回 Token 用量：</p>
+<pre><code class="language-python">stream = client.chat.completions.create(
+    model=os.environ["LLM_MODEL"],
+    messages=[{"role": "user", "content": "解释流式输出。"}],
+    stream=True,
+    stream_options={"include_usage": True},
+)
+
+usage = None
+
+for chunk in stream:
+    if chunk.usage is not None:
+        usage = chunk.usage
+
+    if not chunk.choices:
+        continue
+
+    content = chunk.choices[0].delta.content
+    if content:
+        print(content, end="", flush=True)
+
+print("\nUsage:", usage)
+</code></pre>
+<p>注意：</p>
+<ul>
+<li>Usage 可能只在最后一个 Chunk 中出现；</li>
+<li>带 Usage 的 Chunk 可能没有 <code>choices</code>；</li>
+<li>部分兼容服务不支持 <code>stream_options</code>；</li>
+<li>客户端提前断开时，应用可能拿不到最终 Usage；</li>
+<li>计费应优先使用服务端账单或供应商返回的权威统计。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="八、流式 Tool Calling"></span><h2 id="tool-calling">八、流式 Tool Calling</h2>
+<p>流式场景下，工具名称和参数也可能被拆成多个增量。例如，参数字符串可能依次到达：</p>
+<pre><code class="language-text">{"city"
+:"北
+京"}
+</code></pre>
+<p>因此，单个 Chunk 中的 <code>arguments</code> 往往不是合法完整 JSON。</p>
+<span class="heading-anchor" id="8.1 正确处理原则"></span><h3 id="81">8.1 正确处理原则</h3>
+<ol>
+<li>按 Tool Call 的索引或 ID 聚合增量；</li>
+<li>拼接工具名称和参数字符串；</li>
+<li>等流结束或收到 <code>finish_reason="tool_calls"</code>；</li>
+<li>再执行 JSON 解析和 Schema 校验；</li>
+<li>校验通过后才能调用真实工具。</li>
+</ol>
+<p>简化示例：</p>
+<pre><code class="language-python">import json
+
+pending_calls: dict[int, dict[str, str | None]] = {}
+
+for chunk in stream:
+    if not chunk.choices:
+        continue
+
+    choice = chunk.choices[0]
+    tool_call_deltas = choice.delta.tool_calls or []
+
+    for call_delta in tool_call_deltas:
+        item = pending_calls.setdefault(
+            call_delta.index,
+            {"id": None, "name": "", "arguments": ""},
+        )
+
+        if call_delta.id:
+            item["id"] = call_delta.id
+
+        if call_delta.function:
+            if call_delta.function.name:
+                item["name"] += call_delta.function.name
+            if call_delta.function.arguments:
+                item["arguments"] += call_delta.function.arguments
+
+# 流结束后再解析，不能对半截 JSON 执行工具
+for item in pending_calls.values():
+    arguments = json.loads(item["arguments"] or "{}")
+    print(item["name"], arguments)
+</code></pre>
+<blockquote>
+<p>绝不能在参数尚未接收完整时执行工具。JSON Schema 只能验证参数结构，业务代码仍需执行鉴权、权限控制、取值范围检查和审计。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="九、流式 Structured Output"></span><h2 id="structured-output">九、流式 Structured Output</h2>
+<p>如果要求模型输出 JSON，流式过程中常会依次收到：</p>
+<pre><code class="language-text">{
+  "name":
+  "Alice",
+  "age": 20
+}
+</code></pre>
+<p>中间状态不是完整 JSON，所以以下做法通常不可靠：</p>
+<pre><code class="language-python"># 错误示意：每个增量到达后立刻解析
+json.loads(current_partial_text)
+</code></pre>
+<p>更稳妥的策略是：</p>
+<ol>
+<li>前端可以实时展示普通文本或“正在生成”的状态；</li>
+<li>服务端持续拼接完整字符串；</li>
+<li>流正常结束后再解析 JSON；</li>
+<li>使用 JSON Schema 或数据模型执行整体校验；</li>
+<li>只有校验通过后，才把结果用于后续业务逻辑。</li>
+</ol>
+<p>如果业务要求“页面边生成边得到结构化字段”，应设计专门的增量协议或使用支持增量 JSON 解析的组件，但仍需在最终阶段进行完整校验。</p>
+<hr/>
+<span class="heading-anchor" id="十、在 FastAPI 中转发模型流"></span><h2 id="fastapi">十、在 FastAPI 中转发模型流</h2>
+<p>下面使用 <code>StreamingResponse</code> 把模型增量以 SSE 形式发送给浏览器：</p>
+<pre><code class="language-python">import json
+import os
+from collections.abc import AsyncIterator
+
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
+
+app = FastAPI()
+
+client = AsyncOpenAI(
+    api_key=os.environ["LLM_API_KEY"],
+    base_url=os.environ["LLM_BASE_URL"],
+)
+
+
+def encode_sse(event: str, data: dict) -&gt; str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+async def generate_answer(
+    request: Request,
+    prompt: str,
+) -&gt; AsyncIterator[str]:
+    try:
+        stream = await client.chat.completions.create(
+            model=os.environ["LLM_MODEL"],
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+
+        async for chunk in stream:
+            if await request.is_disconnected():
+                break
+
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            content = choice.delta.content
+
+            if content:
+                yield encode_sse("delta", {"content": content})
+
+            if choice.finish_reason:
+                yield encode_sse(
+                    "finish",
+                    {"reason": choice.finish_reason},
+                )
+
+    except Exception:
+        # 对外返回稳定错误格式；详细异常写入服务端日志。
+        yield encode_sse(
+            "error",
+            {"message": "模型生成失败，请稍后重试"},
+        )
+
+
+@app.get("/chat/stream")
+async def chat_stream(request: Request, prompt: str):
+    return StreamingResponse(
+        generate_answer(request, prompt),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+</code></pre>
+<p>前端接收示意：</p>
+<pre><code class="language-javascript">const source = new EventSource(
+  `/chat/stream?prompt=${encodeURIComponent("解释 RAG")}`
+);
+
+source.addEventListener("delta", (event) =&gt; {
+  const data = JSON.parse(event.data);
+  document.querySelector("#answer").textContent += data.content;
+});
+
+source.addEventListener("finish", (event) =&gt; {
+  console.log("生成结束", JSON.parse(event.data));
+  source.close();
+});
+
+source.addEventListener("error", () =&gt; {
+  source.close();
+});
+</code></pre>
+<p>生产环境还需要考虑：</p>
+<ul>
+<li>身份认证与授权；</li>
+<li>不要通过 GET 查询参数传递敏感内容；</li>
+<li>请求体较复杂时，可以用 <code>fetch</code> 读取流，或先 POST 创建任务再订阅 SSE；</li>
+<li>反向代理缓冲设置；</li>
+<li>心跳与空闲连接超时；</li>
+<li>客户端断开后的上游取消；</li>
+<li>并发数限制和资源回收；</li>
+<li>错误日志、Trace ID 与敏感字段脱敏。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="十一、超时、取消与重试"></span><h2 id="_8">十一、超时、取消与重试</h2>
+<span class="heading-anchor" id="11.1 流式请求有多个时间维度"></span><h3 id="111">11.1 流式请求有多个时间维度</h3>
+<p>流式调用不能只关注一个总超时，至少应区分：</p>
+<ol>
+<li><strong>连接超时</strong>：与服务端建立连接的最大等待时间；</li>
+<li><strong>首块超时</strong>：请求发出后，等待第一个有效 Chunk 的时间；</li>
+<li><strong>块间空闲超时</strong>：两个 Chunk 之间允许的最大间隔；</li>
+<li><strong>业务总超时</strong>：整个生成过程允许持续的最长时间。</li>
+</ol>
+<p>不同 SDK 和 HTTP 客户端对这些超时的配置方式不同，需要结合所用版本验证。</p>
+<span class="heading-anchor" id="11.2 客户端取消"></span><h3 id="112">11.2 客户端取消</h3>
+<p>当用户点击“停止生成”或关闭页面时，应尽快：</p>
+<ol>
+<li>停止前端读取；</li>
+<li>通知应用服务取消任务；</li>
+<li>关闭或退出上游流；</li>
+<li>记录该响应是用户取消，而不是正常完成；</li>
+<li>决定是否保留已经生成的部分内容。</li>
+</ol>
+<p>如果下游已经断开，但服务端仍持续读取模型流，会浪费连接、Token 和费用。</p>
+<span class="heading-anchor" id="11.3 重试边界"></span><h3 id="113">11.3 重试边界</h3>
+<p>流式重试比非流式更复杂：</p>
+<ul>
+<li><strong>收到首个 Chunk 之前失败</strong>：通常可以按网络错误、限流和临时服务错误进行有限重试；</li>
+<li><strong>已经向用户发送部分内容后失败</strong>：不能直接无提示重试，否则可能产生重复或前后不一致的文本；</li>
+<li><strong>工具或写操作已经执行后失败</strong>：必须结合幂等键、执行记录和业务状态判断，不能盲目重放。</li>
+</ul>
+<p>大多数模型接口不保证从中断位置无缝续传。常见产品策略是：</p>
+<ul>
+<li>明确提示“生成已中断”；</li>
+<li>保留已生成内容；</li>
+<li>允许用户重新生成；</li>
+<li>或把已有内容作为上下文，请模型继续，但要接受衔接并不完全可靠。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="十二、背压与并发控制"></span><h2 id="_9">十二、背压与并发控制</h2>
+<span class="heading-anchor" id="12.1 什么是背压"></span><h3 id="121">12.1 什么是背压</h3>
+<p>如果模型产生数据的速度高于下游消费速度，就会出现背压。例如：</p>
+<ul>
+<li>浏览器网络很慢；</li>
+<li>前端渲染频率过高；</li>
+<li>服务端对每个字符都执行数据库写入；</li>
+<li>日志系统同步阻塞。</li>
+</ul>
+<p>应避免无界缓存。可采用：</p>
+<ul>
+<li>有界队列；</li>
+<li>按时间或字符数合并小 Chunk；</li>
+<li>限制单用户并发流数量；</li>
+<li>客户端断开后立即停止上游读取；</li>
+<li>将持久化与展示路径合理解耦。</li>
+</ul>
+<span class="heading-anchor" id="12.2 并发控制"></span><h3 id="122">12.2 并发控制</h3>
+<p>异步不等于无限并发。每个活跃流都会占用：</p>
+<ul>
+<li>上游 API 连接；</li>
+<li>服务端文件描述符和内存；</li>
+<li>模型服务并发额度；</li>
+<li>Token 与费用预算。</li>
+</ul>
+<p>可以用信号量限制并发：</p>
+<pre><code class="language-python">import asyncio
+
+stream_semaphore = asyncio.Semaphore(20)
+
+
+async def limited_stream_call():
+    async with stream_semaphore:
+        # 在这里创建并消费模型流
+        ...
+</code></pre>
+<p>信号量应覆盖真正占用稀缺资源的阶段。对流式请求而言，通常需要覆盖从建立上游流到流消费完成或取消的整个过程。</p>
+<hr/>
+<span class="heading-anchor" id="十三、流式输出的可观测性"></span><h2 id="_10">十三、流式输出的可观测性</h2>
+<p>流式接口只记录“总耗时”是不够的。建议至少采集：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TTFT</td>
+<td>Time To First Token/Chunk，从请求开始到首个有效内容的时间</td>
+</tr>
+<tr>
+<td>总时长</td>
+<td>从请求开始到正常结束或失败的时间</td>
+</tr>
+<tr>
+<td>输出 Token 数</td>
+<td>衡量输出规模与成本</td>
+</tr>
+<tr>
+<td>生成速率</td>
+<td>每秒输出 Token 数或字符数，仅作近似体验指标</td>
+</tr>
+<tr>
+<td>中断率</td>
+<td>因网络、服务错误、超时或用户取消而中断的比例</td>
+</tr>
+<tr>
+<td>首块前失败率</td>
+<td>尚未输出内容就失败的比例</td>
+</tr>
+<tr>
+<td>首块后失败率</td>
+<td>已输出部分内容后失败的比例</td>
+</tr>
+<tr>
+<td>活跃流数量</td>
+<td>当前正在占用资源的流式请求数</td>
+</tr>
+</tbody>
+</table></div>
+<p>日志建议记录：</p>
+<ul>
+<li>请求 ID 和 Trace ID；</li>
+<li>模型与供应商；</li>
+<li>开始、首块、结束时间；</li>
+<li><code>finish_reason</code>；</li>
+<li>Usage（如果可用）；</li>
+<li>错误类别和重试次数；</li>
+<li>是否由用户主动取消。</li>
+</ul>
+<p>不要默认记录完整 Prompt、完整回答、工具参数或敏感个人信息。应根据业务要求进行脱敏、采样和访问控制。</p>
+<hr/>
+<span class="heading-anchor" id="十四、常见误区"></span><h2 id="_11">十四、常见误区</h2>
+<span class="heading-anchor" id="误区 1：一个 Chunk 就是一个 Token"></span><h3 id="1-chunk-token">误区 1：一个 Chunk 就是一个 Token</h3>
+<p>错误。Chunk 是传输和 SDK 封装的数据单元，可能含零个、一个或多个 Token 对应的文本。</p>
+<span class="heading-anchor" id="误区 2：每个 Chunk 都能读取到文本"></span><h3 id="2-chunk">误区 2：每个 Chunk 都能读取到文本</h3>
+<p>错误。它可能只包含角色、结束原因、Usage、Tool Call 增量或空 Choice。</p>
+<span class="heading-anchor" id="误区 3：流式输出能降低模型费用"></span><h3 id="3">误区 3：流式输出能降低模型费用</h3>
+<p>通常不能。费用主要取决于输入和输出 Token。流式输出主要改善交互体验，还可能因为连接管理和代理转发增加工程复杂度。</p>
+<span class="heading-anchor" id="误区 4：收到部分 JSON 就可以执行"></span><h3 id="4-json">误区 4：收到部分 JSON 就可以执行</h3>
+<p>错误。Structured Output 和工具参数在流式过程中可能不是合法完整 JSON，必须先聚合，再解析和校验。</p>
+<span class="heading-anchor" id="误区 5：连接中断后直接自动重试即可"></span><h3 id="5">误区 5：连接中断后直接自动重试即可</h3>
+<p>错误。如果已经展示部分内容或执行过工具，直接重试可能导致文本重复、重复扣费或业务操作重复。</p>
+<span class="heading-anchor" id="误区 6：使用异步客户端就可以无限并发"></span><h3 id="6">误区 6：使用异步客户端就可以无限并发</h3>
+<p>错误。异步只能提高等待 I/O 时的资源利用率，仍需考虑连接数、限流、模型配额和内存。</p>
+<span class="heading-anchor" id="误区 7：前端关闭后，服务端会自动停止所有工作"></span><h3 id="7">误区 7：前端关闭后，服务端会自动停止所有工作</h3>
+<p>不一定。应用需要检测断连并主动结束上游读取，否则模型可能继续生成。</p>
+<span class="heading-anchor" id="误区 8：SSE 和 WebSocket 是同一个东西"></span><h3 id="8sse-websocket">误区 8：SSE 和 WebSocket 是同一个东西</h3>
+<p>错误。SSE 主要是服务端到客户端的单向事件流；WebSocket 是全双工通信协议。</p>
+<hr/>
+<span class="heading-anchor" id="十五、实践任务"></span><h2 id="_12">十五、实践任务</h2>
+<span class="heading-anchor" id="任务 1：命令行流式聊天"></span><h3 id="1">任务 1：命令行流式聊天</h3>
+<p>实现一个命令行程序：</p>
+<ol>
+<li>用户输入问题；</li>
+<li>模型内容实时打印；</li>
+<li>流结束后输出 <code>finish_reason</code>；</li>
+<li>同时保存完整回答；</li>
+<li>输入 <code>exit</code> 时退出。</li>
+</ol>
+<span class="heading-anchor" id="任务 2：中断处理"></span><h3 id="2">任务 2：中断处理</h3>
+<p>在任务 1 基础上增加：</p>
+<ul>
+<li>捕获 <code>KeyboardInterrupt</code>；</li>
+<li>用户按 <code>Ctrl+C</code> 时停止读取；</li>
+<li>明确标记回答为“已取消”，不要伪装成正常完成。</li>
+</ul>
+<span class="heading-anchor" id="任务 3：流式 JSON"></span><h3 id="3-json">任务 3：流式 JSON</h3>
+<p>要求模型输出一个 JSON 对象：</p>
+<ol>
+<li>实时收集增量；</li>
+<li>不在中间过程执行 <code>json.loads</code>；</li>
+<li>流结束后统一解析；</li>
+<li>对必填字段和类型进行校验；</li>
+<li>对截断或非法 JSON 给出可理解的错误。</li>
+</ol>
+<span class="heading-anchor" id="任务 4：Web SSE 转发"></span><h3 id="4web-sse">任务 4：Web SSE 转发</h3>
+<p>使用 FastAPI 实现：</p>
+<ul>
+<li>模型增量转发；</li>
+<li><code>delta</code>、<code>finish</code>、<code>error</code> 三种事件；</li>
+<li>客户端断开检测；</li>
+<li>并发限制；</li>
+<li>TTFT 和总时长日志。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="十六、自测题"></span><h2 id="_13">十六、自测题</h2>
+<ol>
+<li>非流式输出和流式输出最主要的体验差异是什么？</li>
+<li>为什么不能假设一个 Chunk 对应一个 Token？</li>
+<li>为什么读取 <code>delta.content</code> 前需要判空？</li>
+<li>为什么 Tool Calling 的参数不能在每个 Chunk 到达时立即解析并执行？</li>
+<li><code>finish_reason="length"</code> 说明了什么？</li>
+<li>为什么有些携带 Usage 的 Chunk 可能没有 <code>choices</code>？</li>
+<li>流已经向用户输出一半后发生网络错误，为什么不能盲目自动重试？</li>
+<li>TTFT 与总生成时长分别衡量什么？</li>
+<li>浏览器关闭页面后，服务端为什么还要主动取消上游流？</li>
+<li>异步流式调用为什么仍然需要并发限制？</li>
+</ol>
+<span class="heading-anchor" id="参考答案"></span><h3 id="_14">参考答案</h3>
+<ol>
+<li>流式输出能更早展示增量内容，降低用户感知的首字等待时间。</li>
+<li>Chunk 是传输数据块，SDK 或服务端可能合并、拆分 Token，也可能发送不含文本的控制信息。</li>
+<li>Chunk 可能只携带角色、工具调用、结束原因或 Usage，<code>content</code> 可能为 <code>None</code>。</li>
+<li>参数可能只是半截 JSON；应先完整聚合，再解析、校验和执行。</li>
+<li>输出达到长度上限，回答可能被截断。</li>
+<li>服务可能使用单独的最终 Chunk 返回 Usage，而该 Chunk 不包含普通候选内容。</li>
+<li>重试可能产生重复文本、不一致回答、重复费用，甚至重复执行有副作用的操作。</li>
+<li>TTFT 衡量首个有效内容出现前的等待时间；总时长衡量整个请求从开始到结束的时间。</li>
+<li>下游断开不一定自动终止上游生成，不主动取消会继续占用连接和费用。</li>
+<li>每条流仍会占用连接、内存、模型并发额度和 Token 预算。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="十七、本课小结"></span><h2 id="_15">十七、本课小结</h2>
+<p>流式输出的核心并不是“逐字打印”，而是正确处理一个长期存在、持续产生增量的请求生命周期：</p>
+<pre><code class="language-text">创建请求
+  → 等待首块
+  → 持续读取 Delta
+  → 展示并聚合内容
+  → 处理结束原因与 Usage
+  → 正常完成、失败或取消
+  → 释放资源并记录指标
+</code></pre>
+<p>开发时应重点记住：</p>
+<ul>
+<li><code>stream=True</code> 开启流式响应；</li>
+<li>同步代码使用 <code>for</code>，异步代码使用 <code>async for</code>；</li>
+<li>Chunk 不等于 Token，也不一定包含文本；</li>
+<li>完整文本需要应用自行聚合；</li>
+<li>Tool Call 和 JSON 必须等增量完整后再解析、校验和执行；</li>
+<li>首块前失败与首块后失败应采用不同重试策略；</li>
+<li>客户端取消、背压、并发控制和可观测性是生产环境的必修内容。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_16">相关笔记</h2>
+<ul>
+<li><a href="n-f1f103b0caf3.html">第 01 课：OpenAI 兼容接口</a></li>
+<li><a href="n-1b75cde0ec6f.html">第 05 课：JSON Schema</a></li>
+<li><a href="n-9a343f7b5d80.html">第 06 课：Function Calling / Tool Calling</a></li>
+<li><a href="n-762e3f71ec9c.html">第二阶段课程总览</a></li>
+</ul>
+<span class="heading-anchor" id="来源说明"></span><h2 id="_17">来源说明</h2>
+<ul>
+<li>课程名称与顺序依据项目现有的第二阶段课程总览 <code>README.md</code>。</li>
+<li>同步流式读取方式以及 OpenAI 兼容客户端的基础配置，参考项目现有笔记 <code>01-OpenAI兼容接口.md</code>。</li>
+<li>Tool Calling 的权限与 Schema 校验原则，与项目现有笔记 <code>06-Function-Calling-Tool-Calling.md</code> 保持一致。</li>
+<li>SSE、异步流式转发、增量聚合、取消、背压、重试边界和可观测性等详细内容属于通用工程知识补充；当前项目检索结果未提供第 07 课的完整原始讲义，具体兼容性应以所使用模型服务和 SDK 版本为准。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

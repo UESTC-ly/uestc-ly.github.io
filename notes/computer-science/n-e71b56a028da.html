@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>HTTP、WebSocket、RPC · 李杨的学习笔记</title><meta name="description" content="HTTP/1.1 是文本头部加可选 body 的请求响应协议。典型请求："><meta property="og:title" content="HTTP、WebSocket、RPC · 李杨的学习笔记"><meta property="og:description" content="HTTP/1.1 是文本头部加可选 body 的请求响应协议。典型请求："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-e71b56a028da.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-e71b56a028da.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>HTTP、WebSocket、RPC</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/05-HTTP-WebSocket-RPC.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#http11">HTTP/1.1 要点</a></li><li><a href="#http11_1">HTTP/1.1 的数据边界</a></li><li><a href="#keep-alive">keep-alive</a></li><li><a href="#_3">队头阻塞</a></li><li><a href="#websocket">WebSocket</a></li><li><a href="#websocket_1">WebSocket 连接管理</a></li><li><a href="#rpc">RPC 调用链</a></li><li><a href="#status">status 与错误模型</a></li><li><a href="#idl">IDL 与序列化</a></li><li><a href="#_4">超时与取消</a></li><li><a href="#deadline">deadline 传播</a></li><li><a href="#_5">服务治理</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#http">HTTP 解析边界</a></li><li><a href="#rpc-deadline">RPC deadline 伪代码</a></li><li><a href="#websocket_2">WebSocket 心跳</a></li><li><a href="#_7">故障排查/观测</a></li><li><a href="#httpwebsocket">HTTP/WebSocket 观测</a></li><li><a href="#rpc_1">RPC 调用链排查</a></li><li><a href="#_8">推导示例</a></li><li><a href="#http-body">HTTP body 长度判断</a></li><li><a href="#rpc_2">RPC 重试是否安全</a></li><li><a href="#rpc-deadline_1">如何讲 RPC deadline</a></li><li><a href="#_9">最小验收清单</a></li><li><a href="#_10">常见误区</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握 HTTP/1.1 的请求响应、连接复用和常见边界。</li>
+<li>理解 WebSocket 握手、帧和心跳。</li>
+<li>理解 RPC 从 IDL 到序列化、连接、超时、取消和服务治理的调用链。</li>
+<li>能在工程中区分协议、框架和治理能力。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="HTTP/1.1 要点"></span><h3 id="http11">HTTP/1.1 要点</h3>
+<p>HTTP/1.1 是文本头部加可选 body 的请求响应协议。典型请求：</p>
+<pre><code class="language-http">GET /users/42 HTTP/1.1
+Host: example.com
+Connection: keep-alive
+
+</code></pre>
+<p>关键点：</p>
+<ul>
+<li>请求行：方法、路径、版本。</li>
+<li>响应行：版本、状态码、原因短语。</li>
+<li>Header：元数据，例如 <code>Host</code>、<code>Content-Length</code>、<code>Transfer-Encoding</code>。</li>
+<li>Body：可选，长度由 <code>Content-Length</code> 或 chunked 等机制确定。</li>
+<li>一个 TCP 连接上可以处理多个请求，称为 keep-alive。</li>
+</ul>
+<p>HTTP/1.1 默认支持持久连接，但服务端仍可根据空闲超时、错误或策略关闭连接。</p>
+<span class="heading-anchor" id="HTTP/1.1 的数据边界"></span><h3 id="http11_1">HTTP/1.1 的数据边界</h3>
+<p>HTTP 解析要先读 header，再根据规则确定 body 长度。请求方法、响应状态码、<code>Content-Length</code>、<code>Transfer-Encoding: chunked</code> 等规则共同决定不同报文的 body 语义，不能混用成“读到 close 为止”的简单模型，否则 keep-alive 下会把下一个报文的数据误当成当前 body。具体语义以 RFC 和框架实现为准。</p>
+<p>请求处理流：</p>
+<pre><code class="language-text">read bytes -&gt; parse request line/header -&gt; decide body framing -&gt; read body -&gt; route -&gt; write response -&gt; keep/close
+</code></pre>
+<p>服务端应限制请求行、header 总量、单 header、body 大小和读取时间。HTTP parser 是安全边界，不只是字符串处理。</p>
+<h3 id="keep-alive">keep-alive</h3>
+<p>keep-alive 的好处是减少 TCP 握手开销，风险是长连接占用 fd 和内存。服务端通常要配置：</p>
+<ul>
+<li>最大空闲时间。</li>
+<li>单连接最大请求数。</li>
+<li>请求头/body 最大大小。</li>
+<li>慢请求或慢 body 的读取超时。</li>
+</ul>
+<span class="heading-anchor" id="队头阻塞"></span><h3 id="_3">队头阻塞</h3>
+<p>HTTP/1.1 单连接上请求和响应顺序受限制，慢请求或慢响应会影响后续请求。即使客户端使用 pipeline，服务端和中间代理支持也有限，工程上更常见的是多连接或 HTTP/2 多路复用。学习 HTTP/1.1 时要先把连接复用、空闲超时和请求顺序处理清楚，再比较 HTTP/2 的差异。</p>
+<span class="heading-anchor" id="WebSocket"></span><h3 id="websocket">WebSocket</h3>
+<p>WebSocket 先通过 HTTP Upgrade 握手：</p>
+<pre><code class="language-http">GET /chat HTTP/1.1
+Host: example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: ...
+Sec-WebSocket-Version: 13
+</code></pre>
+<p>握手成功后，连接从 HTTP 请求响应切换成 WebSocket 帧协议。</p>
+<p>WebSocket 帧关注：</p>
+<ul>
+<li>opcode：文本、二进制、关闭、ping、pong。</li>
+<li>mask：客户端到服务端帧需要 mask，具体规则以 RFC 为准。</li>
+<li>payload length：可能使用扩展长度。</li>
+<li>ping/pong：应用层保活。</li>
+</ul>
+<span class="heading-anchor" id="WebSocket 连接管理"></span><h3 id="websocket_1">WebSocket 连接管理</h3>
+<p>WebSocket 是长连接，认证、限流和资源管理不能只在握手时做一次。服务端通常需要连接上限、每连接订阅数上限、消息大小上限、心跳超时、认证过期处理和慢客户端背压。浏览器、代理和移动网络可能在空闲时断开连接，因此 ping/pong 更像可观测的存活检测，不是可靠业务确认。</p>
+<span class="heading-anchor" id="RPC 调用链"></span><h3 id="rpc">RPC 调用链</h3>
+<p>一次 RPC 通常经过：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as Client Stub
+    participant LB as Name Resolver/LB
+    participant N as Network
+    participant S as Server Stub
+    participant B as Business
+    C-&gt;&gt;LB: resolve service
+    C-&gt;&gt;C: serialize request
+    C-&gt;&gt;N: send with deadline
+    N-&gt;&gt;S: receive/decode
+    S-&gt;&gt;B: invoke method
+    B--&gt;&gt;S: result/error
+    S--&gt;&gt;C: serialize response
+</pre>
+<p>RPC 框架通常封装：</p>
+<ul>
+<li>IDL：定义服务、方法、请求和响应。</li>
+<li>序列化：Protobuf、Thrift 等。</li>
+<li>传输：HTTP/2、TCP、自定义协议等。</li>
+<li>超时和取消：deadline、context cancellation。</li>
+<li>负载均衡和服务发现。</li>
+<li>重试、熔断、限流和监控。</li>
+</ul>
+<span class="heading-anchor" id="status 与错误模型"></span><h3 id="status">status 与错误模型</h3>
+<p>RPC 错误要区分传输错误、协议错误、服务不可用、超时取消和业务错误。传输错误通常不知道服务端是否执行；业务错误表示请求到达并被明确拒绝；超时可能在任意阶段发生。错误模型如果混乱，客户端就无法判断是否能重试。</p>
+<p>一个清晰的 RPC 响应至少包含稳定 status code、可观测 request id、可选业务错误详情和是否可重试的策略来源。不要把所有失败都映射成 <code>Internal</code> 或 HTTP 500。</p>
+<span class="heading-anchor" id="IDL 与序列化"></span><h3 id="idl">IDL 与序列化</h3>
+<p>IDL 的价值在于把跨语言接口固定下来，使 client stub 和 server stub 能由工具生成。序列化只是其中一层。一个好的 RPC 设计还要明确错误模型、超时语义和兼容策略。</p>
+<span class="heading-anchor" id="超时与取消"></span><h3 id="_4">超时与取消</h3>
+<p>RPC 必须有 deadline。没有超时的调用会在故障时堆积线程、连接和内存。</p>
+<p>取消要沿调用链传播：</p>
+<pre><code class="language-text">client timeout -&gt; cancel local wait -&gt; stop retry -&gt; propagate cancellation -&gt; server stops unnecessary work
+</code></pre>
+<p>如果服务端不能感知取消，客户端虽然返回了，后端仍可能继续消耗资源。</p>
+<span class="heading-anchor" id="deadline 传播"></span><h3 id="deadline">deadline 传播</h3>
+<p>deadline 是绝对截止时间或可推导的剩余预算，不是每一层重新设置的固定 timeout。A 调 B 还有 80 ms，B 调 C 就不能再给 C 500 ms。服务端收到 deadline 后要在排队、获取连接、执行 SQL/RPC 和写响应前反复检查剩余时间。</p>
+<span class="heading-anchor" id="服务治理"></span><h3 id="_5">服务治理</h3>
+<p>服务治理是围绕 RPC 的运行时能力：</p>
+<ul>
+<li>服务发现：找到可用实例。</li>
+<li>负载均衡：分配请求。</li>
+<li>健康检查：剔除异常实例。</li>
+<li>熔断限流：保护依赖和自身。</li>
+<li>观测性：日志、指标、trace。</li>
+<li>灰度发布：按版本、标签或流量比例路由。</li>
+</ul>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<span class="heading-anchor" id="HTTP 解析边界"></span><h3 id="http">HTTP 解析边界</h3>
+<p>解析 HTTP 时至少限制：</p>
+<ul>
+<li>请求行长度。</li>
+<li>header 总大小和单 header 大小。</li>
+<li>body 大小。</li>
+<li>header 读取超时。</li>
+<li>keep-alive 空闲超时。</li>
+</ul>
+<p>这些限制是安全边界，不只是性能参数。</p>
+<span class="heading-anchor" id="RPC deadline 伪代码"></span><h3 id="rpc-deadline">RPC deadline 伪代码</h3>
+<pre><code class="language-cpp">RpcResult callUserService(Request req, Deadline deadline) {
+    if (deadline.expired()) return RpcError::Timeout;
+
+    auto conn = pool.acquire(deadline.remaining());
+    if (!conn) return RpcError::Unavailable;
+
+    auto callId = conn-&gt;send(req, deadline);
+    auto res = conn-&gt;wait(callId, deadline.remaining());
+    if (res.timeout()) {
+        conn-&gt;cancel(callId);
+        return RpcError::Timeout;
+    }
+    return res;
+}
+</code></pre>
+<span class="heading-anchor" id="WebSocket 心跳"></span><h3 id="websocket_2">WebSocket 心跳</h3>
+<p>服务端可以记录每个连接的最后 pong 时间：</p>
+<pre><code class="language-text">every heartbeatInterval:
+  send ping
+  if now - lastPong &gt; heartbeatTimeout:
+      close connection
+</code></pre>
+<p>心跳间隔和超时要结合移动网络、代理和业务实时性设定。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_7">故障排查/观测</h2>
+<span class="heading-anchor" id="HTTP/WebSocket 观测"></span><h3 id="httpwebsocket">HTTP/WebSocket 观测</h3>
+<p>HTTP 服务至少记录方法、路径模板、状态码、请求大小、响应大小、处理耗时、连接复用信息和限流/超时原因。WebSocket 还要记录连接数、消息速率、ping/pong 延迟、输出缓冲区大小、断开原因和认证刷新失败次数。</p>
+<span class="heading-anchor" id="RPC 调用链排查"></span><h3 id="rpc_1">RPC 调用链排查</h3>
+<p>RPC 问题按阶段拆：解析服务名、获取连接、排队、序列化、网络发送、服务端排队、业务执行、下游调用、响应解码。trace 能显示时间花在哪里；指标要区分 deadline exceeded、cancelled、unavailable、resource exhausted 和业务拒绝。重试日志应包含 attempt、退避时间、剩余 deadline 和最终状态。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_8">推导示例</h2>
+<span class="heading-anchor" id="HTTP body 长度判断"></span><h3 id="http-body">HTTP body 长度判断</h3>
+<p>一个 keep-alive 连接上，服务端不能通过“读到连接关闭”判断普通请求体结束，因为连接关闭还意味着无法复用后续请求。解析器必须根据方法、状态码、<code>Content-Length</code>、chunked 等规则确定 body 边界；遇到冲突或超过限制时返回 400/413 并关闭或丢弃连接，具体策略取决于框架和协议版本。</p>
+<span class="heading-anchor" id="RPC 重试是否安全"></span><h3 id="rpc_2">RPC 重试是否安全</h3>
+<p>读请求通常更容易重试，写请求必须先证明幂等。比如 <code>CreateOrder</code> 可以要求客户端提供 idempotency key，服务端用唯一约束保存 key 与结果。第一次执行成功但响应丢失时，第二次请求命中同一 key，返回第一次结果，而不是创建第二个订单。</p>
+<span class="heading-anchor" id="如何讲 RPC deadline"></span><h3 id="rpc-deadline_1">如何讲 RPC deadline</h3>
+<p>deadline 是调用链预算，不是单个 socket 读超时。讲清楚时要覆盖排队、连接池获取、序列化、网络传输、服务端执行、下游调用和取消传播。没有取消传播时，客户端超时只能释放本地等待，不能释放服务端资源。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_9">最小验收清单</h3>
+<ul>
+<li>HTTP parser 有 header/body 大小和时间限制。</li>
+<li>WebSocket 有心跳、消息上限和慢客户端策略。</li>
+<li>RPC status 区分取消、超时、不可用和业务错误。</li>
+<li>重试只发生在幂等或可去重请求上。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_10">常见误区</h2>
+<ul>
+<li>把 HTTP keep-alive 当成业务心跳。</li>
+<li>只给客户端设置超时，不给服务端和下游依赖设置 deadline。</li>
+<li>RPC 重试没有幂等判断，导致重复扣款或重复写入。</li>
+<li>WebSocket 长连接不做认证刷新、心跳和连接上限。</li>
+<li>服务治理只接入注册中心，不做指标、熔断和限流。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li>HTTP/1.1 如何确定 body 长度？</li>
+<li>keep-alive 的收益和资源成本是什么？</li>
+<li>WebSocket 握手为什么从 HTTP Upgrade 开始？</li>
+<li>RPC deadline 和 socket read timeout 有什么区别？</li>
+<li>为什么 RPC 重试需要幂等设计？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<ul>
+<li>写一个最小 HTTP parser，只支持 <code>GET</code> 和 <code>Content-Length</code>，并限制 header 大小。</li>
+<li>给 TCP 服务加 WebSocket ping/pong 心跳模型。</li>
+<li>用 Protobuf 定义一个简单 RPC 方法，并手写 client/server stub 的伪实现。</li>
+<li>为 RPC 调用加入 deadline、取消和一次受控重试。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_13">延伸阅读</h2>
+<ul>
+<li>HTTP Semantics: https://www.rfc-editor.org/rfc/rfc9110</li>
+<li>HTTP/1.1: https://www.rfc-editor.org/rfc/rfc9112</li>
+<li>WebSocket RFC: https://www.rfc-editor.org/rfc/rfc6455</li>
+<li>gRPC 官方文档: https://grpc.io/docs/</li>
+<li>Protobuf 官方文档: https://protobuf.dev/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

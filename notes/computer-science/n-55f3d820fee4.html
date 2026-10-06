@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07 - 复制、哨兵与高可用 · 李杨的学习笔记</title><meta name="description" content="目标：理解 Redis 如何通过复制（Replication）扩展读能力、通过 Sentinel（哨兵）发现故障并完成主从切换；知道它能解决什么，不能解决什么。"><meta property="og:title" content="07 - 复制、哨兵与高可用 · 李杨的学习笔记"><meta property="og:description" content="目标：理解 Redis 如何通过复制（Replication）扩展读能力、通过 Sentinel（哨兵）发现故障并完成主从切换；知道它能解决什么，不能解决什么。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-55f3d820fee4.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-55f3d820fee4.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>07 - 复制、哨兵与高可用</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/07-%E5%A4%8D%E5%88%B6%E5%93%A8%E5%85%B5%E4%B8%8E%E9%AB%98%E5%8F%AF%E7%94%A8.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#1-replication">1. 主从复制（Replication）</a></li><li><a href="#2">2. 全量同步与增量同步</a></li><li><a href="#3">3. 复制偏移量与复制积压缓冲区</a></li><li><a href="#4">4. 异步复制与数据安全边界</a></li><li><a href="#5-sentinel">5. Sentinel（哨兵）</a></li><li><a href="#6">6. 主观下线与客观下线</a></li><li><a href="#7-sentinel">7. Sentinel 故障转移流程</a></li><li><a href="#_3">关键命令 / 配置</a></li><li><a href="#_4">复制相关命令</a></li><li><a href="#_5">复制相关配置</a></li><li><a href="#sentinel">Sentinel 常用配置</a></li><li><a href="#sentinel_1">Sentinel 查询命令</a></li><li><a href="#_6">示例：本机搭建一主两从三哨兵</a></li><li><a href="#1-redis">1. 准备三个 Redis 实例</a></li><li><a href="#2-sentinel">2. 准备三个 Sentinel 实例</a></li><li><a href="#3_1">3. 演练故障转移</a></li><li><a href="#_7">常见误区</a></li><li><a href="#1">误区 1：有复制就不会丢数据</a></li><li><a href="#2sentinel">误区 2：Sentinel 等于数据备份</a></li><li><a href="#3_2">误区 3：从库读一定是最新数据</a></li><li><a href="#4-sentinel">误区 4：部署两个 Sentinel 就足够可靠</a></li><li><a href="#5">误区 5：只要自动切换就没有脑裂</a></li><li><a href="#6replica">误区 6：Replica 可以随便写</a></li><li><a href="#_8">实践检查清单</a></li><li><a href="#_9">复制检查</a></li><li><a href="#sentinel_2">Sentinel 检查</a></li><li><a href="#_10">数据安全检查</a></li><li><a href="#_11">延伸阅读关键词</a></li><li><a href="#_12">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标：理解 Redis 如何通过复制（Replication）扩展读能力、通过 Sentinel（哨兵）发现故障并完成主从切换；知道它能解决什么，不能解决什么。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本章，你应该能够：</p>
+<ul>
+<li>解释 Redis 主从复制的基本流程：连接、全量同步、增量同步、命令传播。</li>
+<li>区分复制、持久化、备份、高可用之间的关系。</li>
+<li>使用 <code>replicaof</code> / <code>REPLICAOF</code> 搭建一主多从结构。</li>
+<li>理解 Sentinel 的监控、主观下线、客观下线、故障转移与配置改写。</li>
+<li>读懂常见复制与哨兵配置，并能做基础排障。</li>
+<li>识别 Redis 高可用方案中的常见误区：异步复制丢数据、脑裂、只读从库延迟等。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="1. 主从复制（Replication）"></span><h3 id="1-replication">1. 主从复制（Replication）</h3>
+<p>Redis 复制是 <strong>一个主节点（master）把数据变化异步传播到一个或多个从节点（replica）</strong> 的机制。</p>
+<p>常见用途：</p>
+<ul>
+<li><strong>读写分离</strong>：主库处理写请求，从库承担读请求。</li>
+<li><strong>故障恢复基础</strong>：主库故障时，从库可被提升为新主库。</li>
+<li><strong>数据冗余</strong>：多个副本降低单点数据不可用风险。</li>
+<li><strong>备份辅助</strong>：可在从库上执行备份，减少主库压力。</li>
+</ul>
+<p>注意：Redis 5.0 以后官方文档逐步使用 <code>replica</code> 替代 <code>slave</code>，但旧命令和配置中仍可能看到 <code>slave</code> 字样，例如 <code>INFO replication</code> 输出里的历史字段。</p>
+<span class="heading-anchor" id="2. 全量同步与增量同步"></span><h3 id="2">2. 全量同步与增量同步</h3>
+<p>当一个 replica 第一次连接 master，或复制积压缓冲区无法覆盖断线期间的数据时，会发生 <strong>全量同步</strong>：</p>
+<ol>
+<li>replica 向 master 发起同步请求。</li>
+<li>master 生成 RDB 快照，并继续记录后续写命令。</li>
+<li>master 把 RDB 发送给 replica。</li>
+<li>replica 加载 RDB。</li>
+<li>master 将快照期间积累的写命令继续发送给 replica。</li>
+</ol>
+<p>如果 replica 短暂断线后重连，并且 master 的复制积压缓冲区仍保留断线期间的写命令，则可进行 <strong>增量同步</strong>（PSYNC 部分重同步），避免重新传输完整数据集。</p>
+<span class="heading-anchor" id="3. 复制偏移量与复制积压缓冲区"></span><h3 id="3">3. 复制偏移量与复制积压缓冲区</h3>
+<p>Redis 通过复制偏移量追踪主从同步位置：</p>
+<ul>
+<li>master 维护写命令流的偏移量。</li>
+<li>replica 记录自己同步到的位置。</li>
+<li><code>repl-backlog-size</code> 决定 master 保存最近写命令的缓冲区大小。</li>
+</ul>
+<p>如果断线时间较长、写入量较大，缓冲区被覆盖，replica 重连时就无法增量同步，只能全量同步。</p>
+<span class="heading-anchor" id="4. 异步复制与数据安全边界"></span><h3 id="4">4. 异步复制与数据安全边界</h3>
+<p>Redis 复制默认是 <strong>异步</strong> 的：master 写成功后通常不会等待所有 replica 确认。</p>
+<p>这意味着：</p>
+<ul>
+<li>性能高，写入延迟低。</li>
+<li>master 宕机时，尚未复制到 replica 的写入可能丢失。</li>
+<li>Sentinel 或 Cluster 的自动故障转移不能保证零数据丢失。</li>
+</ul>
+<p>可以用 <code>WAIT</code> 命令或 <code>min-replicas-to-write</code> 配置增强写入安全，但这会增加延迟，并且仍不等价于传统强一致事务。</p>
+<span class="heading-anchor" id="5. Sentinel（哨兵）"></span><h3 id="5-sentinel">5. Sentinel（哨兵）</h3>
+<p>Sentinel 是 Redis 的高可用组件，主要职责：</p>
+<ul>
+<li><strong>监控（Monitoring）</strong>：定期检查 master、replica、其他 sentinel 是否存活。</li>
+<li><strong>通知（Notification）</strong>：发现故障后可通过脚本或日志通知外部系统。</li>
+<li><strong>自动故障转移（Automatic failover）</strong>：master 不可用时，选举一个 replica 为新 master。</li>
+<li><strong>配置提供者（Configuration provider）</strong>：客户端可向 Sentinel 查询当前 master 地址。</li>
+</ul>
+<p>Sentinel 本身通常也要部署多个实例，常见为 3 个或 5 个，以避免单个哨兵误判。</p>
+<span class="heading-anchor" id="6. 主观下线与客观下线"></span><h3 id="6">6. 主观下线与客观下线</h3>
+<p>Sentinel 判断故障分两层：</p>
+<ul>
+<li><strong>主观下线（SDOWN）</strong>：某个 Sentinel 自己认为 master 不可达。</li>
+<li><strong>客观下线（ODOWN）</strong>：足够数量的 Sentinel 都认为 master 不可达，达到 <code>quorum</code> 后才认为 master 客观下线。</li>
+</ul>
+<p><code>quorum</code> 不是“同意故障转移所需的全部票数”，而是“确认 master 故障所需的 Sentinel 数量”。真正执行故障转移还需要 Sentinel 之间进行 leader 选举。</p>
+<span class="heading-anchor" id="7. Sentinel 故障转移流程"></span><h3 id="7-sentinel">7. Sentinel 故障转移流程</h3>
+<p>简化流程：</p>
+<ol>
+<li>多个 Sentinel 监控同一个 master。</li>
+<li>master 超过 <code>down-after-milliseconds</code> 未响应。</li>
+<li>Sentinel 进入主观下线判断。</li>
+<li>达到 <code>quorum</code> 后进入客观下线。</li>
+<li>Sentinel 选举故障转移 leader。</li>
+<li>leader 从 replicas 中选择一个提升为新 master。</li>
+<li>其他 replicas 改为复制新 master。</li>
+<li>Sentinel 改写本地配置，客户端通过 Sentinel 发现新 master。</li>
+</ol>
+<span class="heading-anchor" id="关键命令 / 配置"></span><h2 id="_3">关键命令 / 配置</h2>
+<span class="heading-anchor" id="复制相关命令"></span><h3 id="_4">复制相关命令</h3>
+<pre><code class="language-bash"># 查看复制状态
+redis-cli INFO replication
+
+# 将当前实例设置为某个 master 的 replica
+redis-cli REPLICAOF 127.0.0.1 6379
+
+# 取消复制，提升为独立 master
+redis-cli REPLICAOF NO ONE
+
+# 旧版本命令，Redis 5.0 前更常见；Redis 7.x 仍兼容
+redis-cli SLAVEOF 127.0.0.1 6379
+redis-cli SLAVEOF NO ONE
+
+# 写入后等待至少 1 个副本确认，最多等待 1000 ms
+redis-cli WAIT 1 1000
+</code></pre>
+<span class="heading-anchor" id="复制相关配置"></span><h3 id="_5">复制相关配置</h3>
+<pre><code class="language-conf"># redis.conf
+
+# 启动时直接成为某个 master 的 replica
+replicaof 127.0.0.1 6379
+
+# master 设置密码时，replica 用它认证 master
+masterauth your_password
+
+# replica 默认只读，避免误写
+replica-read-only yes
+
+# 复制积压缓冲区大小，影响断线后能否增量同步
+repl-backlog-size 64mb
+
+# 至少有 1 个延迟不超过 10 秒的 replica，master 才接受写入
+min-replicas-to-write 1
+min-replicas-max-lag 10
+</code></pre>
+<span class="heading-anchor" id="Sentinel 常用配置"></span><h3 id="sentinel">Sentinel 常用配置</h3>
+<pre><code class="language-conf"># sentinel.conf
+
+# 监控名为 mymaster 的 master，地址 127.0.0.1:6379，至少 2 个 Sentinel 同意才客观下线
+sentinel monitor mymaster 127.0.0.1 6379 2
+
+# master 多久无响应后，被单个 Sentinel 判断为主观下线
+sentinel down-after-milliseconds mymaster 5000
+
+# 故障转移时，同时允许几个 replica 重新复制新 master
+sentinel parallel-syncs mymaster 1
+
+# 故障转移超时时间
+sentinel failover-timeout mymaster 60000
+
+# master 需要认证时，Sentinel 使用此密码连接
+sentinel auth-pass mymaster your_password
+</code></pre>
+<p>启动 Sentinel：</p>
+<pre><code class="language-bash">redis-sentinel sentinel.conf
+# 或
+redis-server sentinel.conf --sentinel
+</code></pre>
+<span class="heading-anchor" id="Sentinel 查询命令"></span><h3 id="sentinel_1">Sentinel 查询命令</h3>
+<pre><code class="language-bash"># 查看当前 master 地址
+redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster
+
+# 查看 Sentinel 认识的 replicas
+redis-cli -p 26379 SENTINEL replicas mymaster
+
+# 查看 Sentinel 认识的其他 sentinels
+redis-cli -p 26379 SENTINEL sentinels mymaster
+
+# 手动触发故障转移，常用于演练
+redis-cli -p 26379 SENTINEL failover mymaster
+</code></pre>
+<span class="heading-anchor" id="示例：本机搭建一主两从三哨兵"></span><h2 id="_6">示例：本机搭建一主两从三哨兵</h2>
+<blockquote>
+<p>仅用于学习环境。生产环境应分布在不同主机或可用区，并结合认证、网络隔离、监控与备份。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 准备三个 Redis 实例"></span><h3 id="1-redis">1. 准备三个 Redis 实例</h3>
+<p>目录示例：</p>
+<pre><code class="language-text">redis-lab/
+  6379/redis.conf
+  6380/redis.conf
+  6381/redis.conf
+</code></pre>
+<p><code>6379/redis.conf</code>：</p>
+<pre><code class="language-conf">port 6379
+dir ./6379
+dbfilename dump.rdb
+appendonly yes
+</code></pre>
+<p><code>6380/redis.conf</code>：</p>
+<pre><code class="language-conf">port 6380
+dir ./6380
+dbfilename dump.rdb
+appendonly yes
+replicaof 127.0.0.1 6379
+</code></pre>
+<p><code>6381/redis.conf</code>：</p>
+<pre><code class="language-conf">port 6381
+dir ./6381
+dbfilename dump.rdb
+appendonly yes
+replicaof 127.0.0.1 6379
+</code></pre>
+<p>启动：</p>
+<pre><code class="language-bash">redis-server 6379/redis.conf
+redis-server 6380/redis.conf
+redis-server 6381/redis.conf
+</code></pre>
+<p>验证：</p>
+<pre><code class="language-bash">redis-cli -p 6379 SET course redis-ha
+redis-cli -p 6380 GET course
+redis-cli -p 6381 GET course
+redis-cli -p 6379 INFO replication
+</code></pre>
+<span class="heading-anchor" id="2. 准备三个 Sentinel 实例"></span><h3 id="2-sentinel">2. 准备三个 Sentinel 实例</h3>
+<p><code>26379/sentinel.conf</code>：</p>
+<pre><code class="language-conf">port 26379
+dir ./26379
+sentinel monitor mymaster 127.0.0.1 6379 2
+sentinel down-after-milliseconds mymaster 5000
+sentinel failover-timeout mymaster 60000
+sentinel parallel-syncs mymaster 1
+</code></pre>
+<p><code>26380/sentinel.conf</code> 和 <code>26381/sentinel.conf</code> 只需改端口与 <code>dir</code>。</p>
+<p>启动：</p>
+<pre><code class="language-bash">redis-server 26379/sentinel.conf --sentinel
+redis-server 26380/sentinel.conf --sentinel
+redis-server 26381/sentinel.conf --sentinel
+</code></pre>
+<span class="heading-anchor" id="3. 演练故障转移"></span><h3 id="3_1">3. 演练故障转移</h3>
+<pre><code class="language-bash"># 停掉 master
+redis-cli -p 6379 SHUTDOWN NOSAVE
+
+# 等待几秒后查询新 master
+redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster
+
+# 查看 6380 / 6381 谁被提升
+redis-cli -p 6380 INFO replication
+redis-cli -p 6381 INFO replication
+</code></pre>
+<p>如果原 master 恢复，Sentinel 通常会把它重新配置为新 master 的 replica，而不是让它自动抢回主库身份。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_7">常见误区</h2>
+<span class="heading-anchor" id="误区 1：有复制就不会丢数据"></span><h3 id="1">误区 1：有复制就不会丢数据</h3>
+<p>复制不是强同步。master 写入成功但尚未传到 replica 时，master 宕机并发生故障转移，这部分数据可能丢失。</p>
+<span class="heading-anchor" id="误区 2：Sentinel 等于数据备份"></span><h3 id="2sentinel">误区 2：Sentinel 等于数据备份</h3>
+<p>Sentinel 解决的是“服务可用性”和“自动主从切换”，不是备份。误删除、逻辑错误、过期策略导致的数据消失，会很快复制到 replica。</p>
+<span class="heading-anchor" id="误区 3：从库读一定是最新数据"></span><h3 id="3_2">误区 3：从库读一定是最新数据</h3>
+<p>Replica 可能落后于 master。对强读一致性敏感的场景，应读 master，或设计业务校验、版本号、延迟容忍策略。</p>
+<span class="heading-anchor" id="误区 4：部署两个 Sentinel 就足够可靠"></span><h3 id="4-sentinel">误区 4：部署两个 Sentinel 就足够可靠</h3>
+<p>两个 Sentinel 容易出现多数派不足或误判问题。学习环境可以简化，生产环境通常至少 3 个 Sentinel。</p>
+<span class="heading-anchor" id="误区 5：只要自动切换就没有脑裂"></span><h3 id="5">误区 5：只要自动切换就没有脑裂</h3>
+<p>网络分区时，旧 master 可能仍接收部分客户端写入，而 Sentinel 在另一侧提升新 master。需要通过客户端发现机制、<code>min-replicas-to-write</code>、网络隔离和监控降低风险。</p>
+<span class="heading-anchor" id="误区 6：Replica 可以随便写"></span><h3 id="6replica">误区 6：Replica 可以随便写</h3>
+<p>默认 <code>replica-read-only yes</code>。即使改成可写，从库本地写入也不会同步回 master，且可能在重新同步时被覆盖。</p>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_8">实践检查清单</h2>
+<span class="heading-anchor" id="复制检查"></span><h3 id="_9">复制检查</h3>
+<ul>
+<li>[ ] <code>INFO replication</code> 中 master / replica 角色符合预期。</li>
+<li>[ ] Replica 的 <code>master_link_status</code> 为 <code>up</code>。</li>
+<li>[ ] 主从复制延迟在业务可接受范围内。</li>
+<li>[ ] <code>repl-backlog-size</code> 足够覆盖短暂网络抖动期间的写入量。</li>
+<li>[ ] 已理解全量同步对 CPU、磁盘、网络的影响。</li>
+<li>[ ] 从库读请求可以接受延迟或已设计一致性补偿。</li>
+</ul>
+<span class="heading-anchor" id="Sentinel 检查"></span><h3 id="sentinel_2">Sentinel 检查</h3>
+<ul>
+<li>[ ] Sentinel 至少 3 个，分布在不同故障域。</li>
+<li>[ ] <code>quorum</code> 设置合理，不会因为单个 Sentinel 误判就切换。</li>
+<li>[ ] 客户端通过 Sentinel 或支持 Sentinel 的连接池发现 master。</li>
+<li>[ ] 已演练 <code>SENTINEL failover</code> 和真实 master 宕机场景。</li>
+<li>[ ] 监控了 <code>+sdown</code>、<code>+odown</code>、<code>+failover-end</code> 等 Sentinel 事件。</li>
+<li>[ ] 配置了认证、网络访问控制和日志采集。</li>
+</ul>
+<span class="heading-anchor" id="数据安全检查"></span><h3 id="_10">数据安全检查</h3>
+<ul>
+<li>[ ] 关键写入是否需要 <code>WAIT</code> 或 <code>min-replicas-to-write</code> 已评估。</li>
+<li>[ ] 已配置 RDB / AOF / 外部备份，不把 replica 当作备份唯一来源。</li>
+<li>[ ] 明确故障切换时可接受的数据丢失窗口（RPO）。</li>
+<li>[ ] 明确故障恢复时间目标（RTO）。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_11">延伸阅读关键词</h2>
+<ul>
+<li>Redis replication</li>
+<li>Redis PSYNC partial resynchronization</li>
+<li>Redis replication backlog</li>
+<li>Redis Sentinel quorum</li>
+<li>Redis Sentinel failover</li>
+<li>Redis split brain</li>
+<li>Redis WAIT command</li>
+<li>Redis min-replicas-to-write</li>
+<li>Redis high availability RPO RTO</li>
+</ul>
+<span class="heading-anchor" id="小结"></span><h2 id="_12">小结</h2>
+<p>复制提供副本和读扩展，Sentinel 在复制基础上提供自动故障发现与主从切换。它们能显著提升可用性，但不等于强一致、不等于备份，也不能单独消除脑裂和数据丢失风险。学习 Redis 高可用时，必须同时理解复制延迟、故障检测、客户端发现和数据安全边界。</p></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02. 关系模型与 SQL 核心 · 李杨的学习笔记</title><meta name="description" content="本章让你从“会写几条 SELECT”升级到“知道 SQL 在表达什么”。你将掌握："><meta property="og:title" content="02. 关系模型与 SQL 核心 · 李杨的学习笔记"><meta property="og:description" content="本章让你从“会写几条 SELECT”升级到“知道 SQL 在表达什么”。你将掌握："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8b15c389d842.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8b15c389d842.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>02. 关系模型与 SQL 核心</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/02-%E5%85%B3%E7%B3%BB%E6%A8%A1%E5%9E%8B%E4%B8%8ESQL%E6%A0%B8%E5%BF%83.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">关系模型的三个要点</a></li><li><a href="#sql">SQL 分类</a></li><li><a href="#_3">示例模型：订单系统</a></li><li><a href="#select">SELECT 的逻辑执行顺序</a></li><li><a href="#join">JOIN</a></li><li><a href="#inner-join">INNER JOIN</a></li><li><a href="#left-join">LEFT JOIN</a></li><li><a href="#having">聚合与 HAVING</a></li><li><a href="#cte">子查询与 CTE</a></li><li><a href="#_4">窗口函数</a></li><li><a href="#insert-update-delete">INSERT / UPDATE / DELETE</a></li><li><a href="#_5">插入</a></li><li><a href="#_6">更新</a></li><li><a href="#_7">删除</a></li><li><a href="#upsert">UPSERT</a></li><li><a href="#null">NULL 语义</a></li><li><a href="#_8">约束是数据质量的底线</a></li><li><a href="#_9">本章练习</a></li><li><a href="#sql_1">深入展开：SQL 不是语法题，而是集合思维</a></li><li><a href="#1-sql">1. 从一条查询看 SQL 的思考过程</a></li><li><a href="#2-join">2. JOIN 的本质是组合事实</a></li><li><a href="#3-null-sql">3. NULL 是 SQL 中最容易被低估的坑</a></li><li><a href="#4">4. 窗口函数适合“组内比较”</a></li><li><a href="#5-sql">5. 写 SQL 时的自检清单</a></li><li><a href="#6">6. 一个更完整的练习</a></li><li><a href="#_10">思维导图</a></li><li><a href="#1">1. 关系模型核心</a></li><li><a href="#2-select">2. SELECT 逻辑执行顺序</a></li><li><a href="#3-sql">3. SQL 能力分组</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章让你从“会写几条 SELECT”升级到“知道 SQL 在表达什么”。你将掌握：</p>
+<ul>
+<li>关系模型的基本思想。</li>
+<li>DDL、DML、DCL、TCL 的区别。</li>
+<li>SELECT 的逻辑执行顺序。</li>
+<li>JOIN、GROUP BY、HAVING、窗口函数、CTE 的常见用法。</li>
+<li>NULL 和重复行带来的坑。</li>
+</ul>
+<span class="heading-anchor" id="关系模型的三个要点"></span><h2 id="_2">关系模型的三个要点</h2>
+<ol>
+<li><strong>数据用关系表示</strong>：关系在实现上通常是表。</li>
+<li><strong>一行是一条元组</strong>：代表一个事实或实体实例。</li>
+<li><strong>操作返回的仍然是关系</strong>：查询结果也可以继续被查询。</li>
+</ol>
+<p>SQL 的强大之处在于它是声明式语言。你描述“要什么”，数据库决定“怎么做”。</p>
+<span class="heading-anchor" id="SQL 分类"></span><h2 id="sql">SQL 分类</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>作用</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DDL</td>
+<td>定义结构</td>
+<td><code>CREATE TABLE</code>, <code>ALTER TABLE</code>, <code>DROP TABLE</code></td>
+</tr>
+<tr>
+<td>DML</td>
+<td>操作数据</td>
+<td><code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code></td>
+</tr>
+<tr>
+<td>DCL</td>
+<td>权限控制</td>
+<td><code>GRANT</code>, <code>REVOKE</code></td>
+</tr>
+<tr>
+<td>TCL</td>
+<td>事务控制</td>
+<td><code>BEGIN</code>, <code>COMMIT</code>, <code>ROLLBACK</code></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="示例模型：订单系统"></span><h2 id="_3">示例模型：订单系统</h2>
+<p>后续示例使用一个简化订单系统：</p>
+<pre><code class="language-sql">CREATE TABLE customers (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE products (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sku TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  price NUMERIC(12, 2) NOT NULL CHECK (price &gt;= 0),
+  active BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE TABLE orders (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES customers(id),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'cancelled', 'shipped')),
+  total_amount NUMERIC(12, 2) NOT NULL CHECK (total_amount &gt;= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE order_items (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  product_id BIGINT NOT NULL REFERENCES products(id),
+  quantity INTEGER NOT NULL CHECK (quantity &gt; 0),
+  unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price &gt;= 0),
+  UNIQUE (order_id, product_id)
+);
+</code></pre>
+<p>注意两个设计点：</p>
+<ul>
+<li><code>order_items.unit_price</code> 保存下单时价格，不能只引用 <code>products.price</code>，否则历史订单会被商品改价影响。</li>
+<li><code>orders.total_amount</code> 可以冗余保存，用于读性能和审计，但必须用事务保证与明细一致。</li>
+</ul>
+<span class="heading-anchor" id="SELECT 的逻辑执行顺序"></span><h2 id="select">SELECT 的逻辑执行顺序</h2>
+<p>SQL 写法顺序：</p>
+<pre><code class="language-sql">SELECT ...
+FROM ...
+WHERE ...
+GROUP BY ...
+HAVING ...
+ORDER BY ...
+LIMIT ...;
+</code></pre>
+<p>逻辑执行顺序通常理解为：</p>
+<ol>
+<li><code>FROM</code>：确定数据来源。</li>
+<li><code>JOIN</code>：连接表。</li>
+<li><code>WHERE</code>：行过滤。</li>
+<li><code>GROUP BY</code>：分组。</li>
+<li><code>HAVING</code>：组过滤。</li>
+<li><code>SELECT</code>：投影与表达式计算。</li>
+<li><code>ORDER BY</code>：排序。</li>
+<li><code>LIMIT/OFFSET</code>：截断结果。</li>
+</ol>
+<p>这解释了为什么 <code>WHERE</code> 中不能直接使用 <code>SELECT</code> 里的别名，因为逻辑上 <code>WHERE</code> 先执行。</p>
+<span class="heading-anchor" id="JOIN"></span><h2 id="join">JOIN</h2>
+<span class="heading-anchor" id="INNER JOIN"></span><h3 id="inner-join">INNER JOIN</h3>
+<p>只返回两边都匹配的行：</p>
+<pre><code class="language-sql">SELECT o.id, c.email, o.total_amount
+FROM orders o
+JOIN customers c ON c.id = o.customer_id;
+</code></pre>
+<span class="heading-anchor" id="LEFT JOIN"></span><h3 id="left-join">LEFT JOIN</h3>
+<p>保留左表，即使右表没有匹配：</p>
+<pre><code class="language-sql">SELECT c.email, COUNT(o.id) AS order_count
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id, c.email;
+</code></pre>
+<p>常见坑：<code>LEFT JOIN</code> 后如果在 <code>WHERE</code> 中过滤右表字段，可能把它变成事实上的 <code>INNER JOIN</code>。</p>
+<p>错误写法：</p>
+<pre><code class="language-sql">SELECT c.email, o.id
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+WHERE o.status = 'paid';
+</code></pre>
+<p>更安全写法：</p>
+<pre><code class="language-sql">SELECT c.email, o.id
+FROM customers c
+LEFT JOIN orders o
+  ON o.customer_id = c.id
+ AND o.status = 'paid';
+</code></pre>
+<span class="heading-anchor" id="聚合与 HAVING"></span><h2 id="having">聚合与 HAVING</h2>
+<p>统计每个客户的已支付金额：</p>
+<pre><code class="language-sql">SELECT c.id, c.email, SUM(o.total_amount) AS paid_amount
+FROM customers c
+JOIN orders o ON o.customer_id = c.id
+WHERE o.status = 'paid'
+GROUP BY c.id, c.email
+HAVING SUM(o.total_amount) &gt; 1000
+ORDER BY paid_amount DESC;
+</code></pre>
+<p><code>WHERE</code> 过滤行，<code>HAVING</code> 过滤分组后的结果。</p>
+<span class="heading-anchor" id="子查询与 CTE"></span><h2 id="cte">子查询与 CTE</h2>
+<p>CTE 能让复杂查询分块表达：</p>
+<pre><code class="language-sql">WITH paid_orders AS (
+  SELECT customer_id, total_amount
+  FROM orders
+  WHERE status = 'paid'
+), customer_revenue AS (
+  SELECT customer_id, SUM(total_amount) AS revenue
+  FROM paid_orders
+  GROUP BY customer_id
+)
+SELECT c.email, cr.revenue
+FROM customer_revenue cr
+JOIN customers c ON c.id = cr.customer_id
+ORDER BY cr.revenue DESC;
+</code></pre>
+<p>CTE 的价值不是“性能一定更好”，而是可读性和可维护性。实际性能需要看执行计划。</p>
+<span class="heading-anchor" id="窗口函数"></span><h2 id="_4">窗口函数</h2>
+<p>窗口函数在“不压缩行数”的情况下做分组计算。</p>
+<p>例：每个客户的订单按时间排名：</p>
+<pre><code class="language-sql">SELECT
+  o.id,
+  o.customer_id,
+  o.total_amount,
+  row_number() OVER (
+    PARTITION BY o.customer_id
+    ORDER BY o.created_at DESC
+  ) AS order_rank
+FROM orders o;
+</code></pre>
+<p>取每个客户最近一单：</p>
+<pre><code class="language-sql">WITH ranked AS (
+  SELECT
+    o.*,
+    row_number() OVER (
+      PARTITION BY customer_id
+      ORDER BY created_at DESC
+    ) AS rn
+  FROM orders o
+)
+SELECT *
+FROM ranked
+WHERE rn = 1;
+</code></pre>
+<span class="heading-anchor" id="INSERT / UPDATE / DELETE"></span><h2 id="insert-update-delete">INSERT / UPDATE / DELETE</h2>
+<span class="heading-anchor" id="插入"></span><h3 id="_5">插入</h3>
+<pre><code class="language-sql">INSERT INTO customers (email, name)
+VALUES ('ada@example.com', 'Ada');
+</code></pre>
+<span class="heading-anchor" id="更新"></span><h3 id="_6">更新</h3>
+<pre><code class="language-sql">UPDATE products
+SET price = price * 0.9
+WHERE active = true;
+</code></pre>
+<span class="heading-anchor" id="删除"></span><h3 id="_7">删除</h3>
+<pre><code class="language-sql">DELETE FROM orders
+WHERE status = 'cancelled'
+  AND created_at &lt; now() - interval '1 year';
+</code></pre>
+<p>生产环境中不要轻易执行没有 <code>WHERE</code> 的 <code>UPDATE</code> 或 <code>DELETE</code>。</p>
+<span class="heading-anchor" id="UPSERT"></span><h2 id="upsert">UPSERT</h2>
+<p>PostgreSQL 常见写法：</p>
+<pre><code class="language-sql">INSERT INTO customers (email, name)
+VALUES ('ada@example.com', 'Ada Lovelace')
+ON CONFLICT (email)
+DO UPDATE SET name = EXCLUDED.name;
+</code></pre>
+<p>适合幂等写入，例如同步外部用户资料。</p>
+<span class="heading-anchor" id="NULL 语义"></span><h2 id="null">NULL 语义</h2>
+<p><code>NULL</code> 表示未知或缺失，不等于空字符串，也不等于 0。</p>
+<pre><code class="language-sql">SELECT NULL = NULL;       -- 结果不是 true，而是 unknown
+SELECT NULL IS NULL;      -- true
+</code></pre>
+<p>常见坑：</p>
+<pre><code class="language-sql">WHERE deleted_at = NULL      -- 错
+WHERE deleted_at IS NULL     -- 对
+</code></pre>
+<p>设计时要谨慎使用可空字段。可空意味着每个查询都要考虑第三种状态。</p>
+<span class="heading-anchor" id="约束是数据质量的底线"></span><h2 id="_8">约束是数据质量的底线</h2>
+<p>常用约束：</p>
+<pre><code class="language-sql">-- 非空
+name TEXT NOT NULL
+
+-- 唯一
+email TEXT NOT NULL UNIQUE
+
+-- 外键
+customer_id BIGINT NOT NULL REFERENCES customers(id)
+
+-- 检查
+price NUMERIC(12, 2) NOT NULL CHECK (price &gt;= 0)
+</code></pre>
+<p>不要把所有约束都交给应用层。数据库是多入口写入的最后防线。</p>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_9">本章练习</h2>
+<ol>
+<li>为订单系统写出“每个商品的销量排行”查询。</li>
+<li>写出“过去 30 天内至少下过 2 单的客户”查询。</li>
+<li>故意写一个 <code>LEFT JOIN</code> 被 <code>WHERE</code> 破坏的例子，再修正它。</li>
+<li>用窗口函数取每个客户金额最高的一单。</li>
+</ol>
+<p>下一章：<a href="n-de8950b9307b.html">03-数据建模与范式</a>。</p>
+<span class="heading-anchor" id="深入展开：SQL 不是语法题，而是集合思维"></span><h2 id="sql_1">深入展开：SQL 不是语法题，而是集合思维</h2>
+<p>SQL 初学最常见的问题是把它当成“数据库版 for 循环”。真正的 SQL 思维是集合式：你一次描述一批数据如何过滤、连接、分组和排序。</p>
+<span class="heading-anchor" id="1. 从一条查询看 SQL 的思考过程"></span><h3 id="1-sql">1. 从一条查询看 SQL 的思考过程</h3>
+<p>需求：查询最近 30 天，每个用户已支付订单的总金额，只保留金额超过 1000 的用户。</p>
+<p>不要急着写 SQL。先拆问题：</p>
+<ol>
+<li>数据来源：订单表。</li>
+<li>行过滤：最近 30 天，状态为 paid。</li>
+<li>分组：按用户。</li>
+<li>聚合：求金额总和。</li>
+<li>组过滤：总和超过 1000。</li>
+<li>排序：金额从高到低。</li>
+</ol>
+<p>对应 SQL：</p>
+<pre><code class="language-sql">SELECT user_id, SUM(total_amount) AS paid_amount
+FROM orders
+WHERE status = 'paid'
+  AND paid_at &gt;= now() - interval '30 days'
+GROUP BY user_id
+HAVING SUM(total_amount) &gt; 1000
+ORDER BY paid_amount DESC;
+</code></pre>
+<p>这个拆解比记语法更重要。复杂 SQL 都可以按这几个步骤展开。</p>
+<span class="heading-anchor" id="2. JOIN 的本质是组合事实"></span><h3 id="2-join">2. JOIN 的本质是组合事实</h3>
+<p>JOIN 不是“把表粘起来”，而是把不同事实按关系组合。</p>
+<p>例如：订单属于用户，订单明细属于订单，明细引用商品。查询订单详情时：</p>
+<pre><code class="language-sql">SELECT
+  o.id AS order_id,
+  u.email,
+  oi.product_name_snapshot,
+  oi.quantity,
+  oi.unit_price
+FROM orders o
+JOIN users u ON u.id = o.user_id
+JOIN order_items oi ON oi.order_id = o.id
+WHERE o.id = 1001;
+</code></pre>
+<p>这里每个 JOIN 都要问：</p>
+<ul>
+<li>关系是一对一、一对多还是多对多？</li>
+<li>JOIN 后行数会不会放大？</li>
+<li>是否需要 LEFT JOIN 保留无匹配行？</li>
+<li>JOIN 条件是否命中索引？</li>
+</ul>
+<p>一对多 JOIN 后再聚合时，尤其要小心重复计数。</p>
+<span class="heading-anchor" id="3. NULL 是 SQL 中最容易被低估的坑"></span><h3 id="3-null-sql">3. NULL 是 SQL 中最容易被低估的坑</h3>
+<p>NULL 不是空字符串，也不是 0。它代表未知或缺失。一个可空字段会让业务逻辑多出第三种状态。</p>
+<p>例如：</p>
+<pre><code class="language-sql">WHERE paid_at IS NULL
+</code></pre>
+<p>可以表达“尚未支付”。但如果 <code>phone_number IS NULL</code>，到底是用户没有手机号、用户没填写、系统没采集，还是数据丢了？这就需要业务定义。</p>
+<p>设计字段时，能 <code>NOT NULL</code> 就尽量 <code>NOT NULL</code>，并提供明确默认值或状态字段。不要为了省事把所有字段都设成可空。</p>
+<span class="heading-anchor" id="4. 窗口函数适合“组内比较”"></span><h3 id="4">4. 窗口函数适合“组内比较”</h3>
+<p>如果你要每个用户最近一单，不能简单 <code>GROUP BY user_id</code> 再选订单 ID，因为聚合后其他列没有明确语义。窗口函数更合适：</p>
+<pre><code class="language-sql">WITH ranked AS (
+  SELECT
+    o.*,
+    row_number() OVER (
+      PARTITION BY user_id
+      ORDER BY created_at DESC, id DESC
+    ) AS rn
+  FROM orders o
+)
+SELECT *
+FROM ranked
+WHERE rn = 1;
+</code></pre>
+<p>窗口函数的思路是：不减少行数，只给每一行附加组内计算结果。排名、累计和、组内 Top N 都适合它。</p>
+<span class="heading-anchor" id="5. 写 SQL 时的自检清单"></span><h3 id="5-sql">5. 写 SQL 时的自检清单</h3>
+<ul>
+<li>[ ] 我知道这条 SQL 的主表是什么。</li>
+<li>[ ] 每个 JOIN 都有明确关系和条件。</li>
+<li>[ ] WHERE 过滤的是行，HAVING 过滤的是组。</li>
+<li>[ ] 没有在 WHERE 中错误过滤 LEFT JOIN 右表。</li>
+<li>[ ] NULL 判断使用 <code>IS NULL</code>。</li>
+<li>[ ] 聚合查询中 SELECT 字段要么分组，要么聚合。</li>
+<li>[ ] ORDER BY 和 LIMIT 有对应索引或数据量可控。</li>
+<li>[ ] 没有无意中 <code>SELECT *</code> 返回大字段。</li>
+</ul>
+<span class="heading-anchor" id="6. 一个更完整的练习"></span><h3 id="6">6. 一个更完整的练习</h3>
+<p>需求：找出最近 7 天支付金额最高的 10 个用户，并展示他们最近一笔订单时间。</p>
+<pre><code class="language-sql">WITH paid_orders AS (
+  SELECT *
+  FROM orders
+  WHERE status = 'paid'
+    AND paid_at &gt;= now() - interval '7 days'
+), user_revenue AS (
+  SELECT user_id, SUM(total_amount) AS revenue
+  FROM paid_orders
+  GROUP BY user_id
+), last_paid_order AS (
+  SELECT
+    user_id,
+    paid_at,
+    row_number() OVER (
+      PARTITION BY user_id
+      ORDER BY paid_at DESC, id DESC
+    ) AS rn
+  FROM paid_orders
+)
+SELECT
+  u.id,
+  u.email,
+  ur.revenue,
+  lpo.paid_at AS last_paid_at
+FROM user_revenue ur
+JOIN users u ON u.id = ur.user_id
+JOIN last_paid_order lpo ON lpo.user_id = ur.user_id AND lpo.rn = 1
+ORDER BY ur.revenue DESC
+LIMIT 10;
+</code></pre>
+<p>这条 SQL 同时用到了过滤、聚合、窗口函数和 JOIN。读懂它，比刷很多零散语法题更有效。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_10">思维导图</h2>
+<blockquote>
+<p>记忆建议：SQL 是集合思维；先确定数据集合，再过滤、分组、组合和排序。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 关系模型核心"></span><h3 id="1">1. 关系模型核心</h3>
+<pre class="mermaid">mindmap
+  root((关系模型))
+    表
+      同类事实集合
+    行
+      一条事实
+    列
+      属性
+    约束
+      主键唯一外键检查
+    关系
+      通过键组合事实
+</pre>
+<span class="heading-anchor" id="2. SELECT 逻辑执行顺序"></span><h3 id="2-select">2. SELECT 逻辑执行顺序</h3>
+<pre class="mermaid">flowchart LR
+  A["FROM和JOIN"] --&gt; B["WHERE过滤行"]
+  B --&gt; C["GROUP BY分组"]
+  C --&gt; D["HAVING过滤组"]
+  D --&gt; E["SELECT投影表达式"]
+  E --&gt; F["ORDER BY排序"]
+  F --&gt; G["LIMIT截取"]
+</pre>
+<span class="heading-anchor" id="3. SQL 能力分组"></span><h3 id="3-sql">3. SQL 能力分组</h3>
+<pre class="mermaid">mindmap
+  root((SQL核心能力))
+    查询
+      SELECT
+      JOIN
+      子查询CTE
+    聚合分析
+      GROUP BY
+      HAVING
+      窗口函数
+    写入修改
+      INSERT
+      UPDATE
+      DELETE
+      UPSERT
+    数据质量
+      NULL语义
+      约束
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

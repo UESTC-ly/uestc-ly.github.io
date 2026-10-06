@@ -1,0 +1,1250 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-MySQL运维高可用安全与面试 · 李杨的学习笔记</title><meta name="description" content="复习定位：本笔记覆盖 MySQL 生产运维、高可用、安全治理、容量规划与面试高频问题。建议结合 01-MySQL基础与体系结构 、 03-MySQL索引与查询优化 、 04-InnoDB事务锁与日志 ，并结合 Redis、Linux、分布式系统 复习。"><meta property="og:title" content="05-MySQL运维高可用安全与面试 · 李杨的学习笔记"><meta property="og:description" content="复习定位：本笔记覆盖 MySQL 生产运维、高可用、安全治理、容量规划与面试高频问题。建议结合 01-MySQL基础与体系结构 、 03-MySQL索引与查询优化 、 04-InnoDB事务锁与日志 ，并结合 Redis、Linux、分布式系统 复习。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-ec92101a7acb.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-ec92101a7acb.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / MySQL</p><h1>05-MySQL运维高可用安全与面试</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/MySQL/05-MySQL%E8%BF%90%E7%BB%B4%E9%AB%98%E5%8F%AF%E7%94%A8%E5%AE%89%E5%85%A8%E4%B8%8E%E9%9D%A2%E8%AF%95.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 运维目标与核心原则</a></li><li><a href="#2">2. 备份与恢复</a></li><li><a href="#21">2.1 备份类型</a></li><li><a href="#22-mysqldump">2.2 mysqldump 逻辑备份</a></li><li><a href="#23-mysqlpump">2.3 mysqlpump</a></li><li><a href="#24-mysql-shell-mysqlsh">2.4 MySQL Shell 逻辑备份：mysqlsh</a></li><li><a href="#25">2.5 物理备份概念</a></li><li><a href="#26-pitr">2.6 时间点恢复（PITR）</a></li><li><a href="#27">2.7 备份策略模板</a></li><li><a href="#3">3. 复制体系</a></li><li><a href="#31-mysql">3.1 MySQL 复制基本模型</a></li><li><a href="#32">3.2 复制延迟来源</a></li><li><a href="#33">3.3 多线程复制</a></li><li><a href="#4-gtid">4. GTID</a></li><li><a href="#41-gtid">4.1 GTID 优点</a></li><li><a href="#42">4.2 核心参数</a></li><li><a href="#43-gtid">4.3 GTID 运维要点</a></li><li><a href="#44-gtid">4.4 GTID 面试重点</a></li><li><a href="#5">5. 半同步复制</a></li><li><a href="#51">5.1 工作机制</a></li><li><a href="#52">5.2 优点与限制</a></li><li><a href="#53">5.3 适用场景</a></li><li><a href="#6-innodb-cluster">6. 组复制与 InnoDB Cluster</a></li><li><a href="#61-group-replication">6.1 组复制（Group Replication）</a></li><li><a href="#62-innodb-cluster">6.2 InnoDB Cluster</a></li><li><a href="#63">6.3 组复制运维关注点</a></li><li><a href="#7">7. 读写分离</a></li><li><a href="#71">7.1 一致性问题</a></li><li><a href="#72">7.2 读写分离清单</a></li><li><a href="#8">8. 分库分表</a></li><li><a href="#81">8.1 垂直拆分</a></li><li><a href="#82">8.2 水平分片</a></li><li><a href="#83">8.3 分库分表带来的复杂度</a></li><li><a href="#84">8.4 面试回答模板</a></li><li><a href="#9">9. 分区表</a></li><li><a href="#91">9.1 常见分区类型</a></li><li><a href="#92">9.2 分区表适合什么</a></li><li><a href="#93">9.3 分区表不适合什么</a></li><li><a href="#94">9.4 分区表运维要点</a></li><li><a href="#10">10. 容量规划</a></li><li><a href="#101">10.1 需要收集的数据</a></li><li><a href="#102">10.2 粗略估算公式</a></li><li><a href="#103">10.3 容量规划输出物</a></li><li><a href="#11">11. 监控指标</a></li><li><a href="#111">11.1 关键指标总览</a></li><li><a href="#112">11.2 常见告警阈值</a></li><li><a href="#113">11.3 常用观测入口</a></li><li><a href="#12">12. 性能基线</a></li><li><a href="#121">12.1 基线内容</a></li><li><a href="#122">12.2 建立方法</a></li><li><a href="#123">12.3 基线用途</a></li><li><a href="#13">13. 参数调优</a></li><li><a href="#131">13.1 内存相关</a></li><li><a href="#132">13.2 日志与刷盘</a></li><li><a href="#133">13.3 连接相关</a></li><li><a href="#134-sql">13.4 优化器与 SQL</a></li><li><a href="#14">14. 安全加固</a></li><li><a href="#141">14.1 账号与权限</a></li><li><a href="#142">14.2 密码与认证</a></li><li><a href="#143">14.3 网络与传输</a></li><li><a href="#144">14.4 数据加密</a></li><li><a href="#145">14.5 敏感数据治理</a></li><li><a href="#15">15. 审计</a></li><li><a href="#151">15.1 审计对象</a></li><li><a href="#152">15.2 审计实现</a></li><li><a href="#153">15.3 审计落地要求</a></li><li><a href="#16">16. 升级与迁移</a></li><li><a href="#161">16.1 升级前检查</a></li><li><a href="#162">16.2 升级路径</a></li><li><a href="#163">16.3 迁移步骤模板</a></li><li><a href="#164">16.4 回滚设计</a></li><li><a href="#17-runbook">17. 故障排查 Runbook</a></li><li><a href="#171">17.1 实例不可连接</a></li><li><a href="#172">17.2 数据库变慢</a></li><li><a href="#173">17.3 复制中断</a></li><li><a href="#174">17.4 复制延迟</a></li><li><a href="#175">17.5 磁盘写满</a></li><li><a href="#176">17.6 误删数据</a></li><li><a href="#177">17.7 死锁频发</a></li><li><a href="#178-metadata-lock">17.8 Metadata Lock 阻塞</a></li><li><a href="#18">18. 常见面试题与答案</a></li><li><a href="#181-mysqldump-single-transaction-innodb">18.1 mysqldump --single-transaction 为什么适合 InnoDB？</a></li><li><a href="#182">18.2 逻辑备份和物理备份怎么选？</a></li><li><a href="#183-binlog">18.3 binlog 有什么作用？</a></li><li><a href="#184-gtid">18.4 GTID 解决什么问题？</a></li><li><a href="#185">18.5 异步复制、半同步复制、组复制有什么区别？</a></li><li><a href="#186">18.6 主从延迟怎么排查？</a></li><li><a href="#187">18.7 读写分离有什么坑？</a></li><li><a href="#188">18.8 分库分表解决什么问题？代价是什么？</a></li><li><a href="#189">18.9 分区表和分表有什么区别？</a></li><li><a href="#1810-mysql">18.10 MySQL 磁盘满了怎么办？</a></li><li><a href="#1811-innodb_flush_log_at_trx_commit-sync_binlog">18.11 innodb_flush_log_at_trx_commit 和 sync_binlog 怎么设置？</a></li><li><a href="#1812-mysql">18.12 如何做 MySQL 升级？</a></li><li><a href="#1813">18.13 如何防止误删数据？</a></li><li><a href="#1814-cpuio">18.14 如何判断数据库瓶颈在 CPU、IO 还是锁？</a></li><li><a href="#19">19. 生产最佳实践清单</a></li><li><a href="#191">19.1 架构与高可用</a></li><li><a href="#192">19.2 备份恢复</a></li><li><a href="#193">19.3 性能与容量</a></li><li><a href="#194">19.4 参数与变更</a></li><li><a href="#195">19.5 安全与审计</a></li><li><a href="#196">19.6 应急与复盘</a></li><li><a href="#20">20. 复习索引</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>复习定位：本笔记覆盖 MySQL 生产运维、高可用、安全治理、容量规划与面试高频问题。建议结合 <a href="n-f6e6d518f76a.html">01-MySQL基础与体系结构</a>、<a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>、<a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>，并结合 Redis、Linux、分布式系统 复习。</p>
+<p>说明：文中的 Shell/SQL 片段主要是生产演练模板。真实执行前必须在测试环境替换主机、端口、账号、库名、备份路径并做恢复演练。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 运维目标与核心原则"></span><h2 id="1">1. 运维目标与核心原则</h2>
+<p>MySQL 运维的目标不是“数据库不报错”，而是让业务在可接受成本下持续满足 <strong>RPO、RTO、吞吐、延迟、安全与可审计</strong> 要求。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>目标</th>
+<th>含义</th>
+<th>常见指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RPO</td>
+<td>可接受的数据丢失窗口</td>
+<td>0、秒级、分钟级</td>
+</tr>
+<tr>
+<td>RTO</td>
+<td>故障后恢复服务的时间</td>
+<td>秒级切换、分钟级恢复</td>
+</tr>
+<tr>
+<td>可用性</td>
+<td>服务可访问比例</td>
+<td>99.9%、99.99%</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>主从、备份、应用读写看到的数据是否符合预期</td>
+<td>复制延迟、GTID 位点、事务一致性</td>
+</tr>
+<tr>
+<td>可观测性</td>
+<td>能否发现、定位、复盘问题</td>
+<td>指标、日志、审计、告警</td>
+</tr>
+<tr>
+<td>安全性</td>
+<td>权限、加密、审计、漏洞修复</td>
+<td>最小权限、TLS、脱敏、补丁</td>
+</tr>
+</tbody>
+</table></div>
+<p>生产原则：</p>
+<ol>
+<li><strong>先备份，再变更</strong>：DDL、升级、迁移、参数变更前确认可恢复。</li>
+<li><strong>备份必须可恢复</strong>：只“备份成功”没有意义，必须定期恢复演练。</li>
+<li><strong>高可用不等于零风险</strong>：HA 只能降低故障影响，不能替代备份、监控和变更治理。</li>
+<li><strong>读写分离必须理解一致性代价</strong>：从库延迟会导致读到旧数据。</li>
+<li><strong>参数调优先基线后改动</strong>：没有基线的调参容易把偶发问题固化成长期风险。</li>
+<li><strong>权限默认拒绝</strong>：按应用、环境、用途拆分账号，禁止共享高权账号。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="2. 备份与恢复"></span><h2 id="2">2. 备份与恢复</h2>
+<span class="heading-anchor" id="2.1 备份类型"></span><h3 id="21">2.1 备份类型</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>代表工具</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>逻辑备份</td>
+<td><code>mysqldump</code>、<code>mysqlpump</code>、<code>mysqlsh util.dumpInstance()</code></td>
+<td>可读、跨版本/跨平台较友好、可按库表恢复</td>
+<td>大库慢、恢复慢、占用 SQL 执行资源</td>
+<td>小中型库、迁移、对象级恢复</td>
+</tr>
+<tr>
+<td>物理备份</td>
+<td>MySQL Enterprise Backup、Percona XtraBackup、存储快照</td>
+<td>速度快、适合大库、恢复快</td>
+<td>依赖版本/文件格式，操作复杂</td>
+<td>大库、低 RTO、全实例恢复</td>
+</tr>
+<tr>
+<td>增量备份</td>
+<td>binlog、物理增量</td>
+<td>节省空间，可做时间点恢复</td>
+<td>恢复链复杂</td>
+<td>任意需要 PITR 的生产系统</td>
+</tr>
+<tr>
+<td>快照备份</td>
+<td>云盘/存储快照</td>
+<td>快速、低侵入</td>
+<td>需要一致性点，跨地域恢复需验证</td>
+<td>云数据库、虚拟化环境</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2.2 mysqldump 逻辑备份"></span><h3 id="22-mysqldump">2.2 <code>mysqldump</code> 逻辑备份</h3>
+<p>常用模板：</p>
+<pre><code class="language-bash">mysqldump \
+  --host=127.0.0.1 \
+  --port=3306 \
+  --user=backup_user \
+  --password \
+  --single-transaction \
+  --routines \
+  --triggers \
+  --events \
+  --set-gtid-purged=OFF \
+  --databases app_db \
+  &gt; app_db_$(date +%F).sql
+</code></pre>
+<p>关键选项：</p>
+<ul>
+<li><code>--single-transaction</code>：对 InnoDB 表创建一致性快照，避免长时间锁表。依赖事务隔离与 MVCC，参考 <a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>。</li>
+<li><code>--routines --triggers --events</code>：导出存储过程、触发器、事件。</li>
+<li><code>--master-data</code>：在备份文件中记录二进制日志位点，便于搭建复制或 PITR。</li>
+<li><code>--set-gtid-purged</code>：GTID 环境必须谨慎设置，迁移到已有 GTID 集合的实例时尤其要确认。</li>
+</ul>
+<p>注意事项：</p>
+<ol>
+<li>MyISAM 表无法通过 <code>--single-transaction</code> 保证一致性，需锁表或停写。</li>
+<li>大表导出会产生长事务，可能拖住 undo purge，影响历史版本清理。</li>
+<li>逻辑恢复会重放 SQL，恢复速度通常慢于物理备份。</li>
+</ol>
+<span class="heading-anchor" id="2.3 mysqlpump"></span><h3 id="23-mysqlpump">2.3 <code>mysqlpump</code></h3>
+<p><code>mysqlpump</code> 是 MySQL 提供的并行逻辑备份工具，支持库表级并行导出，适合比 <code>mysqldump</code> 更快的逻辑备份场景。</p>
+<pre><code class="language-bash">mysqlpump \
+  --host=127.0.0.1 \
+  --user=backup_user \
+  --password \
+  --default-parallelism=4 \
+  --routines \
+  --triggers \
+  --events \
+  app_db &gt; app_db_pump.sql
+</code></pre>
+<p>使用建议：</p>
+<ul>
+<li>并行度不要超过数据库和磁盘可承受范围。</li>
+<li>仍需评估长事务和导出期间的 IO 压力。</li>
+<li>在复杂对象、权限和 GTID 场景下要做恢复验证。</li>
+</ul>
+<span class="heading-anchor" id="2.4 MySQL Shell 逻辑备份：mysqlsh"></span><h3 id="24-mysql-shell-mysqlsh">2.4 MySQL Shell 逻辑备份：<code>mysqlsh</code></h3>
+<p>MySQL Shell 的 Dump &amp; Load Utilities 适合 MySQL 8.0+ 迁移、并行导入导出和云迁移。</p>
+<pre><code class="language-javascript">// mysqlsh JavaScript 模式模板
+util.dumpInstance('/backup/mysql-dump', {
+  threads: 8,
+  consistent: true,
+  ocimds: false
+})
+</code></pre>
+<pre><code class="language-javascript">util.loadDump('/backup/mysql-dump', {
+  threads: 8,
+  deferTableIndexes: 'all'
+})
+</code></pre>
+<p>适用场景：</p>
+<ul>
+<li>需要并行逻辑导入导出。</li>
+<li>迁移到 MySQL 8.0 或云数据库。</li>
+<li>需要对象兼容性检查与可控加载。</li>
+</ul>
+<span class="heading-anchor" id="2.5 物理备份概念"></span><h3 id="25">2.5 物理备份概念</h3>
+<p>物理备份复制的是数据文件、redo、undo、系统表空间等物理文件。它通常分为：</p>
+<ol>
+<li><strong>全量备份</strong>：复制完整数据目录或物理页。</li>
+<li><strong>增量备份</strong>：只复制自上次备份后变化的数据页或日志。</li>
+<li><strong>Prepare 阶段</strong>：应用 redo、回滚未提交事务，让备份达到一致状态。</li>
+<li><strong>Restore 阶段</strong>：停止实例、替换数据目录、修复权限、启动验证。</li>
+</ol>
+<p>物理备份关注点：</p>
+<ul>
+<li>MySQL 主版本、存储引擎和页格式兼容性。</li>
+<li><code>innodb_page_size</code>、加密、压缩、redo 格式。</li>
+<li>备份期间的 IO 限速与业务低峰调度。</li>
+<li>备份文件校验、异地存储、保留周期。</li>
+</ul>
+<span class="heading-anchor" id="2.6 时间点恢复（PITR）"></span><h3 id="26-pitr">2.6 时间点恢复（PITR）</h3>
+<p>PITR = 全量备份 + 增量 binlog 重放。</p>
+<p>流程：</p>
+<ol>
+<li>找到故障前最近一次可用全量备份。</li>
+<li>在隔离环境恢复全量备份。</li>
+<li>根据 GTID、binlog 文件位置或时间点重放 binlog。</li>
+<li>跳过误操作事务或恢复到误操作前一刻。</li>
+<li>校验数据后再回切业务。</li>
+</ol>
+<p>模板：</p>
+<pre><code class="language-bash">mysqlbinlog \
+  --start-datetime='2026-06-08 10:00:00' \
+  --stop-datetime='2026-06-08 10:29:59' \
+  mysql-bin.000123 | mysql --host=restore-host --user=root --password
+</code></pre>
+<p>PITR 风险：</p>
+<ul>
+<li>使用 <code>stop-datetime</code> 时要确认数据库服务器时区。</li>
+<li>大事务和跨库事务可能让按时间截断变得危险。</li>
+<li>GTID 环境中跳过事务必须记录并复盘。</li>
+</ul>
+<span class="heading-anchor" id="2.7 备份策略模板"></span><h3 id="27">2.7 备份策略模板</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据规模</th>
+<th>推荐策略</th>
+<th>恢复目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>&lt; 50 GB</td>
+<td>每日逻辑全量 + binlog</td>
+<td>小时级 RTO，分钟级 RPO</td>
+</tr>
+<tr>
+<td>50 GB - 1 TB</td>
+<td>每日物理全量/增量 + binlog + 每周逻辑抽样</td>
+<td>分钟到小时级 RTO</td>
+</tr>
+<tr>
+<td>&gt; 1 TB</td>
+<td>物理备份 + 存储快照 + 分库分表级演练</td>
+<td>依赖架构分层恢复</td>
+</tr>
+<tr>
+<td>核心交易库</td>
+<td>多副本 + 物理备份 + 实时 binlog 归档 + 异地灾备</td>
+<td>秒/分钟级 RPO，分钟级 RTO</td>
+</tr>
+</tbody>
+</table></div>
+<p>备份检查清单：</p>
+<ul>
+<li>[ ] 备份账号最小权限。</li>
+<li>[ ] 全量备份、binlog、配置文件、用户权限一起纳入恢复方案。</li>
+<li>[ ] 备份文件加密存储。</li>
+<li>[ ] 本地、异地、离线至少两类副本。</li>
+<li>[ ] 每月至少一次恢复演练。</li>
+<li>[ ] 恢复演练记录耗时、缺陷和改进项。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="3. 复制体系"></span><h2 id="3">3. 复制体系</h2>
+<span class="heading-anchor" id="3.1 MySQL 复制基本模型"></span><h3 id="31-mysql">3.1 MySQL 复制基本模型</h3>
+<p>经典异步复制链路：</p>
+<ol>
+<li>主库提交事务并写 binlog。</li>
+<li>从库 I/O 线程拉取 binlog，写入 relay log。</li>
+<li>从库 SQL 线程或多线程 applier 重放 relay log。</li>
+<li>从库数据逐步追上主库。</li>
+</ol>
+<p>复制格式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>格式</th>
+<th>特点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>STATEMENT</td>
+<td>记录 SQL</td>
+<td>非确定函数、环境差异可能导致主从不一致</td>
+</tr>
+<tr>
+<td>ROW</td>
+<td>记录行变更</td>
+<td>binlog 体积较大，最安全常用</td>
+</tr>
+<tr>
+<td>MIXED</td>
+<td>自动切换</td>
+<td>可读性和确定性介于两者之间</td>
+</tr>
+</tbody>
+</table></div>
+<p>生产常用：<code>binlog_format=ROW</code>。</p>
+<span class="heading-anchor" id="3.2 复制延迟来源"></span><h3 id="32">3.2 复制延迟来源</h3>
+<p>常见原因：</p>
+<ul>
+<li>主库写入并发高，从库单线程或并行度不足。</li>
+<li>大事务导致从库长时间应用。</li>
+<li>从库硬件、IO、CPU 弱于主库。</li>
+<li>从库执行查询占用资源，影响回放。</li>
+<li>网络抖动或跨地域链路延迟。</li>
+<li>表无主键导致 ROW 回放定位慢。</li>
+</ul>
+<p>排查入口：</p>
+<pre><code class="language-sql">SHOW REPLICA STATUS\G
+-- 旧版本也可能使用 SHOW SLAVE STATUS\G
+</code></pre>
+<p>重点字段：</p>
+<ul>
+<li><code>Replica_IO_Running</code> / <code>Slave_IO_Running</code></li>
+<li><code>Replica_SQL_Running</code> / <code>Slave_SQL_Running</code></li>
+<li><code>Seconds_Behind_Source</code> / <code>Seconds_Behind_Master</code></li>
+<li><code>Last_IO_Error</code></li>
+<li><code>Last_SQL_Error</code></li>
+<li><code>Retrieved_Gtid_Set</code></li>
+<li><code>Executed_Gtid_Set</code></li>
+</ul>
+<span class="heading-anchor" id="3.3 多线程复制"></span><h3 id="33">3.3 多线程复制</h3>
+<p>多线程复制提升从库 apply 能力。常见参数：</p>
+<pre><code class="language-ini">replica_parallel_workers = 8
+replica_parallel_type = LOGICAL_CLOCK
+replica_preserve_commit_order = ON
+</code></pre>
+<p>旧版本参数名可能是 <code>slave_parallel_workers</code>、<code>slave_parallel_type</code>、<code>slave_preserve_commit_order</code>。</p>
+<p>建议：</p>
+<ul>
+<li>并行度根据 CPU、IO 和业务库表冲突程度逐步调大。</li>
+<li>对延迟敏感的读库，避免同时承载重分析查询。</li>
+<li>大事务拆小比盲目加并行度更有效。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. GTID"></span><h2 id="4-gtid">4. GTID</h2>
+<p>GTID（Global Transaction Identifier）为每个已提交事务提供全局唯一编号，简化复制切换和故障恢复。</p>
+<span class="heading-anchor" id="4.1 GTID 优点"></span><h3 id="41-gtid">4.1 GTID 优点</h3>
+<ul>
+<li>自动定位复制位点，减少手工找 binlog 文件与 offset。</li>
+<li>主从切换、级联复制、故障恢复更安全。</li>
+<li>便于比较实例已执行事务集合。</li>
+</ul>
+<span class="heading-anchor" id="4.2 核心参数"></span><h3 id="42">4.2 核心参数</h3>
+<pre><code class="language-ini">gtid_mode = ON
+enforce_gtid_consistency = ON
+log_bin = ON
+log_replica_updates = ON
+</code></pre>
+<p>旧版本可能使用 <code>log_slave_updates</code>。</p>
+<span class="heading-anchor" id="4.3 GTID 运维要点"></span><h3 id="43-gtid">4.3 GTID 运维要点</h3>
+<ol>
+<li>开启前检查不兼容语句，例如某些非事务表与事务混用场景。</li>
+<li>复制切换时比较 <code>Executed_Gtid_Set</code>，确认候选新主包含原主已提交事务。</li>
+<li>严禁随意修改 <code>gtid_purged</code>。</li>
+<li>清理 binlog 前确认备份、从库和灾备不再需要对应 GTID 范围。</li>
+<li>跳过事务要记录 GTID、原因、影响和修复动作。</li>
+</ol>
+<span class="heading-anchor" id="4.4 GTID 面试重点"></span><h3 id="44-gtid">4.4 GTID 面试重点</h3>
+<ul>
+<li>GTID 解决的是“事务定位”和“复制拓扑切换”问题，不自动解决数据一致性。</li>
+<li>GTID 集合能判断包含关系，但不能证明业务语义正确。</li>
+<li>GTID 与半同步、组复制可以组合使用，但各自解决的问题不同。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="5. 半同步复制"></span><h2 id="5">5. 半同步复制</h2>
+<p>半同步复制介于异步复制和强同步复制之间。主库提交事务时，至少等待一个从库确认收到 binlog 后再向客户端返回成功。</p>
+<span class="heading-anchor" id="5.1 工作机制"></span><h3 id="51">5.1 工作机制</h3>
+<ol>
+<li>主库写 binlog。</li>
+<li>主库等待半同步从库 ACK。</li>
+<li>达到 ACK 或超时。</li>
+<li>成功返回，或超时退化为异步复制。</li>
+</ol>
+<span class="heading-anchor" id="5.2 优点与限制"></span><h3 id="52">5.2 优点与限制</h3>
+<p>优点：</p>
+<ul>
+<li>降低主库宕机后已提交事务丢失概率。</li>
+<li>对应用透明。</li>
+</ul>
+<p>限制：</p>
+<ul>
+<li>从库 ACK 通常表示收到日志，不代表已应用完成。</li>
+<li>网络抖动会增加提交延迟。</li>
+<li>超时后可能退化为异步复制。</li>
+<li>至少一个从库确认不等于多数派一致。</li>
+</ul>
+<span class="heading-anchor" id="5.3 适用场景"></span><h3 id="53">5.3 适用场景</h3>
+<ul>
+<li>单主多从架构中需要降低数据丢失概率。</li>
+<li>能接受提交延迟小幅上升。</li>
+<li>不想引入组复制复杂度。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. 组复制与 InnoDB Cluster"></span><h2 id="6-innodb-cluster">6. 组复制与 InnoDB Cluster</h2>
+<span class="heading-anchor" id="6.1 组复制（Group Replication）"></span><h3 id="61-group-replication">6.1 组复制（Group Replication）</h3>
+<p>组复制基于分布式一致性协议，在多个 MySQL 节点之间复制事务并做冲突检测。</p>
+<p>模式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>说明</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single-Primary</td>
+<td>单主写，多节点读</td>
+<td>最常见，降低写冲突复杂度</td>
+</tr>
+<tr>
+<td>Multi-Primary</td>
+<td>多主可写</td>
+<td>写冲突和应用约束复杂，谨慎使用</td>
+</tr>
+</tbody>
+</table></div>
+<p>要求与约束：</p>
+<ul>
+<li>InnoDB 表必须有主键或等价唯一键。</li>
+<li>推荐开启 GTID。</li>
+<li>网络质量和节点时钟稳定性重要。</li>
+<li>多数派存活才能保证集群可用。</li>
+<li>DDL、长事务、大事务会影响集群稳定性。</li>
+</ul>
+<span class="heading-anchor" id="6.2 InnoDB Cluster"></span><h3 id="62-innodb-cluster">6.2 InnoDB Cluster</h3>
+<p>InnoDB Cluster 通常由三部分组成：</p>
+<ol>
+<li>MySQL Group Replication：数据复制与成员管理。</li>
+<li>MySQL Shell：集群创建、管理、检查。</li>
+<li>MySQL Router：应用连接路由。</li>
+</ol>
+<p>典型能力：</p>
+<ul>
+<li>自动主节点选举。</li>
+<li>读写端口分离。</li>
+<li>节点状态检测。</li>
+<li>集群配置检查。</li>
+</ul>
+<span class="heading-anchor" id="6.3 组复制运维关注点"></span><h3 id="63">6.3 组复制运维关注点</h3>
+<ul>
+<li><code>group_replication_member_expel_timeout</code>：成员驱逐时间。</li>
+<li>流控状态：防止慢节点拖垮集群。</li>
+<li>事务大小：大事务会放大复制和认证成本。</li>
+<li>网络分区：确认多数派和故障域设计。</li>
+<li>Router 配置：避免应用绕过路由直连错误节点。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. 读写分离"></span><h2 id="7">7. 读写分离</h2>
+<p>读写分离通过主库承接写入、从库承接读取来分摊压力。常见实现：</p>
+<ul>
+<li>应用层路由：代码按读写选择数据源。</li>
+<li>中间件路由：ProxySQL、MySQL Router、ShardingSphere 等。</li>
+<li>云数据库代理：云厂商读写分离代理。</li>
+</ul>
+<span class="heading-anchor" id="7.1 一致性问题"></span><h3 id="71">7.1 一致性问题</h3>
+<p>读写分离最大的坑是 <strong>复制延迟</strong>。</p>
+<p>典型问题：</p>
+<ol>
+<li>用户写入成功后立刻读从库，读不到新数据。</li>
+<li>下单后查询订单列表为空。</li>
+<li>权限变更后从库未同步，鉴权结果错误。</li>
+</ol>
+<p>解决方法：</p>
+<ul>
+<li>写后读主库。</li>
+<li>按会话粘主一段时间。</li>
+<li>读取前检查 GTID 已追上。</li>
+<li>强一致业务不读从库。</li>
+<li>从库仅用于报表、搜索索引构建、低一致性查询。</li>
+</ul>
+<span class="heading-anchor" id="7.2 读写分离清单"></span><h3 id="72">7.2 读写分离清单</h3>
+<ul>
+<li>[ ] 明确哪些接口允许读从库。</li>
+<li>[ ] 明确写后读一致性策略。</li>
+<li>[ ] 监控每个从库复制延迟。</li>
+<li>[ ] 从库故障自动摘除。</li>
+<li>[ ] 慢查询和报表查询不能拖慢复制。</li>
+<li>[ ] 应用连接池、代理和 DNS 切换策略经过演练。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. 分库分表"></span><h2 id="8">8. 分库分表</h2>
+<p>分库分表是容量和吞吐的架构手段，不是优先级最高的优化手段。优先顺序通常是：索引与 SQL 优化 → 缓存 → 读写分离 → 垂直拆分 → 水平分片。</p>
+<span class="heading-anchor" id="8.1 垂直拆分"></span><h3 id="81">8.1 垂直拆分</h3>
+<p>按业务边界拆库：</p>
+<ul>
+<li>用户库</li>
+<li>订单库</li>
+<li>支付库</li>
+<li>库存库</li>
+</ul>
+<p>优点：边界清晰、降低单库耦合。<br/>
+缺点：跨库事务、跨库查询、数据一致性复杂。</p>
+<span class="heading-anchor" id="8.2 水平分片"></span><h3 id="82">8.2 水平分片</h3>
+<p>按分片键把同一张逻辑表拆到多个物理库/表。</p>
+<p>常见分片键：</p>
+<ul>
+<li><code>user_id</code></li>
+<li><code>tenant_id</code></li>
+<li><code>order_id</code></li>
+<li>时间 + 业务 ID</li>
+</ul>
+<p>分片键选择原则：</p>
+<ol>
+<li>查询高频条件中必须出现。</li>
+<li>分布足够均匀。</li>
+<li>不轻易变更。</li>
+<li>能支撑扩容迁移。</li>
+<li>避免热点租户或热点用户压垮单分片。</li>
+</ol>
+<span class="heading-anchor" id="8.3 分库分表带来的复杂度"></span><h3 id="83">8.3 分库分表带来的复杂度</h3>
+<ul>
+<li>跨分片查询、排序、分页成本高。</li>
+<li>分布式事务复杂，常用最终一致性、消息表、TCC/Saga，参考分布式事务相关资料。</li>
+<li>全局唯一 ID 需要独立方案。</li>
+<li>扩容迁移需要双写、校验、回放和切流。</li>
+<li>运维、备份、监控、权限都会成倍增加。</li>
+</ul>
+<span class="heading-anchor" id="8.4 面试回答模板"></span><h3 id="84">8.4 面试回答模板</h3>
+<p>如果被问“什么时候分库分表”：</p>
+<blockquote>
+<p>当单机优化、索引优化、缓存、读写分离已经不能满足容量或吞吐目标，并且业务可以接受分片带来的查询、事务和运维复杂度时，才考虑分库分表。决策前要有容量预测、热点分析、分片键设计、扩容方案、数据迁移方案和回滚方案。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="9. 分区表"></span><h2 id="9">9. 分区表</h2>
+<p>分区表是在同一个逻辑表下按规则拆分为多个物理分区。</p>
+<span class="heading-anchor" id="9.1 常见分区类型"></span><h3 id="91">9.1 常见分区类型</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>说明</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RANGE</td>
+<td>按范围分区</td>
+<td>按日期归档、日志表</td>
+</tr>
+<tr>
+<td>LIST</td>
+<td>按枚举值分区</td>
+<td>地区、类型</td>
+</tr>
+<tr>
+<td>HASH</td>
+<td>哈希分区</td>
+<td>均匀分散写入</td>
+</tr>
+<tr>
+<td>KEY</td>
+<td>MySQL 内部哈希</td>
+<td>简化哈希分区</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9.2 分区表适合什么"></span><h3 id="92">9.2 分区表适合什么</h3>
+<ul>
+<li>按时间清理历史数据。</li>
+<li>查询条件经常包含分区键。</li>
+<li>大表归档、冷热数据管理。</li>
+</ul>
+<span class="heading-anchor" id="9.3 分区表不适合什么"></span><h3 id="93">9.3 分区表不适合什么</h3>
+<ul>
+<li>期望自动提升所有查询性能。</li>
+<li>查询条件不带分区键。</li>
+<li>需要大量全局唯一约束的复杂表。</li>
+<li>高频跨分区扫描。</li>
+</ul>
+<span class="heading-anchor" id="9.4 分区表运维要点"></span><h3 id="94">9.4 分区表运维要点</h3>
+<ul>
+<li>提前创建未来分区。</li>
+<li>定期删除过期分区，避免 <code>DELETE</code> 大量历史数据。</li>
+<li>所有唯一键必须包含分区键这一约束要提前设计。</li>
+<li>分区数量过多会增加优化器和元数据开销。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. 容量规划"></span><h2 id="10">10. 容量规划</h2>
+<span class="heading-anchor" id="10.1 需要收集的数据"></span><h3 id="101">10.1 需要收集的数据</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据量</td>
+<td>表行数、数据大小、索引大小、增长率</td>
+</tr>
+<tr>
+<td>写入</td>
+<td>TPS、QPS、binlog 生成速度、redo 写入量</td>
+</tr>
+<tr>
+<td>读取</td>
+<td>QPS、慢查询、热点 SQL、缓存命中率</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>CPU、内存、磁盘空间、IOPS、吞吐、网络</td>
+</tr>
+<tr>
+<td>高可用</td>
+<td>从库延迟、备份耗时、恢复耗时、切换耗时</td>
+</tr>
+<tr>
+<td>成本</td>
+<td>实例规格、存储、备份、跨地域流量</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10.2 粗略估算公式"></span><h3 id="102">10.2 粗略估算公式</h3>
+<p>数据容量：</p>
+<pre><code class="language-text">未来数据量 = 当前数据量 × (1 + 月增长率) ^ 月数
+存储需求 = 数据量 + 索引量 + undo/redo/binlog + 临时空间 + 备份空间 + 安全水位
+</code></pre>
+<p>经验安全水位：</p>
+<ul>
+<li>磁盘使用率超过 70% 开始扩容评估。</li>
+<li>超过 80% 进入风险状态。</li>
+<li>超过 90% 需要立即处理，避免 binlog、临时表或 undo 撑满磁盘。</li>
+</ul>
+<span class="heading-anchor" id="10.3 容量规划输出物"></span><h3 id="103">10.3 容量规划输出物</h3>
+<ul>
+<li>当前容量快照。</li>
+<li>近 7/30/90 天增长趋势。</li>
+<li>未来 3/6/12 个月预测。</li>
+<li>单表 Top N 数据和索引占用。</li>
+<li>备份窗口和恢复窗口。</li>
+<li>扩容阈值和负责人。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="11. 监控指标"></span><h2 id="11">11. 监控指标</h2>
+<span class="heading-anchor" id="11.1 关键指标总览"></span><h3 id="111">11.1 关键指标总览</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>可用性</td>
+<td>连接成功率、实例存活、只读状态</td>
+<td>判断服务是否可用</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>查询 P95/P99、慢查询数</td>
+<td>用户体验核心指标</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>QPS、TPS、Com_select/insert/update/delete</td>
+<td>负载变化</td>
+</tr>
+<tr>
+<td>连接</td>
+<td>Threads_connected、Threads_running、max_connections 使用率</td>
+<td>连接池和突发压力</td>
+</tr>
+<tr>
+<td>InnoDB</td>
+<td>Buffer Pool 命中率、脏页比例、行锁等待</td>
+<td>存储引擎健康</td>
+</tr>
+<tr>
+<td>日志</td>
+<td>redo 写入、binlog 大小、fsync 延迟</td>
+<td>写入链路压力</td>
+</tr>
+<tr>
+<td>复制</td>
+<td>延迟、IO/SQL 线程、GTID 差距</td>
+<td>高可用风险</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>空间、IOPS、吞吐、await</td>
+<td>最常见瓶颈之一</td>
+</tr>
+<tr>
+<td>锁</td>
+<td>metadata lock、row lock、deadlock</td>
+<td>DDL 与事务问题</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>登录失败、权限变更、异常来源 IP</td>
+<td>入侵和误操作风险</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11.2 常见告警阈值"></span><h3 id="112">11.2 常见告警阈值</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>告警</th>
+<th>建议阈值</th>
+<th>处理方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>磁盘使用率</td>
+<td>&gt; 80% 警告，&gt; 90% 严重</td>
+<td>清理 binlog、扩容、归档</td>
+</tr>
+<tr>
+<td>复制延迟</td>
+<td>&gt; 30s 警告，核心链路更严格</td>
+<td>查大事务、IO、SQL 线程</td>
+</tr>
+<tr>
+<td>Threads_running</td>
+<td>持续高于 CPU 核数数倍</td>
+<td>查慢 SQL、锁等待、连接风暴</td>
+</tr>
+<tr>
+<td>慢查询</td>
+<td>突增或核心 SQL P99 上升</td>
+<td>查执行计划和索引</td>
+</tr>
+<tr>
+<td>死锁</td>
+<td>突增</td>
+<td>查事务顺序和索引</td>
+</tr>
+<tr>
+<td>Buffer Pool 命中率</td>
+<td>明显下降</td>
+<td>查工作集变化和内存</td>
+</tr>
+<tr>
+<td>aborted_connects</td>
+<td>突增</td>
+<td>查密码、网络、攻击</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11.3 常用观测入口"></span><h3 id="113">11.3 常用观测入口</h3>
+<pre><code class="language-sql">SHOW GLOBAL STATUS;
+SHOW GLOBAL VARIABLES;
+SHOW ENGINE INNODB STATUS\G
+SELECT * FROM performance_schema.events_statements_summary_by_digest ORDER BY SUM_TIMER_WAIT DESC LIMIT 10;
+</code></pre>
+<p>推荐结合：</p>
+<ul>
+<li>Performance Schema</li>
+<li>sys schema</li>
+<li>慢查询日志</li>
+<li>error log</li>
+<li>审计日志</li>
+<li>Prometheus + Grafana</li>
+<li>云数据库监控</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="12. 性能基线"></span><h2 id="12">12. 性能基线</h2>
+<p>性能基线是调优和故障判断的参照物。</p>
+<span class="heading-anchor" id="12.1 基线内容"></span><h3 id="121">12.1 基线内容</h3>
+<ul>
+<li>核心接口 QPS、TPS、P95、P99。</li>
+<li>Top SQL 延迟、扫描行数、返回行数。</li>
+<li>CPU、内存、IOPS、磁盘吞吐。</li>
+<li>Buffer Pool 命中率和脏页比例。</li>
+<li>binlog 生成速度和复制延迟。</li>
+<li>备份耗时、恢复耗时。</li>
+<li>正常业务峰谷曲线。</li>
+</ul>
+<span class="heading-anchor" id="12.2 建立方法"></span><h3 id="122">12.2 建立方法</h3>
+<ol>
+<li>选择业务低峰、普通峰值、大促峰值三个时间段。</li>
+<li>固定采样窗口，例如 1 分钟、5 分钟、1 小时。</li>
+<li>记录 MySQL、OS、应用连接池、代理层指标。</li>
+<li>标记变更事件：发布、DDL、参数调整、扩容。</li>
+<li>每次重大变更后刷新基线。</li>
+</ol>
+<span class="heading-anchor" id="12.3 基线用途"></span><h3 id="123">12.3 基线用途</h3>
+<ul>
+<li>判断“慢”是绝对慢还是相对基线变慢。</li>
+<li>识别容量拐点。</li>
+<li>评估参数调整是否有效。</li>
+<li>支撑压测目标和容量预算。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="13. 参数调优"></span><h2 id="13">13. 参数调优</h2>
+<p>参数调优必须基于业务负载、硬件资源和基线，不要照抄模板。</p>
+<span class="heading-anchor" id="13.1 内存相关"></span><h3 id="131">13.1 内存相关</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>innodb_buffer_pool_size</code></td>
+<td>InnoDB 数据和索引缓存</td>
+<td>专用数据库常见为物理内存 50%-75%，需结合连接和 OS 缓存</td>
+</tr>
+<tr>
+<td><code>innodb_buffer_pool_instances</code></td>
+<td>Buffer Pool 分片</td>
+<td>大内存实例可减少竞争</td>
+</tr>
+<tr>
+<td><code>tmp_table_size</code> / <code>max_heap_table_size</code></td>
+<td>内存临时表上限</td>
+<td>防止过多磁盘临时表，但不能盲目调大</td>
+</tr>
+<tr>
+<td><code>sort_buffer_size</code> / <code>join_buffer_size</code></td>
+<td>每连接分配</td>
+<td>过大可能导致连接多时内存爆炸</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="13.2 日志与刷盘"></span><h3 id="132">13.2 日志与刷盘</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+<th>取舍</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>innodb_flush_log_at_trx_commit=1</code></td>
+<td>每次提交刷 redo</td>
+<td>最安全，性能成本高</td>
+</tr>
+<tr>
+<td><code>sync_binlog=1</code></td>
+<td>每次事务同步 binlog</td>
+<td>最安全，降低丢事务风险</td>
+</tr>
+<tr>
+<td><code>innodb_log_file_size</code> / redo 容量</td>
+<td>影响 checkpoint 和写入平滑性</td>
+<td>过小会频繁 checkpoint，过大恢复时间增加</td>
+</tr>
+<tr>
+<td><code>binlog_expire_logs_seconds</code></td>
+<td>binlog 保留时间</td>
+<td>必须覆盖备份、从库、PITR 需要</td>
+</tr>
+</tbody>
+</table></div>
+<p>核心库建议优先保证安全：</p>
+<pre><code class="language-ini">innodb_flush_log_at_trx_commit = 1
+sync_binlog = 1
+binlog_format = ROW
+</code></pre>
+<span class="heading-anchor" id="13.3 连接相关"></span><h3 id="133">13.3 连接相关</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_connections</code></td>
+<td>调太大可能让数据库在连接风暴中耗尽内存</td>
+</tr>
+<tr>
+<td><code>wait_timeout</code></td>
+<td>太长占用连接，太短影响长连接</td>
+</tr>
+<tr>
+<td><code>thread_cache_size</code></td>
+<td>可降低线程创建销毁成本</td>
+</tr>
+</tbody>
+</table></div>
+<p>建议从应用连接池治理入手，而不是单纯调大 <code>max_connections</code>。</p>
+<span class="heading-anchor" id="13.4 优化器与 SQL"></span><h3 id="134-sql">13.4 优化器与 SQL</h3>
+<ul>
+<li>使用 <code>EXPLAIN</code> 和 <code>EXPLAIN ANALYZE</code> 验证执行计划，参考 <a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>。</li>
+<li>更新统计信息，避免优化器因统计过期选错索引。</li>
+<li>控制大分页、隐式类型转换、函数包裹索引列。</li>
+<li>避免无界查询和返回过多字段。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="14. 安全加固"></span><h2 id="14">14. 安全加固</h2>
+<span class="heading-anchor" id="14.1 账号与权限"></span><h3 id="141">14.1 账号与权限</h3>
+<p>原则：最小权限、按环境隔离、按应用隔离、按用途隔离。</p>
+<p>常见账号：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>账号</th>
+<th>权限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用读写账号</td>
+<td>仅业务库必要 DML</td>
+</tr>
+<tr>
+<td>只读账号</td>
+<td>仅 SELECT</td>
+</tr>
+<tr>
+<td>备份账号</td>
+<td>SELECT、SHOW VIEW、TRIGGER、LOCK TABLES、RELOAD 等按工具需要授予</td>
+</tr>
+<tr>
+<td>复制账号</td>
+<td>REPLICATION SLAVE/REPLICA CLIENT 相关权限</td>
+</tr>
+<tr>
+<td>运维账号</td>
+<td>按工单临时授权</td>
+</tr>
+</tbody>
+</table></div>
+<p>禁止：</p>
+<ul>
+<li>应用使用 <code>root</code>。</li>
+<li>多个系统共享同一账号。</li>
+<li>生产账号和测试账号密码一致。</li>
+<li>长期保留离职人员账号。</li>
+</ul>
+<span class="heading-anchor" id="14.2 密码与认证"></span><h3 id="142">14.2 密码与认证</h3>
+<ul>
+<li>使用强密码和定期轮换。</li>
+<li>启用密码复杂度组件或插件。</li>
+<li>限制失败登录次数。</li>
+<li>禁止空密码和匿名用户。</li>
+<li>优先使用更安全的认证插件与 TLS。</li>
+</ul>
+<span class="heading-anchor" id="14.3 网络与传输"></span><h3 id="143">14.3 网络与传输</h3>
+<ul>
+<li>数据库不暴露公网。</li>
+<li>安全组只允许应用、堡垒机、备份机访问。</li>
+<li>跨机房、跨云、跨公网链路启用 TLS。</li>
+<li>管理端口与业务访问隔离。</li>
+</ul>
+<span class="heading-anchor" id="14.4 数据加密"></span><h3 id="144">14.4 数据加密</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>传输加密</td>
+<td>TLS</td>
+</tr>
+<tr>
+<td>静态加密</td>
+<td>表空间加密、磁盘加密、云 KMS</td>
+</tr>
+<tr>
+<td>字段加密</td>
+<td>应用层加密、密钥管理系统</td>
+</tr>
+<tr>
+<td>备份加密</td>
+<td>备份文件加密、密钥分权</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="14.5 敏感数据治理"></span><h3 id="145">14.5 敏感数据治理</h3>
+<ul>
+<li>身份证、手机号、邮箱、银行卡等字段分类分级。</li>
+<li>非生产环境使用脱敏数据。</li>
+<li>日志禁止打印明文敏感信息。</li>
+<li>查询导出必须走审批和审计。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="15. 审计"></span><h2 id="15">15. 审计</h2>
+<p>审计关注“谁在什么时间从哪里对哪些数据做了什么”。</p>
+<span class="heading-anchor" id="15.1 审计对象"></span><h3 id="151">15.1 审计对象</h3>
+<ul>
+<li>登录成功和失败。</li>
+<li>权限变更。</li>
+<li>DDL 操作。</li>
+<li>高危 DML：无 WHERE 的 UPDATE/DELETE、大范围变更。</li>
+<li>敏感表 SELECT。</li>
+<li>备份、导出、复制账号访问。</li>
+<li>root 或高权账号行为。</li>
+</ul>
+<span class="heading-anchor" id="15.2 审计实现"></span><h3 id="152">15.2 审计实现</h3>
+<ul>
+<li>MySQL Enterprise Audit。</li>
+<li>云数据库审计。</li>
+<li>ProxySQL/网关审计。</li>
+<li>binlog 归档与解析。</li>
+<li>应用层操作日志。</li>
+</ul>
+<span class="heading-anchor" id="15.3 审计落地要求"></span><h3 id="153">15.3 审计落地要求</h3>
+<ul>
+<li>审计日志独立存储，防止数据库管理员直接篡改。</li>
+<li>保留周期满足合规要求。</li>
+<li>对高危事件设置实时告警。</li>
+<li>审计日志要能关联工单、发布单和人员身份。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="16. 升级与迁移"></span><h2 id="16">16. 升级与迁移</h2>
+<span class="heading-anchor" id="16.1 升级前检查"></span><h3 id="161">16.1 升级前检查</h3>
+<ul>
+<li>版本差异和废弃特性。</li>
+<li>SQL 语法兼容性。</li>
+<li>字符集与排序规则变化。</li>
+<li>认证插件变化。</li>
+<li>保留字变化。</li>
+<li>执行计划变化。</li>
+<li>备份与回滚方案。</li>
+<li>驱动版本兼容性。</li>
+</ul>
+<span class="heading-anchor" id="16.2 升级路径"></span><h3 id="162">16.2 升级路径</h3>
+<p>常见策略：</p>
+<ol>
+<li>原地升级：停机窗口内升级实例。</li>
+<li>主从滚动升级：先升级从库，切主后升级旧主。</li>
+<li>逻辑迁移：导出导入到新版本。</li>
+<li>双写迁移：应用同时写新旧库，校验后切流。</li>
+<li>CDC 迁移：通过 binlog 同步工具持续追平。</li>
+</ol>
+<span class="heading-anchor" id="16.3 迁移步骤模板"></span><h3 id="163">16.3 迁移步骤模板</h3>
+<ol>
+<li>明确迁移目标、窗口、RPO、RTO。</li>
+<li>建立目标库并完成参数、账号、网络、安全配置。</li>
+<li>全量迁移。</li>
+<li>增量同步。</li>
+<li>数据校验：行数、校验和、抽样业务校验。</li>
+<li>灰度读流量。</li>
+<li>停写或短暂停写切换。</li>
+<li>切应用连接。</li>
+<li>观察核心指标。</li>
+<li>保留旧库只读回滚窗口。</li>
+</ol>
+<span class="heading-anchor" id="16.4 回滚设计"></span><h3 id="164">16.4 回滚设计</h3>
+<p>没有回滚方案的迁移不是完整方案。</p>
+<p>回滚要回答：</p>
+<ul>
+<li>切换后新库产生的数据如何回放旧库？</li>
+<li>是否允许业务短暂停写？</li>
+<li>回滚窗口多长？</li>
+<li>回滚触发条件是什么？</li>
+<li>谁有决策权？</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="17. 故障排查 Runbook"></span><h2 id="17-runbook">17. 故障排查 Runbook</h2>
+<span class="heading-anchor" id="17.1 实例不可连接"></span><h3 id="171">17.1 实例不可连接</h3>
+<p>症状：应用大量连接失败、健康检查失败。</p>
+<p>排查：</p>
+<ol>
+<li>确认实例进程、端口、主机状态。</li>
+<li>检查 error log。</li>
+<li>检查磁盘是否写满。</li>
+<li>检查连接数是否达到 <code>max_connections</code>。</li>
+<li>检查网络、安全组、DNS、代理。</li>
+<li>如果主库不可恢复，按 HA 预案切换。</li>
+</ol>
+<p>快速 SQL：</p>
+<pre><code class="language-sql">SHOW GLOBAL STATUS LIKE 'Threads_connected';
+SHOW VARIABLES LIKE 'max_connections';
+SHOW PROCESSLIST;
+</code></pre>
+<span class="heading-anchor" id="17.2 数据库变慢"></span><h3 id="172">17.2 数据库变慢</h3>
+<p>排查顺序：</p>
+<ol>
+<li>是否有发布、DDL、批任务、流量突增。</li>
+<li>看 CPU、IO、内存、网络是否异常。</li>
+<li>查慢查询和 Top SQL。</li>
+<li>查锁等待、死锁、metadata lock。</li>
+<li>查执行计划是否变化。</li>
+<li>查 Buffer Pool 命中率和磁盘临时表。</li>
+<li>必要时限流、kill 问题会话、回滚发布。</li>
+</ol>
+<p>常用入口：</p>
+<pre><code class="language-sql">SHOW FULL PROCESSLIST;
+SHOW ENGINE INNODB STATUS\G
+SELECT * FROM information_schema.innodb_trx\G
+</code></pre>
+<span class="heading-anchor" id="17.3 复制中断"></span><h3 id="173">17.3 复制中断</h3>
+<p>排查：</p>
+<ol>
+<li>查看复制状态和错误信息。</li>
+<li>判断 IO 线程还是 SQL 线程失败。</li>
+<li>检查网络、权限、binlog 是否被清理。</li>
+<li>如果 SQL 线程报主键冲突或缺行，先判断数据不一致原因，不能盲目跳过。</li>
+<li>修复后启动复制并观察延迟。</li>
+</ol>
+<pre><code class="language-sql">SHOW REPLICA STATUS\G
+START REPLICA;
+STOP REPLICA;
+</code></pre>
+<span class="heading-anchor" id="17.4 复制延迟"></span><h3 id="174">17.4 复制延迟</h3>
+<p>处理：</p>
+<ol>
+<li>找出是否存在大事务。</li>
+<li>检查从库 SQL 线程应用速率。</li>
+<li>增加合理并行复制 workers。</li>
+<li>暂停从库上的重查询。</li>
+<li>核心读流量临时切主或切到延迟小的从库。</li>
+<li>长期优化：拆小事务、补主键、提升从库规格。</li>
+</ol>
+<span class="heading-anchor" id="17.5 磁盘写满"></span><h3 id="175">17.5 磁盘写满</h3>
+<p>优先级：保护数据一致性，避免误删数据文件。</p>
+<p>处理：</p>
+<ol>
+<li>确认占用来源：binlog、relay log、general log、slow log、临时文件、备份文件。</li>
+<li>不要直接删除 MySQL 正在管理的日志文件。</li>
+<li>用 MySQL 命令清理已确认可删除的 binlog。</li>
+<li>扩容磁盘或迁移备份文件。</li>
+<li>检查为什么容量告警没有提前触发。</li>
+</ol>
+<p>模板：</p>
+<pre><code class="language-sql">SHOW BINARY LOGS;
+PURGE BINARY LOGS BEFORE '2026-06-01 00:00:00';
+</code></pre>
+<span class="heading-anchor" id="17.6 误删数据"></span><h3 id="176">17.6 误删数据</h3>
+<p>处理原则：先止血、再恢复、后复盘。</p>
+<ol>
+<li>立即停止相关应用写入或隔离问题账号。</li>
+<li>确认误操作时间、SQL、影响表和范围。</li>
+<li>禁止在原库上直接尝试不确定修复。</li>
+<li>从备份 + binlog 恢复到临时库。</li>
+<li>校验并回灌受影响数据。</li>
+<li>补充权限、审计、SQL 审批和备份演练。</li>
+</ol>
+<span class="heading-anchor" id="17.7 死锁频发"></span><h3 id="177">17.7 死锁频发</h3>
+<p>排查：</p>
+<ul>
+<li>查看 <code>SHOW ENGINE INNODB STATUS\G</code> 最新死锁信息。</li>
+<li>找到事务访问表和索引顺序。</li>
+<li>检查是否缺索引导致范围锁扩大。</li>
+<li>统一业务更新顺序。</li>
+<li>缩短事务，减少交互式事务。</li>
+</ul>
+<p>参考 <a href="n-6750fd73b475.html">04-InnoDB事务锁与日志</a>。</p>
+<span class="heading-anchor" id="17.8 Metadata Lock 阻塞"></span><h3 id="178-metadata-lock">17.8 Metadata Lock 阻塞</h3>
+<p>常见场景：长事务未提交，DDL 等待 MDL，后续查询又排队。</p>
+<p>处理：</p>
+<ol>
+<li>找到持有 MDL 的长事务。</li>
+<li>评估能否 kill。</li>
+<li>DDL 使用在线变更工具或低峰执行。</li>
+<li>DDL 前检查长事务。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="18. 常见面试题与答案"></span><h2 id="18">18. 常见面试题与答案</h2>
+<span class="heading-anchor" id="18.1 mysqldump --single-transaction 为什么适合 InnoDB？"></span><h3 id="181-mysqldump-single-transaction-innodb">18.1 <code>mysqldump --single-transaction</code> 为什么适合 InnoDB？</h3>
+<p>因为 InnoDB 支持事务和 MVCC。<code>--single-transaction</code> 会在导出开始时开启一致性快照，导出期间不需要锁住 InnoDB 表，也能看到同一时间点的数据视图。但它不适合 MyISAM 等非事务表，也会产生长事务风险。</p>
+<span class="heading-anchor" id="18.2 逻辑备份和物理备份怎么选？"></span><h3 id="182">18.2 逻辑备份和物理备份怎么选？</h3>
+<p>小库、跨版本迁移、对象级恢复优先逻辑备份；大库、低 RTO、全实例恢复优先物理备份。生产通常组合使用：物理备份保证恢复速度，逻辑备份用于抽样校验、对象恢复和迁移。</p>
+<span class="heading-anchor" id="18.3 binlog 有什么作用？"></span><h3 id="183-binlog">18.3 binlog 有什么作用？</h3>
+<p>binlog 记录数据库变更，用于复制、时间点恢复、审计和数据同步。生产中要设置合理保留周期，确保覆盖从库延迟、备份恢复和审计需要。</p>
+<span class="heading-anchor" id="18.4 GTID 解决什么问题？"></span><h3 id="184-gtid">18.4 GTID 解决什么问题？</h3>
+<p>GTID 给每个事务一个全局唯一编号，让复制切换和故障恢复不再依赖手工匹配 binlog 文件和 offset。它简化拓扑切换，但不自动保证业务数据一致。</p>
+<span class="heading-anchor" id="18.5 异步复制、半同步复制、组复制有什么区别？"></span><h3 id="185">18.5 异步复制、半同步复制、组复制有什么区别？</h3>
+<ul>
+<li>异步复制：主库提交不等从库，性能好但可能丢最近事务。</li>
+<li>半同步复制：主库至少等一个从库收到日志再返回，降低丢失概率但增加延迟，超时可能退化。</li>
+<li>组复制：多个节点通过组通信和冲突检测维护一致复制，支持自动选主，但复杂度和网络要求更高。</li>
+</ul>
+<span class="heading-anchor" id="18.6 主从延迟怎么排查？"></span><h3 id="186">18.6 主从延迟怎么排查？</h3>
+<p>先看 <code>SHOW REPLICA STATUS\G</code> 判断 IO 线程还是 SQL 线程问题，再查大事务、从库资源、并行复制配置、无主键表、重查询、网络延迟。短期可切读流量或暂停报表，长期要拆小事务、补索引/主键、提升规格或优化架构。</p>
+<span class="heading-anchor" id="18.7 读写分离有什么坑？"></span><h3 id="187">18.7 读写分离有什么坑？</h3>
+<p>最大的问题是复制延迟导致写后读不一致。解决方式包括写后读主库、会话粘主、GTID 等待、强一致接口禁读从库，以及从库故障摘除。</p>
+<span class="heading-anchor" id="18.8 分库分表解决什么问题？代价是什么？"></span><h3 id="188">18.8 分库分表解决什么问题？代价是什么？</h3>
+<p>解决单库容量、写入吞吐、热点隔离问题。代价是跨分片查询、分页、排序、事务、全局 ID、扩容迁移、监控备份都更复杂。不能把分库分表当作普通 SQL 优化的替代品。</p>
+<span class="heading-anchor" id="18.9 分区表和分表有什么区别？"></span><h3 id="189">18.9 分区表和分表有什么区别？</h3>
+<p>分区表仍是一个逻辑表，由 MySQL 管理多个分区，适合按时间归档和分区裁剪。分表是多个独立物理表或库表，通常由应用或中间件路由。分区表降低部分运维成本，但不能解决所有大表性能问题。</p>
+<span class="heading-anchor" id="18.10 MySQL 磁盘满了怎么办？"></span><h3 id="1810-mysql">18.10 MySQL 磁盘满了怎么办？</h3>
+<p>先确认占用来源，不要直接删除 MySQL 管理的日志文件。可清理确认不再需要的 binlog、迁走备份、扩容磁盘、关闭异常 general log。处理后复盘容量告警和 binlog 保留策略。</p>
+<span class="heading-anchor" id="18.11 innodb_flush_log_at_trx_commit 和 sync_binlog 怎么设置？"></span><h3 id="1811-innodb_flush_log_at_trx_commit-sync_binlog">18.11 <code>innodb_flush_log_at_trx_commit</code> 和 <code>sync_binlog</code> 怎么设置？</h3>
+<p>核心交易库通常设置为 <code>1</code> 和 <code>1</code>，保证事务提交时 redo 和 binlog 都尽量落盘，降低宕机丢数据风险。非核心或可容忍丢失的场景可以在明确 RPO 后放宽以换取性能。</p>
+<span class="heading-anchor" id="18.12 如何做 MySQL 升级？"></span><h3 id="1812-mysql">18.12 如何做 MySQL 升级？</h3>
+<p>先做兼容性检查、驱动检查、备份和回滚方案；在测试环境用真实流量或回放验证；生产优先滚动升级或新集群迁移；切换前做数据校验；切换后保留旧库只读回滚窗口。</p>
+<span class="heading-anchor" id="18.13 如何防止误删数据？"></span><h3 id="1813">18.13 如何防止误删数据？</h3>
+<ul>
+<li>最小权限，应用账号禁止 DDL 和高危权限。</li>
+<li>SQL 审批和变更窗口。</li>
+<li>生产默认禁用无 WHERE 的 UPDATE/DELETE 或通过网关拦截。</li>
+<li>开启 binlog、审计和备份演练。</li>
+<li>高危操作前强制备份和二次确认。</li>
+</ul>
+<span class="heading-anchor" id="18.14 如何判断数据库瓶颈在 CPU、IO 还是锁？"></span><h3 id="1814-cpuio">18.14 如何判断数据库瓶颈在 CPU、IO 还是锁？</h3>
+<p>CPU 高通常伴随计算型 SQL、执行计划错误或并发过高；IO 高常见于 Buffer Pool 命中率下降、临时表、全表扫描、刷脏压力；锁瓶颈表现为 Threads_running 高但 CPU 不一定高，并伴随 row lock、metadata lock 或死锁信息。要结合 OS 指标、Performance Schema、慢日志和 InnoDB 状态判断。</p>
+<hr/>
+<span class="heading-anchor" id="19. 生产最佳实践清单"></span><h2 id="19">19. 生产最佳实践清单</h2>
+<span class="heading-anchor" id="19.1 架构与高可用"></span><h3 id="191">19.1 架构与高可用</h3>
+<ul>
+<li>[ ] 核心库至少一主两从或托管高可用实例。</li>
+<li>[ ] 跨可用区部署，故障域隔离。</li>
+<li>[ ] 开启 GTID，切换流程经过演练。</li>
+<li>[ ] 关键链路评估半同步或组复制。</li>
+<li>[ ] 读写分离有一致性策略。</li>
+<li>[ ] 故障切换后有旧主隔离机制，防止双写。</li>
+</ul>
+<span class="heading-anchor" id="19.2 备份恢复"></span><h3 id="192">19.2 备份恢复</h3>
+<ul>
+<li>[ ] 全量备份 + binlog 归档。</li>
+<li>[ ] 备份加密和异地保存。</li>
+<li>[ ] 备份保留周期覆盖合规和恢复要求。</li>
+<li>[ ] 定期恢复演练并记录 RTO。</li>
+<li>[ ] 误删恢复 runbook 可执行。</li>
+<li>[ ] 升级、DDL、迁移前有专项备份。</li>
+</ul>
+<span class="heading-anchor" id="19.3 性能与容量"></span><h3 id="193">19.3 性能与容量</h3>
+<ul>
+<li>[ ] 核心 SQL 有索引评审和执行计划记录。</li>
+<li>[ ] 慢查询日志开启并定期治理。</li>
+<li>[ ] 建立性能基线。</li>
+<li>[ ] 容量增长有 3/6/12 个月预测。</li>
+<li>[ ] 磁盘、连接、复制延迟、锁等待有告警。</li>
+<li>[ ] 大表有归档、分区或拆分策略。</li>
+</ul>
+<span class="heading-anchor" id="19.4 参数与变更"></span><h3 id="194">19.4 参数与变更</h3>
+<ul>
+<li>[ ] 参数变更有变更单、回滚方案和观察窗口。</li>
+<li>[ ] 核心库优先保证 <code>innodb_flush_log_at_trx_commit=1</code>、<code>sync_binlog=1</code>。</li>
+<li>[ ] 不盲目调大连接数和 per-connection buffer。</li>
+<li>[ ] DDL 使用在线方案并避开业务高峰。</li>
+<li>[ ] 变更前检查长事务、复制延迟和备份状态。</li>
+</ul>
+<span class="heading-anchor" id="19.5 安全与审计"></span><h3 id="195">19.5 安全与审计</h3>
+<ul>
+<li>[ ] 应用账号最小权限。</li>
+<li>[ ] root 不给应用使用，不允许远程通用 root。</li>
+<li>[ ] 密码定期轮换，离职人员权限及时回收。</li>
+<li>[ ] 数据库不暴露公网。</li>
+<li>[ ] 传输链路启用 TLS。</li>
+<li>[ ] 敏感数据脱敏、加密、分类分级。</li>
+<li>[ ] 高危操作、敏感查询和权限变更有审计。</li>
+</ul>
+<span class="heading-anchor" id="19.6 应急与复盘"></span><h3 id="196">19.6 应急与复盘</h3>
+<ul>
+<li>[ ] 有主库故障、复制中断、磁盘满、误删数据、慢查询风暴 runbook。</li>
+<li>[ ] 每次故障记录时间线、影响范围、根因、恢复动作。</li>
+<li>[ ] 复盘输出改进项并跟踪关闭。</li>
+<li>[ ] 告警必须有负责人、阈值解释和处理手册。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="20. 复习索引"></span><h2 id="20">20. 复习索引</h2>
+<ul>
+<li>备份恢复：<code>mysqldump</code>、<code>mysqlpump</code>、<code>mysqlsh</code>、物理备份、PITR。</li>
+<li>高可用：复制、GTID、半同步、组复制、InnoDB Cluster。</li>
+<li>架构扩展：读写分离、分库分表、分区表。</li>
+<li>运维治理：容量规划、监控指标、性能基线、参数调优。</li>
+<li>安全合规：权限、加密、审计、敏感数据治理。</li>
+<li>应急能力：故障排查 runbook、恢复演练、复盘机制。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

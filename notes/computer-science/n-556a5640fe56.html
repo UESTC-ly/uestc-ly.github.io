@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Kubernetes 基础：声明式部署与服务编排 · 李杨的学习笔记</title><meta name="description" content="Kubernetes 是声明式编排系统。你提交期望状态，控制器持续把实际状态调整到期望状态。Pod 是最小调度单元，通常包含一个主容器和少量辅助容器。"><meta property="og:title" content="Kubernetes 基础：声明式部署与服务编排 · 李杨的学习笔记"><meta property="og:description" content="Kubernetes 是声明式编排系统。你提交期望状态，控制器持续把实际状态调整到期望状态。Pod 是最小调度单元，通常包含一个主容器和少量辅助容器。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-556a5640fe56.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-556a5640fe56.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 02-测试与交付平台</p><h1>Kubernetes 基础：声明式部署与服务编排</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/02-%E6%B5%8B%E8%AF%95%E4%B8%8E%E4%BA%A4%E4%BB%98%E5%B9%B3%E5%8F%B0/03-%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">示例</a></li><li><a href="#deployment">Deployment</a></li><li><a href="#service">Service</a></li><li><a href="#_4">典型工作流</a></li><li><a href="#_5">常见坑</a></li><li><a href="#_6">排障步骤</a></li><li><a href="#_7">练习</a></li><li><a href="#_8">检查清单</a></li><li><a href="#_9">前置知识与完成标准</a></li><li><a href="#_10">对象协调循环与生命周期</a></li><li><a href="#_11">从零可复现实验</a></li><li><a href="#_12">配置与命令逐段讲解</a></li><li><a href="#_13">教学配置与生产配置边界</a></li><li><a href="#_14">排障决策树</a></li><li><a href="#_15">练习与答案要点</a></li><li><a href="#_16">小结与官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 Kubernetes 中 Pod、Deployment、Service、ConfigMap、Secret、Ingress 的关系。</li>
+<li>能读写基本 YAML，并使用 <code>kubectl</code> 查看资源状态和事件。</li>
+<li>能理解滚动更新、健康检查、资源限制和配置注入。</li>
+<li>能识别把服务部署到生产集群前必须补齐的安全和可靠性设置。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<p>Kubernetes 是声明式编排系统。你提交期望状态，控制器持续把实际状态调整到期望状态。Pod 是最小调度单元，通常包含一个主容器和少量辅助容器。</p>
+<p>Deployment 管理一组 Pod 副本，负责滚动更新和回滚。Service 为一组 Pod 提供稳定访问入口，因为 Pod IP 会变化。ConfigMap 存放非敏感配置，Secret 存放敏感配置，但默认不等于完整加密方案，生产环境要结合 KMS、RBAC 和审计。</p>
+<p>Ingress 描述外部 HTTP/HTTPS 流量如何进入集群，实际转发由 Ingress Controller 实现，例如 Nginx Ingress Controller、Traefik 或云厂商负载均衡器。</p>
+<span class="heading-anchor" id="示例"></span><h2 id="_3">示例</h2>
+<span class="heading-anchor" id="Deployment"></span><h3 id="deployment">Deployment</h3>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: user-api
+  template:
+    metadata:
+      labels:
+        app: user-api
+    spec:
+      containers:
+        - name: api
+          image: registry.example.com/user-api:1.2.3@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: user-api-config
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+</code></pre>
+<span class="heading-anchor" id="Service"></span><h3 id="service">Service</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: user-api
+spec:
+  selector:
+    app: user-api
+  ports:
+    - port: 80
+      targetPort: 8080
+</code></pre>
+<p>生产注意事项：生产 Deployment 应设置资源 requests/limits、readiness/liveness probe、PodDisruptionBudget、镜像 digest 或不可覆盖 tag、最小权限 ServiceAccount、NetworkPolicy 和合理的副本数。不要把数据库当作普通无状态 Deployment 直接裸跑，除非明确设计了持久化、备份和恢复。</p>
+<span class="heading-anchor" id="典型工作流"></span><h2 id="_4">典型工作流</h2>
+<ol>
+<li>构建并推送镜像到 Registry，记录 digest 或不可覆盖 tag。</li>
+<li>编写 ConfigMap、Secret、Deployment、Service 和 Ingress。</li>
+<li><code>kubectl apply -f</code> 提交资源。</li>
+<li>用 <code>kubectl get pods</code>、<code>kubectl describe pod</code>、<code>kubectl logs</code> 观察状态。</li>
+<li>修改镜像版本触发滚动更新，观察新旧 Pod 替换。</li>
+<li>如果发布异常，使用 <code>kubectl rollout undo deployment/user-api</code> 回滚。</li>
+</ol>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_5">常见坑</h2>
+<ul>
+<li>只配置 livenessProbe，不配置 readinessProbe，导致未准备好的 Pod 接收流量。</li>
+<li>selector 标签写错，Service 找不到 Pod。</li>
+<li>没有资源限制，服务异常时影响同节点其他工作负载。</li>
+<li>把 Secret 当成绝对安全存储，忽略 RBAC、审计和加密配置。</li>
+<li>镜像拉取策略和可变 tag 不匹配，集群实际运行旧镜像或不可追溯镜像。</li>
+<li>应用启动慢但探针过早触发，造成反复重启。</li>
+</ul>
+<span class="heading-anchor" id="排障步骤"></span><h2 id="_6">排障步骤</h2>
+<ol>
+<li><code>kubectl get pods -o wide</code> 查看 Pod 状态、节点和重启次数。</li>
+<li><code>kubectl describe pod &lt;pod&gt;</code> 查看调度失败、镜像拉取失败、探针失败等事件。</li>
+<li><code>kubectl logs &lt;pod&gt; --previous</code> 查看上一次崩溃前日志。</li>
+<li><code>kubectl get endpoints &lt;service&gt;</code> 确认 Service 是否匹配到 Pod。</li>
+<li><code>kubectl rollout status deployment/&lt;name&gt;</code> 查看发布进度。</li>
+<li>对网络问题检查 DNS、Service 名称、端口、NetworkPolicy 和 Ingress Controller 日志。</li>
+</ol>
+<span class="heading-anchor" id="练习"></span><h2 id="_7">练习</h2>
+<ol>
+<li>用 kind 或 minikube 部署一个 HTTP 服务，暴露为 Service。</li>
+<li>给服务增加 readinessProbe，并制造启动延迟观察流量切换。</li>
+<li>修改镜像 tag 触发滚动更新，再执行回滚。</li>
+<li>故意写错 Service selector，使用 <code>kubectl get endpoints</code> 定位问题。</li>
+</ol>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_8">检查清单</h2>
+<ul>
+<li>Deployment、Service、ConfigMap、Secret 职责分离明确。</li>
+<li>Service selector 与 Pod label 一致。</li>
+<li>readinessProbe、livenessProbe 和资源限制已配置。</li>
+<li>镜像版本使用 digest 或不可覆盖 tag，可追溯且可回滚。</li>
+<li>排障时会查看状态、事件、日志、端点和 rollout 状态。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h2 id="_9">前置知识与完成标准</h2>
+<p>前置知识：会使用 Docker 镜像；理解 YAML、HTTP 健康检查、端口、环境变量；知道服务实例可能随时重启、迁移或扩缩容。</p>
+<p>完成标准：</p>
+<ul>
+<li>能解释 API Server、etcd、controller、scheduler、kubelet 与容器运行时的协作。</li>
+<li>能说明 Deployment 如何通过 ReplicaSet 管理 Pod，并用 Service 提供稳定访问入口。</li>
+<li>能配置 readiness、liveness、startup probe，理解各自失败后的动作。</li>
+<li>能使用 <code>kubectl get/describe/logs/events/rollout</code> 定位 Pending、CrashLoopBackOff、ImagePullBackOff、探针失败和 Service 无端点。</li>
+</ul>
+<span class="heading-anchor" id="对象协调循环与生命周期"></span><h2 id="_10">对象协调循环与生命周期</h2>
+<p>Kubernetes 的核心不是“执行一次命令”，而是控制循环。用户把期望状态提交到 API Server，状态保存在 etcd；Deployment controller 发现需要 ReplicaSet，ReplicaSet controller 发现需要 Pod；scheduler 为未绑定节点的 Pod 选择节点；目标节点上的 kubelet 拉取镜像、创建容器并持续汇报状态。</p>
+<p>组件关系可以简化为：</p>
+<pre><code class="language-text">kubectl/apply
+  -&gt; API Server
+  -&gt; etcd 保存期望状态
+  -&gt; controllers 创建/修正 Deployment、ReplicaSet、Pod
+  -&gt; scheduler 绑定 Pod 到 Node
+  -&gt; kubelet 调用容器运行时启动容器
+  -&gt; Service/EndpointSlice 根据 label 暴露就绪 Pod
+</code></pre>
+<p>Deployment 的滚动升级本质是逐步扩大新 ReplicaSet、缩小旧 ReplicaSet。<code>maxSurge</code> 控制最多额外创建多少新 Pod，<code>maxUnavailable</code> 控制升级期间最多允许多少 Pod 不可用。readiness 失败的 Pod 不进入服务端点；liveness 失败会被 kubelet 重启；startup probe 给慢启动应用争取初始化时间，成功前会抑制其他探针。</p>
+<p>调度不是看实时 CPU 使用率，而是主要根据资源 request、节点容量、亲和性、污点容忍、拓扑约束等做放置决策。limits 则由 kubelet 和容器运行时交给内核 cgroup 执行，内存超限通常导致 OOMKilled，CPU 超限通常表现为被限速而不是杀进程。</p>
+<span class="heading-anchor" id="从零可复现实验"></span><h2 id="_11">从零可复现实验</h2>
+<p>目标：用 kind 或 minikube 部署 HTTP 服务，观察 Service 端点、探针和滚动更新。</p>
+<ol>
+<li>准备本地集群：</li>
+</ol>
+<pre><code class="language-bash">kind create cluster --name delivery-demo
+kubectl cluster-info
+</code></pre>
+<ol>
+<li>保存 <code>demo.yaml</code>：</li>
+</ol>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<ol>
+<li>应用并验证：</li>
+</ol>
+<pre><code class="language-bash">kubectl apply -f demo.yaml
+kubectl rollout status deployment/web
+kubectl get pods -l app=web -o wide
+kubectl get endpoints web
+kubectl port-forward service/web 8080:80
+curl -i http://127.0.0.1:8080/
+</code></pre>
+<p>预期结果：Deployment 可用，Service 有端点，curl 返回 Nginx 页面。失败现象：Pending 多为资源或调度约束；ImagePullBackOff 多为镜像名、网络或凭据；CrashLoopBackOff 多为进程退出；Service 空端点多为 label selector 或 readiness 失败。</p>
+<span class="heading-anchor" id="配置与命令逐段讲解"></span><h2 id="_12">配置与命令逐段讲解</h2>
+<pre><code class="language-yaml">selector:
+  matchLabels:
+    app: user-api
+template:
+  metadata:
+    labels:
+      app: user-api
+</code></pre>
+<p><code>selector</code> 是控制器选择 Pod 的条件，<code>template.metadata.labels</code> 是新建 Pod 的标签。二者必须匹配；Deployment 创建后 selector 通常不可随意变更，避免控制器接管错误 Pod。</p>
+<pre><code class="language-yaml">readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+startupProbe:
+  httpGet:
+    path: /health/startup
+    port: 8080
+  failureThreshold: 30
+  periodSeconds: 2
+</code></pre>
+<p>readiness 回答“能否接流量”，liveness 回答“是否需要重启”，startup 回答“是否还在启动窗口”。不要把依赖数据库短暂失败直接等同于 liveness 失败，否则会把可恢复的下游故障放大成重启风暴。</p>
+<pre><code class="language-bash">kubectl describe pod &lt;pod&gt;
+kubectl logs &lt;pod&gt; --previous
+kubectl events --for pod/&lt;pod&gt;
+kubectl rollout undo deployment/user-api
+</code></pre>
+<p><code>describe</code> 看调度、拉镜像、探针等事件；<code>logs --previous</code> 看上一次崩溃前日志；<code>events</code> 适合按对象追踪近期事件；<code>rollout undo</code> 回到上一版 ReplicaSet，但前提是旧镜像仍可拉取、数据库迁移仍兼容。</p>
+<span class="heading-anchor" id="教学配置与生产配置边界"></span><h2 id="_13">教学配置与生产配置边界</h2>
+<p>教学集群可以使用 kind/minikube、默认命名空间、NodePort 或 port-forward、简单 Secret。生产集群应拆命名空间、RBAC、NetworkPolicy、PodDisruptionBudget、ResourceQuota、LimitRange、镜像准入、审计日志和 Secret 加密；公网入口应由 Ingress Controller 或云负载均衡统一治理。</p>
+<p>教学中可用单个 YAML 展示对象关系；生产中通常使用 Helm、Kustomize 或 GitOps 管理环境差异。教学中可直接 <code>kubectl apply</code>；生产发布应走 CI/CD、审批、回滚记录和可观测性验证。</p>
+<span class="heading-anchor" id="排障决策树"></span><h2 id="_14">排障决策树</h2>
+<pre><code class="language-text">Kubernetes 发布异常
+├─ Pod Pending？
+│  ├─ 是：看 describe 的 FailedScheduling、requests、节点污点、PVC
+│  └─ 否：继续
+├─ ImagePullBackOff？
+│  ├─ 是：检查镜像名、tag/digest、Registry 凭据、节点网络
+│  └─ 否：继续
+├─ CrashLoopBackOff？
+│  ├─ 是：看 logs --previous、启动命令、配置、Secret、依赖连接
+│  └─ 否：继续
+├─ Service 无法访问？
+│  ├─ endpoints 为空：检查 selector、label、readiness
+│  └─ endpoints 正常：检查端口、DNS、NetworkPolicy、Ingress
+└─ rollout 卡住？
+   ├─ 新 Pod 未就绪：看探针、资源、应用日志
+   └─ 指标异常：暂停发布或回滚，保留事件和日志
+</code></pre>
+<span class="heading-anchor" id="练习与答案要点"></span><h2 id="_15">练习与答案要点</h2>
+<p>基础练习：故意把 Service selector 写成 <code>app: wrong</code>，观察 <code>kubectl get endpoints web</code>。答案要点：Pod 正常但 Service 无端点；修复 selector 后端点出现。</p>
+<p>进阶练习：给慢启动服务配置 startupProbe，再比较只有 livenessProbe 时的重启次数。答案要点：startup 成功前 liveness 不执行；慢启动不应被误杀。</p>
+<p>综合练习：配置 Deployment 的 <code>maxSurge: 1</code>、<code>maxUnavailable: 0</code>，发布新镜像并模拟新版本 readiness 失败。答案要点：旧 Pod 保持服务；rollout 不完成；可用 <code>rollout undo</code> 回滚；监控应能看到新 ReplicaSet 未就绪。</p>
+<span class="heading-anchor" id="小结与官方延伸阅读"></span><h2 id="_16">小结与官方延伸阅读</h2>
+<p>Kubernetes 通过声明式对象和控制循环持续修正实际状态。学习重点不是背 YAML 字段，而是理解控制器、调度、探针、资源和网络对象如何共同决定一个服务能否稳定接收流量。</p>
+<p>官方延伸阅读：</p>
+<ul>
+<li>Kubernetes Deployment：https://kubernetes.io/docs/concepts/workloads/controllers/deployment/</li>
+<li>Pod 探针：https://kubernetes.io/docs/concepts/workloads/pods/probes/</li>
+<li>Pod/容器资源管理：https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/</li>
+<li>应用排障：https://kubernetes.io/docs/tasks/debug/debug-application/</li>
+<li>kubectl 参考：https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

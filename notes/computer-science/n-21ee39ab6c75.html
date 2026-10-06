@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>持久化：RDB 与 AOF · 李杨的学习笔记</title><meta name="description" content="Redis 持久化解决“进程或机器重启后如何恢复内存数据”。RDB 保存某个时间点的数据快照；AOF 记录修改数据集的写命令，重启时重放来重建状态。Redis 也允许不开持久化，或同时使用 RDB+AOF；当两者都启用时，恢复通常优先使用包含更新更多的 AOF。"><meta property="og:title" content="持久化：RDB 与 AOF · 李杨的学习笔记"><meta property="og:description" content="Redis 持久化解决“进程或机器重启后如何恢复内存数据”。RDB 保存某个时间点的数据快照；AOF 记录修改数据集的写命令，重启时重放来重建状态。Redis 也允许不开持久化，或同时使用 RDB+AOF；当两者都启用时，恢复通常优先使用包含更新更多的 AOF。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-21ee39ab6c75.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-21ee39ab6c75.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>持久化：RDB 与 AOF</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/02-%E6%8C%81%E4%B9%85%E5%8C%96-RDB-AOF.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#rdbforkcow">RDB：fork、COW 和恢复</a></li><li><a href="#aof-rewrite">AOF：追加、刷盘和 rewrite</a></li><li><a href="#rdb-aof_1">RDB 与 AOF 的组合取舍</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#_4">配置评估清单</a></li><li><a href="#_5">观测指标</a></li><li><a href="#aof-everysec">故障时序：AOF everysec 断电</a></li><li><a href="#_6">常见误区</a></li><li><a href="#_7">自测题</a></li><li><a href="#_8">实践任务</a></li><li><a href="#_9">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 RDB 快照和 AOF 追加日志的恢复方式、性能代价和数据丢失窗口。</li>
+<li>能解释 fork、copy-on-write、rewrite、fsync 对延迟、内存和磁盘 IO 的影响。</li>
+<li>能根据缓存、会话、队列辅助状态、业务状态等场景选择持久化与备份策略。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>Redis 持久化解决“进程或机器重启后如何恢复内存数据”。RDB 保存某个时间点的数据快照；AOF 记录修改数据集的写命令，重启时重放来重建状态。Redis 也允许不开持久化，或同时使用 RDB+AOF；当两者都启用时，恢复通常优先使用包含更新更多的 AOF。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>RDB</th>
+<th>AOF</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>记录内容</td>
+<td>数据快照</td>
+<td>写命令日志，Redis 7 起使用多段 AOF：base、incremental、manifest</td>
+</tr>
+<tr>
+<td>恢复速度</td>
+<td>通常较快，直接加载快照</td>
+<td>取决于 base + incremental 日志大小</td>
+</tr>
+<tr>
+<td>数据丢失窗口</td>
+<td>两次快照之间</td>
+<td>取决于 <code>appendfsync</code> 策略和故障类型</td>
+</tr>
+<tr>
+<td>IO 模式</td>
+<td>fork 子进程生成临时 RDB 后原子替换</td>
+<td>追加写、周期 fsync、后台 rewrite</td>
+</tr>
+<tr>
+<td>适合场景</td>
+<td>备份、灾难恢复、可接受较大窗口</td>
+<td>更关注最近写入保留</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="RDB：fork、COW 和恢复"></span><h3 id="rdbforkcow">RDB：fork、COW 和恢复</h3>
+<p><code>BGSAVE</code> 会 fork 子进程。子进程基于 fork 时刻的内存视图写临时 RDB 文件，完成后替换旧文件。父进程继续处理请求；如果父进程在快照期间修改页面，操作系统 copy-on-write 会复制被修改页面，导致内存短时升高。</p>
+<pre class="mermaid">sequenceDiagram
+  participant P as Parent Redis
+  participant C as Child
+  participant D as Disk
+  P-&gt;&gt;C: fork()
+  C-&gt;&gt;D: write temp RDB
+  P-&gt;&gt;P: continue serving writes
+  P-&gt;&gt;P: modified pages trigger COW
+  C-&gt;&gt;D: rename temp file to dump.rdb
+</pre>
+<p>RDB 失败窗口：</p>
+<ul>
+<li>快照间隔内宕机，最近写入可能丢失。</li>
+<li>fork 期间内存接近上限，COW 额外内存可能触发 OOM 或 swap。</li>
+<li>大实例加载 RDB 时，恢复时间受磁盘吞吐和数据量影响；恢复完成前服务不可用或数据不完整。</li>
+</ul>
+<span class="heading-anchor" id="AOF：追加、刷盘和 rewrite"></span><h3 id="aof-rewrite">AOF：追加、刷盘和 rewrite</h3>
+<p>AOF 在写命令执行后把命令追加到文件缓冲，再按策略刷盘。官方文档列出三类策略：<code>always</code>、<code>everysec</code>、<code>no</code>。<code>everysec</code> 是常见折中，故障时可能丢失约 1 秒附近的数据，但不能被描述成严格上限；内核、磁盘、虚拟化和断电方式都会影响结果。</p>
+<pre><code class="language-conf">appendonly yes
+appendfsync everysec
+</code></pre>
+<p>rewrite 不是“压缩原文件”，而是根据当前内存数据生成一份能重建同等状态的更短日志。Redis 7.0 起多段 AOF 中，rewrite 会生成新的 base 文件，父进程继续写新的 incremental 文件，最后通过 manifest 原子切换。</p>
+<pre class="mermaid">flowchart TD
+  W["写命令"] --&gt; Append["追加 incremental AOF"]
+  Append --&gt; Fsync{appendfsync}
+  Fsync --&gt;|always| Disk1["每批写后 fsync"]
+  Fsync --&gt;|everysec| Disk2["后台近似每秒 fsync"]
+  Fsync --&gt;|no| OS["交给 OS 刷盘"]
+  Append --&gt; Rewrite["BGREWRITEAOF"]
+  Rewrite --&gt; Base["生成新 base"]
+  Base --&gt; Manifest["manifest 原子切换"]
+</pre>
+<span class="heading-anchor" id="RDB 与 AOF 的组合取舍"></span><h3 id="rdb-aof_1">RDB 与 AOF 的组合取舍</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>建议思路</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>纯缓存，可从 DB 回源</td>
+<td>RDB 或关闭强持久化</td>
+<td>优先保障延迟和可用性，数据可重建</td>
+</tr>
+<tr>
+<td>会话、限流、任务状态</td>
+<td>AOF <code>everysec</code> + 备份演练</td>
+<td>丢失窗口较小，仍需接受重复/丢失补偿</td>
+</tr>
+<tr>
+<td>账务、订单最终事实</td>
+<td>Redis 不做唯一事实源</td>
+<td>应以数据库/日志系统为准，Redis 可做缓存或辅助状态</td>
+</tr>
+<tr>
+<td>大实例备份</td>
+<td>RDB 快照 + 异地复制</td>
+<td>RDB 文件适合周期备份，但要错峰 fork</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<span class="heading-anchor" id="配置评估清单"></span><h3 id="_4">配置评估清单</h3>
+<pre><code class="language-text">数据是否可重建：是/否
+允许丢失窗口：0 / 1s级 / 分钟级 / 小时级
+恢复时间目标 RTO：多久恢复服务
+恢复点目标 RPO：最多丢多少数据
+实例内存峰值：used_memory + fork COW + replication/AOF buffer
+磁盘余量：RDB/AOF 当前大小 + rewrite 临时空间 + 备份空间
+</code></pre>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_5">观测指标</h3>
+<pre><code class="language-redis">INFO persistence
+INFO memory
+INFO stats
+</code></pre>
+<p>重点字段：</p>
+<ul>
+<li><code>rdb_bgsave_in_progress</code>、<code>rdb_last_bgsave_status</code>：RDB 是否正在生成和上次状态。</li>
+<li><code>aof_enabled</code>、<code>aof_rewrite_in_progress</code>、<code>aof_last_bgrewrite_status</code>：AOF 与 rewrite 状态。</li>
+<li><code>aof_delayed_fsync</code>：fsync 延迟累计，升高说明磁盘跟不上。</li>
+<li><code>used_memory_rss</code>、<code>mem_fragmentation_ratio</code>：结合 COW 判断内存压力。</li>
+<li><code>latest_fork_usec</code>：fork 耗时，和延迟尖刺高度相关。</li>
+</ul>
+<span class="heading-anchor" id="故障时序：AOF everysec 断电"></span><h3 id="aof-everysec">故障时序：AOF everysec 断电</h3>
+<pre class="mermaid">sequenceDiagram
+  participant C as Client
+  participant R as Redis
+  participant OS as OS Page Cache
+  participant D as Disk
+  C-&gt;&gt;R: SET order:42 paid
+  R-&gt;&gt;OS: write AOF buffer
+  R--&gt;&gt;C: OK
+  Note over OS,D: fsync 尚未完成
+  OS--xD: power loss
+  Note over R: 重启后只重放已落盘 AOF
+</pre>
+<p>如果这类状态不能丢，不能只靠 Redis AOF；要把最终事实写入数据库或事务日志，并让 Redis 从事实源恢复。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_6">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开了 AOF 就不会丢数据</td>
+<td>fsync 策略决定风险窗口，硬件和内核也会影响结果</td>
+</tr>
+<tr>
+<td>RDB 没有线上影响</td>
+<td>fork、copy-on-write、磁盘写入都可能带来延迟尖刺</td>
+</tr>
+<tr>
+<td>rewrite 只是压缩文件</td>
+<td>rewrite 会消耗 CPU、内存和磁盘 IO，需要容量余量</td>
+</tr>
+<tr>
+<td>持久化等于备份</td>
+<td>持久化文件可能被误删或损坏，仍需异地备份与恢复演练</td>
+</tr>
+<tr>
+<td>副本能替代持久化</td>
+<td>异步复制会复制错误写入和删除，也可能在主重启空数据时被污染</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_7">自测题</h2>
+<ol>
+<li>RDB 生成期间写入大量数据，为什么内存会升高？</li>
+<li>AOF rewrite 与普通 AOF 追加分别解决什么问题？</li>
+<li>缓存集群是否一定要开启 AOF？判断依据是什么？</li>
+<li>Redis 同时启用 RDB 和 AOF 后，为什么恢复通常使用 AOF？</li>
+<li><code>appendfsync always</code> 为什么更安全但可能显著增加延迟？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_8">实践任务</h2>
+<ul>
+<li>设计一份 Redis 持久化风险评估表，列出数据类型、可重建性、允许丢失窗口、恢复时长目标。</li>
+<li>在测试环境压测 <code>BGSAVE</code> 和 <code>BGREWRITEAOF</code> 期间 P99/P999 延迟变化。</li>
+<li>写一个巡检脚本，输出 <code>INFO persistence</code> 中的失败状态、rewrite 状态和 fsync 延迟计数。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_9">延伸阅读</h2>
+<ul>
+<li>Redis persistence：https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/</li>
+<li>Redis configuration：https://redis.io/docs/latest/operate/oss_and_stack/management/config/</li>
+<li>Redis memory optimization：https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

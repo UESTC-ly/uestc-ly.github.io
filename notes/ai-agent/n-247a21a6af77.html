@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>10 表单文件与请求头 · 李杨的学习笔记</title><meta name="description" content="记忆句： 先找数据放在哪，再看正文怎么编码。"><meta property="og:title" content="10 表单文件与请求头 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 先找数据放在哪，再看正文怎么编码。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-247a21a6af77.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-247a21a6af77.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>10 表单文件与请求头</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/10_%E8%A1%A8%E5%8D%95%E6%96%87%E4%BB%B6%E4%B8%8E%E8%AF%B7%E6%B1%82%E5%A4%B4.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 明明都是提交数据，为什么不能都用请求体模型？</a></li><li><a href="#2-multipart">2. multipart 可以理解成“分格包装”</a></li><li><a href="#3-demo">3. 最小 demo：文件加一句备注</a></li><li><a href="#4-uploadfile-bytes">4. 为什么使用 UploadFile，而不是直接接收 bytes？</a></li><li><a href="#5-json">5. 请求头如何记忆？为什么同一请求体不能既当 JSON 又当表单？</a></li><li><a href="#6">6. 合上笔记再回答</a></li><li><a href="#7">7. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>先找数据放在哪，再看正文怎么编码。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 明明都是提交数据，为什么不能都用请求体模型？"></span><h2 id="1">1. 明明都是提交数据，为什么不能都用请求体模型？</h2>
+<p>前面的 Pydantic 模型适合接收 JSON：客户端把一组结构化数据编码成 JSON，服务器再按照模型解释它。但网页表单和文件上传经常采用另一种编码。如果发送的是 multipart，却让接口按常规 JSON 读取，双方对“这包数据怎么拆”就没有达成一致。</p>
+<p>先区分两个问题：<strong>数据的位置</strong>和<strong>请求体的格式</strong>。路径、查询参数、请求头和请求体是不同位置；JSON、URL 编码表单、multipart 则是请求体的不同格式。<code>Content-Type</code> 请求头告诉服务器正文采用哪种格式，不能仅靠变量名猜测。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>传什么</th>
+<th>常见声明</th>
+<th>理解方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON 对象</td>
+<td>Pydantic 模型</td>
+<td>按结构和字段规则解释正文</td>
+</tr>
+<tr>
+<td>表单文本字段</td>
+<td><code>Form()</code></td>
+<td>从表单正文中取字段</td>
+</tr>
+<tr>
+<td>上传文件</td>
+<td><code>UploadFile</code> 配合 <code>File()</code></td>
+<td>获得文件内容的读取接口</td>
+</tr>
+<tr>
+<td>请求附带的元信息</td>
+<td><code>Header()</code></td>
+<td>从请求头取值</td>
+</tr>
+<tr>
+<td>浏览器携带的 Cookie</td>
+<td><code>Cookie()</code></td>
+<td>从 Cookie 中取指定值</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些声明描述的是读取规则。例如参数叫 <code>token</code> 并不会自动从请求头读取，参数叫 <code>filename</code> 也不会自动变成文件。</p>
+<span class="heading-anchor" id="2. multipart 可以理解成“分格包装”"></span><h2 id="2-multipart">2. multipart 可以理解成“分格包装”</h2>
+<p>普通表单常采用 <code>application/x-www-form-urlencoded</code>，适合键值文本。上传文件时常采用 <code>multipart/form-data</code>：同一个请求体拆成多个部分，每个部分可以有自己的字段名、文件名和内容。文本备注和文件就能放在同一个请求里。</p>
+<p>可以把 multipart 想成一个有隔间的快递箱：一个隔间装文件，另一个装备注。隔间由编码中的 boundary 区分，客户端库或浏览器会替你生成。手工只写一个 <code>Content-Type: multipart/form-data</code>、却不正确提供 boundary，反而可能导致解析失败。</p>
+<p>这个类比只说明编码结构，不意味着文件会自动保存到你的业务目录。框架帮你解析请求并提供文件对象，保存到哪里、用什么名字、是否允许上传，仍然由应用决定。</p>
+<span class="heading-anchor" id="3. 最小 demo：文件加一句备注"></span><h2 id="3-demo">3. 最小 demo：文件加一句备注</h2>
+<p>表单解析需要 <code>python-multipart</code>。按照学习地图安装依赖后，将下面保存为 <code>main.py</code>，运行 <code>python -m uvicorn main:app --reload</code>。</p>
+<pre><code class="language-python">from fastapi import FastAPI, File, Form, UploadFile
+
+app = FastAPI()
+
+@app.post("/upload")
+async def upload(file: UploadFile = File(), note: str = Form("")):
+    size = 0
+    try:
+        while chunk := await file.read(64 * 1024):
+            size += len(chunk)
+        return {"filename": file.filename, "bytes": size, "note": note}
+    finally:
+        await file.close()
+</code></pre>
+<p>打开 <code>/docs</code> 中的 <code>/upload</code>，选择一个很小的文本文件，填写备注并提交。预期响应包含原文件名、文件字节数和备注；不选择文件会因为缺少必填参数而返回 422。这里统计的是字节，不是中文字符数。</p>
+<p>这个例子只读取和统计，不保存文件。<code>while</code> 每次读取最多 64 KiB，累计读到的字节数；读到末尾时得到空字节串，循环结束。<code>finally</code> 确保成功或异常时都执行关闭动作。这里使用 <code>=File()</code>、<code>=Form(...)</code> 的简洁写法，与 <code>Annotated</code> 写法表达相同的参数来源。</p>
+<p>可选配套文件：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch10.py">demos/ch10.py</a>。它还展示请求头，与正文精简例不完全相同；可用 <code>python -m uvicorn demos.ch10:app --reload</code> 启动。</p>
+<span class="heading-anchor" id="4. 为什么使用 UploadFile，而不是直接接收 bytes？"></span><h2 id="4-uploadfile-bytes">4. 为什么使用 UploadFile，而不是直接接收 bytes？</h2>
+<p>声明为 <code>bytes</code> 时，应用通常直接拿到完整文件内容，使用简单，但较大文件会占用相应的内存。<code>UploadFile</code> 提供文件式接口，可以逐段读取；其底层临时文件机制能在达到阈值后使用磁盘，适合不想一次持有全部内容的场景。</p>
+<p>但不要把“逐段读取”理解成“上传被限制在 64 KiB”。示例每次读取 64 KiB，循环仍然可能累计很多次，上传总量并没有因此受限。文件解析也不等于你的业务函数正在直接从网络实时逐块接收。实际文件大小限制需要结合入口、代理、解析器及应用规则设置。</p>
+<p>客户端提供的文件名和类型只是线索。不能把 <code>file.filename</code> 直接拼进任意保存路径，也不能只凭扩展名认定内容安全。业务保存通常需要生成受控名称，并按需要检查内容、类型和大小。</p>
+<span class="heading-anchor" id="5. 请求头如何记忆？为什么同一请求体不能既当 JSON 又当表单？"></span><h2 id="5-json">5. 请求头如何记忆？为什么同一请求体不能既当 JSON 又当表单？</h2>
+<p>请求头像包裹外的说明：可放追踪 ID、认证信息、缓存条件等元信息。<code>Header()</code> 默认把 Python 参数名里的下划线转换成连字符，因此 <code>x_request_id</code> 对应 <code>X-Request-ID</code>，头部名称本身不区分大小写。没有写 <code>Header()</code> 的普通标量参数，通常会按查询参数处理。</p>
+<p>一次请求有一个整体的请求体格式。采用 multipart 上传文件时，不能同时要求 FastAPI 把整个请求体再当作一个普通 JSON 对象解析。如果确实需要“文件 + 复杂元数据”，可以把元数据作为一个表单字段中的 JSON 字符串传入，再显式解析与校验。别混淆“其中一部分包含 JSON 文本”和“整个正文就是 JSON”。</p>
+<p>Cookie 的读取也需要显式声明 <code>Cookie()</code>。浏览器如何携带 Cookie 与服务器从哪里读取 Cookie 是不同问题；读到一个 Cookie 同样不代表其中的身份信息已通过验证。</p>
+<span class="heading-anchor" id="6. 合上笔记再回答"></span><h2 id="6">6. 合上笔记再回答</h2>
+<ol>
+<li><strong><code>Form()</code> 与 <code>Header()</code> 的核心差别是什么？</strong> 数据来源不同，前者读表单正文，后者读请求头。</li>
+<li><strong>本例能上传 1 MB 文件吗？</strong> 读取块大小不会阻止它累计读取 1 MB；能否接收还取决于服务其他限制。</li>
+<li><strong>返回了文件名，是否表示已经保存成功？</strong> 没有，本例只解析、读取并返回信息。</li>
+</ol>
+<span class="heading-anchor" id="7. 官方资料"></span><h2 id="7">7. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/request-files/">Request Files：文件对象与读取方式</a> · <a href="https://fastapi.tiangolo.com/tutorial/request-forms-and-files/">Forms and Files：文件与表单组合</a> · <a href="https://fastapi.tiangolo.com/tutorial/header-params/">Header：请求头声明规则</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>编译环境和 ABI 兼容 · 李杨的学习笔记</title><meta name="description" content="建议先掌握 CMake target、静态库/共享库和 Linux 基本命令。学完后，你应能拿到一个“本地正常、目标机加载失败”的程序，回答三个问题：它为哪个目标平台构建、运行时实际加载了哪些库、失败符号由哪个二进制提供。最终产物不是一句“版本不兼容”，而是一份包含 build ID、工具链、动态依赖、符号差异和修复验"><meta property="og:title" content="编译环境和 ABI 兼容 · 李杨的学习笔记"><meta property="og:description" content="建议先掌握 CMake target、静态库/共享库和 Linux 基本命令。学完后，你应能拿到一个“本地正常、目标机加载失败”的程序，回答三个问题：它为哪个目标平台构建、运行时实际加载了哪些库、失败符号由哪个二进制提供。最终产物不是一句“版本不兼容”，而是一份包含 build ID、工具链、动态依赖、符号差异和修复验"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f83355fcfaf8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f83355fcfaf8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">07-工程化与运维 / 05-原生程序工程诊断</p><h1>编译环境和 ABI 兼容</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/07-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E8%BF%90%E7%BB%B4/05-%E5%8E%9F%E7%94%9F%E7%A8%8B%E5%BA%8F%E5%B7%A5%E7%A8%8B%E8%AF%8A%E6%96%AD/01-%E7%BC%96%E8%AF%91%E7%8E%AF%E5%A2%83%E4%B8%8E%E4%BA%8C%E8%BF%9B%E5%88%B6%E6%8E%A5%E5%8F%A3%E5%85%BC%E5%AE%B9.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">前置知识与完成标准</a></li><li><a href="#1-api-abi">1. 核心概念：API 与 ABI</a></li><li><a href="#11">1.1 从源码到进程的四个阶段</a></li><li><a href="#12">1.2 三种经常混淆的“兼容”</a></li><li><a href="#2">2. 兼容矩阵</a></li><li><a href="#21-abi">2.1 哪些修改通常会破坏 ABI</a></li><li><a href="#22-soname">2.2 SONAME、符号版本与运行路径</a></li><li><a href="#3-linuxelf">3. 示例：常用诊断命令（Linux/ELF）</a></li><li><a href="#31">3.1 命令输出逐段解释</a></li><li><a href="#32">3.2 从零实验：制造并定位头文件/共享库不一致</a></li><li><a href="#4">4. 常见坑与排障步骤：常见故障模式</a></li><li><a href="#41-undefined-symbol">4.1 启动时报 undefined symbol</a></li><li><a href="#42">4.2 同一接口运行时崩溃</a></li><li><a href="#43-glibcxx_-not-found-glibc_-not-found">4.3 GLIBCXX_* not found 或 GLIBC_* not found</a></li><li><a href="#44">4.4 排障决策路径</a></li><li><a href="#5">5. 稳定边界的设计原则</a></li><li><a href="#6">6. 典型工作流：可复现构建清单</a></li><li><a href="#61-abi">6.1 把 ABI 检查纳入交付</a></li><li><a href="#7">7. 练习</a></li><li><a href="#8">8. 检查清单</a></li><li><a href="#9">9. 小结</a></li><li><a href="#10">10. 官方延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>区分 API、ABI、目标平台三元组和运行库兼容性。</li>
+<li>识别头文件与二进制不匹配、C++ 标准库 ABI、符号可见性等问题。</li>
+<li>建立可复现工具链和制品诊断流程。</li>
+</ul>
+<span class="heading-anchor" id="前置知识与完成标准"></span><h3 id="_2">前置知识与完成标准</h3>
+<p>建议先掌握 CMake target、静态库/共享库和 Linux 基本命令。学完后，你应能拿到一个“本地正常、目标机加载失败”的程序，回答三个问题：它为哪个目标平台构建、运行时实际加载了哪些库、失败符号由哪个二进制提供。最终产物不是一句“版本不兼容”，而是一份包含 build ID、工具链、动态依赖、符号差异和修复验证的证据记录。</p>
+<span class="heading-anchor" id="1. 核心概念：API 与 ABI"></span><h2 id="1-api-abi">1. 核心概念：API 与 ABI</h2>
+<p>API 描述源码如何调用；ABI 描述编译后的二进制如何协作，包括：</p>
+<ul>
+<li>名字修饰（name mangling）和符号名称。</li>
+<li>参数传递、调用约定和返回值布局。</li>
+<li>对象大小、对齐、虚表、继承布局和异常机制。</li>
+<li>标准库类型的二进制布局与运行库选择。</li>
+<li>动态链接器如何寻找、解析和版本化符号。</li>
+</ul>
+<p>源码能编译不等于二进制兼容。共享库升级后，旧应用可以在不重新编译的情况下正常加载和运行，才说明所用接口在该场景下 ABI 兼容。</p>
+<span class="heading-anchor" id="1.1 从源码到进程的四个阶段"></span><h3 id="11">1.1 从源码到进程的四个阶段</h3>
+<ol>
+<li><strong>预处理</strong>展开头文件和宏。两个模块看到的宏不同，就可能编译出布局不同的“同名类型”。</li>
+<li><strong>编译</strong>把每个翻译单元变成目标文件。此时外部函数通常仍是未解析符号。</li>
+<li><strong>链接</strong>把目标文件和库组合起来，解析一部分符号并写入动态依赖、重定位和运行路径信息。</li>
+<li><strong>装载</strong>由动态加载器寻找共享库、检查符号版本、完成剩余重定位，然后程序才进入 <code>main</code>。</li>
+</ol>
+<p>因此错误出现时间本身就是线索：编译错误偏向 API/头文件，链接错误偏向符号缺失或顺序，启动时报错偏向实际装载库，运行后崩溃则可能是布局、所有权或语义不兼容。</p>
+<span class="heading-anchor" id="1.2 三种经常混淆的“兼容”"></span><h3 id="12">1.2 三种经常混淆的“兼容”</h3>
+<ul>
+<li><strong>源码兼容</strong>：旧调用方重新编译后仍能通过。</li>
+<li><strong>二进制兼容</strong>：旧调用方无需重编译即可链接并正确运行。</li>
+<li><strong>行为兼容</strong>：结果、错误码、线程安全、性能等可观察语义仍满足约定。</li>
+</ul>
+<p>给函数增加默认参数可能保持部分源码兼容，却不一定改变已有调用点的二进制；改变返回结构布局可能源码仍能重新编译，却破坏旧二进制。评审库变更时要逐层判断，不能只问“能不能编过”。</p>
+<span class="heading-anchor" id="2. 兼容矩阵"></span><h2 id="2">2. 兼容矩阵</h2>
+<p>交付前记录并检查：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>示例</th>
+<th>不一致时的风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>架构/目标</td>
+<td><code>x86_64-linux-gnu</code>、<code>aarch64-linux-gnu</code></td>
+<td>指令集或对象格式无法执行</td>
+</tr>
+<tr>
+<td>编译器</td>
+<td>GCC/Clang 及具体版本</td>
+<td>扩展、代码生成、运行库或 ABI 差异</td>
+</tr>
+<tr>
+<td>C++ 标准</td>
+<td>C++17/C++20</td>
+<td>头文件接口、功能宏和库实现变化</td>
+</tr>
+<tr>
+<td>标准库</td>
+<td>libstdc++/libc++</td>
+<td>类型布局、符号集合不同</td>
+</tr>
+<tr>
+<td>C 运行库</td>
+<td>glibc/musl</td>
+<td>动态加载与系统接口兼容性不同</td>
+</tr>
+<tr>
+<td>编译选项</td>
+<td><code>_GLIBCXX_USE_CXX11_ABI</code>、结构体 packing</td>
+<td>同名类型具有不同布局或符号</td>
+</tr>
+<tr>
+<td>构建类型</td>
+<td>Debug/Release、断言、迭代器调试</td>
+<td>行为和二进制契约可能不同</td>
+</tr>
+<tr>
+<td>依赖版本</td>
+<td>头文件与 <code>.so</code> 的实际版本</td>
+<td>编译通过，加载或运行时失败</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要根据发行版名称猜兼容性，应检查目标产物和实际运行环境。</p>
+<span class="heading-anchor" id="2.1 哪些修改通常会破坏 ABI"></span><h3 id="21-abi">2.1 哪些修改通常会破坏 ABI</h3>
+<ul>
+<li>删除、改名或改变导出函数参数、返回值、<code>noexcept</code>/调用约定。</li>
+<li>调整公开类的数据成员、基类、虚函数顺序或对齐方式。</li>
+<li>改变公开枚举的底层类型、结构体 packing 或条件编译宏。</li>
+<li>让 inline/template 的新实现与旧二进制中的实例化产生 ODR 冲突。</li>
+<li>切换标准库、C 运行库、异常/RTTI 设置或 libstdc++ 双 ABI。</li>
+</ul>
+<p>只在私有实现中增加代码、保持 opaque handle 大小不变，通常风险较低，但仍要通过旧客户端测试。ABI 没有“凭经验绝对安全”的变更清单，最终依据是明确承诺和兼容测试。</p>
+<span class="heading-anchor" id="2.2 SONAME、符号版本与运行路径"></span><h3 id="22-soname">2.2 SONAME、符号版本与运行路径</h3>
+<p>共享库文件名可能是 <code>libwidget.so.2.4.1</code>，其 SONAME 为 <code>libwidget.so.2</code>。链接产物通常记录 SONAME，而不是开发机上的完整文件名。主版本常用于表达不兼容边界，但这只是项目约定，不能替代测试。</p>
+<p><code>RPATH</code>/<code>RUNPATH</code>、系统缓存、默认目录和环境变量共同影响实际加载位置。不同 ELF 加载器的细节可能不同，所以诊断应以 <code>readelf -d</code>、加载器日志和目标环境实测为准，避免死背一个简化搜索顺序。</p>
+<span class="heading-anchor" id="3. 示例：常用诊断命令（Linux/ELF）"></span><h2 id="3-linuxelf">3. 示例：常用诊断命令（Linux/ELF）</h2>
+<pre><code class="language-bash">file ./bin/service
+readelf -h ./bin/service
+readelf -d ./bin/service
+ldd ./bin/service
+</code></pre>
+<p><code>ldd</code> 会列出动态依赖，但不应对来源不可信的二进制随意执行；优先在隔离环境使用 <code>readelf -d</code> 检查依赖声明。</p>
+<pre><code class="language-bash">nm -D --defined-only ./lib/libexample.so | c++filt
+readelf --dyn-syms --wide ./lib/libexample.so
+objdump -T ./lib/libexample.so | c++filt
+</code></pre>
+<p>这些命令用于检查导出符号、未定义符号和符号版本。<code>c++filt</code> 将 C++ 修饰名还原为可读形式。</p>
+<span class="heading-anchor" id="3.1 命令输出逐段解释"></span><h3 id="31">3.1 命令输出逐段解释</h3>
+<p>输出解读要点：</p>
+<ul>
+<li><code>file</code> 先确认 ELF 位数、架构、动态/静态链接和是否带符号。</li>
+<li><code>readelf -h</code> 的 machine/class 必须与目标平台一致。</li>
+<li><code>readelf -d</code> 中的 <code>NEEDED</code> 是声明依赖，不保证目标机一定找到同一文件。</li>
+<li><code>nm</code> 中 <code>T/D</code> 等大写符号通常已在该目标中定义，<code>U</code> 表示仍需外部提供。</li>
+<li><code>objdump -T</code>/<code>readelf --dyn-syms</code> 可看到动态符号和版本；仅存在于普通符号表的函数不会自动成为可导出接口。</li>
+</ul>
+<pre><code class="language-bash">LD_DEBUG=libs,versions ./bin/service
+</code></pre>
+<p>动态链接器调试输出很多，且可能暴露路径等环境信息，只应在受控排障场景使用，不要长期加到生产启动参数。</p>
+<span class="heading-anchor" id="3.2 从零实验：制造并定位头文件/共享库不一致"></span><h3 id="32">3.2 从零实验：制造并定位头文件/共享库不一致</h3>
+<p>建立三个最小文件：</p>
+<pre><code class="language-cpp">// widget_v1.cpp
+extern "C" int widget_version() { return 1; }
+</code></pre>
+<pre><code class="language-cpp">// widget_v2.cpp
+extern "C" int widget_api_version() { return 2; }
+</code></pre>
+<pre><code class="language-cpp">// client.cpp
+#include &lt;iostream&gt;
+extern "C" int widget_version();
+int main() { std::cout &lt;&lt; widget_version() &lt;&lt; '\n'; }
+</code></pre>
+<p>先用 v1 库链接客户端，再只替换运行目录中的共享库：</p>
+<pre><code class="language-bash">c++ -fPIC -shared widget_v1.cpp -Wl,-soname,libwidget.so.1 -o libwidget.so.1
+c++ client.cpp -L. -l:libwidget.so.1 -Wl,-rpath,'$ORIGIN' -o client
+./client
+
+c++ -fPIC -shared widget_v2.cpp -Wl,-soname,libwidget.so.1 -o libwidget.so.1
+./client
+</code></pre>
+<p>预期第二次启动报告缺少 <code>widget_version</code>。随后执行：</p>
+<pre><code class="language-bash">readelf -d ./client | grep NEEDED
+nm -D ./client | grep widget
+nm -D --defined-only ./libwidget.so.1 | grep widget
+</code></pre>
+<p>第一条证明客户端依赖哪个 SONAME，后两条分别证明客户端需要什么、库实际提供什么。这个实验故意错误复用 SONAME；正确修复是恢复兼容符号，或升级不兼容库的 SONAME 并重新构建/部署客户端，而不是复制一个碰巧能启动的库。</p>
+<span class="heading-anchor" id="4. 常见坑与排障步骤：常见故障模式"></span><h2 id="4">4. 常见坑与排障步骤：常见故障模式</h2>
+<span class="heading-anchor" id="4.1 启动时报 undefined symbol"></span><h3 id="41-undefined-symbol">4.1 启动时报 <code>undefined symbol</code></h3>
+<p>按顺序检查：</p>
+<ol>
+<li><code>readelf -d</code> 确认程序声明依赖了哪个库。</li>
+<li><code>ldd</code> 或动态加载器日志确认实际加载的库路径。</li>
+<li><code>nm -D</code> 检查目标符号是否存在，以及修饰名/符号版本是否一致。</li>
+<li>核对编译期头文件与运行时库是否来自同一发行物。</li>
+<li>核对 RPATH/RUNPATH、<code>LD_LIBRARY_PATH</code> 和系统缓存优先级。</li>
+</ol>
+<span class="heading-anchor" id="4.2 同一接口运行时崩溃"></span><h3 id="42">4.2 同一接口运行时崩溃</h3>
+<p>如果函数符号存在但调用后内存破坏，检查：</p>
+<ul>
+<li>结构体对齐、packing、宏和条件编译是否一致。</li>
+<li>类是否跨库边界暴露 STL 容器、异常、RTTI 或内联实现。</li>
+<li>分配与释放是否跨越使用不同运行库或 allocator 的模块。</li>
+<li>虚函数顺序、基类、字段顺序是否改变。</li>
+<li>插件和宿主是否使用一致的 Debug/Release 与迭代器调试设置。</li>
+</ul>
+<span class="heading-anchor" id="4.3 GLIBCXX_* not found 或 GLIBC_* not found"></span><h3 id="43-glibcxx_-not-found-glibc_-not-found">4.3 <code>GLIBCXX_* not found</code> 或 <code>GLIBC_* not found</code></h3>
+<p>通常表示构建环境需要的运行库符号版本高于目标系统提供的版本。不要通过随意复制系统库“修复”；应采用兼容的构建基线、合适的部署镜像，或在充分评估许可证/更新策略后选择静态链接部分依赖。</p>
+<span class="heading-anchor" id="4.4 排障决策路径"></span><h3 id="44">4.4 排障决策路径</h3>
+<pre><code class="language-text">编译失败？
+├─ 是：比对头文件、宏、语言标准和 include 路径
+└─ 否：链接失败？
+   ├─ 是：检查链接顺序、U/导出符号、名字修饰和架构
+   └─ 否：启动失败？
+      ├─ 找不到库：查 NEEDED、RUNPATH 和实际文件
+      ├─ 找不到符号：查实际加载库、符号名和符号版本
+      └─ 运行后异常：查对象布局、运行库、所有权和行为契约
+</code></pre>
+<p>每一步都保存命令与输出。不要同时更换多个库、修改搜索路径并重新编译，否则即使问题消失也无法证明是哪项修复生效。</p>
+<span class="heading-anchor" id="5. 稳定边界的设计原则"></span><h2 id="5">5. 稳定边界的设计原则</h2>
+<ul>
+<li>跨语言/插件边界优先提供窄的 C ABI，并用 opaque handle 隐藏 C++ 实现。</li>
+<li>不在长期稳定 ABI 中直接暴露 STL 容器、编译器私有类型或模板实现。</li>
+<li>对外结构显式版本化，并提供 size/version 字段以支持扩展。</li>
+<li>控制导出符号；默认隐藏，只导出公共入口。</li>
+<li>分配和释放由同一模块提供配对函数。</li>
+<li>库采用语义化版本仍不代表自动拥有 ABI 承诺，必须定义并测试自己的兼容策略。</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-cpp">extern "C" {
+struct widget_handle;
+
+widget_handle* widget_create() noexcept;
+int widget_process(widget_handle*, const void* data, std::size_t size) noexcept;
+void widget_destroy(widget_handle*) noexcept;
+}
+</code></pre>
+<p>真实接口还需定义所有权、线程安全、错误编码、版本协商和数据生命周期。</p>
+<span class="heading-anchor" id="6. 典型工作流：可复现构建清单"></span><h2 id="6">6. 典型工作流：可复现构建清单</h2>
+<ul>
+<li>固定基础镜像或工具链包版本，记录编译器 <code>--version</code>。</li>
+<li>使用 CMake toolchain/preset 固化目标、生成器和关键选项。</li>
+<li>锁定三方依赖版本和来源，保存依赖清单/SBOM。</li>
+<li>避免把构建时间、随机路径等非确定信息无必要地嵌入产物。</li>
+<li>构建日志保存完整编译/链接命令，导出 <code>compile_commands.json</code>。</li>
+<li>将符号文件按制品 ID 单独归档，生产二进制剥离后仍可离线符号化。</li>
+<li>在最低支持运行环境做启动、动态链接和接口冒烟测试。</li>
+</ul>
+<span class="heading-anchor" id="6.1 把 ABI 检查纳入交付"></span><h3 id="61-abi">6.1 把 ABI 检查纳入交付</h3>
+<ol>
+<li>构建时保存导出符号基线、SONAME、build ID 和编译器信息。</li>
+<li>合并请求比较公共头文件与动态符号变化；破坏性变化必须显式评审。</li>
+<li>用“旧客户端 + 新库”运行 ABI 冒烟和行为回归测试。</li>
+<li>在最低支持系统运行容器/虚机测试，避免只在较新的构建机验证。</li>
+<li>发布后保留旧库、旧客户端、符号和回滚说明，直到兼容窗口结束。</li>
+</ol>
+<p>可使用 ABI 检查工具辅助比较，但工具输出只是候选风险：模板、内联函数和行为变化可能漏报，内部编译器符号也可能造成噪声，仍需结合公共契约判断。</p>
+<span class="heading-anchor" id="7. 练习"></span><h2 id="7">7. 练习</h2>
+<ol>
+<li><strong>基础</strong>：完成上面的缺失符号实验。答案要点：客户端 <code>U widget_version</code>，v2 库只定义新符号，错误复用 SONAME。</li>
+<li><strong>进阶</strong>：创建一个共享库，改变导出类的字段顺序，比较两版 <code>sizeof</code>、<code>offsetof</code> 和旧客户端行为。答案要点：符号名可能不变，因此“能加载”不能证明布局兼容。</li>
+<li><strong>进阶</strong>：用不同 <code>_GLIBCXX_USE_CXX11_ABI</code> 值编译返回 <code>std::string</code> 的两侧，观察 <code>std::__cxx11</code>/<code>[abi:cxx11]</code> 线索。不要把该宏误解为 C++ 语言标准开关。</li>
+<li><strong>综合</strong>：为现有服务记录工具链/ABI 矩阵，并在最低支持环境运行旧客户端兼容测试。报告必须区分事实、风险推断和验证结果。</li>
+</ol>
+<span class="heading-anchor" id="8. 检查清单"></span><h2 id="8">8. 检查清单</h2>
+<ul>
+<li>[ ] 目标架构、编译器、标准库、C 运行库和关键 ABI 宏已固定。</li>
+<li>[ ] 头文件和运行时库来自一致版本。</li>
+<li>[ ] 公共 ABI 避免泄漏不稳定实现类型。</li>
+<li>[ ] 导出符号、动态依赖和最低运行环境有自动检查。</li>
+<li>[ ] 可执行文件与精确匹配的调试符号可追溯。</li>
+<li>[ ] 插件、宿主和三方库的兼容矩阵有测试覆盖。</li>
+</ul>
+<span class="heading-anchor" id="9. 小结"></span><h2 id="9">9. 小结</h2>
+<p>ABI 问题的核心是“两个独立编译的二进制是否对同一契约有完全一致的理解”。定位时按预处理、编译、链接、装载、运行分层，用实际产物而非包名推断；设计时缩小二进制边界、隐藏实现并让分配释放配对；交付时保存精确工具链和符号证据。</p>
+<span class="heading-anchor" id="10. 官方延伸阅读"></span><h2 id="10">10. 官方延伸阅读</h2>
+<ul>
+<li><a href="https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_dual_abi.html">GCC libstdc++ Dual ABI</a></li>
+<li><a href="https://itanium-cxx-abi.github.io/cxx-abi/abi.html">Itanium C++ ABI</a></li>
+<li><a href="https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html">CMake Toolchains</a></li>
+<li><a href="https://sourceware.org/binutils/docs/">GNU Binutils 文档</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

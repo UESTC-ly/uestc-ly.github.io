@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03. 数据建模与范式 · 李杨的学习笔记</title><meta name="description" content="本章讲如何把业务问题变成可靠的表结构。读完后你应该能："><meta property="og:title" content="03. 数据建模与范式 · 李杨的学习笔记"><meta property="og:description" content="本章讲如何把业务问题变成可靠的表结构。读完后你应该能："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-de8950b9307b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-de8950b9307b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>03. 数据建模与范式</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/03-%E6%95%B0%E6%8D%AE%E5%BB%BA%E6%A8%A1%E4%B8%8E%E8%8C%83%E5%BC%8F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">建模不是画表，而是定义事实</a></li><li><a href="#_3">从需求到模型的步骤</a></li><li><a href="#_4">第一步：圈出名词</a></li><li><a href="#_5">第二步：识别实体与事件</a></li><li><a href="#_6">第三步：确定关系</a></li><li><a href="#_7">第四步：写出约束</a></li><li><a href="#_8">关系类型如何落表</a></li><li><a href="#_9">一对一</a></li><li><a href="#_10">一对多</a></li><li><a href="#_11">多对多</a></li><li><a href="#_12">范式的工程解释</a></li><li><a href="#_13">第一范式：字段保持原子性</a></li><li><a href="#_14">第二范式：非主属性依赖整个主键</a></li><li><a href="#_15">第三范式：非主属性不传递依赖</a></li><li><a href="#_16">反范式不是罪，但要有理由</a></li><li><a href="#_17">常见建模模式</a></li><li><a href="#_18">状态字段与状态流转</a></li><li><a href="#_19">软删除</a></li><li><a href="#_20">审计字段</a></li><li><a href="#_21">多租户</a></li><li><a href="#_22">字段类型选择</a></li><li><a href="#_23">命名约定</a></li><li><a href="#_24">建模检查清单</a></li><li><a href="#_25">本章练习</a></li><li><a href="#_26">深入展开：从业务需求到表结构的完整推理</a></li><li><a href="#1">1. 先区分实体、事件和状态</a></li><li><a href="#2">2. 表结构要表达业务不变量</a></li><li><a href="#3">3. 范式解决的是更新异常</a></li><li><a href="#4">4. 反范式要写清楚“谁负责同步”</a></li><li><a href="#5">5. 多租户建模要从第一天考虑</a></li><li><a href="#6">6. 建模评审时要问的问题</a></li><li><a href="#7">7. 一个更细的订单模型演进</a></li><li><a href="#_27">思维导图</a></li><li><a href="#1_1">1. 从需求到模型</a></li><li><a href="#2_1">2. 范式的工程含义</a></li><li><a href="#3_1">3. 常见建模模式</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章讲如何把业务问题变成可靠的表结构。读完后你应该能：</p>
+<ul>
+<li>从需求中识别实体、属性、关系和约束。</li>
+<li>判断一对一、一对多、多对多如何落库。</li>
+<li>理解 1NF、2NF、3NF 的实际意义。</li>
+<li>知道什么时候可以反范式。</li>
+<li>识别常见建模陷阱。</li>
+</ul>
+<span class="heading-anchor" id="建模不是画表，而是定义事实"></span><h2 id="_2">建模不是画表，而是定义事实</h2>
+<p>数据库设计的核心问题是：系统承认哪些事实？这些事实如何保持一致？</p>
+<p>例如“用户下单”至少包含这些事实：</p>
+<ul>
+<li>用户存在。</li>
+<li>商品存在。</li>
+<li>订单属于某个用户。</li>
+<li>订单有状态。</li>
+<li>订单明细记录了下单时价格。</li>
+<li>支付成功后订单状态变化。</li>
+</ul>
+<p>表只是这些事实的载体。</p>
+<span class="heading-anchor" id="从需求到模型的步骤"></span><h2 id="_3">从需求到模型的步骤</h2>
+<span class="heading-anchor" id="第一步：圈出名词"></span><h3 id="_4">第一步：圈出名词</h3>
+<p>需求：</p>
+<blockquote>
+<p>用户可以浏览商品，把商品加入购物车，提交订单，支付订单。订单支付后扣减库存。用户可以查看历史订单。</p>
+</blockquote>
+<p>名词：用户、商品、购物车、订单、支付、库存、历史订单。</p>
+<span class="heading-anchor" id="第二步：识别实体与事件"></span><h3 id="_5">第二步：识别实体与事件</h3>
+<ul>
+<li>实体：用户、商品、库存。</li>
+<li>事件/记录：订单、订单明细、支付记录、库存流水。</li>
+</ul>
+<p>经验：会长期存在并被多次引用的，多半是实体；发生一次并留下痕迹的，多半是事件或流水。</p>
+<span class="heading-anchor" id="第三步：确定关系"></span><h3 id="_6">第三步：确定关系</h3>
+<pre class="mermaid">erDiagram
+  customers ||--o{ orders : places
+  orders ||--|{ order_items : contains
+  products ||--o{ order_items : appears_in
+  orders ||--o{ payments : paid_by
+  products ||--|| inventory : has
+</pre>
+<span class="heading-anchor" id="第四步：写出约束"></span><h3 id="_7">第四步：写出约束</h3>
+<p>约束比字段更重要：</p>
+<ul>
+<li>用户邮箱唯一。</li>
+<li>商品 SKU 唯一。</li>
+<li>订单必须属于一个用户。</li>
+<li>订单明细数量必须大于 0。</li>
+<li>金额不能为负。</li>
+<li>同一订单中同一商品不能重复出现。</li>
+</ul>
+<p>这些约束应该尽量落到数据库中。</p>
+<span class="heading-anchor" id="关系类型如何落表"></span><h2 id="_8">关系类型如何落表</h2>
+<span class="heading-anchor" id="一对一"></span><h3 id="_9">一对一</h3>
+<p>用户与用户资料：</p>
+<pre><code class="language-sql">CREATE TABLE user_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id),
+  display_name TEXT NOT NULL,
+  avatar_url TEXT
+);
+</code></pre>
+<p>一对一常用于拆分大字段、敏感字段或生命周期不同的字段。</p>
+<span class="heading-anchor" id="一对多"></span><h3 id="_10">一对多</h3>
+<p>客户与订单：</p>
+<pre><code class="language-sql">CREATE TABLE orders (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES customers(id)
+);
+</code></pre>
+<p>外键放在“多”的一侧。</p>
+<span class="heading-anchor" id="多对多"></span><h3 id="_11">多对多</h3>
+<p>用户与角色：</p>
+<pre><code class="language-sql">CREATE TABLE user_roles (
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  role_id BIGINT NOT NULL REFERENCES roles(id),
+  PRIMARY KEY (user_id, role_id)
+);
+</code></pre>
+<p>多对多用中间表。不要在一列里存 <code>1,2,3</code> 这种逗号分隔 ID。</p>
+<span class="heading-anchor" id="范式的工程解释"></span><h2 id="_12">范式的工程解释</h2>
+<span class="heading-anchor" id="第一范式：字段保持原子性"></span><h3 id="_13">第一范式：字段保持原子性</h3>
+<p>错误：</p>
+<pre><code class="language-text">user_id | phone_numbers
+1       | 138...,139...
+</code></pre>
+<p>正确：</p>
+<pre><code class="language-sql">CREATE TABLE user_phones (
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  phone TEXT NOT NULL,
+  PRIMARY KEY (user_id, phone)
+);
+</code></pre>
+<p>第一范式避免“字符串里藏结构”。</p>
+<span class="heading-anchor" id="第二范式：非主属性依赖整个主键"></span><h3 id="_14">第二范式：非主属性依赖整个主键</h3>
+<p>如果表的主键是 <code>(order_id, product_id)</code>，那么 <code>product_name</code> 只依赖 <code>product_id</code>，不依赖整个组合主键，就不应该放在同一张规范化表里。</p>
+<p>不过订单明细中的 <code>unit_price</code> 是下单事实，可以放在 <code>order_items</code>，因为它不是商品当前价格，而是订单发生时的价格快照。</p>
+<span class="heading-anchor" id="第三范式：非主属性不传递依赖"></span><h3 id="_15">第三范式：非主属性不传递依赖</h3>
+<p>错误：</p>
+<pre><code class="language-text">order_id | customer_id | customer_email
+</code></pre>
+<p><code>customer_email</code> 依赖 <code>customer_id</code>，而 <code>customer_id</code> 依赖 <code>order_id</code>。这会导致客户改邮箱时历史订单中的邮箱重复更新。</p>
+<p>正确做法：订单只保存 <code>customer_id</code>，需要邮箱时 JOIN。若因审计需要保存下单时邮箱，应明确命名为 <code>customer_email_snapshot</code>。</p>
+<span class="heading-anchor" id="反范式不是罪，但要有理由"></span><h2 id="_16">反范式不是罪，但要有理由</h2>
+<p>反范式是有意识地冗余数据以换取性能、历史快照或简化查询。</p>
+<p>合理场景：</p>
+<ul>
+<li>订单保存下单时商品名和价格。</li>
+<li>报表表保存每日聚合结果。</li>
+<li>用户表保存 <code>last_order_at</code> 方便排序。</li>
+</ul>
+<p>前提：</p>
+<ol>
+<li>你知道原始事实在哪里。</li>
+<li>你知道冗余字段如何更新。</li>
+<li>你能接受短暂不一致，或用事务保持一致。</li>
+<li>字段名能表达它是快照还是当前值。</li>
+</ol>
+<span class="heading-anchor" id="常见建模模式"></span><h2 id="_17">常见建模模式</h2>
+<span class="heading-anchor" id="状态字段与状态流转"></span><h3 id="_18">状态字段与状态流转</h3>
+<pre><code class="language-sql">status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'cancelled', 'shipped'))
+</code></pre>
+<p>状态字段简单直接，但要补充状态流转规则。复杂业务可以增加状态流水：</p>
+<pre><code class="language-sql">CREATE TABLE order_status_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id),
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reason TEXT
+);
+</code></pre>
+<span class="heading-anchor" id="软删除"></span><h3 id="_19">软删除</h3>
+<pre><code class="language-sql">deleted_at TIMESTAMPTZ
+</code></pre>
+<p>软删除适合审计和可恢复场景，但会污染所有查询条件。常配合部分索引：</p>
+<pre><code class="language-sql">CREATE UNIQUE INDEX users_email_active_uq
+ON users (email)
+WHERE deleted_at IS NULL;
+</code></pre>
+<p>如果没有恢复、审计或合规需求，不要默认软删除。</p>
+<span class="heading-anchor" id="审计字段"></span><h3 id="_20">审计字段</h3>
+<p>常见字段：</p>
+<pre><code class="language-sql">created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+created_by BIGINT,
+updated_by BIGINT
+</code></pre>
+<p>注意：<code>updated_at</code> 不会自动变化，除非使用触发器或应用层统一维护。</p>
+<span class="heading-anchor" id="多租户"></span><h3 id="_21">多租户</h3>
+<p>简单模式：每张业务表带 <code>tenant_id</code>。</p>
+<pre><code class="language-sql">tenant_id BIGINT NOT NULL REFERENCES tenants(id)
+</code></pre>
+<p>并在唯一约束中包含租户：</p>
+<pre><code class="language-sql">UNIQUE (tenant_id, email)
+</code></pre>
+<p>不要只在应用层过滤租户数据。PostgreSQL 可以进一步使用 RLS，见 <a href="n-fa264a361a37.html">07-PostgreSQL实践指南</a>。</p>
+<span class="heading-anchor" id="字段类型选择"></span><h2 id="_22">字段类型选择</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>推荐</th>
+<th>避免</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主键</td>
+<td><code>BIGINT</code> 或合适的 UUID</td>
+<td>过早使用短整型</td>
+</tr>
+<tr>
+<td>普通文本</td>
+<td><code>TEXT</code></td>
+<td>无意义的 <code>VARCHAR(255)</code></td>
+</tr>
+<tr>
+<td>时间</td>
+<td><code>TIMESTAMPTZ</code></td>
+<td>无时区语义的混乱时间</td>
+</tr>
+<tr>
+<td>金额</td>
+<td><code>NUMERIC(12,2)</code> 或整数分</td>
+<td><code>FLOAT</code></td>
+</tr>
+<tr>
+<td>状态</td>
+<td><code>TEXT + CHECK</code> 或枚举策略</td>
+<td>魔法数字</td>
+</tr>
+<tr>
+<td>JSON 扩展字段</td>
+<td><code>JSONB</code></td>
+<td>把核心关系藏进 JSON</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="命名约定"></span><h2 id="_23">命名约定</h2>
+<p>推荐：</p>
+<ul>
+<li>表名使用复数或业务统一约定，但全库一致。</li>
+<li>字段使用 <code>snake_case</code>。</li>
+<li>主键统一叫 <code>id</code>。</li>
+<li>外键叫 <code>{referenced_table_singular}_id</code>，如 <code>customer_id</code>。</li>
+<li>时间字段明确：<code>created_at</code>, <code>paid_at</code>, <code>cancelled_at</code>。</li>
+</ul>
+<p>命名不是审美问题，而是降低团队沟通成本。</p>
+<span class="heading-anchor" id="建模检查清单"></span><h2 id="_24">建模检查清单</h2>
+<ul>
+<li>[ ] 每张表表达一个清晰事实集合。</li>
+<li>[ ] 主键稳定，不依赖可变业务字段。</li>
+<li>[ ] 唯一性规则已落到唯一约束或唯一索引。</li>
+<li>[ ] 外键关系明确。</li>
+<li>[ ] 金额、数量、时间类型合理。</li>
+<li>[ ] 可空字段有明确含义。</li>
+<li>[ ] 历史快照字段命名清楚。</li>
+<li>[ ] 反范式字段有更新策略。</li>
+<li>[ ] 大字段、冷热字段拆分有理由。</li>
+</ul>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_25">本章练习</h2>
+<ol>
+<li>为“课程报名系统”设计表：学生、课程、报名、支付。</li>
+<li>写出每张表的主键、外键、唯一约束和检查约束。</li>
+<li>判断哪些字段需要历史快照。</li>
+<li>找一个你见过的“逗号分隔 ID”字段，改成规范化设计。</li>
+</ol>
+<p>下一章：<a href="n-e783f96f21a8.html">04-事务并发与隔离级别</a>。</p>
+<span class="heading-anchor" id="深入展开：从业务需求到表结构的完整推理"></span><h2 id="_26">深入展开：从业务需求到表结构的完整推理</h2>
+<p>建模最难的不是写 <code>CREATE TABLE</code>，而是把模糊业务语言变成清晰的数据事实。一个好模型应该让正确的数据容易写入，让错误的数据难以进入。</p>
+<span class="heading-anchor" id="1. 先区分实体、事件和状态"></span><h3 id="1">1. 先区分实体、事件和状态</h3>
+<p>以电商为例：</p>
+<ul>
+<li><strong>实体</strong>：用户、商品、仓库。这些对象会长期存在，被多次引用。</li>
+<li><strong>事件</strong>：下单、支付、退款、发货、库存调整。事件发生后应留下记录。</li>
+<li><strong>状态</strong>：订单当前状态、商品是否上架、库存当前数量。状态通常是事件累积后的当前结果。</li>
+</ul>
+<p>很多建模错误来自把事件覆盖成状态。例如只在订单表保存 <code>status='paid'</code>，但没有支付流水，就无法审计什么时候支付、哪个渠道支付、是否重复回调。</p>
+<span class="heading-anchor" id="2. 表结构要表达业务不变量"></span><h3 id="2">2. 表结构要表达业务不变量</h3>
+<p>业务不变量是“永远应该成立”的规则。例如：</p>
+<ul>
+<li>用户邮箱在未删除用户中唯一。</li>
+<li>订单金额不能为负。</li>
+<li>订单必须属于一个用户。</li>
+<li>订单明细数量必须大于 0。</li>
+<li>同一支付渠道的支付事件 ID 不能重复。</li>
+</ul>
+<p>这些规则应该尽量变成数据库约束：</p>
+<pre><code class="language-sql">email TEXT NOT NULL,
+quantity INTEGER NOT NULL CHECK (quantity &gt; 0),
+UNIQUE (provider, provider_payment_id),
+FOREIGN KEY (user_id) REFERENCES users(id)
+</code></pre>
+<p>如果不变量只写在应用代码里，脚本、后台任务、另一个服务都可能绕过它。</p>
+<span class="heading-anchor" id="3. 范式解决的是更新异常"></span><h3 id="3">3. 范式解决的是更新异常</h3>
+<p>范式不是为了显得学术，而是为了减少异常：</p>
+<ul>
+<li><strong>插入异常</strong>：没有订单就无法保存商品信息。</li>
+<li><strong>更新异常</strong>：同一个客户邮箱复制在多张表里，改一处漏一处。</li>
+<li><strong>删除异常</strong>：删除最后一条订单后，把客户信息也删没了。</li>
+</ul>
+<p>第三范式的核心是：一个事实只在一个权威位置维护。需要历史快照时，字段名要明确表示它是 snapshot。</p>
+<span class="heading-anchor" id="4. 反范式要写清楚“谁负责同步”"></span><h3 id="4">4. 反范式要写清楚“谁负责同步”</h3>
+<p>反范式不是错，但必须有同步策略。比如 <code>orders.total_amount</code> 是 <code>order_items</code> 的冗余汇总。你要明确：</p>
+<ul>
+<li>创建订单时谁计算它？</li>
+<li>明细变化时是否允许变化？</li>
+<li>支付后是否冻结？</li>
+<li>如何校验它和明细一致？</li>
+<li>不一致时以谁为准？</li>
+</ul>
+<p>没有这些答案，冗余字段迟早变成脏数据来源。</p>
+<span class="heading-anchor" id="5. 多租户建模要从第一天考虑"></span><h3 id="5">5. 多租户建模要从第一天考虑</h3>
+<p>如果系统服务多个企业客户，很多唯一约束都要包含 <code>tenant_id</code>：</p>
+<pre><code class="language-sql">UNIQUE (tenant_id, email)
+</code></pre>
+<p>否则 A 租户注册了 <code>admin@example.com</code>，B 租户就不能注册同样邮箱。业务上这通常不合理。</p>
+<p>多租户表常见字段：</p>
+<pre><code class="language-sql">tenant_id BIGINT NOT NULL REFERENCES tenants(id)
+</code></pre>
+<p>并且高频查询索引也要带租户：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_tenant_created
+ON orders(tenant_id, created_at DESC);
+</code></pre>
+<p>多租户不是简单加字段，还涉及权限隔离、备份恢复、数据导出和删除。</p>
+<span class="heading-anchor" id="6. 建模评审时要问的问题"></span><h3 id="6">6. 建模评审时要问的问题</h3>
+<ul>
+<li>这张表表达的是实体、事件还是状态？</li>
+<li>主键是否稳定？</li>
+<li>哪些字段是当前值，哪些是历史快照？</li>
+<li>哪些业务规则已经用约束表达？</li>
+<li>可空字段的 NULL 语义是否清楚？</li>
+<li>是否存在逗号分隔 ID、JSON 藏核心字段、魔法状态码？</li>
+<li>删除策略是什么？硬删除、软删除还是归档？</li>
+<li>未来数据量上来后，最常见查询是什么？</li>
+</ul>
+<span class="heading-anchor" id="7. 一个更细的订单模型演进"></span><h3 id="7">7. 一个更细的订单模型演进</h3>
+<p>早期订单表可能只有：</p>
+<pre><code class="language-text">orders(id, user_id, status, total_amount)
+</code></pre>
+<p>业务变复杂后，你会逐渐拆出：</p>
+<pre><code class="language-text">order_items          -- 明细与价格快照
+payments             -- 支付流水
+refunds              -- 退款记录
+order_status_events  -- 状态流转历史
+inventory_events     -- 库存变化流水
+shipments            -- 发货单
+</code></pre>
+<p>这不是过度设计，而是当业务需要审计、售后、对账时，把事件补出来。建模的关键是知道什么时候一列状态已经不够，需要事件表记录历史。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_27">思维导图</h2>
+<blockquote>
+<p>记忆建议：建模不是先画表，而是先定义业务事实、不变量和关系。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 从需求到模型"></span><h3 id="1_1">1. 从需求到模型</h3>
+<pre class="mermaid">flowchart LR
+  A["阅读需求"] --&gt; B["圈出名词"]
+  B --&gt; C["区分实体 事件 状态"]
+  C --&gt; D["确定一对一 一对多 多对多"]
+  D --&gt; E["写主键 外键 唯一 检查约束"]
+  E --&gt; F["评审查询和变更场景"]
+</pre>
+<span class="heading-anchor" id="2. 范式的工程含义"></span><h3 id="2_1">2. 范式的工程含义</h3>
+<pre class="mermaid">mindmap
+  root((范式))
+    第一范式
+      字段原子
+      不把列表塞一列
+    第二范式
+      非主属性依赖整个主键
+      避免部分依赖
+    第三范式
+      非主属性不传递依赖
+      避免更新异常
+    反范式
+      为查询性能服务
+      必须说明同步责任
+</pre>
+<span class="heading-anchor" id="3. 常见建模模式"></span><h3 id="3_1">3. 常见建模模式</h3>
+<pre class="mermaid">mindmap
+  root((建模模式))
+    状态流转
+      状态字段
+      状态历史
+    软删除
+      deleted_at
+      唯一约束要考虑未删除
+    审计字段
+      created_at
+      updated_at
+      created_by
+    多租户
+      tenant_id
+      权限和索引一起设计
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

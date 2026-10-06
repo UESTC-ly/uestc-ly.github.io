@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 10 课：上下文窗口和位置编码 · 李杨的学习笔记</title><meta name="description" content="所属模块：六、Python AI 应用开发 → 1. 机器学习与深度学习基础 前置知识：Token、Tokenizer、Embedding、Transformer、Self-Attention 资料说明：当前项目检索结果未提供本课的独立原始资料，本文依据通用的 Transformer 与大语言模型知识整理。"><meta property="og:title" content="第 10 课：上下文窗口和位置编码 · 李杨的学习笔记"><meta property="og:description" content="所属模块：六、Python AI 应用开发 → 1. 机器学习与深度学习基础 前置知识：Token、Tokenizer、Embedding、Transformer、Self-Attention 资料说明：当前项目检索结果未提供本课的独立原始资料，本文依据通用的 Transformer 与大语言模型知识整理。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-21467dd52add.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-21467dd52add.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 01-机器学习与深度学习基础</p><h1>第 10 课：上下文窗口和位置编码</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/01-%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/10-%E4%B8%8A%E4%B8%8B%E6%96%87%E7%AA%97%E5%8F%A3%E5%92%8C%E4%BD%8D%E7%BD%AE%E7%BC%96%E7%A0%81.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">一、学习目标</a></li><li><a href="#_2">二、什么是上下文窗口</a></li><li><a href="#_3">示例</a></li><li><a href="#_4">三、上下文窗口不等于模型的全部知识</a></li><li><a href="#1">1. 模型参数中的知识</a></li><li><a href="#2">2. 当前上下文</a></li><li><a href="#3">3. 应用层记忆</a></li><li><a href="#_5">四、上下文过长会发生什么</a></li><li><a href="#_6">五、常见的上下文管理策略</a></li><li><a href="#1_1">1. 截断</a></li><li><a href="#2_1">2. 滑动窗口</a></li><li><a href="#3_1">3. 对话摘要</a></li><li><a href="#4">4. 分块处理</a></li><li><a href="#5-rag">5. RAG 检索</a></li><li><a href="#6">6. 分层总结</a></li><li><a href="#transformer">六、为什么 Transformer 需要位置编码</a></li><li><a href="#_7">七、绝对位置编码</a></li><li><a href="#1_2">1. 可学习的绝对位置向量</a></li><li><a href="#2_2">2. 正弦—余弦位置编码</a></li><li><a href="#pytorch">八、用 PyTorch 实现正弦位置编码</a></li><li><a href="#_8">九、相对位置编码</a></li><li><a href="#rope">十、RoPE：旋转位置编码</a></li><li><a href="#alibiattention">十一、ALiBi：Attention 线性偏置</a></li><li><a href="#causal-mask">十二、位置编码与 Causal Mask 的区别</a></li><li><a href="#_9">位置编码</a></li><li><a href="#causal-mask_1">Causal Mask</a></li><li><a href="#_10">十三、上下文窗口与位置编码的关系</a></li><li><a href="#_11">十四、为什么长上下文成本高</a></li><li><a href="#_12">十五、长上下文外推</a></li><li><a href="#ai-token">十六、AI 应用开发中的 Token 预算</a></li><li><a href="#rag">十七、RAG 中如何利用上下文窗口</a></li><li><a href="#_13">十八、多轮对话中的上下文管理</a></li><li><a href="#_14">十九、常见误区</a></li><li><a href="#1_3">误区 1：上下文窗口越大，模型一定越聪明</a></li><li><a href="#2-prompt">误区 2：把全部资料放进 Prompt 最安全</a></li><li><a href="#3_2">误区 3：模型能在一次对话中看到内容，就会永久记住</a></li><li><a href="#4_1">误区 4：上下文窗口只计算用户输入</a></li><li><a href="#5-token-embedding">误区 5：位置编码就是 Token Embedding</a></li><li><a href="#6-causal-mask">误区 6：位置编码和 Causal Mask 是一回事</a></li><li><a href="#7kv-cache">误区 7：KV Cache 可以让模型拥有无限上下文</a></li><li><a href="#8api">误区 8：API 接受长输入，就说明模型能完美利用全部内容</a></li><li><a href="#_15">二十、知识链总结</a></li><li><a href="#_16">二十一、自测题</a></li><li><a href="#1_4">1. 什么是上下文窗口？</a></li><li><a href="#2-token">2. 为什么要为输出预留 Token？</a></li><li><a href="#3_3">3. 上下文窗口与永久记忆有什么区别？</a></li><li><a href="#4-transformer">4. Transformer 为什么需要位置编码？</a></li><li><a href="#5">5. 绝对位置与相对位置有什么区别？</a></li><li><a href="#6-rope">6. RoPE 的基本思想是什么？</a></li><li><a href="#7-causal-mask">7. 位置编码和 Causal Mask 有什么区别？</a></li><li><a href="#8">8. 为什么长上下文会增加计算成本？</a></li><li><a href="#9-rag">9. RAG 为什么不能无条件放入更多检索片段？</a></li><li><a href="#10-kv-cache">10. KV Cache 是否会扩大上下文窗口？</a></li><li><a href="#_17">二十二、实践题</a></li><li><a href="#_18">二十三、本课小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>所属模块：六、Python AI 应用开发 → 1. 机器学习与深度学习基础<br/>
+前置知识：Token、Tokenizer、Embedding、Transformer、Self-Attention<br/>
+资料说明：当前项目检索结果未提供本课的独立原始资料，本文依据通用的 Transformer 与大语言模型知识整理。</p>
+</blockquote>
+<span class="heading-anchor" id="一、学习目标"></span><h2 id="_1">一、学习目标</h2>
+<p>完成本课后，应能够：</p>
+<ol>
+<li>解释什么是上下文窗口，以及它为什么通常用 Token 数量表示；</li>
+<li>区分上下文窗口、模型参数中的知识和应用层记忆；</li>
+<li>估算输入与输出占用的 Token 预算；</li>
+<li>说明 Transformer 为什么必须加入位置信息；</li>
+<li>理解绝对位置编码、相对位置编码、RoPE 和 ALiBi 的基本思想；</li>
+<li>区分位置编码、Attention Mask 和 KV Cache；</li>
+<li>在长文档问答、RAG 和多轮对话中设计合理的上下文管理策略。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="二、什么是上下文窗口"></span><h2 id="_2">二、什么是上下文窗口</h2>
+<p><strong>上下文窗口（Context Window）</strong>是模型在一次推理过程中能够直接处理的 Token 范围。</p>
+<p>它通常包含：</p>
+<ul>
+<li>System Prompt；</li>
+<li>用户输入；</li>
+<li>历史对话；</li>
+<li>Few-shot 示例；</li>
+<li>RAG 检索结果；</li>
+<li>工具调用及其返回内容；</li>
+<li>当前正在生成的输出。</li>
+</ul>
+<p>可以把上下文窗口理解为模型本次回答时的“工作台”。放在工作台上的内容，模型才能在当前计算中直接使用。</p>
+<p>一个简化的 Token 预算约束是：</p>
+<div class="arithmatex">\[
+N_{\text{system}}+N_{\text{history}}+N_{\text{retrieval}}+N_{\text{user}}+N_{\text{output}}
+\leq N_{\text{context}}
+\]</div>
+<p>也可以简写为：</p>
+<div class="arithmatex">\[
+N_{\text{input}}+N_{\text{output}}\leq N_{\text{context}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(N_{\text{input}}\)</span>：本次请求中所有输入 Token 的数量；</li>
+<li><span class="arithmatex">\(N_{\text{output}}\)</span>：模型生成内容所占的 Token 数量；</li>
+<li><span class="arithmatex">\(N_{\text{context}}\)</span>：模型支持的上下文窗口上限。</li>
+</ul>
+<p>不同模型和 API 对输入、输出上限的定义可能不同。有些平台还会为输出预留空间，因此实际开发时应以具体模型文档和 API 返回值为准。</p>
+<span class="heading-anchor" id="示例"></span><h3 id="_3">示例</h3>
+<p>假设某模型的上下文窗口是 8,192 Token，本次请求中：</p>
+<ul>
+<li>System Prompt：500 Token；</li>
+<li>历史对话：2,000 Token；</li>
+<li>检索资料：3,000 Token；</li>
+<li>当前问题：200 Token。</li>
+</ul>
+<p>那么输入已经占用：</p>
+<div class="arithmatex">\[
+500+2000+3000+200=5700
+\]</div>
+<p>理论上剩余空间约为：</p>
+<div class="arithmatex">\[
+8192-5700=2492
+\]</div>
+<p>但实际应用通常还要保留安全余量，不能把预算刚好用满。</p>
+<hr/>
+<span class="heading-anchor" id="三、上下文窗口不等于模型的全部知识"></span><h2 id="_4">三、上下文窗口不等于模型的全部知识</h2>
+<p>需要区分三个概念。</p>
+<span class="heading-anchor" id="1. 模型参数中的知识"></span><h3 id="1">1. 模型参数中的知识</h3>
+<p>模型在训练过程中把大量统计规律编码进参数。它不等于一个可以逐条查询的知识库，也不会因为一次普通对话就自动永久修改参数。</p>
+<span class="heading-anchor" id="2. 当前上下文"></span><h3 id="2">2. 当前上下文</h3>
+<p>当前请求中发送给模型的文本和其他信息。模型可以在本次推理中使用它们，但这些内容不会天然成为永久记忆。</p>
+<span class="heading-anchor" id="3. 应用层记忆"></span><h3 id="3">3. 应用层记忆</h3>
+<p>应用把历史信息保存到数据库、文件或向量库，在未来请求中按需取回并重新放入上下文。这是一种外部系统能力，不是模型自动拥有的无限记忆。</p>
+<p>三者的关系可以表示为：</p>
+<pre><code class="language-text">模型参数：训练阶段形成的长期统计知识
+当前上下文：本次推理可直接读取的工作区
+应用记忆：由外部系统保存，并在需要时重新注入上下文
+</code></pre>
+<p>因此，聊天应用表现出“记得以前的内容”，通常是因为应用重新发送了历史消息或检索到了相关记忆。</p>
+<hr/>
+<span class="heading-anchor" id="四、上下文过长会发生什么"></span><h2 id="_5">四、上下文过长会发生什么</h2>
+<p>当输入与预期输出超过模型或 API 的限制时，常见结果包括：</p>
+<ol>
+<li>API 直接返回超限错误；</li>
+<li>应用从开头或结尾截断部分内容；</li>
+<li>系统压缩或总结较早的消息；</li>
+<li>为输入保留过多空间，导致输出被提前截断；</li>
+<li>虽未超过硬限制，但关键信息被大量无关内容干扰。</li>
+</ol>
+<p>最后一种情况说明：</p>
+<blockquote>
+<p>“能够放入上下文”不等于“模型一定能够同等有效地利用全部内容”。</p>
+</blockquote>
+<p>长上下文中还可能出现：</p>
+<ul>
+<li>关键信息被淹没；</li>
+<li>位于中间的证据更难被稳定利用；</li>
+<li>相互冲突的内容增多；</li>
+<li>推理延迟和调用成本上升；</li>
+<li>注意力计算和 KV Cache 占用增加。</li>
+</ul>
+<p>因此，上下文管理的目标不是无条件塞入更多文本，而是让模型看到<strong>足够、相关、清晰且可信</strong>的信息。</p>
+<hr/>
+<span class="heading-anchor" id="五、常见的上下文管理策略"></span><h2 id="_6">五、常见的上下文管理策略</h2>
+<span class="heading-anchor" id="1. 截断"></span><h3 id="1_1">1. 截断</h3>
+<p>只保留最近消息或最重要的内容。</p>
+<p>优点：实现简单。<br/>
+缺点：可能丢失早期的关键约束。</p>
+<span class="heading-anchor" id="2. 滑动窗口"></span><h3 id="2_1">2. 滑动窗口</h3>
+<p>维护最近一段固定长度的 Token：</p>
+<pre><code class="language-text">旧内容 ← 移出窗口
+新内容 → 加入窗口
+</code></pre>
+<p>适合局部连续信息较重要的场景，但不适合必须长期保留早期事实的任务。</p>
+<span class="heading-anchor" id="3. 对话摘要"></span><h3 id="3_1">3. 对话摘要</h3>
+<p>将较早的多轮对话压缩为结构化摘要，例如：</p>
+<pre><code class="language-text">用户目标：开发一个客服 RAG 系统
+已确定技术：Python、FastAPI、PostgreSQL
+稳定约束：回答必须引用知识库来源
+待处理问题：重排序策略
+</code></pre>
+<p>摘要可以降低 Token 占用，但摘要过程可能遗漏信息，因此关键事实最好以结构化字段单独保存。</p>
+<span class="heading-anchor" id="4. 分块处理"></span><h3 id="4">4. 分块处理</h3>
+<p>把长文档拆成多个 Chunk，分别处理，再合并结果。</p>
+<p>常见流程：</p>
+<pre><code class="language-text">长文档
+  ↓
+按标题、段落或 Token 数分块
+  ↓
+分别提取或总结
+  ↓
+汇总中间结果
+  ↓
+生成最终答案
+</code></pre>
+<span class="heading-anchor" id="5. RAG 检索"></span><h3 id="5-rag">5. RAG 检索</h3>
+<p>不把整个知识库都放进 Prompt，而是先检索与问题最相关的片段：</p>
+<pre><code class="language-text">用户问题
+  ↓
+向量检索 / 关键词检索
+  ↓
+重排序
+  ↓
+选取少量相关片段
+  ↓
+放入上下文
+  ↓
+生成答案
+</code></pre>
+<p>RAG 的价值之一就是提高上下文的“有效信息密度”。</p>
+<span class="heading-anchor" id="6. 分层总结"></span><h3 id="6">6. 分层总结</h3>
+<p>对于超长材料，可以先做局部总结，再对局部总结进行二次汇总：</p>
+<pre><code class="language-text">原文分块 → 块级摘要 → 章节摘要 → 全文摘要
+</code></pre>
+<p>这种方法通常称为 Map-Reduce 或层次化总结。</p>
+<hr/>
+<span class="heading-anchor" id="六、为什么 Transformer 需要位置编码"></span><h2 id="transformer">六、为什么 Transformer 需要位置编码</h2>
+<p>Tokenizer 和 Embedding 能告诉模型“有哪些 Token”，但普通 Self-Attention 本身没有天然的序列顺序概念。</p>
+<p>Self-Attention 的核心公式是：</p>
+<div class="arithmatex">\[
+\operatorname{Attention}(Q,K,V)
+=
+\operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]</div>
+<p>如果只对输入 Token 的顺序做同样的排列，而不给模型额外的位置信息，Attention 的输出也会随之排列。这种性质称为<strong>置换等变性（Permutation Equivariance）</strong>。</p>
+<p>然而，自然语言中的顺序会改变含义：</p>
+<pre><code class="language-text">小明批评了小王
+小王批评了小明
+</code></pre>
+<p>两句话包含相似的 Token，但主语和宾语不同。因此，模型不仅要知道 Token 是什么，还必须知道：</p>
+<ul>
+<li>Token 出现在哪个位置；</li>
+<li>两个 Token 相隔多远；</li>
+<li>一个 Token 位于另一个 Token 的前面还是后面。</li>
+</ul>
+<p>位置编码的作用就是把这些位置信息引入 Transformer。</p>
+<hr/>
+<span class="heading-anchor" id="七、绝对位置编码"></span><h2 id="_7">七、绝对位置编码</h2>
+<p>绝对位置编码为序列中的每个位置提供一个表示。</p>
+<p>一种基本组合方式是：</p>
+<div class="arithmatex">\[
+H_0=E_{\text{token}}+E_{\text{position}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(E_{\text{token}}\)</span>：Token Embedding；</li>
+<li><span class="arithmatex">\(E_{\text{position}}\)</span>：Position Embedding；</li>
+<li><span class="arithmatex">\(H_0\)</span>：送入第一层 Transformer 的输入。</li>
+</ul>
+<p>例如，Token “苹果”出现在位置 2 和位置 20 时，Token Embedding 可以相同，但加入的位置表示不同。</p>
+<span class="heading-anchor" id="1. 可学习的绝对位置向量"></span><h3 id="1_2">1. 可学习的绝对位置向量</h3>
+<p>模型维护一个位置矩阵：</p>
+<div class="arithmatex">\[
+P\in\mathbb{R}^{L_{\max}\times d_{\text{model}}}
+\]</div>
+<p>位置 <span class="arithmatex">\(p\)</span> 对应：</p>
+<div class="arithmatex">\[
+E_{\text{position}}=P[p]
+\]</div>
+<p>这些向量像 Token Embedding 一样通过训练学习。</p>
+<p>优点：</p>
+<ul>
+<li>实现简单；</li>
+<li>模型可以从数据中学习适合任务的位置表示。</li>
+</ul>
+<p>局限：</p>
+<ul>
+<li>通常预先规定最大位置数量；</li>
+<li>对训练长度之外的位置不一定具有良好的外推能力。</li>
+</ul>
+<span class="heading-anchor" id="2. 正弦—余弦位置编码"></span><h3 id="2_2">2. 正弦—余弦位置编码</h3>
+<p>原始 Transformer 使用固定的正弦和余弦函数：</p>
+<div class="arithmatex">\[
+PE(pos,2i)=\sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)
+\]</div>
+<div class="arithmatex">\[
+PE(pos,2i+1)=\cos\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(pos\)</span>：Token 的位置；</li>
+<li><span class="arithmatex">\(i\)</span>：向量维度索引；</li>
+<li><span class="arithmatex">\(d_{\text{model}}\)</span>：隐藏向量维度。</li>
+</ul>
+<p>不同维度使用不同频率：</p>
+<ul>
+<li>高频维度更敏感于短距离变化；</li>
+<li>低频维度可以描述更长距离的位置变化。</li>
+</ul>
+<p>其优点是无需训练位置矩阵，并且位置模式具有规律性。</p>
+<hr/>
+<span class="heading-anchor" id="八、用 PyTorch 实现正弦位置编码"></span><h2 id="pytorch">八、用 PyTorch 实现正弦位置编码</h2>
+<pre><code class="language-python">import math
+
+import torch
+import torch.nn as nn
+
+
+class SinusoidalPositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, max_len: int = 5000):
+        super().__init__()
+
+        # pe: [max_len, d_model]
+        pe = torch.zeros(max_len, d_model)
+
+        # position: [max_len, 1]
+        position = torch.arange(
+            0, max_len, dtype=torch.float32
+        ).unsqueeze(1)
+
+        # 对应公式中的 10000^(-2i/d_model)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32)
+            * (-math.log(10000.0) / d_model)
+        )
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        # 增加 batch 维度，形状变为 [1, max_len, d_model]
+        pe = pe.unsqueeze(0)
+
+        # 位置编码不是可训练参数，因此注册为 buffer
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        # x: [batch_size, seq_len, d_model]
+        seq_len = x.size(1)
+        return x + self.pe[:, :seq_len]
+
+
+batch_size = 2
+seq_len = 6
+d_model = 8
+
+x = torch.randn(batch_size, seq_len, d_model)
+position_encoder = SinusoidalPositionalEncoding(
+    d_model=d_model,
+    max_len=100,
+)
+
+output = position_encoder(x)
+
+print("输入形状：", x.shape)
+print("输出形状：", output.shape)
+</code></pre>
+<p>输出形状不变：</p>
+<pre><code class="language-text">输入形状： torch.Size([2, 6, 8])
+输出形状： torch.Size([2, 6, 8])
+</code></pre>
+<p>位置编码改变的是向量内容，而不是张量的形状。</p>
+<hr/>
+<span class="heading-anchor" id="九、相对位置编码"></span><h2 id="_8">九、相对位置编码</h2>
+<p>绝对位置编码关注：</p>
+<blockquote>
+<p>当前 Token 位于第几个位置？</p>
+</blockquote>
+<p>相对位置编码更关注：</p>
+<blockquote>
+<p>当前 Token 与另一个 Token 相隔多远、方向如何？</p>
+</blockquote>
+<p>例如：</p>
+<pre><code class="language-text">Token A 位于位置 10
+Token B 位于位置 13
+</code></pre>
+<p>它们的相对距离是：</p>
+<div class="arithmatex">\[
+13-10=3
+\]</div>
+<p>语言中的许多关系与相对距离密切相关。例如，修饰词常常与附近的名词关联，指代词可能需要关注前面若干位置的实体。</p>
+<p>相对位置机制通常会把位置差 <span class="arithmatex">\(i-j\)</span> 引入 Attention 分数或 Value 聚合过程。不同模型的具体公式并不完全相同。</p>
+<p>相对于只使用绝对位置，相对位置方法通常更直接地表达 Token 之间的距离关系。</p>
+<hr/>
+<span class="heading-anchor" id="十、RoPE：旋转位置编码"></span><h2 id="rope">十、RoPE：旋转位置编码</h2>
+<p>RoPE（Rotary Position Embedding，旋转位置编码）被许多现代大语言模型采用。</p>
+<p>它不是简单地把位置向量加到 Token Embedding 上，而是根据 Token 的位置，对 Query 和 Key 的部分维度进行二维旋转。</p>
+<p>对一个二维向量，可以把位置 <span class="arithmatex">\(m\)</span> 对应的旋转写成：</p>
+<div class="arithmatex">\[
+R(m\theta)=
+\begin{bmatrix}
+\cos(m\theta) &amp; -\sin(m\theta)\\
+\sin(m\theta) &amp; \cos(m\theta)
+\end{bmatrix}
+\]</div>
+<p>然后对 Query 和 Key 进行旋转：</p>
+<div class="arithmatex">\[
+q_m'=R(m\theta)q_m
+\]</div>
+<div class="arithmatex">\[
+k_n'=R(n\theta)k_n
+\]</div>
+<p>计算旋转后的点积时，其位置关系会与 <span class="arithmatex">\(m-n\)</span> 有关：</p>
+<div class="arithmatex">\[
+(q_m')^T k_n'
+=
+q_m^T R((n-m)\theta)k_n
+\]</div>
+<p>这意味着 Attention 分数能够自然包含相对位置信息。</p>
+<p>可以直观理解为：</p>
+<pre><code class="language-text">Token 内容决定向量本身
+Token 位置决定向量旋转的角度
+旋转后 Q 与 K 的点积同时反映内容和相对位置
+</code></pre>
+<p>RoPE 的主要特点包括：</p>
+<ul>
+<li>直接作用于 Query 和 Key；</li>
+<li>能在 Attention 分数中表达相对位置；</li>
+<li>不需要为每个绝对位置单独学习一个向量；</li>
+<li>常与上下文长度扩展技术结合使用。</li>
+</ul>
+<p>需要注意：使用 RoPE 不代表模型可以无限处理长文本。模型的训练长度、频率设置、注意力计算成本和推理资源仍然会限制有效上下文。</p>
+<hr/>
+<span class="heading-anchor" id="十一、ALiBi：Attention 线性偏置"></span><h2 id="alibiattention">十一、ALiBi：Attention 线性偏置</h2>
+<p>ALiBi（Attention with Linear Biases）不显式生成位置 Embedding，而是在 Attention 分数中加入与距离有关的线性偏置。</p>
+<p>可以简化表示为：</p>
+<div class="arithmatex">\[
+S_{ij}
+=
+\frac{q_i k_j^T}{\sqrt{d_k}}-m\cdot |i-j|
+\]</div>
+<p>在因果语言模型中，通常只考虑当前位置之前的 Token。距离越远，加入的惩罚越大。</p>
+<p>其中 <span class="arithmatex">\(m\)</span> 可以随不同注意力头而变化，使不同头具有不同的距离偏好。</p>
+<p>直观上：</p>
+<ul>
+<li>一些注意力头更关注附近 Token；</li>
+<li>一些注意力头可以关注更远的 Token；</li>
+<li>位置信息直接影响 Attention 分数。</li>
+</ul>
+<p>不同模型会选择不同的位置机制，并不存在适用于所有任务的唯一最佳方案。</p>
+<hr/>
+<span class="heading-anchor" id="十二、位置编码与 Causal Mask 的区别"></span><h2 id="causal-mask">十二、位置编码与 Causal Mask 的区别</h2>
+<p>二者都与顺序有关，但职责不同。</p>
+<span class="heading-anchor" id="位置编码"></span><h3 id="_9">位置编码</h3>
+<p>告诉模型：</p>
+<ul>
+<li>Token 在哪里；</li>
+<li>Token 之间距离多远；</li>
+<li>前后顺序是什么。</li>
+</ul>
+<span class="heading-anchor" id="Causal Mask"></span><h3 id="causal-mask_1">Causal Mask</h3>
+<p>限制模型：</p>
+<ul>
+<li>生成当前位置时，不能读取未来 Token。</li>
+</ul>
+<p>例如长度为 4 的序列：</p>
+<pre><code class="language-text">位置 1：✓ × × ×
+位置 2：✓ ✓ × ×
+位置 3：✓ ✓ ✓ ×
+位置 4：✓ ✓ ✓ ✓
+</code></pre>
+<p>Causal Mask 通常把未来位置的 Attention 分数设置为负无穷：</p>
+<div class="arithmatex">\[
+S_{ij}=-\infty,\qquad j&gt;i
+\]</div>
+<p>经过 Softmax 后，未来位置的权重变为 0。</p>
+<p>因此：</p>
+<blockquote>
+<p>位置编码负责表示顺序，Causal Mask 负责限制信息可见范围。</p>
+</blockquote>
+<p>二者不能相互替代。</p>
+<hr/>
+<span class="heading-anchor" id="十三、上下文窗口与位置编码的关系"></span><h2 id="_10">十三、上下文窗口与位置编码的关系</h2>
+<p>上下文窗口和位置编码关系紧密，但不是同一个概念。</p>
+<ul>
+<li>上下文窗口规定模型一次能接收和处理多长的序列；</li>
+<li>位置编码让模型区分序列中不同位置及其相对关系。</li>
+</ul>
+<p>一个模型要支持更长上下文，通常需要同时考虑：</p>
+<ol>
+<li>位置机制能否表达更远的位置；</li>
+<li>模型是否在足够长的序列上训练或继续训练；</li>
+<li>Attention 的计算量是否可接受；</li>
+<li>KV Cache 的显存是否足够；</li>
+<li>长距离信息能否被模型稳定利用；</li>
+<li>推理框架是否支持对应的最大长度。</li>
+</ol>
+<p>仅修改“最大长度”配置，不一定能让模型可靠地理解更长文本。</p>
+<hr/>
+<span class="heading-anchor" id="十四、为什么长上下文成本高"></span><h2 id="_11">十四、为什么长上下文成本高</h2>
+<p>对于标准 Self-Attention，长度为 <span class="arithmatex">\(n\)</span> 的序列会形成一个 <span class="arithmatex">\(n\times n\)</span> 的 Attention 矩阵。</p>
+<p>其计算量通常近似为：</p>
+<div class="arithmatex">\[
+O(n^2)
+\]</div>
+<p>如果序列长度从 <span class="arithmatex">\(n\)</span> 增加到 <span class="arithmatex">\(2n\)</span>，Attention 矩阵元素数量会从：</p>
+<div class="arithmatex">\[
+n^2
+\]</div>
+<p>增加到：</p>
+<div class="arithmatex">\[
+(2n)^2=4n^2
+\]</div>
+<p>此外，自回归生成通常会缓存每层已经计算过的 Key 和 Value，这称为 <strong>KV Cache</strong>。</p>
+<p>KV Cache 可以避免每生成一个新 Token 都重新计算全部历史 Token，但它本身会占用显存，而且占用通常随以下因素增长：</p>
+<ul>
+<li>上下文长度；</li>
+<li>Transformer 层数；</li>
+<li>KV Head 数量；</li>
+<li>Head 维度；</li>
+<li>Batch Size；</li>
+<li>数值精度。</li>
+</ul>
+<p>需要特别注意：</p>
+<blockquote>
+<p>KV Cache 提高生成效率，但不会自动扩大模型的上下文窗口，也不是永久记忆。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="十五、长上下文外推"></span><h2 id="_12">十五、长上下文外推</h2>
+<p><strong>长度外推（Length Extrapolation）</strong>是指模型在比训练阶段更长的序列上仍能正常工作。</p>
+<p>例如，模型主要在 4K Token 长度上训练，却希望推理时处理 16K Token。可能遇到：</p>
+<ul>
+<li>未见过的位置分布；</li>
+<li>位置关系失真；</li>
+<li>长距离注意力退化；</li>
+<li>输出质量下降；</li>
+<li>虽然技术上能输入，但信息利用能力不足。</li>
+</ul>
+<p>针对 RoPE，常见的上下文扩展思路包括对位置索引或旋转频率进行缩放，并结合长序列继续训练或微调。</p>
+<p>但必须区分：</p>
+<pre><code class="language-text">可以提交更长输入
+≠
+可以同等准确地利用所有输入
+</code></pre>
+<p>评估长上下文模型时，不应只检查 API 是否接受长文本，还应测试：</p>
+<ul>
+<li>关键信息位于开头、中间和结尾时的表现；</li>
+<li>多个相似证据同时存在时能否正确选择；</li>
+<li>跨段落、跨章节推理能力；</li>
+<li>长输入下的延迟、成本和稳定性。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="十六、AI 应用开发中的 Token 预算"></span><h2 id="ai-token">十六、AI 应用开发中的 Token 预算</h2>
+<p>实际应用应在调用模型之前分配 Token 预算。</p>
+<p>假设：</p>
+<div class="arithmatex">\[
+N_{\text{context}}=32768
+\]</div>
+<p>可以设计如下预算：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>预算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>System Prompt 与固定规则</td>
+<td>1,500</td>
+</tr>
+<tr>
+<td>用户当前问题</td>
+<td>1,000</td>
+</tr>
+<tr>
+<td>对话摘要与近期历史</td>
+<td>4,000</td>
+</tr>
+<tr>
+<td>RAG 检索片段</td>
+<td>18,000</td>
+</tr>
+<tr>
+<td>工具返回结果</td>
+<td>2,000</td>
+</tr>
+<tr>
+<td>预留输出</td>
+<td>5,000</td>
+</tr>
+<tr>
+<td>安全余量</td>
+<td>1,268</td>
+</tr>
+</tbody>
+</table></div>
+<p>预算之和不应超过上下文窗口。</p>
+<p>一个简化的程序可以先计算检索内容的可用空间：</p>
+<pre><code class="language-python">def retrieval_budget(
+    context_limit: int,
+    system_tokens: int,
+    history_tokens: int,
+    user_tokens: int,
+    tool_tokens: int,
+    reserved_output_tokens: int,
+    safety_margin: int = 256,
+) -&gt; int:
+    used = (
+        system_tokens
+        + history_tokens
+        + user_tokens
+        + tool_tokens
+        + reserved_output_tokens
+        + safety_margin
+    )
+    return max(context_limit - used, 0)
+
+
+budget = retrieval_budget(
+    context_limit=32768,
+    system_tokens=1500,
+    history_tokens=4000,
+    user_tokens=1000,
+    tool_tokens=2000,
+    reserved_output_tokens=5000,
+)
+
+print("可用于检索片段的 Token：", budget)
+</code></pre>
+<p>实际项目中，Token 数量应使用与目标模型匹配的 Tokenizer 计算，不能简单用字符数代替。</p>
+<hr/>
+<span class="heading-anchor" id="十七、RAG 中如何利用上下文窗口"></span><h2 id="rag">十七、RAG 中如何利用上下文窗口</h2>
+<p>RAG 并不是检索片段越多越好。一个更合理的流程是：</p>
+<pre><code class="language-text">用户问题
+  ↓
+查询改写
+  ↓
+召回候选 Chunk
+  ↓
+重排序与去重
+  ↓
+按 Token 预算选择片段
+  ↓
+保留来源信息
+  ↓
+构造 Prompt
+  ↓
+模型回答并引用证据
+</code></pre>
+<p>选择片段时应综合考虑：</p>
+<ul>
+<li>与问题的相关度；</li>
+<li>来源可信度；</li>
+<li>内容是否重复；</li>
+<li>Chunk 是否完整；</li>
+<li>多个片段之间是否冲突；</li>
+<li>剩余输出空间；</li>
+<li>是否包含回答所需的上下文边界。</li>
+</ul>
+<p>如果检索片段过多，可能造成：</p>
+<ul>
+<li>有效证据被无关片段稀释；</li>
+<li>Prompt 成本增加；</li>
+<li>模型更难判断冲突信息；</li>
+<li>留给输出的 Token 减少。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="十八、多轮对话中的上下文管理"></span><h2 id="_13">十八、多轮对话中的上下文管理</h2>
+<p>长期对话不应只依赖“把全部消息不断追加到 Prompt”。更稳健的结构可以是：</p>
+<pre><code class="language-text">固定系统规则
++ 用户稳定偏好
++ 任务状态
++ 历史对话摘要
++ 最近若干轮原始消息
++ 当前问题
++ 按需检索的外部资料
+</code></pre>
+<p>其中：</p>
+<ul>
+<li>固定规则：尽量简洁、明确；</li>
+<li>稳定偏好：使用结构化字段保存；</li>
+<li>任务状态：记录已完成、待完成和关键决策；</li>
+<li>历史摘要：压缩较早对话；</li>
+<li>最近消息：保留局部语境和措辞细节；</li>
+<li>外部资料：只在与当前问题相关时检索。</li>
+</ul>
+<p>这种设计比无限追加历史消息更节省 Token，也更容易控制信息质量。</p>
+<hr/>
+<span class="heading-anchor" id="十九、常见误区"></span><h2 id="_14">十九、常见误区</h2>
+<span class="heading-anchor" id="误区 1：上下文窗口越大，模型一定越聪明"></span><h3 id="1_3">误区 1：上下文窗口越大，模型一定越聪明</h3>
+<p>错误。窗口大小代表可接收的最大序列范围，不直接等于推理能力、知识准确性或长文本利用能力。</p>
+<span class="heading-anchor" id="误区 2：把全部资料放进 Prompt 最安全"></span><h3 id="2-prompt">误区 2：把全部资料放进 Prompt 最安全</h3>
+<p>错误。无关、重复或冲突信息会降低有效信息密度，并增加成本和延迟。</p>
+<span class="heading-anchor" id="误区 3：模型能在一次对话中看到内容，就会永久记住"></span><h3 id="3_2">误区 3：模型能在一次对话中看到内容，就会永久记住</h3>
+<p>错误。当前上下文通常只在本次请求或应用维护的会话中有效。永久保存需要外部记忆机制或训练流程。</p>
+<span class="heading-anchor" id="误区 4：上下文窗口只计算用户输入"></span><h3 id="4_1">误区 4：上下文窗口只计算用户输入</h3>
+<p>错误。System Prompt、历史消息、检索资料、工具结果和模型输出都可能占用预算。</p>
+<span class="heading-anchor" id="误区 5：位置编码就是 Token Embedding"></span><h3 id="5-token-embedding">误区 5：位置编码就是 Token Embedding</h3>
+<p>错误。Token Embedding 表示内容，位置编码表示位置或相对距离。</p>
+<span class="heading-anchor" id="误区 6：位置编码和 Causal Mask 是一回事"></span><h3 id="6-causal-mask">误区 6：位置编码和 Causal Mask 是一回事</h3>
+<p>错误。位置编码描述顺序；Causal Mask 阻止模型看到未来信息。</p>
+<span class="heading-anchor" id="误区 7：KV Cache 可以让模型拥有无限上下文"></span><h3 id="7kv-cache">误区 7：KV Cache 可以让模型拥有无限上下文</h3>
+<p>错误。KV Cache 是推理缓存，会消耗显存，而且仍受模型和推理系统的最大长度限制。</p>
+<span class="heading-anchor" id="误区 8：API 接受长输入，就说明模型能完美利用全部内容"></span><h3 id="8api">误区 8：API 接受长输入，就说明模型能完美利用全部内容</h3>
+<p>错误。技术上的可输入长度和实际的有效利用长度并不完全相同，必须通过任务评测验证。</p>
+<hr/>
+<span class="heading-anchor" id="二十、知识链总结"></span><h2 id="_15">二十、知识链总结</h2>
+<pre><code class="language-text">原始文本
+  ↓
+Tokenizer
+  ↓
+Token ID
+  ↓
+Token Embedding
+  +
+位置信息（绝对位置、相对位置、RoPE、ALiBi 等）
+  ↓
+Transformer / Self-Attention
+  ↓
+在上下文窗口范围内建立 Token 之间的联系
+  ↓
+输出上下文相关表示或生成下一个 Token
+</code></pre>
+<p>本课最重要的关系是：</p>
+<ol>
+<li><strong>上下文窗口</strong>决定模型一次能够直接处理多少 Token；</li>
+<li><strong>位置编码</strong>告诉模型 Token 的位置、顺序或相对距离；</li>
+<li><strong>Attention Mask</strong>决定某些 Token 是否允许关注另一些 Token；</li>
+<li><strong>KV Cache</strong>保存生成过程中已经计算出的 Key 和 Value，以减少重复计算；</li>
+<li><strong>RAG、摘要和外部记忆</strong>负责在有限窗口内提供最有价值的信息。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="二十一、自测题"></span><h2 id="_16">二十一、自测题</h2>
+<span class="heading-anchor" id="1. 什么是上下文窗口？"></span><h3 id="1_4">1. 什么是上下文窗口？</h3>
+<p>上下文窗口是模型在一次推理中能够直接处理的 Token 范围，通常包括输入内容和生成输出。</p>
+<span class="heading-anchor" id="2. 为什么要为输出预留 Token？"></span><h3 id="2-token">2. 为什么要为输出预留 Token？</h3>
+<p>因为输入和输出通常共享总上下文预算。如果输入占满窗口，模型就没有足够空间生成完整答案。</p>
+<span class="heading-anchor" id="3. 上下文窗口与永久记忆有什么区别？"></span><h3 id="3_3">3. 上下文窗口与永久记忆有什么区别？</h3>
+<p>上下文是当前推理的工作区；永久记忆通常由数据库、文件或向量库等外部系统保存，并在以后重新注入上下文。</p>
+<span class="heading-anchor" id="4. Transformer 为什么需要位置编码？"></span><h3 id="4-transformer">4. Transformer 为什么需要位置编码？</h3>
+<p>因为普通 Self-Attention 本身不能充分表示 Token 的先后顺序，而语言含义依赖位置和顺序。</p>
+<span class="heading-anchor" id="5. 绝对位置与相对位置有什么区别？"></span><h3 id="5">5. 绝对位置与相对位置有什么区别？</h3>
+<p>绝对位置表示 Token 位于序列中的第几个位置；相对位置表示两个 Token 之间的距离和方向。</p>
+<span class="heading-anchor" id="6. RoPE 的基本思想是什么？"></span><h3 id="6-rope">6. RoPE 的基本思想是什么？</h3>
+<p>根据 Token 位置旋转 Query 和 Key 的部分维度，使 Attention 点积自然包含相对位置信息。</p>
+<span class="heading-anchor" id="7. 位置编码和 Causal Mask 有什么区别？"></span><h3 id="7-causal-mask">7. 位置编码和 Causal Mask 有什么区别？</h3>
+<p>位置编码提供位置信息；Causal Mask 限制当前 Token 不能看到未来 Token。</p>
+<span class="heading-anchor" id="8. 为什么长上下文会增加计算成本？"></span><h3 id="8">8. 为什么长上下文会增加计算成本？</h3>
+<p>标准 Self-Attention 需要构造 <span class="arithmatex">\(n\times n\)</span> 的注意力关系，复杂度通常近似为 <span class="arithmatex">\(O(n^2)\)</span>；生成时 KV Cache 也会随上下文长度增加。</p>
+<span class="heading-anchor" id="9. RAG 为什么不能无条件放入更多检索片段？"></span><h3 id="9-rag">9. RAG 为什么不能无条件放入更多检索片段？</h3>
+<p>过多片段会增加 Token 成本，并可能引入无关、重复或冲突信息，降低有效信息密度。</p>
+<span class="heading-anchor" id="10. KV Cache 是否会扩大上下文窗口？"></span><h3 id="10-kv-cache">10. KV Cache 是否会扩大上下文窗口？</h3>
+<p>不会。它主要用于缓存历史 Key 和 Value、减少重复计算，仍受模型和推理系统的最大长度限制。</p>
+<hr/>
+<span class="heading-anchor" id="二十二、实践题"></span><h2 id="_17">二十二、实践题</h2>
+<ol>
+<li>选择一个具体模型，查阅其上下文窗口、最大输出长度和 Tokenizer；</li>
+<li>准备一篇长文档，分别使用“直接截断”“分块总结”和“RAG 检索”回答同一问题；</li>
+<li>记录每种方法的输入 Token、输出 Token、延迟和答案准确性；</li>
+<li>把关键证据分别放在长文本的开头、中间和结尾，比较模型表现；</li>
+<li>修改正弦位置编码示例，打印不同位置在前 8 个维度上的数值并观察变化规律。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="二十三、本课小结"></span><h2 id="_18">二十三、本课小结</h2>
+<p>上下文窗口是大语言模型当前推理的有限工作区。Prompt、历史消息、检索资料、工具结果和模型输出都会占用 Token 预算。优秀的 AI 应用不会简单地把所有内容塞入窗口，而会通过截断、摘要、分块、检索、重排序和结构化记忆，提高上下文的信息密度。</p>
+<p>Transformer 还需要位置机制来理解 Token 的顺序和距离。绝对位置编码描述 Token 所在的位置，相对位置机制更关注 Token 之间的距离；RoPE 通过旋转 Query 和 Key 引入相对位置，ALiBi 则把距离偏置加入 Attention 分数。</p>
+<p>一句话总结：</p>
+<blockquote>
+<p>上下文窗口决定模型一次能看多少内容，位置编码帮助模型理解这些内容按什么顺序排列，而上下文管理决定真正应该让模型看到什么。</p>
+</blockquote></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

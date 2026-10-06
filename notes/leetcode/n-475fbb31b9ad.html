@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>239. 滑动窗口最大值 · 李杨的学习笔记</title><meta name="description" content="给定整数数组 nums 和窗口大小 k ，长度为 k 的窗口从数组最左端开始，每次向右移动一位。按窗口出现的顺序，返回每个窗口中的最大值； 1 &lt;= k &lt;= nums.size() 。"><meta property="og:title" content="239. 滑动窗口最大值 · 李杨的学习笔记"><meta property="og:description" content="给定整数数组 nums 和窗口大小 k ，长度为 k 的窗口从数组最左端开始，每次向右移动一位。按窗口出现的顺序，返回每个窗口中的最大值； 1 &lt;= k &lt;= nums.size() 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-475fbb31b9ad.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-475fbb31b9ad.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">滑动窗口</p><h1>239. 滑动窗口最大值</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3/%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3%E6%9C%80%E5%A4%A7%E5%80%BC%EF%BC%88239%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">简短题意</a></li><li><a href="#_2">题型与核心思路</a></li><li><a href="#_3">两种删除，各有原因</a></li><li><a href="#c">C++ 主模板</a></li><li><a href="#_4">示例推演</a></li><li><a href="#_5">复杂度与易错点</a></li><li><a href="#_6">一类题总结</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="简短题意"></span><h2 id="_1">简短题意</h2>
+<p>给定整数数组 <code>nums</code> 和窗口大小 <code>k</code>，长度为 <code>k</code> 的窗口从数组最左端开始，每次向右移动一位。按窗口出现的顺序，返回每个窗口中的最大值；<code>1 &lt;= k &lt;= nums.size()</code>。</p>
+<span class="heading-anchor" id="题型与核心思路"></span><h2 id="_2">题型与核心思路</h2>
+<p>固定长度滑动窗口 + 单调队列。</p>
+<p>每个窗口重新扫描 <code>k</code> 个数，需要 <code>O(nk)</code>。窗口右移时，只增加一个元素、移除一个元素，可以用双端队列保存仍有可能成为最大值的候选。</p>
+<p>队列保存<strong>下标</strong>：从队首到队尾，下标递增，对应的数值严格递减。队首就是当前窗口最大值的下标。</p>
+<span class="heading-anchor" id="两种删除，各有原因"></span><h2 id="_3">两种删除，各有原因</h2>
+<ul>
+<li>从队首删除过期下标：窗口右端为 <code>right</code> 时，左端为 <code>right-k+1</code>，下标 <code>&lt;= right-k</code> 的元素已经离开窗口。</li>
+<li>从队尾删除较小或相等的值：新元素更大或相等，而且下标更靠右、过期更晚。只要旧元素仍在未来窗口中，新元素也一定在，因此旧元素不再有成为最大值的必要。</li>
+</ul>
+<p>每轮按照“删除过期候选 → 删除被新值淘汰的候选 → 加入新下标 → 窗口凑满后记录答案”处理。</p>
+<span class="heading-anchor" id="C++ 主模板"></span><h2 id="c">C++ 主模板</h2>
+<pre><code class="language-cpp">class Solution {
+public:
+    vector&lt;int&gt; maxSlidingWindow(vector&lt;int&gt;&amp; nums, int k) {
+        deque&lt;int&gt; candidates;
+        vector&lt;int&gt; ans;
+
+        for (int right = 0; right &lt; static_cast&lt;int&gt;(nums.size()); right++) {
+            // 当前窗口左端为 right - k + 1
+            while (!candidates.empty() &amp;&amp; candidates.front() &lt;= right - k) {
+                candidates.pop_front();
+            }
+            // 新值更大或相等，旧队尾不再需要
+            while (!candidates.empty() &amp;&amp; nums[candidates.back()] &lt;= nums[right]) {
+                candidates.pop_back();
+            }
+            candidates.push_back(right);
+
+            if (right &gt;= k - 1) {
+                ans.push_back(nums[candidates.front()]);
+            }
+        }
+        return ans;
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="示例推演"></span><h2 id="_4">示例推演</h2>
+<p><code>nums = [1,3,-1,-3,5,3,6,7]</code>，<code>k = 3</code>。下表的队列同时写出下标和对应值。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>right</th>
+<th>当前窗口</th>
+<th>候选队列：下标(值)</th>
+<th>最大值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>[1,3,-1]</code></td>
+<td><code>1(3), 2(-1)</code></td>
+<td>3</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>[3,-1,-3]</code></td>
+<td><code>1(3), 2(-1), 3(-3)</code></td>
+<td>3</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>[-1,-3,5]</code></td>
+<td><code>4(5)</code></td>
+<td>5</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>[-3,5,3]</code></td>
+<td><code>4(5), 5(3)</code></td>
+<td>5</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>[5,3,6]</code></td>
+<td><code>6(6)</code></td>
+<td>6</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>[3,6,7]</code></td>
+<td><code>7(7)</code></td>
+<td>7</td>
+</tr>
+</tbody>
+</table></div>
+<p>答案为 <code>[3,3,5,5,6,7]</code>。加入 <code>5</code> 时，旧的 <code>3</code> 已过期，<code>-1、-3</code> 又被新值淘汰，队列只剩下 <code>5</code>。</p>
+<span class="heading-anchor" id="复杂度与易错点"></span><h2 id="_5">复杂度与易错点</h2>
+<p>每个下标入队一次，最多出队一次，所有 <code>while</code> 的总工作量仍是 <code>O(n)</code>。额外空间 <code>O(k)</code>，输出空间 <code>O(n-k+1)</code>。</p>
+<ul>
+<li>队列存下标，才能判断过期；读取最大值时写 <code>nums[candidates.front()]</code>。</li>
+<li><code>pop_front</code> 处理过期，<code>pop_back</code> 维护单调性，不能混淆。</li>
+<li>凑满 <code>k</code> 个数以后才输出；题目保证 <code>1 &lt;= k &lt;= n</code>。</li>
+<li><code>k=1</code> 时输出原数组；全相等时保留最新的相等值；全负数也正常比较。</li>
+</ul>
+<span class="heading-anchor" id="一类题总结"></span><h2 id="_6">一类题总结</h2>
+<p>识别信号：窗口持续移动，反复询问最大值或最小值。用单调队列维护尚未过期且未被更优新元素淘汰的候选。最大值维护递减队列，最小值维护递增队列。</p>
+<p>口诀：<strong>队首清过期，队尾清弱者，队首报答案。</strong></p></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

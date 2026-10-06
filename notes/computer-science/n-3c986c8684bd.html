@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01-Redis 概览与环境准备 · 李杨的学习笔记</title><meta name="description" content="适用版本：以 Redis 7.x 为主。部分命令在 Redis 6.x 或更早版本中也可用，但 ACL、多线程 I/O、函数、RESP3、部分配置项和模块生态在不同版本间存在差异。"><meta property="og:title" content="01-Redis 概览与环境准备 · 李杨的学习笔记"><meta property="og:description" content="适用版本：以 Redis 7.x 为主。部分命令在 Redis 6.x 或更早版本中也可用，但 ACL、多线程 I/O、函数、RESP3、部分配置项和模块生态在不同版本间存在差异。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-3c986c8684bd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-3c986c8684bd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>01-Redis 概览与环境准备</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/01-Redis%E6%A6%82%E8%A7%88%E4%B8%8E%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#redis">Redis 是什么</a></li><li><a href="#redis_1">Redis 的主要特点</a></li><li><a href="#redis_2">Redis 常见使用场景</a></li><li><a href="#redis_3">Redis 与关系型数据库的区别</a></li><li><a href="#_3">环境准备</a></li><li><a href="#docker-redis-7x">方式一：Docker 启动 Redis 7.x</a></li><li><a href="#macos-homebrew">方式二：macOS 使用 Homebrew</a></li><li><a href="#_4">方式三：源码编译</a></li><li><a href="#_5">关键命令/配置</a></li><li><a href="#_6">基础连接命令</a></li><li><a href="#_7">常见配置项</a></li><li><a href="#redis-7x">Redis 7.x 版本视角</a></li><li><a href="#_8">示例</a></li><li><a href="#1_1">示例 1：一次完整的本地交互</a></li><li><a href="#2_1">示例 2：带过期时间的缓存写入</a></li><li><a href="#3_1">示例 3：查看内存与慢日志</a></li><li><a href="#_9">常见误区</a></li><li><a href="#1redis">误区 1：Redis 很快，所以任何数据都可以放进去</a></li><li><a href="#2redis">误区 2：Redis 是内存数据库，所以不用关心持久化</a></li><li><a href="#3_2">误区 3：设置了密码就安全了</a></li><li><a href="#4keys-key">误区 4：KEYS * 是查看 key 的常规方式</a></li><li><a href="#5_1">误区 5：逻辑库可以替代多租户隔离</a></li><li><a href="#_10">实践检查清单</a></li><li><a href="#_11">延伸阅读关键词</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>适用版本：以 Redis 7.x 为主。部分命令在 Redis 6.x 或更早版本中也可用，但 ACL、多线程 I/O、函数、RESP3、部分配置项和模块生态在不同版本间存在差异。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学习本章后，你应该能够：</p>
+<ul>
+<li>说清 Redis 是什么、适合解决哪些问题、不适合解决哪些问题。</li>
+<li>理解 Redis 的核心特征：内存存储、单线程命令执行模型、数据结构服务器、持久化、高可用与集群。</li>
+<li>在本地启动一个 Redis 7.x 环境，并使用 <code>redis-cli</code> 完成连接、读写和基础诊断。</li>
+<li>认识常见配置项的作用，能区分开发环境和生产环境配置关注点。</li>
+<li>建立学习 Redis 的全局地图，为后续数据类型、持久化、复制、哨兵、集群和性能优化打基础。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="Redis 是什么"></span><h3 id="redis">Redis 是什么</h3>
+<p>Redis（Remote Dictionary Server）是一个开源的内存数据结构服务器。它常被称为“缓存数据库”，但更准确地说，它是一个支持多种数据结构、可选持久化、可用于缓存、计数器、排行榜、消息队列、分布式锁、会话存储、限流等场景的键值数据库。</p>
+<p>Redis 的基本模型是：</p>
+<pre><code class="language-text">客户端 -&gt; Redis 命令 -&gt; Redis Server -&gt; 内存中的 key-value 数据结构
+</code></pre>
+<p>其中 value 不只是字符串，还可以是 Hash、List、Set、Sorted Set、Stream、Bitmap、HyperLogLog、Geospatial 等结构。</p>
+<span class="heading-anchor" id="Redis 的主要特点"></span><h3 id="redis_1">Redis 的主要特点</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特点</th>
+<th>说明</th>
+<th>学习时要关注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存优先</td>
+<td>主要数据保存在内存中，读写延迟低</td>
+<td>内存容量、淘汰策略、持久化风险</td>
+</tr>
+<tr>
+<td>数据结构丰富</td>
+<td>原生命令支持多种结构</td>
+<td>根据业务模型选择合适结构</td>
+</tr>
+<tr>
+<td>单线程命令执行</td>
+<td>核心命令通常在单线程事件循环中执行</td>
+<td>避免慢命令、大 key、阻塞操作</td>
+</tr>
+<tr>
+<td>可持久化</td>
+<td>支持 RDB、AOF、混合持久化</td>
+<td>数据安全与性能之间的取舍</td>
+</tr>
+<tr>
+<td>高可用</td>
+<td>支持复制、哨兵、集群</td>
+<td>主从切换、分片、故障恢复</td>
+</tr>
+<tr>
+<td>原子命令</td>
+<td>单条命令执行具备原子性</td>
+<td>可用于计数、抢占、条件写入</td>
+</tr>
+<tr>
+<td>扩展能力</td>
+<td>支持 Lua、Functions、Modules</td>
+<td>复杂逻辑要谨慎控制耗时</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>注意：Redis 不是“万能加速器”。如果数据模型、过期策略、内存估算、持久化和高可用设计不清晰，Redis 也可能成为系统瓶颈或数据风险点。</p>
+</blockquote>
+<span class="heading-anchor" id="Redis 常见使用场景"></span><h3 id="redis_2">Redis 常见使用场景</h3>
+<span class="heading-anchor" id="1. 缓存"></span><h4 id="1">1. 缓存</h4>
+<p>把数据库或外部接口的热点结果放入 Redis，减少后端压力。</p>
+<pre><code class="language-text">应用先查 Redis
+命中：直接返回
+未命中：查数据库 -&gt; 写入 Redis -&gt; 返回
+</code></pre>
+<p>常见问题：缓存穿透、缓存击穿、缓存雪崩、双写一致性。</p>
+<span class="heading-anchor" id="2. 计数器"></span><h4 id="2">2. 计数器</h4>
+<p>利用 <code>INCR</code>、<code>DECR</code> 等原子命令实现访问量、点赞数、库存预扣等计数。</p>
+<span class="heading-anchor" id="3. 排行榜"></span><h4 id="3">3. 排行榜</h4>
+<p>使用 Sorted Set 按分数排序，例如积分榜、热度榜、延迟队列。</p>
+<span class="heading-anchor" id="4. 分布式协调"></span><h4 id="4">4. 分布式协调</h4>
+<p>通过 <code>SET key value NX EX seconds</code> 实现基础分布式锁。生产环境还需要考虑锁续期、唯一 token、释放锁原子性、故障场景。</p>
+<span class="heading-anchor" id="5. 消息与事件流"></span><h4 id="5">5. 消息与事件流</h4>
+<p>List 可实现简单队列；Stream 更适合消费组、消息 ID、确认机制等更完整的消息流场景。</p>
+<span class="heading-anchor" id="Redis 与关系型数据库的区别"></span><h3 id="redis_3">Redis 与关系型数据库的区别</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Redis</th>
+<th>MySQL/PostgreSQL 等关系型数据库</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主要存储介质</td>
+<td>内存为主</td>
+<td>磁盘为主，缓存辅助</td>
+</tr>
+<tr>
+<td>数据模型</td>
+<td>key-value + 多数据结构</td>
+<td>表、行、列、关系、SQL</td>
+</tr>
+<tr>
+<td>查询方式</td>
+<td>按 key 或结构命令访问</td>
+<td>SQL 查询、索引、事务</td>
+</tr>
+<tr>
+<td>典型优势</td>
+<td>低延迟、高并发、原子结构操作</td>
+<td>强一致事务、复杂查询、长期存储</td>
+</tr>
+<tr>
+<td>典型风险</td>
+<td>内存成本、数据丢失窗口、大 key</td>
+<td>慢查询、锁竞争、扩展复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>Redis 常作为关系型数据库的补充，而不是简单替代。</p>
+<span class="heading-anchor" id="环境准备"></span><h2 id="_3">环境准备</h2>
+<span class="heading-anchor" id="方式一：Docker 启动 Redis 7.x"></span><h3 id="docker-redis-7x">方式一：Docker 启动 Redis 7.x</h3>
+<p>适合快速学习与实验。</p>
+<pre><code class="language-bash">docker run --name redis7-study -p 6379:6379 -d redis:7
+</code></pre>
+<p>连接：</p>
+<pre><code class="language-bash">docker exec -it redis7-study redis-cli
+</code></pre>
+<p>验证：</p>
+<pre><code class="language-redis">PING
+SET hello redis
+GET hello
+</code></pre>
+<p>预期：</p>
+<pre><code class="language-text">PONG
+OK
+"redis"
+</code></pre>
+<p>停止与删除容器：</p>
+<pre><code class="language-bash">docker stop redis7-study
+docker rm redis7-study
+</code></pre>
+<span class="heading-anchor" id="方式二：macOS 使用 Homebrew"></span><h3 id="macos-homebrew">方式二：macOS 使用 Homebrew</h3>
+<pre><code class="language-bash">brew install redis
+redis-server --version
+redis-server
+</code></pre>
+<p>另开终端连接：</p>
+<pre><code class="language-bash">redis-cli
+</code></pre>
+<p>如果作为服务运行：</p>
+<pre><code class="language-bash">brew services start redis
+brew services stop redis
+</code></pre>
+<span class="heading-anchor" id="方式三：源码编译"></span><h3 id="_4">方式三：源码编译</h3>
+<p>适合想了解 Redis 构建过程或调试源码的学习者。</p>
+<pre><code class="language-bash">git clone https://github.com/redis/redis.git
+cd redis
+make
+src/redis-server --version
+src/redis-server
+</code></pre>
+<blockquote>
+<p>学习阶段建议优先使用 Docker 或 Homebrew，减少环境干扰。生产环境请使用明确版本、配置文件、数据目录和监控方案。</p>
+</blockquote>
+<span class="heading-anchor" id="关键命令/配置"></span><h2 id="_5">关键命令/配置</h2>
+<span class="heading-anchor" id="基础连接命令"></span><h3 id="_6">基础连接命令</h3>
+<pre><code class="language-bash">redis-cli -h 127.0.0.1 -p 6379
+redis-cli -a 'your-password'
+redis-cli --raw
+</code></pre>
+<p>常用交互命令：</p>
+<pre><code class="language-redis">PING
+ECHO "hello redis"
+SELECT 0
+DBSIZE
+INFO server
+INFO memory
+INFO stats
+CONFIG GET maxmemory
+</code></pre>
+<p>说明：</p>
+<ul>
+<li><code>PING</code>：检查连接是否正常。</li>
+<li><code>SELECT</code>：选择逻辑库，默认 0。Redis Cluster 模式下通常只使用 0 号库。</li>
+<li><code>DBSIZE</code>：返回当前库 key 数量，不等同于业务记录数。</li>
+<li><code>INFO</code>：查看服务状态，是排查问题的重要入口。</li>
+<li><code>CONFIG GET</code>：查看运行时配置。部分配置可用 <code>CONFIG SET</code> 临时修改，但生产环境应同步到配置文件或部署系统。</li>
+</ul>
+<span class="heading-anchor" id="常见配置项"></span><h3 id="_7">常见配置项</h3>
+<p>以下配置通常位于 <code>redis.conf</code>，不同安装方式路径不同。</p>
+<pre><code class="language-conf">bind 127.0.0.1
+port 6379
+protected-mode yes
+requirepass yourStrongPassword
+
+daemonize no
+dir /var/lib/redis
+dbfilename dump.rdb
+
+save 900 1
+save 300 10
+save 60 10000
+
+appendonly no
+appendfsync everysec
+
+maxmemory 1gb
+maxmemory-policy allkeys-lru
+
+loglevel notice
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+</code></pre>
+<p>重点理解：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>作用</th>
+<th>学习提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bind</code></td>
+<td>监听地址</td>
+<td>不要随意暴露到公网</td>
+</tr>
+<tr>
+<td><code>protected-mode</code></td>
+<td>保护模式</td>
+<td>开发机安全兜底，生产仍需网络隔离和认证</td>
+</tr>
+<tr>
+<td><code>requirepass</code></td>
+<td>简单密码认证</td>
+<td>Redis 6+ 更推荐理解 ACL</td>
+</tr>
+<tr>
+<td><code>dir</code> / <code>dbfilename</code></td>
+<td>RDB 文件位置</td>
+<td>确保数据目录可写且可备份</td>
+</tr>
+<tr>
+<td><code>save</code></td>
+<td>RDB 快照规则</td>
+<td>数据安全与性能的折中</td>
+</tr>
+<tr>
+<td><code>appendonly</code></td>
+<td>是否开启 AOF</td>
+<td>需要更低数据丢失窗口时常开启</td>
+</tr>
+<tr>
+<td><code>appendfsync</code></td>
+<td>AOF 刷盘策略</td>
+<td><code>everysec</code> 是常见折中</td>
+</tr>
+<tr>
+<td><code>maxmemory</code></td>
+<td>最大内存</td>
+<td>缓存场景必须设置容量上限</td>
+</tr>
+<tr>
+<td><code>maxmemory-policy</code></td>
+<td>内存淘汰策略</td>
+<td>决定内存满时如何处理 key</td>
+</tr>
+<tr>
+<td><code>slowlog-*</code></td>
+<td>慢日志</td>
+<td>定位慢命令和大 key 问题</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Redis 7.x 版本视角"></span><h3 id="redis-7x">Redis 7.x 版本视角</h3>
+<p>Redis 7.x 相比早期版本，在 Functions、ACL、复制、集群、性能与命令能力方面持续增强。入门阶段可以先掌握通用命令和核心机制，再逐步学习：</p>
+<ul>
+<li>Redis 6.x 引入 ACL、多线程 I/O 等重要能力。</li>
+<li>Redis 7.x 强化 Functions，可作为 Lua 脚本之外的服务端逻辑组织方式。</li>
+<li>Redis 7.2 之后许可与发行版本讨论较多，学习命令和架构时仍可按 Redis 7.x 通用能力理解。</li>
+</ul>
+<span class="heading-anchor" id="示例"></span><h2 id="_8">示例</h2>
+<span class="heading-anchor" id="示例 1：一次完整的本地交互"></span><h3 id="1_1">示例 1：一次完整的本地交互</h3>
+<pre><code class="language-redis">PING
+SET user:1:name "Ada"
+GET user:1:name
+EXPIRE user:1:name 60
+TTL user:1:name
+DEL user:1:name
+EXISTS user:1:name
+</code></pre>
+<p>说明：</p>
+<ul>
+<li><code>SET</code> 写入字符串。</li>
+<li><code>EXPIRE</code> 设置过期时间。</li>
+<li><code>TTL</code> 查看剩余生存时间。</li>
+<li><code>DEL</code> 删除 key。</li>
+<li><code>EXISTS</code> 判断 key 是否存在。</li>
+</ul>
+<span class="heading-anchor" id="示例 2：带过期时间的缓存写入"></span><h3 id="2_1">示例 2：带过期时间的缓存写入</h3>
+<p>推荐使用一条原子命令：</p>
+<pre><code class="language-redis">SET article:1001 '{"title":"Redis intro"}' EX 300
+</code></pre>
+<p>不要写成两步：</p>
+<pre><code class="language-redis">SET article:1001 '{"title":"Redis intro"}'
+EXPIRE article:1001 300
+</code></pre>
+<p>原因：两步之间如果应用崩溃，key 可能没有过期时间，形成脏缓存或长期占用内存。</p>
+<span class="heading-anchor" id="示例 3：查看内存与慢日志"></span><h3 id="3_1">示例 3：查看内存与慢日志</h3>
+<pre><code class="language-redis">INFO memory
+SLOWLOG GET 10
+SLOWLOG LEN
+</code></pre>
+<p>如果发现 <code>used_memory</code> 持续增长，需要进一步排查：</p>
+<ul>
+<li>是否没有设置 TTL。</li>
+<li>是否存在大 key。</li>
+<li>是否过期策略不合理。</li>
+<li>是否 <code>maxmemory</code> 与淘汰策略未配置。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_9">常见误区</h2>
+<span class="heading-anchor" id="误区 1：Redis 很快，所以任何数据都可以放进去"></span><h3 id="1redis">误区 1：Redis 很快，所以任何数据都可以放进去</h3>
+<p>Redis 快的前提是命令足够轻、数据结构使用合理、网络和内存没有成为瓶颈。超大 value、超大集合、全量扫描命令都可能造成阻塞。</p>
+<span class="heading-anchor" id="误区 2：Redis 是内存数据库，所以不用关心持久化"></span><h3 id="2redis">误区 2：Redis 是内存数据库，所以不用关心持久化</h3>
+<p>缓存可以允许丢失，业务状态通常不能随意丢失。是否开启 RDB/AOF，取决于数据是否可重建、允许丢失多少秒、恢复时间要求是多少。</p>
+<span class="heading-anchor" id="误区 3：设置了密码就安全了"></span><h3 id="3_2">误区 3：设置了密码就安全了</h3>
+<p>Redis 安全还包括网络隔离、防火墙、最小权限 ACL、禁用危险命令或限制访问、不要暴露公网、日志与审计。</p>
+<span class="heading-anchor" id="误区 4：KEYS * 是查看 key 的常规方式"></span><h3 id="4keys-key">误区 4：<code>KEYS *</code> 是查看 key 的常规方式</h3>
+<p><code>KEYS</code> 会遍历整个 key 空间，生产环境可能阻塞 Redis。排查时优先使用 <code>SCAN</code> 渐进式遍历。</p>
+<span class="heading-anchor" id="误区 5：逻辑库可以替代多租户隔离"></span><h3 id="5_1">误区 5：逻辑库可以替代多租户隔离</h3>
+<p>Redis 的逻辑库隔离能力有限，Cluster 模式也不支持多逻辑库的常规使用。不同环境、租户或业务线通常应使用独立实例、前缀规范或明确隔离方案。</p>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_10">实践检查清单</h2>
+<ul>
+<li>[ ] 能启动 Redis 7.x，并通过 <code>redis-cli</code> 执行 <code>PING</code>。</li>
+<li>[ ] 能完成 <code>SET</code>、<code>GET</code>、<code>DEL</code>、<code>EXPIRE</code>、<code>TTL</code> 的基础操作。</li>
+<li>[ ] 能解释 Redis 为什么快，以及哪些操作会让它变慢。</li>
+<li>[ ] 能说出 Redis 和关系型数据库的边界。</li>
+<li>[ ] 能查看 <code>INFO server</code>、<code>INFO memory</code>、<code>INFO stats</code>。</li>
+<li>[ ] 能说明 RDB 与 AOF 是什么，以及是否需要开启取决于什么。</li>
+<li>[ ] 能解释为什么缓存 key 应该设置过期时间。</li>
+<li>[ ] 能说出至少 3 个 Redis 生产环境安全注意点。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_11">延伸阅读关键词</h2>
+<ul>
+<li>Redis 7.x 官方文档</li>
+<li>Redis data structures</li>
+<li>redis-cli</li>
+<li>redis.conf</li>
+<li>RDB persistence</li>
+<li>AOF persistence</li>
+<li>Redis ACL</li>
+<li>Redis slowlog</li>
+<li>Redis maxmemory policy</li>
+<li>Redis single-threaded event loop</li>
+<li>Redis cache aside pattern</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

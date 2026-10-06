@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>MCP 与多 Agent · 李杨的学习笔记</title><meta name="description" content="MCP（Model Context Protocol）可以理解为一种让 AI 应用以统一方式发现和使用外部能力的协议。它把“模型应用如何连接工具、资源和提示模板”从某个具体业务代码中抽象出来。"><meta property="og:title" content="MCP 与多 Agent · 李杨的学习笔记"><meta property="og:description" content="MCP（Model Context Protocol）可以理解为一种让 AI 应用以统一方式发现和使用外部能力的协议。它把“模型应用如何连接工具、资源和提示模板”从某个具体业务代码中抽象出来。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-a8a0a7b5115b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-a8a0a7b5115b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 04-Agent与工作流</p><h1>MCP 与多 Agent</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/04-Agent%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81/06-MCP%E4%B8%8E%E5%A4%9AAgent.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-mcp">1. MCP 的基本概念</a></li><li><a href="#2-mcp-tool-calling">2. MCP 与直接 Tool Calling 的关系</a></li><li><a href="#3-mcp">3. 接入 MCP 时的安全边界</a></li><li><a href="#4-mcp">4. MCP 的学习顺序</a></li><li><a href="#5-agent">5. 多 Agent 何时有价值</a></li><li><a href="#6-agent">6. 多 Agent 的适用边界</a></li><li><a href="#7-agent">7. 多 Agent 协调原则</a></li><li><a href="#8-agent">8. 一个保守的多 Agent 流程</a></li><li><a href="#9-mcp-agent">9. MCP 与多 Agent 的区别</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. MCP 的基本概念"></span><h2 id="1-mcp">1. MCP 的基本概念</h2>
+<p>MCP（Model Context Protocol）可以理解为一种让 AI 应用以统一方式发现和使用外部能力的协议。它把“模型应用如何连接工具、资源和提示模板”从某个具体业务代码中抽象出来。</p>
+<p>常见角色包括：</p>
+<ul>
+<li><strong>Host</strong>：用户使用的 AI 应用或 Agent 宿主，负责整体会话、策略和用户体验；</li>
+<li><strong>MCP Client</strong>：Host 中负责连接某个 MCP Server 的客户端；</li>
+<li><strong>MCP Server</strong>：对外暴露工具、资源或提示模板的服务进程；</li>
+<li><strong>Tools</strong>：可调用的动作，可能读取或修改外部系统；</li>
+<li><strong>Resources</strong>：可读取的上下文资源，例如文件、文档或业务数据；</li>
+<li><strong>Prompts</strong>：可复用的提示模板或工作流入口。</li>
+</ul>
+<p>MCP 解决的是<strong>能力发现和协议互操作</strong>，不自动解决权限、数据可信度、业务正确性或副作用安全。</p>
+<span class="heading-anchor" id="2. MCP 与直接 Tool Calling 的关系"></span><h2 id="2-mcp-tool-calling">2. MCP 与直接 Tool Calling 的关系</h2>
+<pre><code class="language-text">模型厂商 Tool Calling：模型如何表达“调用工具”
+MCP：应用如何发现、描述和连接外部工具/资源
+</code></pre>
+<p>二者可以组合：MCP Client 发现工具并转换成模型 API 所需的工具 Schema；模型提出调用；Host 再通过 MCP Client 请求 Server 执行；执行结果回到 Host，最后由模型生成答案。</p>
+<p>MCP 不应被当作“让模型直接接入任意电脑”的授权机制。Host 仍需决定：</p>
+<ul>
+<li>哪些 Server 可信；</li>
+<li>哪些工具向当前会话暴露；</li>
+<li>当前用户和租户是否有权调用；</li>
+<li>是否需要审批、沙箱、网络限制或人工确认；</li>
+<li>工具返回的数据哪些可以进入上下文。</li>
+</ul>
+<span class="heading-anchor" id="3. 接入 MCP 时的安全边界"></span><h2 id="3-mcp">3. 接入 MCP 时的安全边界</h2>
+<ul>
+<li>对 Server 和工具做来源登记、版本管理和能力审查；</li>
+<li>连接凭据由 Host 或服务端安全保存，不交给模型；</li>
+<li>对工具参数做本地 Schema 与业务验证；</li>
+<li>对资源读取做租户隔离、路径限制和数据脱敏；</li>
+<li>对写操作设置默认拒绝、审批、额度和幂等；</li>
+<li>限制 Server 的网络、文件和进程权限；</li>
+<li>记录工具发现、调用、返回和审批审计；</li>
+<li>将外部返回值作为不可信数据，防止 Prompt Injection；</li>
+<li>处理协议版本、断线、超时和 Server 不可用。</li>
+</ul>
+<span class="heading-anchor" id="4. MCP 的学习顺序"></span><h2 id="4-mcp">4. MCP 的学习顺序</h2>
+<ol>
+<li>先手写一个本地 Tool Registry，理解工具 Schema 和执行边界；</li>
+<li>再把 Registry 的发现和调用过程替换为 MCP Client；</li>
+<li>对比直接函数、HTTP API 和 MCP Server 的生命周期、权限与错误处理；</li>
+<li>最后加入审批、沙箱、审计和多 Server 管理。</li>
+</ol>
+<p>如果没有理解直接 Tool Calling，直接使用 MCP 容易把协议层误认为安全层。</p>
+<span class="heading-anchor" id="5. 多 Agent 何时有价值"></span><h2 id="5-agent">5. 多 Agent 何时有价值</h2>
+<p>多 Agent 适用于以下情况：</p>
+<ul>
+<li>子任务具有清晰边界，所需工具和权限不同；</li>
+<li>需要隔离上下文，例如研究、编码、审核各自独立；</li>
+<li>可以并行执行互不依赖的只读任务；</li>
+<li>不同角色拥有不同的提示、模型或质量标准；</li>
+<li>有明确的协调者、输入输出契约和失败策略。</li>
+</ul>
+<p>常见结构：</p>
+<pre><code class="language-text">Coordinator
+ ├─ Researcher：检索和整理候选资料
+ ├─ Analyst：按固定 Schema 分析
+ └─ Reviewer：检查事实、格式和风险
+</code></pre>
+<p>协调者不应只凭自然语言转发一切结果，而应使用结构化任务契约：任务 ID、输入范围、输出 Schema、截止时间、允许工具和完成条件。</p>
+<span class="heading-anchor" id="6. 多 Agent 的适用边界"></span><h2 id="6-agent">6. 多 Agent 的适用边界</h2>
+<p>不适合拆分的情况：</p>
+<ul>
+<li>任务简单，单次模型调用或一个 Workflow 就能完成；</li>
+<li>子 Agent 之间共享大量上下文，拆分后反而增加传输和同步成本；</li>
+<li>没有独立权限、模型、工具或质量标准；</li>
+<li>需要严格事务一致性，却让多个 Agent 直接修改同一资源；</li>
+<li>无法定义谁负责最终事实、错误和用户沟通。</li>
+</ul>
+<p>多 Agent 会增加：调用次数、Token 成本、延迟、状态同步、Prompt Injection 面积和调试难度。拆分不是越多越好。</p>
+<span class="heading-anchor" id="7. 多 Agent 协调原则"></span><h2 id="7-agent">7. 多 Agent 协调原则</h2>
+<ul>
+<li>每个 Agent 只拥有完成自身任务所需的最小工具集合；</li>
+<li>共享状态用数据库或事件协议管理，不依赖隐式聊天；</li>
+<li>中间结果包含来源、版本、置信度和待验证标记；</li>
+<li>协调者验证 Schema、超时和权限，不盲信子 Agent；</li>
+<li>关键写操作集中到一个确定性执行器；</li>
+<li>子任务失败可以重试、跳过、降级或转人工，策略由应用决定；</li>
+<li>为每个子任务设置独立预算，同时受总任务预算约束。</li>
+</ul>
+<span class="heading-anchor" id="8. 一个保守的多 Agent 流程"></span><h2 id="8-agent">8. 一个保守的多 Agent 流程</h2>
+<pre><code class="language-text">Coordinator 生成子任务
+  ↓ 应用校验任务范围和工具权限
+并行执行只读 Researcher
+  ↓ 保存带来源的结果
+Coordinator 汇总并生成候选方案
+  ↓ Reviewer 做结构和事实检查
+确定性业务层执行副作用动作
+  ↓
+统一返回结果与审计记录
+</code></pre>
+<p>先使用并行只读子任务验证收益，再考虑让多个 Agent 参与写操作。写操作应尽量由单一、可审计的服务执行。</p>
+<span class="heading-anchor" id="9. MCP 与多 Agent 的区别"></span><h2 id="9-mcp-agent">9. MCP 与多 Agent 的区别</h2>
+<ul>
+<li>MCP 是连接和能力暴露协议；</li>
+<li>多 Agent 是任务分解和角色协作架构；</li>
+<li>MCP 可以被单 Agent 使用；</li>
+<li>多 Agent 可以不使用 MCP，直接调用内部服务；</li>
+<li>二者叠加时，权限控制仍应位于 Host、服务端和业务系统，不应由模型承担。</li>
+</ul>
+<p>下一步：查看 <a href="n-32a53bcf87b2.html">框架映射与原生实现</a>。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

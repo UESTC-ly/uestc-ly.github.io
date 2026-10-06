@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07-08 检索失败诊断 · 李杨的学习笔记</title><meta name="description" content="完成本章后，你应该能够区分无召回、漏召回、排名不足、误过滤和域偏移，按查询、数据、
+表示、索引、过滤、变换与路由的顺序收集证据，而不是看到错误答案就盲目更换模型。"><meta property="og:title" content="07-08 检索失败诊断 · 李杨的学习笔记"><meta property="og:description" content="完成本章后，你应该能够区分无召回、漏召回、排名不足、误过滤和域偏移，按查询、数据、
+表示、索引、过滤、变换与路由的顺序收集证据，而不是看到错误答案就盲目更换模型。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-ae43830e908f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-ae43830e908f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 07-retrieval</p><h1>07-08 检索失败诊断</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/07-retrieval/08-retrieval-failure-diagnostics.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">先确认错误发生在哪一层</a></li><li><a href="#_2">四类常见症状</a></li><li><a href="#_3">一条证据优先的诊断顺序</a></li><li><a href="#1">1. 固定失败样例</a></li><li><a href="#2">2. 检查数据与版本</a></li><li><a href="#3">3. 分开运行召回路径</a></li><li><a href="#4">4. 比较过滤前后</a></li><li><a href="#5">5. 检查路由与域偏移</a></li><li><a href="#_4">域偏移不只是模型问题</a></li><li><a href="#_5">诊断记录应该能复现</a></li><li><a href="#_6">不要用一个旋钮修所有问题</a></li><li><a href="#_7">诊断练习</a></li><li><a href="#_8">自测</a></li><li><a href="#_9">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>07-08</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>55 分钟阅读，加 30 分钟诊断练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>完成 07-01 至 07-07；能读取候选、分数、过滤和版本记录</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章诊断表分析静态候选样例</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够区分无召回、漏召回、排名不足、误过滤和域偏移，按查询、数据、
+表示、索引、过滤、变换与路由的顺序收集证据，而不是看到错误答案就盲目更换模型。</p>
+<span class="heading-anchor" id="先确认错误发生在哪一层"></span><h2 id="_1">先确认错误发生在哪一层</h2>
+<p>最终回答错误不一定是检索错误。一个最小分层是：</p>
+<ol>
+<li>知识库是否包含正确、有效且有权使用的资料；</li>
+<li>正确资料是否被切分并进入当前索引；</li>
+<li>检索是否把相关候选带入候选集；</li>
+<li>过滤是否错误删除候选；</li>
+<li>重排和上下文选择是否保留候选；</li>
+<li>生成是否忠实使用证据。</li>
+</ol>
+<p>本章聚焦前三到四层。若相关候选已经稳定位于送给生成模型的上下文中，应把问题交给后续
+重排、上下文或生成诊断，而不是继续扩大检索 Top-K。</p>
+<span class="heading-anchor" id="四类常见症状"></span><h2 id="_2">四类常见症状</h2>
+<p><strong>无召回</strong>：检索返回零个候选。可能是索引为空、查询被错误规范化、路由到错误来源，或过滤
+把候选全部清空。</p>
+<p><strong>漏召回</strong>：有候选，但已知相关文档没有进入观察范围。可能是词汇不匹配、嵌入不适配、
+切分破坏语义、ANN 参数或候选预算不足。</p>
+<p><strong>排名不足</strong>：相关候选存在，但位置太低，未进入后续 Top-K。需要比较信号、融合、重复候选
+和噪声来源。</p>
+<p><strong>误过滤</strong>：过滤前相关候选存在，过滤后消失。根因通常在字段、值、时间、权限或适配器语义，
+不能靠更换嵌入模型修复。</p>
+<span class="heading-anchor" id="一条证据优先的诊断顺序"></span><h2 id="_3">一条证据优先的诊断顺序</h2>
+<span class="heading-anchor" id="1. 固定失败样例"></span><h3 id="1">1. 固定失败样例</h3>
+<p>保存查询、请求身份、查询时点、期望文档标识和期望理由。不要只保存最终答案截图。确认期望
+文档本身正确、未过期，并属于当前用户可见范围。</p>
+<span class="heading-anchor" id="2. 检查数据与版本"></span><h3 id="2">2. 检查数据与版本</h3>
+<p>核对来源版本、摄取状态、切分结果、删除状态、稀疏索引版本和嵌入版本。直接按稳定标识查找
+期望文本块，确认它确实存在于当前快照。</p>
+<span class="heading-anchor" id="3. 分开运行召回路径"></span><h3 id="3">3. 分开运行召回路径</h3>
+<p>分别观察稀疏、稠密、原查询和变换查询的候选，不要只看融合结果。记录期望候选位置、命中
+词项或相似度、查询表示版本和索引参数。</p>
+<span class="heading-anchor" id="4. 比较过滤前后"></span><h3 id="4">4. 比较过滤前后</h3>
+<p>记录每个阶段候选数量和拒绝原因。若期望候选在过滤前存在，停止调整召回器，转而修复过滤
+字段、身份、时间或规则转换。</p>
+<span class="heading-anchor" id="5. 检查路由与域偏移"></span><h3 id="5">5. 检查路由与域偏移</h3>
+<p>确认查询进入正确知识源。若近期出现新产品、新缩写、新语言或文档写法变化，旧评估集和表示
+可能不再代表当前流量，这称为域偏移（domain shift）。</p>
+<span class="heading-anchor" id="域偏移不只是模型问题"></span><h2 id="_4">域偏移不只是模型问题</h2>
+<p>域偏移可能来自用户语言变化、产品命名变化、文档模板更新、政策迁移或流量群体变化。症状
+包括新术语查询集中失败、某语言召回下降、原有字段变空或历史别名不再出现。</p>
+<p>修复可以是更新别名、改进切分、重新嵌入、增加稀疏字段、扩充评估集或调整路由。先定位变化
+发生在哪一层，再选择成本最低且可验证的修复。</p>
+<span class="heading-anchor" id="诊断记录应该能复现"></span><h2 id="_5">诊断记录应该能复现</h2>
+<p>每次诊断至少记录：查询样例标识、文档快照、检索配置版本、过滤条件、各路径 Top-K、候选
+稳定标识、排名、拒绝原因和最终判断。敏感正文和个人信息应最小化，必要时使用受控环境。</p>
+<p>一次修复后，把失败样例加入回归集。回归目标不应只写“能返回答案”，而应写“期望文档在
+过滤后的前 K 个候选中，且其他租户文档不出现”等可观察条件。</p>
+<span class="heading-anchor" id="不要用一个旋钮修所有问题"></span><h2 id="_6">不要用一个旋钮修所有问题</h2>
+<ul>
+<li>无结果不等于应调大 Top-K；索引为空时调大没有意义。</li>
+<li>误过滤不等于稠密模型不够强；权限字段错误必须修字段。</li>
+<li>域偏移不等于立即换模型；别名和数据更新可能更直接。</li>
+<li>相关候选已在上下文中不等于检索成功结束；还要转交后续层诊断。</li>
+<li>单个演示查询成功不等于整体方法更好；需要覆盖代表性失败类型。</li>
+</ul>
+<span class="heading-anchor" id="诊断练习"></span><h2 id="_7">诊断练习</h2>
+<p>场景：期望文档在稀疏排名第 2、稠密排名第 7，融合后第 3，但权限过滤后消失。列出下一步
+要检查的三个字段，并说明为什么此时不应更换嵌入模型。</p>
+<p>再分析第二个场景：新产品代号上线后，所有包含该代号的查询无结果，但旧产品正常。依次检查
+数据、分词、别名、嵌入和路由，写出你需要的证据。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_8">自测</h2>
+<ol>
+<li>无召回、漏召回和排名不足有什么区别？</li>
+<li>为什么必须分开观察融合前的各条路径？</li>
+<li>域偏移可能来自哪些非模型变化？</li>
+<li>什么样的回归条件能同时覆盖召回和权限边界？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_9">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿；诊断脚本、Notebook 和自动回归仍为后续计划。</li>
+<li>结论边界：本章提供排障顺序，不声称已验证任何具体检索系统的生产表现。</li>
+<li>
+<p>摘要：<a href="n-c09702c9bd64.html">07-08 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-2eb88328931f.html">07-07 自查询与路由</a></p>
+</li>
+<li>下一部分：<a href="n-5d4f0a9a34fa.html">08 重排</a></li>
+<li>返回：<a href="n-3b5435427cd1.html">07 检索索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

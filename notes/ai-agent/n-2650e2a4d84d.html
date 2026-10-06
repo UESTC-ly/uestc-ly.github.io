@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-02 PDF、OCR、图片与不可信文件 · 李杨的学习笔记</title><meta name="description" content="“这是一份 PDF”并不能说明里面一定有可复制的文字。PDF 可以保存字符和字体，也可以
+只保存整页扫描图，还可以同时包含文字、图片、表单和附件。两个视觉上相同的页面，内部
+结构可能完全不同。"><meta property="og:title" content="03-02 PDF、OCR、图片与不可信文件 · 李杨的学习笔记"><meta property="og:description" content="“这是一份 PDF”并不能说明里面一定有可复制的文字。PDF 可以保存字符和字体，也可以
+只保存整页扫描图，还可以同时包含文字、图片、表单和附件。两个视觉上相同的页面，内部
+结构可能完全不同。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-2650e2a4d84d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-2650e2a4d84d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 03-data-ingestion</p><h1>03-02 PDF、OCR、图片与不可信文件</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/03-data-ingestion/02-pdf-ocr-images-and-untrusted-files.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#pdf">PDF 更像一个容器</a></li><li><a href="#_1">文本层与扫描页</a></li><li><a href="#_2">图片不只包含文字</a></li><li><a href="#_3">不可信文件先进入受限区域</a></li><li><a href="#_4">具体例子：混合型合同</a></li><li><a href="#_5">错误处理不等于反复重试</a></li><li><a href="#_6">自测与分流练习</a></li><li><a href="#_7">本章小结</a></li><li><a href="#_8">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>03-02</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 20 分钟分流练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td><a href="n-03fc89470dbe.html">03-01 文档模型、Loader 与 Parser</a>；<a href="n-0c274f3e2bed.html">00-05 安全基线</a></td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真实 OCR 服务可能需要联网、密钥或费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用手工抄录的小样本模拟 OCR 输出，不比较具体产品</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分带文本层 PDF、扫描 PDF 和独立图片；</li>
+<li>说明何时需要光学字符识别（Optical Character Recognition，OCR）；</li>
+<li>为不可信文件设置隔离、资源限制和失败状态；</li>
+<li>设计一条不会把 OCR 猜测冒充原文的处理路径。</li>
+</ul>
+<span class="heading-anchor" id="PDF 更像一个容器"></span><h2 id="pdf">PDF 更像一个容器</h2>
+<p>“这是一份 PDF”并不能说明里面一定有可复制的文字。PDF 可以保存字符和字体，也可以
+只保存整页扫描图，还可以同时包含文字、图片、表单和附件。两个视觉上相同的页面，内部
+结构可能完全不同。</p>
+<p>因此第一步不是直接 OCR 所有文件，而是先探测：</p>
+<ol>
+<li>文件是否符合允许的大小和类型；</li>
+<li>页面是否有可用文本层；</li>
+<li>提取文字是否有合理的字符和阅读顺序；</li>
+<li>哪些页面只有图片或文字质量过低；</li>
+<li>是否需要对部分页面进入 OCR 分支。</li>
+</ol>
+<p>这是一条分流决策，而不是“PDF Parser 一次解决全部问题”。</p>
+<span class="heading-anchor" id="文本层与扫描页"></span><h2 id="_1">文本层与扫描页</h2>
+<p>带文本层的 PDF 通常能直接取得字符，但仍可能出现错序、断词、隐藏文字或字体映射
+问题。扫描 PDF 则像一叠照片，需要先把页面渲染成图像，再让 OCR 模型估计其中的字符。</p>
+<p>OCR 的输出是识别结果，不是原文的无损复制。低分辨率、倾斜、印章、手写体、复杂表格、
+多栏排版和相似字符都可能造成错误。例如金额 <code>1000</code> 被识别成 <code>100</code>，语句仍然通顺，
+却已经改变事实。</p>
+<p><strong>建议：</strong> 保存“这段文字来自直接提取还是 OCR”、页码、处理器版本和可用的质量信号。
+这些信息不能证明文字正确，但能让系统在高风险场景采用更谨慎的阈值和人工复核。</p>
+<span class="heading-anchor" id="图片不只包含文字"></span><h2 id="_2">图片不只包含文字</h2>
+<p>图片中的截图、图例、流程箭头和空间关系可能承载意义。OCR 即使识别出所有文字，也未必
+能恢复“哪个标签属于哪个箭头”。把所有图片简单拼成文本，可能产生看似完整、实际错误
+的上下文。</p>
+<p>初学阶段可以采用保守策略：</p>
+<ul>
+<li>对纯文字截图记录 OCR 文本与图片位置；</li>
+<li>对图表同时保留标题、图注和原图引用；</li>
+<li>对无法稳定解释的布局标记为需要复核；</li>
+<li>不根据零散文字自动推断图中因果关系。</li>
+</ul>
+<p>多模态模型可能提供另一种处理路径，但不因此消除权限、成本、隐私和结果验证问题。</p>
+<span class="heading-anchor" id="不可信文件先进入受限区域"></span><h2 id="_3">不可信文件先进入受限区域</h2>
+<p>外部上传的文件应视为不可信输入。风险不只来自正文中的提示注入，还包括异常大的页面、
+压缩后急剧膨胀的内容、畸形对象、嵌入脚本、恶意附件和触发解析器漏洞的结构。</p>
+<p>一个保守的摄取边界可以包括：</p>
+<ul>
+<li>只接受明确允许的格式和来源；</li>
+<li>使用隔离目录或受限进程处理，不在公开目录直接执行；</li>
+<li>限制文件大小、页数、解压后大小、处理时间和内存；</li>
+<li>禁止宏、脚本、外部链接和附件自动执行；</li>
+<li>固定并更新解析依赖，记录安全公告和版本；</li>
+<li>超过限制时明确失败或进入人工队列，不无限重试；</li>
+<li>原始文件与解析结果都遵循权限、加密和保留期要求。</li>
+</ul>
+<p>这些措施各自只减少一部分风险，不能单独保证绝对安全。</p>
+<span class="heading-anchor" id="具体例子：混合型合同"></span><h2 id="_4">具体例子：混合型合同</h2>
+<p>一份 12 页合同中，前 10 页有文本层，第 11 页是签字扫描，第 12 页是费率表图片。合理
+的管线不会只有一个“成功”布尔值：</p>
+<ol>
+<li>Loader 记录合同身份、版本和访问范围；</li>
+<li>Parser 直接提取前 10 页，并保留页码；</li>
+<li>第 11 页进入 OCR，但签字图本身不作为可公开文本；</li>
+<li>第 12 页进入表格与布局处理，保留行列关系；</li>
+<li>输出记录每页采用的路径、失败项和质量状态；</li>
+<li>若费率表无法可靠恢复，整份文档可标为部分成功并阻止自动发布。</li>
+</ol>
+<p>这让“正文可检索”和“金额表已验证”成为两个不同结论，避免过度承诺。</p>
+<span class="heading-anchor" id="错误处理不等于反复重试"></span><h2 id="_5">错误处理不等于反复重试</h2>
+<p>临时资源不足可能适合有限重试，损坏文件或不支持的加密方式则通常不会因重试改变。每次
+失败至少要区分：输入问题、策略拒绝、资源超限、解析错误、OCR 错误和下游写入错误。</p>
+<p>错误日志应包含文档标识、阶段和错误类别，但避免默认记录全文、密钥、签字图或个人敏感
+信息。用于排查的样本也应受到与原文件一致的访问控制。</p>
+<span class="heading-anchor" id="自测与分流练习"></span><h2 id="_6">自测与分流练习</h2>
+<p>给下列输入选择“直接提取、OCR、人工复核或拒绝”，并写出理由：</p>
+<ol>
+<li>可复制文字的三页说明书；</li>
+<li>倾斜且模糊的手写处方扫描件；</li>
+<li>含宏的未知来源 Office 文件；</li>
+<li>只有流程图和少量标签的图片；</li>
+<li>一万页且超过项目限制的 PDF。</li>
+</ol>
+<p>答案不要求唯一，但必须说明允许的风险、资源上限和结果状态。</p>
+<p>计划中的 <code>examples/pdf-rag/ingest.py</code>、OCR 适配器、样本契约测试和 PDF/OCR 分流图将在
+后续批次实现。本章没有运行或比较具体 OCR 产品。</p>
+<span class="heading-anchor" id="本章小结"></span><h2 id="_7">本章小结</h2>
+<ul>
+<li>PDF 是容器，不等于一定存在可靠文本层；</li>
+<li>OCR 是带误差的识别过程，结果必须保留来源与处理路径；</li>
+<li>图片的结构意义不一定能由文字提取恢复；</li>
+<li>不可信文件需要隔离、资源限制、显式失败和最小化日志。</li>
+</ul>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_8">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已做轻量静态检查；未声称 OCR 或安全方案已生产验证。</li>
+<li>代码与图表：PDF 摄取示例、OCR 适配器和分流图均为后续计划。</li>
+<li>
+<p>摘要：<a href="n-f263fd70ede2.html">03-02 摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-03fc89470dbe.html">03-01 文档模型、Loader 与 Parser</a></p>
+</li>
+<li>下一章：<a href="n-8bca27efc9fd.html">03-03 Markdown、HTML 与 Office 文件</a></li>
+<li>返回：<a href="n-526fec9608d7.html">03 数据摄取索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

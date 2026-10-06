@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 10 课：超时、重试、退避与限流 · 李杨的学习笔记</title><meta name="description" content="所属阶段：第二阶段——大模型 API 与 Prompt 本课主题：让大模型 API 调用在网络抖动、服务过载和并发增长时保持可控、可恢复、可观测 前置课程： 第 09 课：Token 统计和成本控制"><meta property="og:title" content="第 10 课：超时、重试、退避与限流 · 李杨的学习笔记"><meta property="og:description" content="所属阶段：第二阶段——大模型 API 与 Prompt 本课主题：让大模型 API 调用在网络抖动、服务过载和并发增长时保持可控、可恢复、可观测 前置课程： 第 09 课：Token 统计和成本控制"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-089e440b42be.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-089e440b42be.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 02-大模型API与Prompt</p><h1>第 10 课：超时、重试、退避与限流</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/02-%E5%A4%A7%E6%A8%A1%E5%9E%8BAPI%E4%B8%8EPrompt/10-%E8%B6%85%E6%97%B6%E3%80%81%E9%87%8D%E8%AF%95%E3%80%81%E9%80%80%E9%81%BF%E4%B8%8E%E9%99%90%E6%B5%81.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 学习目标</a></li><li><a href="#2-api">2. 为什么大模型 API 需要这四类控制</a></li><li><a href="#3">3. 超时：为等待设置边界</a></li><li><a href="#31">3.1 超时的基本类型</a></li><li><a href="#32">3.2 超时不是越长越好</a></li><li><a href="#33">3.3 同步客户端示例</a></li><li><a href="#4">4. 重试：只重试可能恢复的失败</a></li><li><a href="#41">4.1 常见错误分类</a></li><li><a href="#42">4.2 重试的必要条件</a></li><li><a href="#43">4.3 幂等性与请求放大</a></li><li><a href="#5">5. 退避：让重试逐渐远离服务端</a></li><li><a href="#51">5.1 固定间隔重试的问题</a></li><li><a href="#52">5.2 指数退避</a></li><li><a href="#53-jitter">5.3 加抖动（jitter）</a></li><li><a href="#54-retry-after">5.4 Retry-After 优先级</a></li><li><a href="#6-token">6. 限流：控制请求速率、并发和 Token 速率</a></li><li><a href="#61">6.1 并发限制</a></li><li><a href="#62">6.2 请求速率限制</a></li><li><a href="#63-token">6.3 Token 速率限制</a></li><li><a href="#64">6.4 令牌桶模型</a></li><li><a href="#7">7. 重试与限流必须一起设计</a></li><li><a href="#71">7.1 一次调用的总时间预算</a></li><li><a href="#72-sdk">7.2 不要让 SDK 和应用层重复重试</a></li><li><a href="#73">7.3 把重试预算纳入成本预算</a></li><li><a href="#8">8. 一个可复用的同步重试框架</a></li><li><a href="#9">9. 异步调用：并发控制与取消传播</a></li><li><a href="#10_1">10. 流式输出中的超时与重试</a></li><li><a href="#11">11. 生产环境推荐的策略模板</a></li><li><a href="#111">11.1 交互式请求</a></li><li><a href="#112">11.2 离线批处理</a></li><li><a href="#113">11.3 供应商或模型故障时的降级</a></li><li><a href="#12">12. 可观测性：没有指标就无法调参</a></li><li><a href="#13">13. 常见误区</a></li><li><a href="#131">13.1 所有错误都重试</a></li><li><a href="#132">13.2 立即重试</a></li><li><a href="#133">13.3 只限制并发，不限制速率</a></li><li><a href="#134-rpm-tpm">13.4 只限制 RPM，不估算 TPM</a></li><li><a href="#135-sdk">13.5 SDK 和业务层各自重试</a></li><li><a href="#136-sleep">13.6 用 sleep 代替真正的超时</a></li><li><a href="#137">13.7 重试带副作用的调用却没有幂等键</a></li><li><a href="#138">13.8 流式响应中途断开后直接拼接重试结果</a></li><li><a href="#139-retry-after">13.9 无限等待 Retry-After</a></li><li><a href="#1310">13.10 把错误详情直接返回给用户</a></li><li><a href="#14">14. 完整实践：实现一个受控的调用策略</a></li><li><a href="#141">14.1 需求</a></li><li><a href="#142">14.2 实现思路</a></li><li><a href="#143">14.3 验收标准</a></li><li><a href="#15">15. 设计检查清单</a></li><li><a href="#_1">超时</a></li><li><a href="#_2">重试</a></li><li><a href="#_3">退避</a></li><li><a href="#_4">限流</a></li><li><a href="#_5">可观测性与安全</a></li><li><a href="#16">16. 自测题</a></li><li><a href="#1-http">1. 为什么不能对所有 HTTP 错误都重试？</a></li><li><a href="#2-jitter">2. 指数退避为什么还需要 jitter？</a></li><li><a href="#3-rpm-tpm">3. 并发限制能否替代 RPM 和 TPM 限制？</a></li><li><a href="#4_1">4. 为什么重试必须与幂等性一起考虑？</a></li><li><a href="#5-sdk">5. SDK 已经支持自动重试，还需要应用层重试吗？</a></li><li><a href="#6-retry-after-60-60">6. Retry-After: 60 是否意味着必须等待 60 秒？</a></li><li><a href="#17">17. 小结</a></li><li><a href="#_6">相关笔记</a></li><li><a href="#_7">来源说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>所属阶段：第二阶段——大模型 API 与 Prompt<br/>
+本课主题：让大模型 API 调用在网络抖动、服务过载和并发增长时保持可控、可恢复、可观测<br/>
+前置课程：<a href="n-a278164ed0ca.html">第 09 课：Token 统计和成本控制</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 学习目标"></span><h2 id="1">1. 学习目标</h2>
+<p>完成本课后，应能够：</p>
+<ol>
+<li>区分连接超时、读取超时、总超时和客户端等待超时；</li>
+<li>判断哪些错误适合重试，哪些错误不应该重试；</li>
+<li>解释固定间隔、指数退避、指数退避加抖动的区别；</li>
+<li>使用 <code>Retry-After</code> 和服务端限流响应设计重试策略；</li>
+<li>区分并发控制、请求速率控制和 Token 速率控制；</li>
+<li>为同步和异步的大模型 API 调用设计安全的超时、重试、限流和日志方案；</li>
+<li>计算重试预算，避免重试风暴、请求放大和成本失控。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="2. 为什么大模型 API 需要这四类控制"></span><h2 id="2-api">2. 为什么大模型 API 需要这四类控制</h2>
+<p>一次大模型 API 调用并不是“发出请求，然后等待答案”这么简单。它可能经历：</p>
+<ol>
+<li>DNS 解析和建立 TCP/TLS 连接；</li>
+<li>等待服务端接收请求并开始处理；</li>
+<li>服务端排队、调度模型和生成 Token；</li>
+<li>持续读取流式或非流式响应；</li>
+<li>客户端解析响应、记录 Token 用量并返回结果。</li>
+</ol>
+<p>任何阶段都可能出现暂时性故障：</p>
+<ul>
+<li>网络抖动导致连接失败；</li>
+<li>服务端排队时间过长；</li>
+<li>网关返回 <code>429 Too Many Requests</code>；</li>
+<li>服务端临时不可用，返回 <code>500</code> 或 <code>503</code>；</li>
+<li>流式响应中途断开；</li>
+<li>客户端并发过高，触发本地连接池或线程池耗尽。</li>
+</ul>
+<p>四类机制分别解决不同问题：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>主要解决的问题</th>
+<th>核心问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>超时</td>
+<td>单个请求等待太久</td>
+<td>“最多等多久？”</td>
+</tr>
+<tr>
+<td>重试</td>
+<td>暂时性失败</td>
+<td>“失败后要不要再试？”</td>
+</tr>
+<tr>
+<td>退避</td>
+<td>多个请求同时重试造成拥塞</td>
+<td>“下一次什么时候试？”</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>客户端发送速度或并发超过能力</td>
+<td>“同时允许发多少、多久发多少？”</td>
+</tr>
+</tbody>
+</table></div>
+<p>它们必须配合使用。只设置重试而不设置超时，可能让一个任务长时间卡住；只设置限流而不做退避，遇到服务端拒绝时仍可能持续撞击服务；只设置超时而不区分错误类型，则可能把确定性错误重复发送。</p>
+<hr/>
+<span class="heading-anchor" id="3. 超时：为等待设置边界"></span><h2 id="3">3. 超时：为等待设置边界</h2>
+<span class="heading-anchor" id="3.1 超时的基本类型"></span><h3 id="31">3.1 超时的基本类型</h3>
+<p>在大模型 API 调用中，“超时”不是一个简单的 <code>30</code> 秒开关，而是对请求生命周期中不同等待阶段分别设置上限。一次请求可能先等待本地连接池、再建立 TCP/TLS 连接、上传请求体、等待服务端开始处理，最后持续读取模型生成的内容。如果只设置一个模糊的总超时，往往很难判断到底是哪一个阶段变慢，也不利于后续重试和故障定位。</p>
+<p>常见的超时可以分为以下几类：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>超时类型</th>
+<th>约束的阶段</th>
+<th>典型含义</th>
+<th>过短的风险</th>
+<th>过长的风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>连接池等待超时（pool timeout）</td>
+<td>从本地连接池获取可用连接</td>
+<td>最多允许等待多久才能开始建立或复用连接</td>
+<td>并发高峰时大量请求快速失败</td>
+<td>请求堆积，掩盖本地连接池不足</td>
+</tr>
+<tr>
+<td>连接超时（connect timeout）</td>
+<td>DNS、TCP 建连和 TLS 握手等连接建立阶段</td>
+<td>建立到服务端的连接最多等待多久</td>
+<td>网络稍有抖动就失败</td>
+<td>工作线程或协程长期占用在建连阶段</td>
+</tr>
+<tr>
+<td>写入超时（write timeout）</td>
+<td>上传请求头和请求体</td>
+<td>客户端向服务端发送请求数据时，两次写入之间最多等待多久</td>
+<td>大 Prompt 或网络拥塞时误判失败</td>
+<td>上传阶段长期占用连接</td>
+</tr>
+<tr>
+<td>首字节/首 Token 超时</td>
+<td>请求发出后，等待服务端第一次响应</td>
+<td>最多允许服务端排队和开始生成多久</td>
+<td>把服务端正常排队误判为故障</td>
+<td>用户长时间看不到任何反馈</td>
+</tr>
+<tr>
+<td>读取超时（read timeout）</td>
+<td>读取响应数据的间隔</td>
+<td>两次收到响应数据之间最多允许空闲多久</td>
+<td>长输出或模型暂时停顿时中断响应</td>
+<td>服务端卡住时迟迟不释放资源</td>
+</tr>
+<tr>
+<td>总超时/截止时间（total/deadline timeout）</td>
+<td>整个调用生命周期</td>
+<td>从开始排队到最终返回的总时间上限</td>
+<td>正常长请求频繁失败</td>
+<td>业务 SLA 已失效后仍继续等待</td>
+</tr>
+<tr>
+<td>应用层超时</td>
+<td>业务任务、用户请求或队列任务</td>
+<td>上游业务真正愿意等待的最长时间</td>
+<td>业务过早降级或取消</td>
+<td>下游调用拖垮线程、连接和任务队列</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3.1.1 连接池等待超时"></span><h4 id="311">3.1.1 连接池等待超时</h4>
+<p>当客户端开启连接池并且并发请求数超过可用连接数时，请求可能还没有真正发往供应商，就已经在本地等待连接。这个等待阶段通常称为连接池等待超时。它与连接超时不同：</p>
+<ul>
+<li>连接池等待超时：本地没有空闲连接，正在等待连接资源；</li>
+<li>连接超时：已经获得连接资源，正在尝试连接远端服务。</li>
+</ul>
+<p>例如，连接池最多允许 10 个连接，但同时有 50 个任务发起调用，那么后 40 个任务可能先进入连接池等待。此时盲目增加 API 重试次数通常没有帮助，反而会让本地排队更加严重。更合理的处理方式是限制并发、扩大经过压测验证的连接池，或将任务放入有界队列。</p>
+<span class="heading-anchor" id="3.1.2 连接超时"></span><h4 id="312">3.1.2 连接超时</h4>
+<p>连接超时覆盖连接建立过程，可能包括 DNS 解析、TCP 三次握手、TLS 握手以及代理连接。它主要反映“能不能尽快与服务端建立通信”，不等同于模型处理速度。</p>
+<p>连接超时通常可以设置得比读取超时更短，因为连接建立若持续很久，成功概率往往会下降；但在跨地域访问、代理链路较多或网络质量不稳定的环境中，也不能设置得过于激进。连接失败一般属于可能恢复的暂时性错误，可以进行少量重试，但必须受总 deadline 约束。</p>
+<span class="heading-anchor" id="3.1.3 写入超时"></span><h4 id="313">3.1.3 写入超时</h4>
+<p>写入超时限制客户端上传请求数据的时间。对于大模型 API，请求体可能包含较长的系统提示词、历史对话、检索片段、图片或工具定义，因此写入阶段并不一定瞬间完成。</p>
+<p>写入超时过短可能导致大 Prompt 在网络拥塞时失败；过长则可能让异常连接长时间占用连接池。可以通过减少无关上下文、压缩或优化请求体、限制单次输入大小，以及根据网络带宽和请求体规模设置写入预算来降低风险。</p>
+<span class="heading-anchor" id="3.1.4 首 Token 超时与读取超时"></span><h4 id="314-token">3.1.4 首 Token 超时与读取超时</h4>
+<p>流式调用时，应该把“等待第一个 Token”和“收到部分内容后等待下一个 Token”区分开：</p>
+<ol>
+<li><strong>首 Token 超时</strong>：请求发出后，等待服务端开始返回事件的时间。它主要受到排队、调度、模型冷启动和服务端负载影响；</li>
+<li><strong>空闲读取超时</strong>：已经收到部分内容后，连续多久没有新的 Token 或事件。它主要用于发现流式连接卡死、网络中断或服务端停止发送。</li>
+</ol>
+<p>例如，模型可能需要 8 秒完成排队和预处理，然后持续每 0.5 秒返回一个 Token。若把读取超时设置为 3 秒，整个响应可能正常；但如果首 Token 超时只有 5 秒，就会在模型开始输出前失败。反过来，如果读取超时设置为数分钟，服务端完全失去响应时，客户端也可能长时间占用连接。</p>
+<p>非流式请求通常只能观察到最终响应，因此读取超时往往覆盖等待完整响应的过程；流式请求则更适合使用“首 Token 超时 + 空闲读取超时 + 总 deadline”的组合。需要注意，具体 SDK 中的 <code>read timeout</code> 可能表示“单次读取操作的超时”，也可能表示“读取响应之间的空闲超时”，不能只看名称，应确认所用 HTTP 客户端的实际语义。</p>
+<span class="heading-anchor" id="3.1.5 总超时与绝对截止时间"></span><h4 id="315">3.1.5 总超时与绝对截止时间</h4>
+<p>总超时限制的是一次业务调用从开始到结束的整体时间。它应覆盖连接池等待、建连、写入、服务端处理、读取、解析和必要的重试退避，而不是只覆盖其中一次 HTTP 请求。</p>
+<p>假设业务请求的绝对截止时间是 <code>deadline</code>，每次尝试开始前都应重新计算剩余预算：</p>
+<div class="arithmatex">\[
+D_{\text{remaining}} = D_{\text{deadline}} - t_{\text{now}}
+\]</div>
+<p>下一次底层请求的超时不能超过剩余预算，退避等待也必须从同一预算中扣除。如果第一次请求已经耗时 12 秒，业务总 deadline 只有 20 秒，那么第二次请求最多只能使用剩余的约 8 秒，而不能再次获得一个完整的 20 秒。</p>
+<p>使用绝对 deadline 比“每次请求固定等待 30 秒”更安全。后者在重试场景中可能产生：</p>
+<div class="arithmatex">\[
+D_{\text{total}} \approx \sum_i d_i + \sum_i b_i
+\]</div>
+<p>其中 <span class="arithmatex">\(d_i\)</span> 是第 <span class="arithmatex">\(i\)</span> 次请求耗时，<span class="arithmatex">\(b_i\)</span> 是两次尝试之间的退避时间。即使每次请求都没有超过单次超时，累计时间也可能已经超过上游接口、用户请求或任务队列的 SLA。</p>
+<span class="heading-anchor" id="3.1.6 应用层超时与下游超时的关系"></span><h4 id="316">3.1.6 应用层超时与下游超时的关系</h4>
+<p>应用层超时是业务真正能够接受的等待上限。例如：</p>
+<ul>
+<li>在线聊天接口可能只允许用户请求等待十几秒到几十秒；</li>
+<li>Web 请求还要为鉴权、数据库访问、结果整理和响应发送预留时间；</li>
+<li>离线批处理可以等待更久，但通常应转入任务队列，而不是一直占用 Web 请求；</li>
+<li>用户主动取消请求时，应尽快取消底层模型调用，释放连接和并发配额。</li>
+</ul>
+<p>因此，下游 API 的总超时不应简单设置为上游 HTTP 请求的完整超时。可以按如下方式预留预算：</p>
+<div class="arithmatex">\[
+D_{\text{call}} = D_{\text{request}} - D_{\text{queue}} - D_{\text{preprocess}} - D_{\text{postprocess}} - D_{\text{safety}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(D_{\text{request}}\)</span>：上游请求允许的总时间；</li>
+<li><span class="arithmatex">\(D_{\text{queue}}\)</span>：本地排队、获取连接和调度预留时间；</li>
+<li><span class="arithmatex">\(D_{\text{preprocess}}\)</span>：组装 Prompt、检索和序列化请求的时间；</li>
+<li><span class="arithmatex">\(D_{\text{postprocess}}\)</span>：解析、结构校验、业务写入和返回响应的时间；</li>
+<li><span class="arithmatex">\(D_{\text{safety}}\)</span>：为网络抖动和时间测量误差保留的安全余量。</li>
+</ul>
+<p>例如，上游请求最多等待 30 秒，预留 3 秒排队、2 秒后处理和 2 秒安全余量，则模型调用及其重试只能使用大约 23 秒。若还需要在调用前进行耗时检索，则应继续从这个预算中扣除。</p>
+<span class="heading-anchor" id="3.1.7 超时配置的实践原则"></span><h4 id="317">3.1.7 超时配置的实践原则</h4>
+<p>可以遵循以下原则：</p>
+<ol>
+<li><strong>分阶段设置</strong>：至少区分连接超时、读取超时和总 deadline；使用连接池时再考虑 pool timeout；</li>
+<li><strong>总预算优先</strong>：先确定业务 SLA，再向下分配各阶段预算，而不是先随意填写一个 SDK 默认值；</li>
+<li><strong>流式单独设计</strong>：为首 Token 和连续 Token 之间的空闲时间设置不同判断；</li>
+<li><strong>重试共享 deadline</strong>：退避等待、每次请求和解析时间都要消耗同一个总预算；</li>
+<li><strong>按数据和模型压测</strong>：输入长度、输出上限、供应商、地域和流式模式都会影响合理的超时值；</li>
+<li><strong>记录超时阶段</strong>：日志至少区分 <code>pool_timeout</code>、<code>connect_timeout</code>、<code>write_timeout</code>、<code>first_token_timeout</code>、<code>read_timeout</code> 和 <code>deadline_exceeded</code>；</li>
+<li><strong>取消后释放资源</strong>：超时或用户取消时，确保响应流、连接、信号量和任务状态都能正确清理；</li>
+<li><strong>避免把超时都当成同一种错误</strong>：连接尚未建立时可以快速重试，响应已经部分产生后则要先判断服务端是否可能已经执行以及结果是否具有副作用。</li>
+</ol>
+<p>一个简化的时间线如下：</p>
+<pre><code class="language-text">应用排队 ── pool timeout ── 建立连接 ── connect timeout ── 上传请求 ── write timeout
+                                                        │
+                                                        └─ 等待首 Token ── first-token timeout
+                                                                           │
+                                             持续读取 Token ── read/idle timeout
+                                                                           │
+                                      解析、校验、落库 ── total/deadline timeout
+</code></pre>
+<p>最后，<code>timeout=30.0</code> 这类配置只能作为示例，不能直接视为生产标准。生产环境应结合成功请求的 P95/P99 延迟、首 Token 延迟、输出长度、超时率、重试率和上游 SLA 进行压测与调参，并确认 SDK 是否会自动重试，避免底层超时和应用层重试叠加后超出总预算。</p>
+<span class="heading-anchor" id="3.2 超时不是越长越好"></span><h3 id="32">3.2 超时不是越长越好</h3>
+<p>设一次调用的期望耗时为 <span class="arithmatex">\(T\)</span>，用户或上游系统允许的最大延迟为 <span class="arithmatex">\(D\)</span>。如果设置的总超时明显大于 <span class="arithmatex">\(D\)</span>，那么即使 API 最终成功，业务层也可能已经超时；如果设置得过短，则会产生大量本来可以成功的失败。</p>
+<p>可以从业务截止时间反推调用预算：</p>
+<div class="arithmatex">\[
+D_{\text{call}} = D_{\text{request}} - D_{\text{queue}} - D_{\text{postprocess}} - D_{\text{safety}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(D_{\text{request}}\)</span>：上游请求允许的总时间；</li>
+<li><span class="arithmatex">\(D_{\text{queue}}\)</span>：排队和调度预留时间；</li>
+<li><span class="arithmatex">\(D_{\text{postprocess}}\)</span>：解析、校验和业务处理时间；</li>
+<li><span class="arithmatex">\(D_{\text{safety}}\)</span>：安全余量。</li>
+</ul>
+<p>重试时不能每次都重新获得一个完整的总超时。更合理的做法是维护一个<strong>绝对截止时间</strong>：所有重试、退避和请求都从同一个 deadline 中扣除剩余时间。</p>
+<span class="heading-anchor" id="3.3 同步客户端示例"></span><h3 id="33">3.3 同步客户端示例</h3>
+<p>下面的示例使用 OpenAI 兼容客户端的调用形式。模型名称、地址和认证信息仅作为占位符，不应把密钥硬编码在代码中。</p>
+<pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.example.com/v1",
+    api_key="${API_KEY}",  # 实际项目应从环境变量或密钥管理系统读取
+    timeout=30.0,
+    max_retries=0,  # 统一在应用层管理重试，避免 SDK 与应用层重复重试
+)
+
+response = client.chat.completions.create(
+    model="your-model",
+    messages=[
+        {"role": "user", "content": "请用一句话解释什么是超时。"},
+    ],
+    temperature=0,
+)
+</code></pre>
+<p><code>timeout=30.0</code> 只是示例。生产环境应根据模型、输出长度、流式与否、上游 SLA 和供应商能力进行压测后确定。</p>
+<hr/>
+<span class="heading-anchor" id="4. 重试：只重试可能恢复的失败"></span><h2 id="4">4. 重试：只重试可能恢复的失败</h2>
+<span class="heading-anchor" id="4.1 常见错误分类"></span><h3 id="41">4.1 常见错误分类</h3>
+<p>重试前应先回答：这次失败是否可能由短暂状态造成？</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>错误或状态</th>
+<th>通常是否重试</th>
+<th>原因与注意事项</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网络连接失败</td>
+<td>是</td>
+<td>可能是瞬时网络抖动，但要受总截止时间约束</td>
+</tr>
+<tr>
+<td>连接重置、暂时断开</td>
+<td>是</td>
+<td>需要确认请求是否已被服务端接收</td>
+</tr>
+<tr>
+<td><code>408 Request Timeout</code></td>
+<td>通常是</td>
+<td>请求处理超时，仍需限制次数</td>
+</tr>
+<tr>
+<td><code>429 Too Many Requests</code></td>
+<td>是</td>
+<td>优先遵守 <code>Retry-After</code> 或供应商限流信息</td>
+</tr>
+<tr>
+<td><code>500 Internal Server Error</code></td>
+<td>通常是</td>
+<td>可能是服务端临时异常</td>
+</tr>
+<tr>
+<td><code>502 Bad Gateway</code></td>
+<td>通常是</td>
+<td>网关或上游暂时不可用</td>
+</tr>
+<tr>
+<td><code>503 Service Unavailable</code></td>
+<td>通常是</td>
+<td>服务过载或临时维护</td>
+</tr>
+<tr>
+<td><code>504 Gateway Timeout</code></td>
+<td>通常是</td>
+<td>上游处理时间过长</td>
+</tr>
+<tr>
+<td><code>400 Bad Request</code></td>
+<td>否</td>
+<td>请求格式或参数错误，原样重试不会改变结果</td>
+</tr>
+<tr>
+<td><code>401 Unauthorized</code></td>
+<td>否</td>
+<td>应检查认证信息，不应盲目重试</td>
+</tr>
+<tr>
+<td><code>403 Forbidden</code></td>
+<td>通常否</td>
+<td>权限、地域或策略限制，需人工或配置处理</td>
+</tr>
+<tr>
+<td><code>404 Not Found</code></td>
+<td>否</td>
+<td>地址、模型或资源名称可能错误</td>
+</tr>
+<tr>
+<td>输入超过上下文窗口</td>
+<td>否</td>
+<td>应截断、摘要、减少检索片段或更换模型</td>
+</tr>
+<tr>
+<td>内容安全策略拒绝</td>
+<td>否</td>
+<td>应修改请求或走人工处理流程</td>
+</tr>
+<tr>
+<td>响应格式校验失败</td>
+<td>视情况</td>
+<td>可尝试修复或重新生成，但必须控制成本和次数</td>
+</tr>
+</tbody>
+</table></div>
+<p>“通常”不是绝对规则。不同供应商的错误码和响应头可能不同，应以供应商文档和实际观测为准。</p>
+<span class="heading-anchor" id="4.2 重试的必要条件"></span><h3 id="42">4.2 重试的必要条件</h3>
+<p>一个操作适合自动重试，通常需要同时满足：</p>
+<ol>
+<li><strong>失败具有暂时性</strong>：例如 <code>429</code>、<code>503</code> 或连接中断；</li>
+<li><strong>仍有剩余时间预算</strong>：重试不能超过上游请求的 deadline；</li>
+<li><strong>请求具有幂等性或已设计去重</strong>：避免产生重复副作用；</li>
+<li><strong>重试次数有上限</strong>：不能无限重试；</li>
+<li><strong>重试不会绕过安全策略</strong>：例如权限失败、内容拒绝不能靠重复发送解决。</li>
+</ol>
+<span class="heading-anchor" id="4.3 幂等性与请求放大"></span><h3 id="43">4.3 幂等性与请求放大</h3>
+<p>对于纯文本生成，请求通常没有传统意义上的数据库写入副作用，但重试仍可能产生：</p>
+<ul>
+<li>重复计费；</li>
+<li>重复生成和重复写入业务结果；</li>
+<li>重复发送通知、创建任务或调用工具；</li>
+<li>不同随机采样下得到不同答案；</li>
+<li>流式响应已经部分消费后又重新生成，导致内容拼接混乱。</li>
+</ul>
+<p>如果一次模型调用会触发外部副作用，应使用业务请求 ID、幂等键或结果去重。例如：</p>
+<pre><code class="language-python">request_id = "order-1234-summary-v1"
+
+# 将 request_id 作为业务幂等键写入自己的任务表。
+# 重试前先检查该 request_id 是否已经有成功结果，
+# 避免重复执行后续副作用。
+</code></pre>
+<p>要特别注意：客户端收到超时，并不代表服务端没有处理请求。网络层的“未知结果”是重试设计中最危险的情况之一。</p>
+<hr/>
+<span class="heading-anchor" id="5. 退避：让重试逐渐远离服务端"></span><h2 id="5">5. 退避：让重试逐渐远离服务端</h2>
+<span class="heading-anchor" id="5.1 固定间隔重试的问题"></span><h3 id="51">5.1 固定间隔重试的问题</h3>
+<p>固定间隔策略如下：</p>
+<div class="arithmatex">\[
+ t_n = c
+\]</div>
+<p>所有客户端都在相同的时间间隔后重试。当大量客户端同时收到 <code>503</code> 或 <code>429</code> 时，它们可能在同一时刻再次发送请求，形成“惊群效应”和重试风暴。</p>
+<span class="heading-anchor" id="5.2 指数退避"></span><h3 id="52">5.2 指数退避</h3>
+<p>指数退避会逐渐增加等待时间：</p>
+<div class="arithmatex">\[
+ t_n = \min(t_{\max}, t_0 \cdot 2^n)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(t_0\)</span>：初始等待时间；</li>
+<li><span class="arithmatex">\(n\)</span>：第 <span class="arithmatex">\(n\)</span> 次重试的索引，从 <span class="arithmatex">\(0\)</span> 开始；</li>
+<li><span class="arithmatex">\(t_{\max}\)</span>：单次等待时间上限。</li>
+</ul>
+<p>例如，<span class="arithmatex">\(t_0=1\)</span> 秒、<span class="arithmatex">\(t_{\max}=16\)</span> 秒时，等待序列可能为 <span class="arithmatex">\(1, 2, 4, 8, 16\)</span> 秒。</p>
+<span class="heading-anchor" id="5.3 加抖动（jitter）"></span><h3 id="53-jitter">5.3 加抖动（jitter）</h3>
+<p>仅使用指数退避仍可能让客户端在相近时间重试。常见的 Full Jitter 策略是：</p>
+<div class="arithmatex">\[
+ t_n = U(0, \min(t_{\max}, t_0 \cdot 2^n))
+\]</div>
+<p>其中 <span class="arithmatex">\(U(a,b)\)</span> 表示在区间 <span class="arithmatex">\([a,b]\)</span> 内随机取值。它可以把重试请求分散到时间窗口中。</p>
+<p>一个简单的 Python 实现：</p>
+<pre><code class="language-python">import random
+
+
+def full_jitter_delay(
+    retry_index: int,
+    base_delay: float = 0.5,
+    max_delay: float = 20.0,
+) -&gt; float:
+    """返回本次重试前的随机等待秒数。"""
+    cap = min(max_delay, base_delay * (2 ** retry_index))
+    return random.uniform(0, cap)
+</code></pre>
+<p>还存在 Equal Jitter、Decorrelated Jitter 等变体。学习和大多数 API 客户端场景中，指数退避加 Full Jitter 已经是一个稳妥起点。</p>
+<span class="heading-anchor" id="5.4 Retry-After 优先级"></span><h3 id="54-retry-after">5.4 <code>Retry-After</code> 优先级</h3>
+<p>服务端可能在 <code>429</code> 或 <code>503</code> 响应中返回 <code>Retry-After</code>，它可能表示：</p>
+<ul>
+<li>等待多少秒，例如 <code>Retry-After: 5</code>；</li>
+<li>在某个 HTTP 日期之后再重试。</li>
+</ul>
+<p>如果服务端提供了合法的 <code>Retry-After</code>，客户端通常应优先遵守它，同时仍设置一个本地最大等待上限，避免异常响应导致无限等待：</p>
+<div class="arithmatex">\[
+ t_{\text{wait}} = \min(t_{\text{server}}, t_{\text{local-max}})
+\]</div>
+<p>若服务端值缺失、格式错误或明显不合理，再退回到本地指数退避加抖动。</p>
+<hr/>
+<span class="heading-anchor" id="6. 限流：控制请求速率、并发和 Token 速率"></span><h2 id="6-token">6. 限流：控制请求速率、并发和 Token 速率</h2>
+<p>“限流”至少包含三个不同维度。</p>
+<span class="heading-anchor" id="6.1 并发限制"></span><h3 id="61">6.1 并发限制</h3>
+<p>并发限制控制同时处于执行状态的请求数：</p>
+<div class="arithmatex">\[
+ C_{\text{in-flight}} \leq C_{\max}
+\]</div>
+<p>它可以保护：</p>
+<ul>
+<li>本地 CPU、内存和连接池；</li>
+<li>上游服务的并发配额；</li>
+<li>任务队列和 Web 服务的响应能力。</li>
+</ul>
+<p>但并发限制不等于每分钟请求数限制。一个请求可能很快结束，也可能持续几十秒。</p>
+<span class="heading-anchor" id="6.2 请求速率限制"></span><h3 id="62">6.2 请求速率限制</h3>
+<p>请求速率限制控制单位时间内允许发送的请求数量，例如每分钟请求数（RPM）：</p>
+<div class="arithmatex">\[
+ R_{\text{request}} \leq R_{\max}
+\]</div>
+<p>常见实现包括固定窗口、滑动窗口和令牌桶。</p>
+<span class="heading-anchor" id="6.3 Token 速率限制"></span><h3 id="63-token">6.3 Token 速率限制</h3>
+<p>大模型服务通常还会限制每分钟 Token 数（TPM）。如果每个请求的 Token 消耗不同，只限制请求数量不够：一个包含 100 Token 的请求和一个包含 100,000 Token 的请求不能视为同样的负载。</p>
+<p>可以估算一次调用的 Token 成本：</p>
+<div class="arithmatex">\[
+ T_{\text{request}} = T_{\text{input}} + T_{\text{output-reserved}}
+\]</div>
+<p>其中 <code>output-reserved</code> 可以使用 <code>max_tokens</code> 或历史 P95 输出量进行保守估计。调度前先检查 Token 预算，比请求发出后才等待 <code>429</code> 更稳定。</p>
+<span class="heading-anchor" id="6.4 令牌桶模型"></span><h3 id="64">6.4 令牌桶模型</h3>
+<p>令牌桶包含：</p>
+<ul>
+<li>桶容量 <span class="arithmatex">\(B\)</span>：最多可以积累多少令牌；</li>
+<li>补充速率 <span class="arithmatex">\(r\)</span>：每秒补充多少令牌；</li>
+<li>每个请求消耗的令牌数 <span class="arithmatex">\(c\)</span>。</li>
+</ul>
+<p>请求只有在桶中有足够令牌时才发送。令牌桶允许短时突发，但长期平均速率不超过 <span class="arithmatex">\(r\)</span>。</p>
+<p>并发信号量和请求令牌桶可以叠加：</p>
+<pre><code class="language-python">import asyncio
+
+
+class ConcurrencyLimiter:
+    def __init__(self, limit: int):
+        self._semaphore = asyncio.Semaphore(limit)
+
+    async def __aenter__(self):
+        await self._semaphore.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._semaphore.release()
+</code></pre>
+<p>这个类只控制并发，不控制 RPM 或 TPM。生产环境还需要一个带时间概念的速率限制器，或使用成熟的限流库、网关和任务队列。</p>
+<hr/>
+<span class="heading-anchor" id="7. 重试与限流必须一起设计"></span><h2 id="7">7. 重试与限流必须一起设计</h2>
+<span class="heading-anchor" id="7.1 一次调用的总时间预算"></span><h3 id="71">7.1 一次调用的总时间预算</h3>
+<p>假设最多重试 <span class="arithmatex">\(N\)</span> 次，单次请求耗时为 <span class="arithmatex">\(d_i\)</span>，退避等待为 <span class="arithmatex">\(b_i\)</span>，则总耗时近似为：</p>
+<div class="arithmatex">\[
+D_{\text{total}} = \sum_{i=0}^{N} d_i + \sum_{i=0}^{N-1} b_i
+\]</div>
+<p>如果 <span class="arithmatex">\(D_{\text{total}}\)</span> 超过业务 deadline，就算每次单独等待都在限制内，整个任务仍然不可接受。</p>
+<span class="heading-anchor" id="7.2 不要让 SDK 和应用层重复重试"></span><h3 id="72-sdk">7.2 不要让 SDK 和应用层重复重试</h3>
+<p>常见的隐蔽问题是：</p>
+<ul>
+<li>SDK 自动重试 3 次；</li>
+<li>应用层再重试 3 次；</li>
+<li>任务队列失败后再重试 3 次。</li>
+</ul>
+<p>最坏情况下，一次用户请求可能触发 <span class="arithmatex">\(3 \times 3 \times 3 = 27\)</span> 次底层调用。它会放大延迟、费用和限流压力。</p>
+<p>建议明确只有一个主要层级负责 API 重试，其他层级只负责：</p>
+<ul>
+<li>传递错误；</li>
+<li>记录状态；</li>
+<li>根据任务类型决定是否重新入队；</li>
+<li>避免重复执行已经成功的结果。</li>
+</ul>
+<span class="heading-anchor" id="7.3 把重试预算纳入成本预算"></span><h3 id="73">7.3 把重试预算纳入成本预算</h3>
+<p>如果每次请求平均输入 Token 为 <span class="arithmatex">\(I\)</span>，输出 Token 为 <span class="arithmatex">\(O\)</span>，最多尝试次数为 <span class="arithmatex">\(A\)</span>，那么保守 Token 预算近似为：</p>
+<div class="arithmatex">\[
+T_{\text{budget}} = A \cdot (I + O)
+\]</div>
+<p>重试次数增加不只影响延迟，也可能增加费用和 TPM 消耗。因此可以为不同错误设置不同策略：</p>
+<ul>
+<li>连接失败：少量快速重试；</li>
+<li><code>429</code>：遵守服务端等待时间，必要时转入队列；</li>
+<li><code>503</code>：指数退避并限制总时间；</li>
+<li>输出校验失败：减少重试次数，并优先修正 Prompt 或解析流程；</li>
+<li>确定性客户端错误：不重试。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. 一个可复用的同步重试框架"></span><h2 id="8">8. 一个可复用的同步重试框架</h2>
+<p>下面的代码展示策略骨架。实际项目应根据所使用的 SDK 异常类、响应对象和供应商协议补充精确判断。</p>
+<pre><code class="language-python">import random
+import time
+from collections.abc import Callable
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+class RetryableError(Exception):
+    """示例：业务层已经判断这是可重试错误。"""
+
+
+def is_retryable_error(exc: Exception) -&gt; bool:
+    """生产环境应按 SDK 异常类型和 HTTP 状态码实现。"""
+    return isinstance(exc, (TimeoutError, ConnectionError, RetryableError))
+
+
+def call_with_retry(
+    operation: Callable[[], T],
+    *,
+    max_attempts: int = 3,
+    deadline_seconds: float = 30.0,
+    base_delay: float = 0.5,
+    max_delay: float = 8.0,
+) -&gt; T:
+    """在绝对 deadline 内执行操作，并对暂时性错误进行 Full Jitter 退避。"""
+    if max_attempts &lt; 1:
+        raise ValueError("max_attempts 必须至少为 1")
+
+    deadline = time.monotonic() + deadline_seconds
+    last_error: Exception | None = None
+
+    for attempt in range(max_attempts):
+        remaining = deadline - time.monotonic()
+        if remaining &lt;= 0:
+            break
+
+        try:
+            # 这里应把 remaining 传给支持请求级超时的 API 客户端。
+            return operation()
+        except Exception as exc:
+            last_error = exc
+
+            if not is_retryable_error(exc) or attempt == max_attempts - 1:
+                raise
+
+            cap = min(max_delay, base_delay * (2 ** attempt))
+            delay = random.uniform(0, cap)
+            delay = min(delay, max(0.0, deadline - time.monotonic()))
+
+            if delay &lt;= 0:
+                break
+
+            time.sleep(delay)
+
+    if last_error is not None:
+        raise TimeoutError("已耗尽重试次数或总时间预算") from last_error
+    raise TimeoutError("调用超过总时间预算")
+</code></pre>
+<p>这个示例有几个重要限制：</p>
+<ol>
+<li><code>operation()</code> 需要真正支持请求级超时，否则外层 deadline 不能中断一个已经卡住的底层调用；</li>
+<li>生产环境不应使用宽泛的 <code>Exception</code> 作为最终分类依据，应解析 HTTP 状态码和 SDK 异常；</li>
+<li>对 <code>429</code> 应读取 <code>Retry-After</code>；</li>
+<li>日志中要记录尝试次数、等待时间和错误类型，但不能记录 API Key 或敏感 Prompt；</li>
+<li>如果操作具有外部副作用，需要先设计幂等性。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="9. 异步调用：并发控制与取消传播"></span><h2 id="9">9. 异步调用：并发控制与取消传播</h2>
+<p>异步任务中常见的错误是：创建了大量协程，以为 <code>asyncio</code> 会自动完成限流。实际上，异步只改变等待方式，并不会自动降低请求数量。</p>
+<pre><code class="language-python">import asyncio
+from collections.abc import Iterable
+
+
+async def call_model(client, prompt: str, limiter: asyncio.Semaphore):
+    async with limiter:
+        # timeout 应传给支持请求级超时的 SDK 或使用 asyncio.timeout 包裹。
+        async with asyncio.timeout(25):
+            return await client.chat.completions.create(
+                model="your-model",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
+
+
+async def run_batch(client, prompts: Iterable[str], max_concurrency: int = 8):
+    limiter = asyncio.Semaphore(max_concurrency)
+    tasks = [
+        asyncio.create_task(call_model(client, prompt, limiter))
+        for prompt in prompts
+    ]
+    return await asyncio.gather(*tasks, return_exceptions=True)
+</code></pre>
+<p>注意事项：</p>
+<ul>
+<li><code>Semaphore</code> 限制的是同时进入调用区的任务数，不是每分钟请求数；</li>
+<li><code>return_exceptions=True</code> 会把异常作为结果返回，调用方必须逐项检查；</li>
+<li>用户取消请求时，应尽可能取消尚未完成的任务；</li>
+<li>批量任务最好使用队列和 worker，而不是一次创建无限数量的任务；</li>
+<li>限制器应覆盖真正的 API 调用区间，避免过早释放信号量；</li>
+<li>重试也应受同一个全局 deadline 约束。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. 流式输出中的超时与重试"></span><h2 id="10_1">10. 流式输出中的超时与重试</h2>
+<p>流式输出需要区分两种超时：</p>
+<ol>
+<li><strong>首 Token 超时</strong>：请求发出后，最多等待多久才能收到第一个事件；</li>
+<li><strong>空闲读取超时</strong>：已经收到部分内容后，两次事件之间最多允许空闲多久。</li>
+</ol>
+<p>流式响应中途断开时，不能简单地把新响应拼接到旧响应后面，因为重试可能生成不同内容，导致重复或语义不一致。更安全的策略包括：</p>
+<ul>
+<li>只把完整响应视为成功；中断则丢弃本次未完成结果并重新生成；</li>
+<li>如果业务允许，向模型发送“基于已生成前缀继续”的请求，但要接受内容变化；</li>
+<li>对用户明确展示“正在重连”，而不是假装结果完整；</li>
+<li>对已经触发工具调用或外部副作用的流式输出，使用幂等键和状态机防止重复执行。</li>
+</ul>
+<p>对于面向用户的交互式请求，可以使用较短的首 Token 超时和合理的空闲读取超时；对于离线批处理，则可以使用更长的总 deadline，并把失败任务转入可重试队列。</p>
+<hr/>
+<span class="heading-anchor" id="11. 生产环境推荐的策略模板"></span><h2 id="11">11. 生产环境推荐的策略模板</h2>
+<span class="heading-anchor" id="11.1 交互式请求"></span><h3 id="111">11.1 交互式请求</h3>
+<p>适合聊天、问答和在线接口：</p>
+<ul>
+<li>设置明确的总 deadline；</li>
+<li>连接超时较短，读取超时根据流式输出调整；</li>
+<li>最多进行少量重试，例如 1～2 次；</li>
+<li><code>429</code> 和 <code>503</code> 使用退避，不要立刻连续重试；</li>
+<li>超过 deadline 后快速返回可理解的降级提示；</li>
+<li>记录 trace ID，便于定位供应商请求；</li>
+<li>不在用户请求线程中进行无限等待。</li>
+</ul>
+<span class="heading-anchor" id="11.2 离线批处理"></span><h3 id="112">11.2 离线批处理</h3>
+<p>适合文档总结、数据标注和批量 Embedding：</p>
+<ul>
+<li>通过任务队列控制并发；</li>
+<li>使用更长的任务级 deadline；</li>
+<li>失败任务记录状态并延迟重入队；</li>
+<li>设置最大重试次数和死信队列；</li>
+<li>支持断点续跑，已成功的任务不重复调用；</li>
+<li>记录输入 Token、输出 Token、耗时、错误类别和重试次数；</li>
+<li>对相同输入使用缓存，减少重复请求和费用。</li>
+</ul>
+<span class="heading-anchor" id="11.3 供应商或模型故障时的降级"></span><h3 id="113">11.3 供应商或模型故障时的降级</h3>
+<p>在服务持续异常时，重复重试不是唯一方案。可以考虑：</p>
+<ul>
+<li>切换到备用供应商或备用模型；</li>
+<li>降低输出长度或改用更快的模型；</li>
+<li>暂时关闭非核心的 LLM 功能；</li>
+<li>返回缓存结果或规则系统结果；</li>
+<li>将请求转入异步队列；</li>
+<li>使用熔断器，在连续失败达到阈值后暂时停止请求。</li>
+</ul>
+<p>降级逻辑必须区分“结果不完美”和“不可接受的错误”，不能为了返回结果而绕过安全、权限或数据校验。</p>
+<hr/>
+<span class="heading-anchor" id="12. 可观测性：没有指标就无法调参"></span><h2 id="12">12. 可观测性：没有指标就无法调参</h2>
+<p>至少应记录以下结构化信息：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>请求总数与成功数</td>
+<td>计算总体成功率</td>
+</tr>
+<tr>
+<td>按状态码或异常类型分类</td>
+<td>区分网络、限流、服务端和客户端错误</td>
+</tr>
+<tr>
+<td>首 Token 延迟</td>
+<td>衡量排队和首响应体验</td>
+</tr>
+<tr>
+<td>总耗时与 P50/P95/P99</td>
+<td>评估尾延迟和超时设置</td>
+</tr>
+<tr>
+<td>重试次数分布</td>
+<td>判断重试是否过多</td>
+</tr>
+<tr>
+<td>退避等待时间</td>
+<td>判断延迟主要来自请求还是等待</td>
+</tr>
+<tr>
+<td>并发数与队列长度</td>
+<td>判断本地是否过载</td>
+</tr>
+<tr>
+<td>RPM、TPM 和 <code>429</code> 比例</td>
+<td>评估是否接近供应商配额</td>
+</tr>
+<tr>
+<td>输入/输出 Token</td>
+<td>控制成本和容量</td>
+</tr>
+<tr>
+<td>超时数量</td>
+<td>发现服务变慢或预算过短</td>
+</tr>
+<tr>
+<td>熔断与降级次数</td>
+<td>判断依赖服务稳定性</td>
+</tr>
+</tbody>
+</table></div>
+<p>推荐使用以下字段关联一次请求：</p>
+<pre><code class="language-text">trace_id
+request_id
+provider
+model
+attempt
+status_code
+error_type
+latency_ms
+backoff_ms
+input_tokens
+output_tokens
+</code></pre>
+<p>日志中不要记录 API Key、完整的用户敏感内容、身份证件、支付信息或未经脱敏的私有文档。Prompt 需要调试时，应使用截断、哈希、脱敏或受访问控制的安全存储。</p>
+<hr/>
+<span class="heading-anchor" id="13. 常见误区"></span><h2 id="13">13. 常见误区</h2>
+<span class="heading-anchor" id="13.1 所有错误都重试"></span><h3 id="131">13.1 所有错误都重试</h3>
+<p><code>400</code>、<code>401</code>、<code>403</code>、上下文超限和安全拒绝通常不是暂时性故障。重试只会增加延迟、费用和日志噪声。</p>
+<span class="heading-anchor" id="13.2 立即重试"></span><h3 id="132">13.2 立即重试</h3>
+<p>服务端刚返回 <code>429</code>，客户端立即再次请求，通常只会让限流持续更久。应优先遵守 <code>Retry-After</code>，否则使用带抖动的指数退避。</p>
+<span class="heading-anchor" id="13.3 只限制并发，不限制速率"></span><h3 id="133">13.3 只限制并发，不限制速率</h3>
+<p>并发数为 5 并不意味着每分钟最多 5 个请求。快速请求可能在一分钟内发送大量调用，仍然超过 RPM。</p>
+<span class="heading-anchor" id="13.4 只限制 RPM，不估算 TPM"></span><h3 id="134-rpm-tpm">13.4 只限制 RPM，不估算 TPM</h3>
+<p>大模型请求长度差异很大。只限制请求数可能仍然迅速耗尽 Token 配额。</p>
+<span class="heading-anchor" id="13.5 SDK 和业务层各自重试"></span><h3 id="135-sdk">13.5 SDK 和业务层各自重试</h3>
+<p>多层重试会造成请求数量乘法放大。应明确重试责任归属，并把总尝试次数纳入预算。</p>
+<span class="heading-anchor" id="13.6 用 sleep 代替真正的超时"></span><h3 id="136-sleep">13.6 用 <code>sleep</code> 代替真正的超时</h3>
+<p>退避等待只能控制下一次尝试何时开始，不能中断一个已经卡住的网络请求。底层 API 客户端仍必须设置请求级超时。</p>
+<span class="heading-anchor" id="13.7 重试带副作用的调用却没有幂等键"></span><h3 id="137">13.7 重试带副作用的调用却没有幂等键</h3>
+<p>“客户端超时”不等于“服务端没有执行”。没有幂等设计时，重试可能创建重复订单、重复任务或重复通知。</p>
+<span class="heading-anchor" id="13.8 流式响应中途断开后直接拼接重试结果"></span><h3 id="138">13.8 流式响应中途断开后直接拼接重试结果</h3>
+<p>重新生成的文本可能不同，直接拼接会出现重复和不连贯。应按业务选择丢弃重试、继续生成或恢复状态。</p>
+<span class="heading-anchor" id="13.9 无限等待 Retry-After"></span><h3 id="139-retry-after">13.9 无限等待 <code>Retry-After</code></h3>
+<p>服务端返回的等待时间也需要经过本地上限和总 deadline 检查，不能让异常值拖垮请求线程。</p>
+<span class="heading-anchor" id="13.10 把错误详情直接返回给用户"></span><h3 id="1310">13.10 把错误详情直接返回给用户</h3>
+<p>供应商错误响应可能包含内部信息、请求细节或敏感内容。用户看到的应是稳定、可理解的错误信息，详细原因写入受控日志。</p>
+<hr/>
+<span class="heading-anchor" id="14. 完整实践：实现一个受控的调用策略"></span><h2 id="14">14. 完整实践：实现一个受控的调用策略</h2>
+<span class="heading-anchor" id="14.1 需求"></span><h3 id="141">14.1 需求</h3>
+<p>实现一个模型调用函数，要求：</p>
+<ol>
+<li>单次请求有超时；</li>
+<li>只重试网络错误、<code>429</code> 和部分 <code>5xx</code>；</li>
+<li>使用指数退避加抖动；</li>
+<li>尊重 <code>Retry-After</code>；</li>
+<li>有最大尝试次数和总 deadline；</li>
+<li>记录每次尝试的指标；</li>
+<li>不把密钥和完整 Prompt 写入日志。</li>
+</ol>
+<span class="heading-anchor" id="14.2 实现思路"></span><h3 id="142">14.2 实现思路</h3>
+<pre><code class="language-python">import random
+import time
+from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
+
+
+@dataclass
+class RetryDecision:
+    retry: bool
+    server_delay: float | None = None
+
+
+def parse_retry_after(value: str | None) -&gt; float | None:
+    if not value:
+        return None
+
+    # 形式一：延迟秒数
+    try:
+        seconds = float(value)
+        return max(0.0, seconds)
+    except ValueError:
+        pass
+
+    # 形式二：HTTP 日期
+    try:
+        retry_at = parsedate_to_datetime(value)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def retry_delay(
+    attempt: int,
+    *,
+    retry_after: str | None = None,
+    base_delay: float = 0.5,
+    max_delay: float = 10.0,
+) -&gt; float:
+    server_delay = parse_retry_after(retry_after)
+    if server_delay is not None:
+        return min(server_delay, max_delay)
+
+    cap = min(max_delay, base_delay * (2 ** attempt))
+    return random.uniform(0, cap)
+</code></pre>
+<p>上面的代码只负责计算等待时间。真正的调用函数还需要：</p>
+<ul>
+<li>从 SDK 异常中取得 HTTP 状态码和响应头；</li>
+<li>对异常做白名单分类；</li>
+<li>在睡眠前检查 deadline；</li>
+<li>将剩余时间作为下一次请求的超时；</li>
+<li>成功后记录 Token 和延迟；</li>
+<li>失败后将任务标记为可重试、永久失败或待人工处理。</li>
+</ul>
+<span class="heading-anchor" id="14.3 验收标准"></span><h3 id="143">14.3 验收标准</h3>
+<p>可以用以下场景验证实现：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>预期行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第一次成功</td>
+<td>只调用一次，返回结果</td>
+</tr>
+<tr>
+<td>第一次连接失败，第二次成功</td>
+<td>等待退避后重试，最终成功</td>
+</tr>
+<tr>
+<td>连续 <code>429</code> 且带 <code>Retry-After</code></td>
+<td>按服务端建议等待，但不超过本地上限</td>
+</tr>
+<tr>
+<td><code>400</code></td>
+<td>不重试，立即报告客户端错误</td>
+</tr>
+<tr>
+<td>连续 <code>503</code> 超过最大次数</td>
+<td>停止并返回可识别的暂时性失败</td>
+</tr>
+<tr>
+<td>单次调用超过请求超时</td>
+<td>释放资源，并按策略决定是否重试</td>
+</tr>
+<tr>
+<td>总 deadline 已耗尽</td>
+<td>不再启动新请求</td>
+</tr>
+<tr>
+<td>批量并发超过限制</td>
+<td>多余任务等待，不超过并发上限</td>
+</tr>
+<tr>
+<td>部分任务成功、部分失败</td>
+<td>保留成功结果，失败任务按类型处理</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="15. 设计检查清单"></span><h2 id="15">15. 设计检查清单</h2>
+<p>在上线前逐项检查：</p>
+<span class="heading-anchor" id="超时"></span><h3 id="_1">超时</h3>
+<ul>
+<li>[ ] 连接、读取和总超时是否分别考虑？</li>
+<li>[ ] 流式请求是否区分首 Token 超时和空闲读取超时？</li>
+<li>[ ] 重试是否共享同一个绝对 deadline？</li>
+<li>[ ] 底层客户端是否真的能被超时中断？</li>
+</ul>
+<span class="heading-anchor" id="重试"></span><h3 id="_2">重试</h3>
+<ul>
+<li>[ ] 是否只对明确的暂时性错误重试？</li>
+<li>[ ] 最大尝试次数是否有限？</li>
+<li>[ ] SDK、应用和任务队列是否存在重复重试？</li>
+<li>[ ] 是否考虑服务端已收到请求但客户端未收到响应的情况？</li>
+</ul>
+<span class="heading-anchor" id="退避"></span><h3 id="_3">退避</h3>
+<ul>
+<li>[ ] 是否使用指数退避？</li>
+<li>[ ] 是否加入随机抖动？</li>
+<li>[ ] 是否优先处理合法的 <code>Retry-After</code>？</li>
+<li>[ ] 服务端等待时间是否有本地上限？</li>
+</ul>
+<span class="heading-anchor" id="限流"></span><h3 id="_4">限流</h3>
+<ul>
+<li>[ ] 是否限制并发数？</li>
+<li>[ ] 是否限制 RPM？</li>
+<li>[ ] 是否估算和限制 TPM？</li>
+<li>[ ] 限流器是否在多进程、多实例部署中仍然有效？</li>
+<li>[ ] 触发限流后是否进入队列或降级，而不是持续重试？</li>
+</ul>
+<span class="heading-anchor" id="可观测性与安全"></span><h3 id="_5">可观测性与安全</h3>
+<ul>
+<li>[ ] 是否记录错误分类、尝试次数、延迟和 Token？</li>
+<li>[ ] 是否可以区分本地超时、供应商超时和用户取消？</li>
+<li>[ ] 日志是否脱敏？</li>
+<li>[ ] 是否有死信队列、告警和降级策略？</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="16. 自测题"></span><h2 id="16">16. 自测题</h2>
+<span class="heading-anchor" id="1. 为什么不能对所有 HTTP 错误都重试？"></span><h3 id="1-http">1. 为什么不能对所有 HTTP 错误都重试？</h3>
+<p><strong>参考答案：</strong></p>
+<p>因为很多错误是确定性的，例如请求格式错误、认证失败、权限不足、模型名称错误、上下文超限和安全策略拒绝。原请求不改变时，重复发送不会提高成功概率，反而会增加延迟、成本和供应商压力。</p>
+<span class="heading-anchor" id="2. 指数退避为什么还需要 jitter？"></span><h3 id="2-jitter">2. 指数退避为什么还需要 jitter？</h3>
+<p><strong>参考答案：</strong></p>
+<p>如果所有客户端使用同样的指数时间，它们可能在相近时刻同时重试。jitter 为等待时间加入随机性，可以分散请求，降低惊群效应和重试风暴。</p>
+<span class="heading-anchor" id="3. 并发限制能否替代 RPM 和 TPM 限制？"></span><h3 id="3-rpm-tpm">3. 并发限制能否替代 RPM 和 TPM 限制？</h3>
+<p><strong>参考答案：</strong></p>
+<p>不能。并发限制只限制同时执行的请求数；RPM 限制时间窗口内的请求数量；TPM 限制时间窗口内的 Token 数量。三者衡量的资源维度不同，需要根据供应商配额组合使用。</p>
+<span class="heading-anchor" id="4. 为什么重试必须与幂等性一起考虑？"></span><h3 id="4_1">4. 为什么重试必须与幂等性一起考虑？</h3>
+<p><strong>参考答案：</strong></p>
+<p>客户端超时可能发生在服务端已经完成处理之后。如果请求会创建任务、写入数据或触发工具，盲目重试可能执行重复副作用。业务请求 ID、幂等键和结果去重可以降低这种风险。</p>
+<span class="heading-anchor" id="5. SDK 已经支持自动重试，还需要应用层重试吗？"></span><h3 id="5-sdk">5. SDK 已经支持自动重试，还需要应用层重试吗？</h3>
+<p><strong>参考答案：</strong></p>
+<p>不一定。首先要确认 SDK 的重试条件、次数、退避方式和超时行为。如果应用层再重试，可能形成多层重试放大。通常应选择一个主要层级统一管理 API 重试，其他层级只做错误传递和任务状态管理。</p>
+<span class="heading-anchor" id="6. Retry-After: 60 是否意味着必须等待 60 秒？"></span><h3 id="6-retry-after-60-60">6. <code>Retry-After: 60</code> 是否意味着必须等待 60 秒？</h3>
+<p><strong>参考答案：</strong></p>
+<p>它表示服务端建议至少等待指定时间，但客户端仍应检查本地总 deadline、交互式请求的 SLA 和本地最大等待上限。如果当前请求无法等待，可以转入异步队列、降级或返回稍后重试。</p>
+<hr/>
+<span class="heading-anchor" id="17. 小结"></span><h2 id="17">17. 小结</h2>
+<ol>
+<li>超时为单次调用和整个业务任务设置边界；</li>
+<li>重试只适用于具有暂时性的失败，不能把确定性错误变成重复请求；</li>
+<li>指数退避可以逐渐降低重试压力，jitter 可以避免多个客户端同时重试；</li>
+<li>服务端返回 <code>Retry-After</code> 时应优先参考，但仍要服从本地上限和总 deadline；</li>
+<li>并发、RPM 和 TPM 是不同维度的限制，不能相互替代；</li>
+<li>SDK、应用层和任务队列的重试策略必须统一，避免请求和费用成倍放大；</li>
+<li>流式响应、外部副作用和“客户端超时但服务端可能已执行”的情况需要单独设计；</li>
+<li>生产系统必须配合结构化日志、延迟指标、Token 统计、告警、降级和死信队列；</li>
+<li>稳定的 API 调用不是“失败就重试”，而是在<strong>时间、次数、速率、成本和业务正确性</strong>之间做有边界的控制。</li>
+</ol>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_6">相关笔记</h2>
+<ul>
+<li><a href="n-762e3f71ec9c.html">第二阶段课程总览</a></li>
+<li><a href="n-a278164ed0ca.html">第 09 课：Token 统计和成本控制</a></li>
+<li><a href="n-32c6b4ee662c.html">第 08 课：多轮对话和上下文管理</a></li>
+<li><a href="n-9a343f7b5d80.html">第 06 课：Function Calling / Tool Calling</a></li>
+</ul>
+<span class="heading-anchor" id="来源说明"></span><h2 id="_7">来源说明</h2>
+<ul>
+<li>本项目现有第二阶段课程总览列出了“超时、重试、退避与限流”这一课题。</li>
+<li>本课关于超时类型、HTTP 错误分类、指数退避、jitter、令牌桶、幂等性、异步并发和可观测性的具体解释与代码实践，属于基于通用 API 工程知识整理的学习材料，并非项目检索结果中已有的完整正文结论。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

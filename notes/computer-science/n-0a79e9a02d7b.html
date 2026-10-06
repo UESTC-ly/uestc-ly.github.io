@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08. 性能指标、可靠性与校验 · 李杨的学习笔记</title><meta name="description" content="计算机性能不是只看主频，而是由指令数、CPI、时钟周期、存储访问、并行度和 I/O 等共同决定；可靠性则依赖错误检测、纠错、冗余和恢复机制。"><meta property="og:title" content="08. 性能指标、可靠性与校验 · 李杨的学习笔记"><meta property="og:description" content="计算机性能不是只看主频，而是由指令数、CPI、时钟周期、存储访问、并行度和 I/O 等共同决定；可靠性则依赖错误检测、纠错、冗余和恢复机制。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-0a79e9a02d7b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-0a79e9a02d7b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>08. 性能指标、可靠性与校验</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/08-%E6%80%A7%E8%83%BD%E6%8C%87%E6%A0%87%E5%8F%AF%E9%9D%A0%E6%80%A7%E4%B8%8E%E6%A0%A1%E9%AA%8C.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 响应时间与吞吐率</a></li><li><a href="#2-cpu">2. CPU 执行时间公式</a></li><li><a href="#3">3. 主频不是全部</a></li><li><a href="#4-mips">4. MIPS 的局限</a></li><li><a href="#5-amdahl">5. Amdahl 定律</a></li><li><a href="#6">6. 性能瓶颈分析</a></li><li><a href="#7">7. 可靠性指标</a></li><li><a href="#8">8. 错误检测与纠正</a></li><li><a href="#9-ecc">9. ECC 内存</a></li><li><a href="#10">10. 冗余思想</a></li><li><a href="#11">11. 常见坑</a></li><li><a href="#12">12. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>CPU 主频、CPI、MIPS、吞吐率、响应时间分别是什么？</li>
+<li>CPU 执行时间公式如何使用？</li>
+<li>Amdahl 定律说明了什么？</li>
+<li>可靠性、可用性、MTBF、MTTR 如何理解？</li>
+<li>校验码和纠错码如何提升数据可靠性？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>计算机性能不是只看主频，而是由指令数、CPI、时钟周期、存储访问、并行度和 I/O 等共同决定；可靠性则依赖错误检测、纠错、冗余和恢复机制。</p>
+<blockquote>
+<p>记忆口诀：<strong>性能看时间，时间看指令数、CPI 和周期；可靠看发现错误、纠正错误和快速恢复。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((性能与可靠性))
+    性能指标
+      响应时间
+      吞吐率
+      主频
+      CPI
+      MIPS
+    性能公式
+      指令数
+      CPI
+      Clock Cycle
+    加速定律
+      Amdahl
+      瓶颈
+    可靠性
+      MTBF
+      MTTR
+      Availability
+    校验
+      Parity
+      Hamming
+      CRC
+      ECC
+</pre>
+<span class="heading-anchor" id="1. 响应时间与吞吐率"></span><h2 id="1">1. 响应时间与吞吐率</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>响应时间</td>
+<td>完成一个任务需要多久</td>
+</tr>
+<tr>
+<td>吞吐率</td>
+<td>单位时间完成多少任务</td>
+</tr>
+</tbody>
+</table></div>
+<p>例子：</p>
+<ul>
+<li>用户打开网页更关心响应时间。</li>
+<li>服务器批处理更关心吞吐率。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["性能"] --&gt; B["响应时间"]
+  A --&gt; C["吞吐率"]
+  B --&gt; D["单任务快不快"]
+  C --&gt; E["单位时间做多少"]
+</pre>
+<span class="heading-anchor" id="2. CPU 执行时间公式"></span><h2 id="2-cpu">2. CPU 执行时间公式</h2>
+<p>经典公式：</p>
+<pre><code class="language-text">CPU Time = Instruction Count × CPI × Clock Cycle Time
+</code></pre>
+<p>也可写为：</p>
+<pre><code class="language-text">CPU Time = Instruction Count × CPI / Clock Rate
+</code></pre>
+<p>含义：</p>
+<ul>
+<li>Instruction Count：程序执行了多少条指令。</li>
+<li>CPI：平均每条指令多少周期。</li>
+<li>Clock Cycle Time：每个周期多长。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["指令数"] --&gt; D["CPU时间"]
+  B["CPI"] --&gt; D
+  C["时钟周期"] --&gt; D
+</pre>
+<span class="heading-anchor" id="3. 主频不是全部"></span><h2 id="3">3. 主频不是全部</h2>
+<p>提高主频可以减少时钟周期时间，但如果 CPI 变大、Cache miss 增多、指令数增加，程序未必更快。</p>
+<p>比较 CPU 性能要看具体工作负载。</p>
+<span class="heading-anchor" id="4. MIPS 的局限"></span><h2 id="4-mips">4. MIPS 的局限</h2>
+<p>MIPS：每秒百万条指令。</p>
+<p>问题：</p>
+<ul>
+<li>不同 ISA 的指令工作量不同。</li>
+<li>同一任务在不同机器上指令数可能不同。</li>
+<li>MIPS 高不一定程序更快。</li>
+</ul>
+<p>因此实际更常用基准测试和真实 workload。</p>
+<span class="heading-anchor" id="5. Amdahl 定律"></span><h2 id="5-amdahl">5. Amdahl 定律</h2>
+<p>Amdahl 定律说明：系统整体加速受限于不能被优化的部分。</p>
+<p>如果某部分占比 <code>p</code>，加速 <code>s</code> 倍，则整体加速比：</p>
+<pre><code class="language-text">Speedup = 1 / ((1 - p) + p / s)
+</code></pre>
+<pre class="mermaid">flowchart TD
+  A["程序总时间"] --&gt; B["可优化部分p"]
+  A --&gt; C["不可优化部分1-p"]
+  B --&gt; D["加速s倍"]
+  C --&gt; E["限制总加速"]
+</pre>
+<p>结论：只优化小部分，即使无限加速，整体收益也有限。</p>
+<span class="heading-anchor" id="6. 性能瓶颈分析"></span><h2 id="6">6. 性能瓶颈分析</h2>
+<pre class="mermaid">flowchart TD
+  A["程序慢"] --&gt; B{CPU满吗}
+  B -- 是 --&gt; C["计算瓶颈"]
+  B -- 否 --&gt; D{内存等待多吗}
+  D -- 是 --&gt; E["存储瓶颈"]
+  D -- 否 --&gt; F{IO等待多吗}
+  F -- 是 --&gt; G["IO瓶颈"]
+  F -- 否 --&gt; H["同步或调度瓶颈"]
+</pre>
+<p>组成原理中要特别关注：</p>
+<ul>
+<li>Cache miss。</li>
+<li>分支预测失败。</li>
+<li>流水线停顿。</li>
+<li>内存带宽。</li>
+<li>I/O 等待。</li>
+</ul>
+<span class="heading-anchor" id="7. 可靠性指标"></span><h2 id="7">7. 可靠性指标</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MTBF</td>
+<td>Mean Time Between Failures，平均故障间隔时间</td>
+</tr>
+<tr>
+<td>MTTR</td>
+<td>Mean Time To Repair，平均修复时间</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>可用性</td>
+</tr>
+</tbody>
+</table></div>
+<p>可用性近似：</p>
+<pre><code class="language-text">Availability = MTBF / (MTBF + MTTR)
+</code></pre>
+<p>提高可用性：</p>
+<ul>
+<li>增大 MTBF。</li>
+<li>减小 MTTR。</li>
+<li>使用冗余和快速恢复。</li>
+</ul>
+<span class="heading-anchor" id="8. 错误检测与纠正"></span><h2 id="8">8. 错误检测与纠正</h2>
+<pre class="mermaid">flowchart TD
+  A["数据传输或存储"] --&gt; B{是否出错}
+  B -- 否 --&gt; C["正常使用"]
+  B -- 是 --&gt; D["检测错误"]
+  D --&gt; E{能否纠正}
+  E -- 是 --&gt; F["纠正后继续"]
+  E -- 否 --&gt; G["重传或报错"]
+</pre>
+<p>常见机制：</p>
+<ul>
+<li>奇偶校验：检测简单错误。</li>
+<li>CRC：强检错，常用于网络和存储。</li>
+<li>ECC：可纠错，常用于内存。</li>
+<li>RAID：磁盘冗余。</li>
+</ul>
+<span class="heading-anchor" id="9. ECC 内存"></span><h2 id="9-ecc">9. ECC 内存</h2>
+<p>ECC 内存可以检测并纠正部分内存 bit 错误，常用于服务器场景。</p>
+<p>它通常能纠正单比特错误，检测多比特错误，具体能力取决于编码方案。</p>
+<span class="heading-anchor" id="10. 冗余思想"></span><h2 id="10">10. 冗余思想</h2>
+<p>可靠性常用冗余换稳定性：</p>
+<pre class="mermaid">mindmap
+  root((冗余))
+    时间冗余
+      重试
+      重传
+    信息冗余
+      校验码
+      纠错码
+    硬件冗余
+      RAID
+      双电源
+      多副本
+</pre>
+<span class="heading-anchor" id="11. 常见坑"></span><h2 id="11">11. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只看主频判断性能</td>
+<td>还要看 CPI 和指令数</td>
+</tr>
+<tr>
+<td>MIPS 跨 ISA 比较</td>
+<td>可能误导</td>
+</tr>
+<tr>
+<td>Amdahl 定律忽略不可优化部分</td>
+<td>会高估加速收益</td>
+</tr>
+<tr>
+<td>校验码等同加密</td>
+<td>校验码用于检错，不保证安全</td>
+</tr>
+<tr>
+<td>可用性只看故障少</td>
+<td>修复速度同样重要</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="12. 学习自检"></span><h2 id="12">12. 学习自检</h2>
+<ol>
+<li>CPU 执行时间公式是什么？</li>
+<li>为什么主频高不一定更快？</li>
+<li>Amdahl 定律说明了什么？</li>
+<li>MTBF 和 MTTR 分别表示什么？</li>
+<li>校验和纠错有什么区别？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

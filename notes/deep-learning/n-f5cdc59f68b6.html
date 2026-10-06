@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 8 章 性能优化、工程实践与排障 · 李杨的学习笔记</title><meta name="description" content="本章把 OpenCV 从“能跑”推进到“跑得稳、跑得快、可复现”。性能问题不要先问“能不能上 GPU”，而要先定位瓶颈来自计算、内存带宽、复制、同步还是 I/O：计算瓶颈随图像尺寸、卷积核或模型复杂度增长；内存带宽瓶颈表现为简单逐像素操作也慢，连续内存和 ROI 步长影响明显；复制瓶颈来自 copy 、 clone 、"><meta property="og:title" content="第 8 章 性能优化、工程实践与排障 · 李杨的学习笔记"><meta property="og:description" content="本章把 OpenCV 从“能跑”推进到“跑得稳、跑得快、可复现”。性能问题不要先问“能不能上 GPU”，而要先定位瓶颈来自计算、内存带宽、复制、同步还是 I/O：计算瓶颈随图像尺寸、卷积核或模型复杂度增长；内存带宽瓶颈表现为简单逐像素操作也慢，连续内存和 ROI 步长影响明显；复制瓶颈来自 copy 、 clone 、"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-f5cdc59f68b6.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-f5cdc59f68b6.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / openCV</p><h1>第 8 章 性能优化、工程实践与排障</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/openCV/08-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5%E4%B8%8E%E6%8E%92%E9%9A%9C.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#81">8.1 先建立可复现基准</a></li><li><a href="#82-python">8.2 Python：少写逐像素循环，少做隐式复制</a></li><li><a href="#83-roi">8.3 ROI、连续内存与预分配</a></li><li><a href="#84-parallel_for_-simd">8.4 线程、parallel_for_ 与 SIMD</a></li><li><a href="#85-opencl-umatcuda-gpumat-vulkan">8.5 OpenCL UMat、CUDA GpuMat 与 Vulkan 边界</a></li><li><a href="#86">8.6 图像与视频流水线并行</a></li><li><a href="#87-build-informationcmakecontrib">8.7 Build Information、CMake、contrib 与部署</a></li><li><a href="#88">8.8 优化决策树</a></li><li><a href="#89">8.9 常见故障排查表</a></li><li><a href="#810">8.10 生产检查表</a></li><li><a href="#811">8.11 系统化排障流程</a></li><li><a href="#812">8.12 练习</a></li><li><a href="#_1">官方资料</a></li></ul></details><article class="note-content">
+<p>本章把 OpenCV 从“能跑”推进到“跑得稳、跑得快、可复现”。性能问题不要先问“能不能上 GPU”，而要先定位瓶颈来自计算、内存带宽、复制、同步还是 I/O：计算瓶颈随图像尺寸、卷积核或模型复杂度增长；内存带宽瓶颈表现为简单逐像素操作也慢，连续内存和 ROI 步长影响明显；复制瓶颈来自 <code>copy</code>、<code>clone</code>、<code>astype</code>、<code>cvtColor</code>、CPU/GPU 往返；同步瓶颈常见于锁、GPU 下载、显示窗口和日志刷盘；I/O 瓶颈来自磁盘、网络、解码器、摄像头 backend、编码和 GUI 刷新。可靠优化顺序是：测量、归因、改算法或数据流、减少搬运、打开已编译加速能力，最后才手写并行或 SIMD。</p>
+<span class="heading-anchor" id="8.1 先建立可复现基准"></span><h2 id="81">8.1 先建立可复现基准</h2>
+<p>基准测试要固定输入、预热、重复多次、分离 I/O 与计算，并记录 OpenCV 构建信息。首次调用可能触发动态初始化、OpenCL kernel 编译、页面调入或缓存填充，因此单次耗时没有解释力。Python 中可以用 <code>cv.getTickCount()</code>/<code>cv.getTickFrequency()</code>，也可以用 <code>time.perf_counter()</code>；C++ 中优先用 <code>cv::TickMeter</code>，它与 OpenCV 的计时体系一致，便于在示例和库代码中对照。</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+img = cv.imread("input.jpg", cv.IMREAD_COLOR)
+assert img is not None
+kernel = np.ones((5, 5), np.float32) / 25
+
+def bench(name, fn, warmup=5, repeat=50):
+    for _ in range(warmup):
+        fn()
+    t0 = cv.getTickCount()
+    for _ in range(repeat):
+        out = fn()
+    dt = (cv.getTickCount() - t0) / cv.getTickFrequency()
+    print(f"{name}: {dt * 1000 / repeat:.3f} ms/frame, shape={out.shape}")
+
+bench("blur", lambda: cv.blur(img, (5, 5)))
+bench("filter2D", lambda: cv.filter2D(img, -1, kernel))
+
+print("OpenCL:", cv.ocl.haveOpenCL(), cv.ocl.useOpenCL())
+print(cv.getBuildInformation())
+</code></pre>
+<p>这段代码的关键是固定同一输入、循环次数和输出形状。正式报告应记录 CPU/GPU、OpenCV 版本、Python/编译器、系统、Debug/Release、OpenCL/CUDA、线程数和图像尺寸。Debug 构建、省电模式、后台任务和热降频都会污染结果。</p>
+<p>C++ 侧的最小对照如下：</p>
+<pre><code class="language-cpp">#include &lt;opencv2/opencv.hpp&gt;
+#include &lt;iostream&gt;
+
+int main() {
+    cv::Mat img = cv::imread("input.jpg", cv::IMREAD_COLOR);
+    CV_Assert(!img.empty());
+
+    cv::TickMeter tm;
+    cv::Mat out;
+    for (int i = 0; i &lt; 5; ++i) cv::blur(img, out, cv::Size(5, 5));
+
+    tm.start();
+    for (int i = 0; i &lt; 100; ++i) cv::blur(img, out, cv::Size(5, 5));
+    tm.stop();
+
+    std::cout &lt;&lt; "avg ms/frame: " &lt;&lt; tm.getTimeMilli() / 100 &lt;&lt; std::endl;
+    std::cout &lt;&lt; cv::getBuildInformation() &lt;&lt; std::endl;
+}
+</code></pre>
+<p>对应 CMake：</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.16)
+project(opencv_perf_demo CXX)
+set(CMAKE_CXX_STANDARD 17)
+find_package(OpenCV REQUIRED)
+add_executable(opencv_perf_demo main.cpp)
+target_link_libraries(opencv_perf_demo PRIVATE ${OpenCV_LIBS})
+</code></pre>
+<p>OpenCV 5 主线推荐 C++17；OpenCV 4.x 中 C++11 是基本要求，工程中也常统一到 C++17。对比 4.12 与 5 主线时，应分别记录 <code>getBuildInformation()</code>，不能只写“OpenCV 已安装”。</p>
+<span class="heading-anchor" id="8.2 Python：少写逐像素循环，少做隐式复制"></span><h2 id="82-python">8.2 Python：少写逐像素循环，少做隐式复制</h2>
+<p>Python 循环通常输在解释器开销，而不是算法本身。下面的阈值化例子可以用于课堂演示：</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+gray = cv.imread("input.jpg", cv.IMREAD_GRAYSCALE)
+assert gray is not None
+
+def slow_loop(x):
+    out = np.empty_like(x)
+    h, w = x.shape
+    for y in range(h):
+        for col in range(w):
+            out[y, col] = 255 if x[y, col] &gt; 127 else 0
+    return out
+
+def numpy_where(x):
+    return np.where(x &gt; 127, 255, 0).astype(np.uint8)
+
+def opencv_threshold(x):
+    return cv.threshold(x, 127, 255, cv.THRESH_BINARY)[1]
+
+for name, fn in [("loop", slow_loop), ("numpy", numpy_where), ("opencv", opencv_threshold)]:
+    t0 = cv.getTickCount()
+    out = fn(gray)
+    ms = (cv.getTickCount() - t0) * 1000 / cv.getTickFrequency()
+    print(name, ms, out.dtype)
+</code></pre>
+<p>逐像素 Python 写法把每个像素都变成一次解释器访问；NumPy 把循环交给 C；OpenCV 函数通常还能利用内部并行、向量化和类型优化。优化 Python 代码时优先检查：</p>
+<ol>
+<li>是否可以用 OpenCV/NumPy 一次处理整张图，而不是双层 <code>for</code>。</li>
+<li>是否反复 <code>astype()</code>、<code>copy()</code>、<code>np.array()</code>、<code>clone()</code>，导致每帧全量复制。</li>
+<li>ROI 是否只是视图。NumPy 切片和 <code>cv::Mat</code> ROI 多数情况下共享底层数据，但某些函数需要连续内存，可能触发内部复制。</li>
+<li>数据类型是否匹配。<code>uint8</code>、<code>float32</code>、<code>float64</code> 混用会造成额外转换，也可能让算法走慢路径。</li>
+<li>通道顺序是否反复 BGR/RGB 转换。把转换放在边界，不要在每个算子前后转换。</li>
+</ol>
+<p>NumPy 表达式也可能创建临时数组。例如 <code>((img - mean) / std).astype(np.float32)</code> 涉及类型转换和中间结果；热路径中可考虑 <code>cv.subtract</code>、<code>cv.multiply</code>、预分配输出或一次性归一化。</p>
+<span class="heading-anchor" id="8.3 ROI、连续内存与预分配"></span><h2 id="83-roi">8.3 ROI、连续内存与预分配</h2>
+<p><code>cv::Mat</code> 头部很轻，复制 <code>Mat</code> 变量通常只是共享引用计数；<code>clone()</code> 和 <code>copyTo()</code> 才复制像素。ROI 也是一个带偏移和步长的视图：</p>
+<pre><code class="language-cpp">cv::Mat img = cv::imread("input.jpg");
+cv::Rect box(100, 100, 320, 240);
+cv::Mat roi = img(box);        // 共享数据，不复制
+cv::Mat owned = roi.clone();   // 深拷贝，数据连续
+</code></pre>
+<p>ROI 的问题在于 <code>roi.isContinuous()</code> 可能为假。OpenCV 内置函数通常能处理步长；手写循环、SIMD、外部库和硬件接口则容易出错或变慢。手写遍历要用 <code>ptr&lt;uchar&gt;(y)</code> 按行访问，只有 <code>isContinuous()</code> 为真时才能把图像当作线性内存。</p>
+<p>预分配能减少堆分配和引用计数抖动。C++ 中很多函数支持输出参数：</p>
+<pre><code class="language-cpp">cv::Mat gray, blur8u, edges;
+gray.create(src.rows, src.cols, CV_8UC1);
+blur8u.create(src.rows, src.cols, CV_8UC1);
+edges.create(src.rows, src.cols, CV_8UC1);
+
+cv::cvtColor(src, gray, cv::COLOR_BGR2GRAY);
+cv::GaussianBlur(gray, blur8u, cv::Size(5, 5), 1.2);
+cv::Canny(blur8u, edges, 80, 160);
+</code></pre>
+<p>Python 中不是所有函数都暴露 <code>dst</code>，但很多基础算子支持 <code>dst=</code>；视频处理也可复用中间变量并避免不必要的 <code>copy()</code>。图像尺寸固定时，预分配收益更稳定。</p>
+<span class="heading-anchor" id="8.4 线程、parallel_for_ 与 SIMD"></span><h2 id="84-parallel_for_-simd">8.4 线程、parallel_for_ 与 SIMD</h2>
+<p>OpenCV 内部大量函数已经并行化。<code>cv::setNumThreads()</code> 影响后续并行区域，<code>cv::getNumThreads()</code> 可记录配置。不要在外层开很多线程后，每个线程里再调用内部多线程 OpenCV 函数，否则容易过度订阅。常见策略是二选一：让 OpenCV 管内部并行，外层只拆 I/O、计算、编码；或外层并行处理多路流，并限制 OpenCV 线程数。</p>
+<p>当需要并行自己的 C++ 热循环时，用 <code>cv::parallel_for_</code> 比直接绑死某个线程库更贴近 OpenCV 的构建方式。它依赖 OpenCV 编译时可用的并行后端，例如 TBB、OpenMP、平台线程或其他后端；是否可用要看构建信息。</p>
+<pre><code class="language-cpp">cv::parallel_for_(cv::Range(0, src.rows), [&amp;](const cv::Range&amp; range) {
+    for (int y = range.start; y &lt; range.end; ++y) {
+        const uchar* s = src.ptr&lt;uchar&gt;(y);
+        uchar* d = dst.ptr&lt;uchar&gt;(y);
+        for (int x = 0; x &lt; src.cols; ++x) {
+            d[x] = 255 - s[x];
+        }
+    }
+});
+</code></pre>
+<p>并行循环的边界是数据竞争。每个线程应写不同的行、块或输出缓冲；共享统计量用规约或线程局部变量，避免在像素循环里加锁。粒度太小会被调度开销淹没，粒度太大又会负载不均。卷积和形态学等有 halo 区域，边界依赖要单独处理。</p>
+<p>SIMD 层面，OpenCV 使用 HAL 和 Universal Intrinsics 为 SSE/AVX/NEON/RVV 等指令集提供统一封装。普通用户通常不需要直接写 Universal Intrinsics；先确认 <code>cv::useOptimized()</code> 为真、构建启用了 CPU dispatch，并使用内置函数。只有自定义算子成为明确热点且无法由已有函数表达时，才考虑手写 SIMD，并用标量实现校验对齐、尾部元素、ROI 步长和不同指令集。</p>
+<span class="heading-anchor" id="8.5 OpenCL UMat、CUDA GpuMat 与 Vulkan 边界"></span><h2 id="85-opencl-umatcuda-gpumat-vulkan">8.5 OpenCL UMat、CUDA GpuMat 与 Vulkan 边界</h2>
+<p>OpenCV 的透明 API（T-API）通过 <code>cv::UMat</code> 使用 OpenCL。收益取决于 OpenCV 是否以 <code>WITH_OPENCL</code> 构建、机器是否有 OpenCL 设备、函数是否有 OpenCL 实现、数据是否能留在设备上。每帧 <code>Mat -&gt; UMat -&gt; Mat</code> 往返通常会抵消加速。适合 <code>UMat</code> 的场景是多个支持 OpenCL 的算子串联，且中间结果不下载回 CPU。</p>
+<pre><code class="language-cpp">cv::UMat u, gray, edges;
+src.copyTo(u);
+cv::cvtColor(u, gray, cv::COLOR_BGR2GRAY);
+cv::GaussianBlur(gray, gray, cv::Size(5, 5), 1.2);
+cv::Canny(gray, edges, 80, 160);
+cv::Mat result = edges.getMat(cv::ACCESS_READ); // 只在最终边界下载
+</code></pre>
+<p>CUDA 使用 <code>cv::cuda::GpuMat</code>，但从 OpenCV 4.0 起，很多 CUDA 加速算法位于 <code>opencv_contrib</code> 的 CUDA 模块中。构建需 NVIDIA CUDA Toolkit、匹配编译器、<code>WITH_CUDA=ON</code>，并通过 <code>OPENCV_EXTRA_MODULES_PATH</code> 同时构建 contrib。DNN CUDA 还涉及 <code>OPENCV_DNN_CUDA</code>、cuDNN、cuBLAS。<code>GpuMat.upload()</code> 和 <code>download()</code> 是明确搬运边界；每个小算子都上传下载通常更慢。</p>
+<p>Vulkan 在 OpenCV 构建选项中属于可选且实验性的异构后端能力，需 <code>WITH_VULKAN</code>，并依赖平台驱动、Vulkan headers/loader 和具体模块支持。不能把“打开 Vulkan”理解成“所有 imgproc 自动走 Vulkan”。OpenCV 5 主线以当前源码和官方构建说明为准；4.12 以 <code>getBuildInformation()</code> 实际启用项为准。</p>
+<p>加速后端的判断原则：计算量大、数据能常驻设备、批量足够、同步少，才值得上设备；小图、小核、频繁 CPU 访问、复杂分支和大量 codec/GUI 边界，往往 CPU 更稳。</p>
+<span class="heading-anchor" id="8.6 图像与视频流水线并行"></span><h2 id="86">8.6 图像与视频流水线并行</h2>
+<p>视频系统常见瓶颈不是某个算子，而是流水线：采集或解码、预处理、推理或分析、绘制、编码、显示、写盘。把每帧串行处理会让最慢阶段决定吞吐。工程中可用有界队列拆成多阶段：</p>
+<pre><code class="language-text">capture/decode -&gt; preprocess -&gt; analyze -&gt; render/encode -&gt; sink
+</code></pre>
+<p>队列必须有界，否则短时阻塞会积压内存并增加延迟。实时摄像头通常丢旧帧，离线转码通常阻塞等待。多线程版本要记录端到端延迟、每阶段耗时、队列长度和丢帧数；只看 FPS 会掩盖延迟爆炸。服务端部署通常不要依赖 HighGUI。</p>
+<p>视频 I/O 要分清 OpenCV API 与实际 backend。<code>VideoCapture</code>/<code>VideoWriter</code> 可能走 FFmpeg、GStreamer、MSMF、AVFoundation、V4L2 等。同一 FourCC 在不同平台不一定可用；编码参数可能被 backend 忽略。排查时先打印 backend、帧宽高、FPS、FourCC 和第一帧形状。</p>
+<span class="heading-anchor" id="8.7 Build Information、CMake、contrib 与部署"></span><h2 id="87-build-informationcmakecontrib">8.7 Build Information、CMake、contrib 与部署</h2>
+<p><code>cv::getBuildInformation()</code> 是排障入口。它能回答 OpenCV 版本、编译器、C++ 标准、构建类型、CPU dispatch、并行框架、OpenCL、CUDA、Vulkan、JPEG/PNG/TIFF/WebP/OpenEXR、FFmpeg/GStreamer、GUI backend、Python 绑定、安装路径和模块列表。生产程序启动时建议保存精简构建信息。</p>
+<p>常用 CMake 构建思路：</p>
+<pre><code class="language-bash">cmake -S ../opencv -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_STANDARD=17 \
+  -DBUILD_TESTS=OFF \
+  -DBUILD_PERF_TESTS=OFF \
+  -DBUILD_EXAMPLES=OFF \
+  -DWITH_OPENCL=ON \
+  -DWITH_VULKAN=ON \
+  -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules
+cmake --build build --config Release --parallel
+cmake --install build
+</code></pre>
+<p>CUDA 构建需额外明确 <code>WITH_CUDA=ON</code>，并按显卡设置架构参数。包装发行时建议启用 <code>ENABLE_CONFIG_VERIFICATION=ON</code>，避免 CMake 静默找不到依赖后关掉功能。contrib 必须与 OpenCV 主仓库版本匹配；OpenCV 5 主线变化更快，最终以源码分支、构建日志和 build information 为准。</p>
+<p>部署时要控制 ABI。C++ 要确认编译器、标准库、运行时库、Debug/Release、OpenCV 动态库路径一致；Python 要确认 <code>cv2.__file__</code> 指向预期环境，避免系统包、conda、pip wheel 和自编译版本混用。容器要纳入 codec、GPU runtime、OpenCL ICD、Vulkan loader、字体、设备权限和动态库路径。日志至少保留输入、参数、随机种子、OpenCV 版本、构建摘要和异常栈。</p>
+<span class="heading-anchor" id="8.8 优化决策树"></span><h2 id="88">8.8 优化决策树</h2>
+<pre><code class="language-text">问题：程序慢
+|
++-- 无可重复基准：固定输入、预热、多次重复、记录 build information
+|
++-- 慢在 I/O 吗？
+|   +-- imread/video/decode/write/display 占主导：换 codec/backend、缓存、异步 I/O、减少显示和写盘
+|
++-- 慢在 Python 循环吗？
+|   +-- 是：改 OpenCV/NumPy 向量化，或移到 C++/Cython/Numba
+|
++-- 慢在复制/转换吗？
+|   +-- 是：减少 copy/clone/astype/cvtColor，复用 ROI，预分配 dst，把格式转换放到边界
+|
++-- 慢在内存带宽吗？
+|   +-- 是：检查连续内存、步长、缓存局部性、数据类型、融合简单 pass
+|
++-- 慢在计算吗？
+|   +-- 是：换算法、降分辨率/频率、用 separable/filter pyramid、启用线程/SIMD
+|
++-- 慢在同步吗？
+    +-- 是：减少锁、日志、GPU download、跨线程等待；重构流水线和队列
+</code></pre>
+<p>GPU/OpenCL/CUDA 子决策：轻量算子且立即回 CPU，优先 CPU；多个重计算算子、数据能留在设备、硬件和构建满足，再测 <code>UMat</code> 或 <code>GpuMat</code>。后端切换必须用端到端指标证明。</p>
+<span class="heading-anchor" id="8.9 常见故障排查表"></span><h2 id="89">8.9 常见故障排查表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>常见原因</th>
+<th>排查动作</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>imread</code> 空</td>
+<td>路径/权限/文件损坏/codec 缺失</td>
+<td>打印绝对路径，查 Media I/O</td>
+<td>修路径或启用 codec</td>
+</tr>
+<tr>
+<td>TIFF/WebP/OpenEXR 不能读</td>
+<td>构建缺库或格式禁用</td>
+<td>查 <code>getBuildInformation()</code></td>
+<td>重装或自编译</td>
+</tr>
+<tr>
+<td><code>imshow</code> 崩溃</td>
+<td>Headless、GUI 缺失、线程错误</td>
+<td>查 GUI backend</td>
+<td>非 GUI 输出或主线程显示</td>
+</tr>
+<tr>
+<td>摄像头打不开</td>
+<td>backend、权限、索引错误</td>
+<td>枚举设备，打印宽高 FPS</td>
+<td>调权限，换 CAP 后端</td>
+</tr>
+<tr>
+<td><code>VideoWriter</code> 输出坏</td>
+<td>FourCC/backend/宽高/FPS 错</td>
+<td>查 <code>isOpened()</code> 和首帧</td>
+<td>换编码，统一尺寸</td>
+</tr>
+<tr>
+<td>ABI 错</td>
+<td>Debug/Release、库路径、运行时冲突</td>
+<td>查 linked OpenCV 路径</td>
+<td>统一工具链和包</td>
+</tr>
+<tr>
+<td>颜色不对</td>
+<td>BGR/RGB 混用</td>
+<td>检查通道顺序</td>
+<td>边界 <code>cvtColor</code></td>
+</tr>
+<tr>
+<td>全黑或溢出</td>
+<td><code>uint8</code> 截断、float 范围错</td>
+<td>打印 dtype、min/max</td>
+<td>float 计算后裁剪</td>
+</tr>
+<tr>
+<td>尺寸不匹配</td>
+<td>ROI、resize、模型/视频尺寸不一</td>
+<td>打印 shape/size/channels</td>
+<td>统一契约，加断言</td>
+</tr>
+<tr>
+<td>GPU 没变快</td>
+<td>未编译、无实现、搬运频繁</td>
+<td>查构建，计 upload/download</td>
+<td>延长设备流水线</td>
+</tr>
+<tr>
+<td>多线程更慢</td>
+<td>过度订阅、锁、无界队列</td>
+<td>记录线程和队列长度</td>
+<td>限线程，拆阶段</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="8.10 生产检查表"></span><h2 id="810">8.10 生产检查表</h2>
+<p>发布前确认：版本和 <code>getBuildInformation()</code> 摘要已记录；Release 构建、CPU dispatch、并行框架、OpenCL/CUDA/Vulkan、codec、GUI/backend 与需求一致；输入路径、权限、格式、尺寸、通道、dtype、颜色空间都有断言；固定样本能区分 I/O、计算、复制、同步，并记录平均值、P95/P99 和端到端延迟；无无界队列，热路径不反复分配大缓冲；线程数可配置，退出能释放相机、窗口和编码器；加速能力都有编译条件、硬件条件和回退路径；动态库路径、Python 环境、容器权限、GPU runtime、OpenCL ICD、Vulkan loader、字体和 locale 可复现；异常日志包含输入、阶段、尺寸、dtype、backend、版本和参数；升级后能跑 smoke test。</p>
+<span class="heading-anchor" id="8.11 系统化排障流程"></span><h2 id="811">8.11 系统化排障流程</h2>
+<p>排障按“最小复现、分层隔离、替换变量”推进。第一步写 20 行以内脚本，只保留失败 API 和一张输入图；第二步打印版本、构建信息、路径、shape、dtype、min/max；第三步替换输入、换绝对路径、换 backend、关 GPU 或关多线程；第四步在干净环境中重装或自编译；第五步才怀疑 OpenCV bug，并准备源码版本、构建参数、最小输入和完整日志。</p>
+<p>性能排障也一样：先把读帧、算法、显示、写盘拆开计时；再把复制、转换、上传下载单独计时；最后再优化。不要在一个大循环里同时改算法、线程、GPU 和 codec，否则无法解释收益。优化要保留回退开关，例如 <code>--threads 1</code>、<code>--disable-opencl</code>、<code>--backend cpu</code>、<code>--no-display</code>。</p>
+<span class="heading-anchor" id="8.12 练习"></span><h2 id="812">8.12 练习</h2>
+<ol>
+<li>用 Python 实现逐像素阈值、NumPy 阈值和 <code>cv.threshold</code>，在 640x480、1080p、4K 上记录耗时并解释瓶颈。</li>
+<li>用 <code>TickMeter</code> 比较 <code>GaussianBlur</code>、<code>medianBlur</code>、<code>bilateralFilter</code> 在不同核大小下的曲线。</li>
+<li>对视频建立读取、预处理、分析、显示/写盘四阶段计时；加入有界队列后比较吞吐、延迟和队列长度。</li>
+<li>构造 ROI 非连续内存示例，对比错误线性遍历和按行 <code>ptr</code> 遍历。</li>
+<li>在支持 OpenCL 的机器上比较 <code>Mat</code> 与 <code>UMat</code>：每步下载、最后下载、全 CPU。</li>
+<li>自编译 OpenCV 4.12 或 5 主线，开启 <code>OPENCV_EXTRA_MODULES_PATH</code>，保存 CMake、build information 和最小程序日志。</li>
+<li>制造 BGR/RGB 错误、<code>uint8</code> 溢出、<code>VideoWriter</code> 尺寸不一致，并写检测断言和修复代码。</li>
+</ol>
+<span class="heading-anchor" id="官方资料"></span><h2 id="_1">官方资料</h2>
+<ul>
+<li>OpenCV configuration options reference：https://docs.opencv.org/4.12.0/db/d05/tutorial_config_reference.html</li>
+<li>OpenCV <code>parallel_for_</code> tutorial：https://docs.opencv.org/4.10.0/dc/ddf/tutorial_how_to_use_OpenCV_parallel_for_new.html</li>
+<li>OpenCV core utility reference：https://docs.opencv.org/4.x/d1/d4e/utility_8hpp.html</li>
+<li>OpenCV 5.0 transition guide：https://docs.opencv.org/5.0/tutorials/introduction/transition_guide/transition_guide.html</li>
+<li>Legacy OpenCV 3.0 transition guide：https://docs.opencv.org/4.12.0/db/dfa/tutorial_transition_guide.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

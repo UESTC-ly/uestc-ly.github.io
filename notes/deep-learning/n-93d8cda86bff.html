@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 08 课：Transformer 和 Self-Attention · 李杨的学习笔记</title><meta name="description" content="本课建立 Transformer 的整体结构与 Self-Attention 的计算直觉，重点理解 \(Q\) 、 \(K\) 、 \(V\) 、缩放点积注意力、多头注意力、因果掩码和 Transformer Block。"><meta property="og:title" content="第 08 课：Transformer 和 Self-Attention · 李杨的学习笔记"><meta property="og:description" content="本课建立 Transformer 的整体结构与 Self-Attention 的计算直觉，重点理解 \(Q\) 、 \(K\) 、 \(V\) 、缩放点积注意力、多头注意力、因果掩码和 Transformer Block。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-93d8cda86bff.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-93d8cda86bff.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 01-机器学习与深度学习基础</p><h1>第 08 课：Transformer 和 Self-Attention</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/01-%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/08-Transformer%E5%92%8CSelf-Attention.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 学习目标</a></li><li><a href="#2-transformer">2. Transformer 要解决什么问题</a></li><li><a href="#3">3. 输入表示</a></li><li><a href="#4-self-attention-qkv">4. Self-Attention 的核心：Q、K、V</a></li><li><a href="#41">4.1 搜索系统类比</a></li><li><a href="#5-scaled-dot-product-attention">5. Scaled Dot-Product Attention</a></li><li><a href="#51">5.1 第一步：计算匹配分数</a></li><li><a href="#52">5.2 第二步：缩放分数</a></li><li><a href="#53">5.3 第三步：得到注意力权重</a></li><li><a href="#54-value">5.4 第四步：汇总 Value</a></li><li><a href="#55">5.5 简化示例</a></li><li><a href="#6-self-attention">6. 为什么叫 Self-Attention</a></li><li><a href="#7-multi-head-attention">7. Multi-Head Attention</a></li><li><a href="#71">7.1 维度示例</a></li><li><a href="#8-causal-self-attention-mask">8. Causal Self-Attention 与 Mask</a></li><li><a href="#9-transformer-block">9. Transformer Block</a></li><li><a href="#91">9.1 残差连接</a></li><li><a href="#92-layer-normalization">9.2 Layer Normalization</a></li><li><a href="#93-feed-forward-network">9.3 Feed-Forward Network</a></li><li><a href="#10-encoderdecoder">10. Encoder、Decoder 与常见模型</a></li><li><a href="#101-encoder">10.1 Encoder</a></li><li><a href="#102-decoder">10.2 Decoder</a></li><li><a href="#103-encoder-decoder">10.3 Encoder-Decoder</a></li><li><a href="#11-pytorch-self-attention">11. PyTorch 手动实现单头 Self-Attention</a></li><li><a href="#111-mask">11.1 加入因果 Mask</a></li><li><a href="#12-transformer">12. Transformer 的优势</a></li><li><a href="#121">12.1 训练并行度高</a></li><li><a href="#122">12.2 长距离位置可直接交互</a></li><li><a href="#123">12.3 扩展能力强</a></li><li><a href="#124">12.4 适用范围广</a></li><li><a href="#13-transformer">13. Transformer 的局限</a></li><li><a href="#131">13.1 标准注意力的长序列成本较高</a></li><li><a href="#132">13.2 必须显式提供位置信息</a></li><li><a href="#133">13.3 注意力权重不等于完整解释</a></li><li><a href="#14">14. 常见误区</a></li><li><a href="#_1">误区一：注意力权重由人工设置</a></li><li><a href="#self-attention">误区二：Self-Attention 只关注距离较近的词</a></li><li><a href="#transformer">误区三：Transformer 在任何阶段都完全并行</a></li><li><a href="#_2">误区四：每个注意力头都有固定、明确的人类语义</a></li><li><a href="#_3">误区五：注意力权重就是模型决策原因</a></li><li><a href="#mask">误区六：Mask 只有一种</a></li><li><a href="#15">15. 核心知识链</a></li><li><a href="#16">16. 自测题</a></li><li><a href="#1-qkt-sqrtd_k">1. 为什么要将 \(QK^T\) 除以 \(\sqrt{d_k}\)？</a></li><li><a href="#2-qkv">2. Q、K、V 分别承担什么职责？</a></li><li><a href="#3-multi-head-attention">3. 为什么需要 Multi-Head Attention？</a></li><li><a href="#4-self-attention-cross-attention">4. Self-Attention 与 Cross-Attention 的区别是什么？</a></li><li><a href="#5-causal-mask">5. Causal Mask 有什么作用？</a></li><li><a href="#6-attention-ffn">6. Attention 与 FFN 的主要分工是什么？</a></li><li><a href="#7-self-attention">7. 标准 Self-Attention 的主要长序列问题是什么？</a></li><li><a href="#8-gpt-decoder-only">8. GPT 为什么属于 Decoder-only 模型？</a></li><li><a href="#17">17. 课后练习</a></li><li><a href="#18">18. 本课小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本课建立 Transformer 的整体结构与 Self-Attention 的计算直觉，重点理解 <span class="arithmatex">\(Q\)</span>、<span class="arithmatex">\(K\)</span>、<span class="arithmatex">\(V\)</span>、缩放点积注意力、多头注意力、因果掩码和 Transformer Block。</p>
+<p><strong>内容来源说明</strong>：项目现有资料仅提供了本课标题；以下知识整理自本次会话中的课程讲解，并基于通用 Transformer 知识补全，未引用项目中的外部资料。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 学习目标"></span><h2 id="1">1. 学习目标</h2>
+<p>完成本课后，应能够：</p>
+<ol>
+<li>解释 Transformer 相比 RNN 更容易并行训练的原因；</li>
+<li>说明 Self-Attention 如何让一个 Token 汇总其他 Token 的信息；</li>
+<li>解释 Query、Key、Value 的职责；</li>
+<li>写出并拆解缩放点积注意力公式；</li>
+<li>说明为什么要使用 Multi-Head Attention；</li>
+<li>区分 Self-Attention、Cross-Attention 和 Causal Self-Attention；</li>
+<li>描述 Transformer Block 的主要组成部分；</li>
+<li>解释标准 Self-Attention 处理长序列时的主要成本。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="2. Transformer 要解决什么问题"></span><h2 id="2-transformer">2. Transformer 要解决什么问题</h2>
+<p>在自然语言中，一个词的含义经常取决于上下文。例如：</p>
+<blockquote>
+<p>小明把书放在桌子上，因为它很重。</p>
+</blockquote>
+<p>模型处理“它”时，需要结合其他词的信息判断其所指对象。注意力机制的核心思想是：</p>
+<blockquote>
+<p>处理一个 Token 时，计算它与其他 Token 的相关程度，再按相关程度汇总上下文信息。</p>
+</blockquote>
+<p>传统 RNN 按顺序处理序列：</p>
+<div class="arithmatex">\[
+x_1 \rightarrow x_2 \rightarrow x_3 \rightarrow \cdots \rightarrow x_n
+\]</div>
+<p>这种结构有两个典型限制：</p>
+<ol>
+<li><strong>序列内并行困难</strong>：后一个时间步依赖前一个时间步的结果；</li>
+<li><strong>长距离信息传递路径较长</strong>：相距很远的两个位置需要经过多个中间状态。</li>
+</ol>
+<p>Self-Attention 则允许任意两个位置在同一层中直接建立联系：</p>
+<div class="arithmatex">\[
+x_i \leftrightarrow x_j
+\]</div>
+<p>这使 Transformer 在训练阶段可以并行处理序列中的多个位置，也更容易建模长距离依赖。</p>
+<blockquote>
+<p>注意：大语言模型训练时可以并行处理一个已知序列中的多个位置，但自回归生成时仍通常需要逐 Token 生成。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="3. 输入表示"></span><h2 id="3">3. 输入表示</h2>
+<p>假设输入序列包含 <span class="arithmatex">\(n\)</span> 个 Token，每个 Token 的表示维度为 <span class="arithmatex">\(d_{\text{model}}\)</span>，则输入矩阵可写为：</p>
+<div class="arithmatex">\[
+X\in\mathbb{R}^{n\times d_{\text{model}}}
+\]</div>
+<p>其中每一行对应一个 Token 的向量表示。</p>
+<p>Transformer 还必须获得位置信息，因为仅靠 Self-Attention 不能充分区分 Token 的先后顺序。输入通常可以概括为：</p>
+<div class="arithmatex">\[
+H_0=E_{\text{token}}+E_{\text{position}}
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(E_{\text{token}}\)</span>：Token Embedding；</li>
+<li><span class="arithmatex">\(E_{\text{position}}\)</span>：位置表示。</li>
+</ul>
+<p>位置编码的具体实现将在后续课程中展开。本课只需记住：</p>
+<ul>
+<li>Self-Attention 负责建立 Token 之间的联系；</li>
+<li>位置机制负责向模型提供顺序和距离信息。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. Self-Attention 的核心：Q、K、V"></span><h2 id="4-self-attention-qkv">4. Self-Attention 的核心：Q、K、V</h2>
+<p>模型对输入 <span class="arithmatex">\(X\)</span> 进行三组不同的线性变换：</p>
+<div class="arithmatex">\[
+Q=XW_Q
+\]</div>
+<div class="arithmatex">\[
+K=XW_K
+\]</div>
+<div class="arithmatex">\[
+V=XW_V
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(Q\)</span>：Query，查询；</li>
+<li><span class="arithmatex">\(K\)</span>：Key，键；</li>
+<li><span class="arithmatex">\(V\)</span>：Value，值；</li>
+<li><span class="arithmatex">\(W_Q\)</span>、<span class="arithmatex">\(W_K\)</span>、<span class="arithmatex">\(W_V\)</span>：通过训练学习的参数矩阵。</li>
+</ul>
+<span class="heading-anchor" id="4.1 搜索系统类比"></span><h3 id="41">4.1 搜索系统类比</h3>
+<p>可以把注意力过程类比为一次搜索：</p>
+<ul>
+<li><strong>Query</strong>：当前 Token 想寻找什么信息；</li>
+<li><strong>Key</strong>：每个 Token 用什么特征参与匹配；</li>
+<li><strong>Value</strong>：匹配成功后实际提供什么信息。</li>
+</ul>
+<p>对某个 Token 来说，计算过程是：</p>
+<ol>
+<li>用它的 Query 与所有 Token 的 Key 进行匹配；</li>
+<li>将匹配分数转换为注意力权重；</li>
+<li>使用权重对所有 Value 进行加权求和。</li>
+</ol>
+<p>Q、K、V 并不是人工指定的语义标签，而是模型在训练过程中学出的不同表示。</p>
+<hr/>
+<span class="heading-anchor" id="5. Scaled Dot-Product Attention"></span><h2 id="5-scaled-dot-product-attention">5. Scaled Dot-Product Attention</h2>
+<p>缩放点积注意力的完整公式为：</p>
+<div class="arithmatex">\[
+\operatorname{Attention}(Q,K,V)
+=
+\operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]</div>
+<p>其中 <span class="arithmatex">\(d_k\)</span> 是 Key 和 Query 的维度。</p>
+<span class="heading-anchor" id="5.1 第一步：计算匹配分数"></span><h3 id="51">5.1 第一步：计算匹配分数</h3>
+<div class="arithmatex">\[
+S=QK^T
+\]</div>
+<p>若：</p>
+<div class="arithmatex">\[
+Q\in\mathbb{R}^{n\times d_k},\qquad
+K^T\in\mathbb{R}^{d_k\times n}
+\]</div>
+<p>则：</p>
+<div class="arithmatex">\[
+S\in\mathbb{R}^{n\times n}
+\]</div>
+<p>矩阵元素 <span class="arithmatex">\(S_{ij}\)</span> 表示第 <span class="arithmatex">\(i\)</span> 个 Token 的 Query 与第 <span class="arithmatex">\(j\)</span> 个 Token 的 Key 的匹配分数。</p>
+<p>注意力矩阵的每一行因此表示：</p>
+<blockquote>
+<p>一个 Token 对序列中所有 Token 的关注分数。</p>
+</blockquote>
+<span class="heading-anchor" id="5.2 第二步：缩放分数"></span><h3 id="52">5.2 第二步：缩放分数</h3>
+<div class="arithmatex">\[
+\tilde{S}=\frac{QK^T}{\sqrt{d_k}}
+\]</div>
+<p>当 <span class="arithmatex">\(d_k\)</span> 较大时，点积的数值幅度也可能变大。若直接送入 Softmax，输出可能过度接近 0 或 1，使梯度变小并影响训练稳定性。</p>
+<p>除以 <span class="arithmatex">\(\sqrt{d_k}\)</span> 可以将分数控制在更合适的尺度，这也是“Scaled Dot-Product Attention”名称中“Scaled”的来源。</p>
+<span class="heading-anchor" id="5.3 第三步：得到注意力权重"></span><h3 id="53">5.3 第三步：得到注意力权重</h3>
+<div class="arithmatex">\[
+A=\operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)
+\]</div>
+<p>Softmax 通常沿矩阵的最后一个维度逐行计算，因此：</p>
+<div class="arithmatex">\[
+\sum_j A_{ij}=1
+\]</div>
+<p>例如，一个 Token 对三个位置的注意力权重可能是：</p>
+<div class="arithmatex">\[
+[0.1,\ 0.7,\ 0.2]
+\]</div>
+<p>这表示第二个位置对当前 Token 的信息汇总贡献最大。</p>
+<span class="heading-anchor" id="5.4 第四步：汇总 Value"></span><h3 id="54-value">5.4 第四步：汇总 Value</h3>
+<div class="arithmatex">\[
+O=AV
+\]</div>
+<p>对第 <span class="arithmatex">\(i\)</span> 个 Token 而言：</p>
+<div class="arithmatex">\[
+o_i=\sum_j A_{ij}v_j
+\]</div>
+<p>因此，输出 <span class="arithmatex">\(o_i\)</span> 不再只包含第 <span class="arithmatex">\(i\)</span> 个 Token 自身的信息，而是融合了上下文中其他 Token 的信息。</p>
+<span class="heading-anchor" id="5.5 简化示例"></span><h3 id="55">5.5 简化示例</h3>
+<p>假设输入为：</p>
+<blockquote>
+<p>我 爱 AI</p>
+</blockquote>
+<p>模型为“爱”得到的注意力权重为：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Query：爱</th>
+<th>我</th>
+<th>爱</th>
+<th>AI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>注意力权重</td>
+<td>0.1</td>
+<td>0.2</td>
+<td>0.7</td>
+</tr>
+</tbody>
+</table></div>
+<p>则“爱”的新表示可以近似写成：</p>
+<div class="arithmatex">\[
+o_{\text{爱}}
+=0.1v_{\text{我}}+0.2v_{\text{爱}}+0.7v_{\text{AI}}
+\]</div>
+<p>这些权重由模型根据输入动态计算，而不是由人工预先设置。</p>
+<hr/>
+<span class="heading-anchor" id="6. 为什么叫 Self-Attention"></span><h2 id="6-self-attention">6. 为什么叫 Self-Attention</h2>
+<p>在 Self-Attention 中，Q、K、V 都来自同一个输入序列：</p>
+<div class="arithmatex">\[
+Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V
+\]</div>
+<p>也就是说，序列中的 Token 在序列内部相互关注，因此称为 <strong>Self-Attention</strong>。</p>
+<p>如果 Query 来自一个序列，而 Key 和 Value 来自另一个序列，则称为 <strong>Cross-Attention</strong>。例如在经典的 Encoder-Decoder 翻译模型中：</p>
+<ul>
+<li>Decoder 当前状态提供 Query；</li>
+<li>Encoder 的输出提供 Key 和 Value；</li>
+<li>Decoder 借此读取源语言序列的信息。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. Multi-Head Attention"></span><h2 id="7-multi-head-attention">7. Multi-Head Attention</h2>
+<p>单次注意力只能在一组投影空间中计算关系。Multi-Head Attention 使用多组独立投影并行计算：</p>
+<div class="arithmatex">\[
+\operatorname{head}_i
+=
+\operatorname{Attention}(Q_i,K_i,V_i)
+\]</div>
+<p>然后拼接各个头的输出并再次进行线性变换：</p>
+<div class="arithmatex">\[
+\operatorname{MultiHead}(Q,K,V)
+=
+\operatorname{Concat}(\operatorname{head}_1,\ldots,\operatorname{head}_h)W_O
+\]</div>
+<p>不同注意力头可以学习不同类型的关系，例如：</p>
+<ul>
+<li>相邻位置关系；</li>
+<li>长距离依赖；</li>
+<li>指代关系；</li>
+<li>句法或语义关系。</li>
+</ul>
+<p>这些分工只是可能出现的学习结果，并非人为固定，也不能保证每个头都有容易解释的单一职责。</p>
+<span class="heading-anchor" id="7.1 维度示例"></span><h3 id="71">7.1 维度示例</h3>
+<p>假设：</p>
+<div class="arithmatex">\[
+d_{\text{model}}=512,\qquad h=8
+\]</div>
+<p>常见配置是每个头的维度为：</p>
+<div class="arithmatex">\[
+d_k=d_v=\frac{512}{8}=64
+\]</div>
+<p>8 个头分别输出 64 维表示，拼接后恢复为 512 维，再经过输出投影 <span class="arithmatex">\(W_O\)</span>。</p>
+<hr/>
+<span class="heading-anchor" id="8. Causal Self-Attention 与 Mask"></span><h2 id="8-causal-self-attention-mask">8. Causal Self-Attention 与 Mask</h2>
+<p>自回归语言模型预测当前位置时不能看到未来 Token，否则训练时会发生答案泄漏。因此 Decoder-only 模型通常使用 <strong>Causal Mask</strong>。</p>
+<p>长度为 4 的序列，其可见关系可以表示为：</p>
+<pre><code class="language-text">Token 1：✓ × × ×
+Token 2：✓ ✓ × ×
+Token 3：✓ ✓ ✓ ×
+Token 4：✓ ✓ ✓ ✓
+</code></pre>
+<p>在 Softmax 之前，把未来位置的分数设置为负无穷：</p>
+<div class="arithmatex">\[
+S_{ij}=-\infty,\qquad j&gt;i
+\]</div>
+<p>经过 Softmax 后，这些位置的权重变成 0：</p>
+<div class="arithmatex">\[
+\operatorname{softmax}(-\infty)=0
+\]</div>
+<p>因此，预测第 <span class="arithmatex">\(t\)</span> 个 Token 时，模型只能使用此前的 Token：</p>
+<div class="arithmatex">\[
+P(x_t\mid x_1,x_2,\ldots,x_{t-1})
+\]</div>
+<p>GPT 类模型的核心可以概括为：</p>
+<blockquote>
+<p>堆叠多层使用 Causal Self-Attention 的 Transformer Block，并以自回归方式预测下一个 Token。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="9. Transformer Block"></span><h2 id="9-transformer-block">9. Transformer Block</h2>
+<p>一个典型的 Transformer Block 主要包含：</p>
+<ol>
+<li>Multi-Head Self-Attention；</li>
+<li>残差连接；</li>
+<li>Layer Normalization；</li>
+<li>Feed-Forward Network；</li>
+<li>第二组残差连接和归一化。</li>
+</ol>
+<p>简化结构如下：</p>
+<pre><code class="language-text">输入
+  │
+  ├── Multi-Head Self-Attention
+  │
+  ├── Residual + LayerNorm
+  │
+  ├── Feed-Forward Network
+  │
+  └── Residual + LayerNorm
+  │
+输出
+</code></pre>
+<p>原始 Transformer 常用 Post-Norm，而很多现代模型使用 Pre-Norm。Pre-Norm 的简化流程为：</p>
+<pre><code class="language-text">输入
+  │
+LayerNorm
+  │
+Attention
+  │
+残差相加
+  │
+LayerNorm
+  │
+Feed-Forward
+  │
+残差相加
+</code></pre>
+<span class="heading-anchor" id="9.1 残差连接"></span><h3 id="91">9.1 残差连接</h3>
+<p>残差连接的形式为：</p>
+<div class="arithmatex">\[
+Y=X+F(X)
+\]</div>
+<p>它有助于：</p>
+<ul>
+<li>保留原始信息；</li>
+<li>改善梯度传播；</li>
+<li>训练更深的网络。</li>
+</ul>
+<span class="heading-anchor" id="9.2 Layer Normalization"></span><h3 id="92-layer-normalization">9.2 Layer Normalization</h3>
+<p>LayerNorm 对单个样本中每个 Token 的特征维度进行归一化，帮助稳定训练。</p>
+<p>与 BatchNorm 相比：</p>
+<ul>
+<li>BatchNorm 通常依赖批次统计量；</li>
+<li>LayerNorm 不依赖其他样本的批次统计量；</li>
+<li>Transformer 通常使用 LayerNorm 或其变体。</li>
+</ul>
+<span class="heading-anchor" id="9.3 Feed-Forward Network"></span><h3 id="93-feed-forward-network">9.3 Feed-Forward Network</h3>
+<p>注意力模块之后，每个 Token 的表示还会独立通过同一组前馈网络：</p>
+<div class="arithmatex">\[
+\operatorname{FFN}(x)=\sigma(xW_1+b_1)W_2+b_2
+\]</div>
+<p>常见结构是先升维再降维：</p>
+<div class="arithmatex">\[
+d_{\text{model}}\rightarrow d_{\text{ff}}\rightarrow d_{\text{model}}
+\]</div>
+<p>例如：</p>
+<div class="arithmatex">\[
+768\rightarrow3072\rightarrow768
+\]</div>
+<p>可以用下面的方式理解二者分工：</p>
+<ul>
+<li><strong>Attention</strong>：在不同 Token 之间交换和汇总信息；</li>
+<li><strong>FFN</strong>：对每个 Token 已汇总的表示进一步进行非线性加工。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. Encoder、Decoder 与常见模型"></span><h2 id="10-encoderdecoder">10. Encoder、Decoder 与常见模型</h2>
+<span class="heading-anchor" id="10.1 Encoder"></span><h3 id="101-encoder">10.1 Encoder</h3>
+<p>Encoder 通常使用非因果的双向 Self-Attention，每个 Token 可以关注其前后位置。</p>
+<p>常见用途包括：</p>
+<ul>
+<li>文本理解；</li>
+<li>文本分类；</li>
+<li>Token 分类；</li>
+<li>生成语义向量。</li>
+</ul>
+<p>BERT 是典型的 Encoder-only 模型。</p>
+<span class="heading-anchor" id="10.2 Decoder"></span><h3 id="102-decoder">10.2 Decoder</h3>
+<p>Decoder 在自回归生成时使用 Causal Self-Attention，每个位置只能读取自己及之前的位置。</p>
+<p>GPT 类模型是典型的 Decoder-only 模型。</p>
+<span class="heading-anchor" id="10.3 Encoder-Decoder"></span><h3 id="103-encoder-decoder">10.3 Encoder-Decoder</h3>
+<p>经典 Transformer 同时包含 Encoder 和 Decoder：</p>
+<ul>
+<li>Encoder 读取并编码输入序列；</li>
+<li>Decoder 使用因果自注意力读取已生成内容；</li>
+<li>Decoder 再通过 Cross-Attention 读取 Encoder 输出。</li>
+</ul>
+<p>这类结构适合翻译、摘要等输入到输出的序列转换任务。T5 是常见的 Encoder-Decoder 模型。</p>
+<hr/>
+<span class="heading-anchor" id="11. PyTorch 手动实现单头 Self-Attention"></span><h2 id="11-pytorch-self-attention">11. PyTorch 手动实现单头 Self-Attention</h2>
+<p>下面的代码展示 Self-Attention 的核心计算步骤：</p>
+<pre><code class="language-python">import math
+
+import torch
+import torch.nn as nn
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, d_model: int, d_k: int):
+        super().__init__()
+
+        self.d_k = d_k
+        self.w_q = nn.Linear(d_model, d_k)
+        self.w_k = nn.Linear(d_model, d_k)
+        self.w_v = nn.Linear(d_model, d_k)
+
+    def forward(self, x, mask=None):
+        # x: [batch_size, seq_len, d_model]
+        q = self.w_q(x)
+        k = self.w_k(x)
+        v = self.w_v(x)
+
+        # [batch_size, seq_len, seq_len]
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        scores = scores / math.sqrt(self.d_k)
+
+        # mask 中 True 表示可见，False 表示屏蔽
+        if mask is not None:
+            scores = scores.masked_fill(~mask, float("-inf"))
+
+        # 对 Key 所在的最后一个维度进行 Softmax
+        attention_weights = torch.softmax(scores, dim=-1)
+
+        # [batch_size, seq_len, d_k]
+        output = torch.matmul(attention_weights, v)
+
+        return output, attention_weights
+
+
+batch_size = 2
+seq_len = 4
+d_model = 8
+d_k = 8
+
+x = torch.randn(batch_size, seq_len, d_model)
+attention = SelfAttention(d_model, d_k)
+
+output, weights = attention(x)
+
+print("输入形状：", x.shape)
+print("输出形状：", output.shape)
+print("注意力权重形状：", weights.shape)
+</code></pre>
+<p>预期形状为：</p>
+<pre><code class="language-text">输入形状：       [2, 4, 8]
+输出形状：       [2, 4, 8]
+注意力权重形状： [2, 4, 4]
+</code></pre>
+<p>注意力权重最后两个维度都是 <code>seq_len</code>，分别表示 Query 位置和 Key 位置。</p>
+<span class="heading-anchor" id="11.1 加入因果 Mask"></span><h3 id="111-mask">11.1 加入因果 Mask</h3>
+<pre><code class="language-python">causal_mask = torch.tril(
+    torch.ones(seq_len, seq_len, dtype=torch.bool)
+)
+
+# 扩展为 [1, seq_len, seq_len]，可在 batch 维广播
+causal_mask = causal_mask.unsqueeze(0)
+
+output, weights = attention(x, mask=causal_mask)
+print(weights[0])
+</code></pre>
+<p><code>torch.tril</code> 生成下三角矩阵：</p>
+<pre><code class="language-text">1 0 0 0
+1 1 0 0
+1 1 1 0
+1 1 1 1
+</code></pre>
+<p>因此每个位置只能关注自己和之前的位置。</p>
+<blockquote>
+<p>实际工程中还可能同时使用 Padding Mask，以屏蔽补齐序列长度所产生的 Padding Token。因果 Mask 与 Padding Mask 解决的是不同问题。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="12. Transformer 的优势"></span><h2 id="12-transformer">12. Transformer 的优势</h2>
+<span class="heading-anchor" id="12.1 训练并行度高"></span><h3 id="121">12.1 训练并行度高</h3>
+<p>在已知完整训练序列时，多个 Token 的表示可以同时计算，不必像 RNN 那样严格逐时间步执行。</p>
+<span class="heading-anchor" id="12.2 长距离位置可直接交互"></span><h3 id="122">12.2 长距离位置可直接交互</h3>
+<p>任意两个 Token 可以在一层注意力中直接建立联系，信息传递路径较短。</p>
+<span class="heading-anchor" id="12.3 扩展能力强"></span><h3 id="123">12.3 扩展能力强</h3>
+<p>Transformer 可以通过增加数据、参数、层数、隐藏维度和计算量扩展模型能力。</p>
+<span class="heading-anchor" id="12.4 适用范围广"></span><h3 id="124">12.4 适用范围广</h3>
+<p>Transformer 不只用于文本，还可用于：</p>
+<ul>
+<li>图像；</li>
+<li>语音；</li>
+<li>视频；</li>
+<li>多模态任务；</li>
+<li>时间序列。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="13. Transformer 的局限"></span><h2 id="13-transformer">13. Transformer 的局限</h2>
+<span class="heading-anchor" id="13.1 标准注意力的长序列成本较高"></span><h3 id="131">13.1 标准注意力的长序列成本较高</h3>
+<p>长度为 <span class="arithmatex">\(n\)</span> 的序列会产生一个 <span class="arithmatex">\(n\times n\)</span> 的注意力分数矩阵，因此注意力矩阵的时间和显存开销通常包含近似二次项：</p>
+<div class="arithmatex">\[
+O(n^2)
+\]</div>
+<p>更完整地看，注意力计算还与特征维度有关，但序列长度带来的核心问题是 <span class="arithmatex">\(n^2\)</span> 项。若序列长度从 1,000 增加到 2,000，注意力矩阵的元素数量约变为原来的 4 倍。</p>
+<span class="heading-anchor" id="13.2 必须显式提供位置信息"></span><h3 id="132">13.2 必须显式提供位置信息</h3>
+<p>Self-Attention 本身不具备足够的顺序感知能力，需要位置编码、位置 Embedding 或旋转位置编码等机制。</p>
+<span class="heading-anchor" id="13.3 注意力权重不等于完整解释"></span><h3 id="133">13.3 注意力权重不等于完整解释</h3>
+<p>注意力权重可以帮助观察某一层、某个头关注了哪些位置，但不能直接当作模型决策的完整因果解释。最终输出还受到以下因素影响：</p>
+<ul>
+<li>多个注意力头；</li>
+<li>多层 Transformer Block；</li>
+<li>残差连接；</li>
+<li>FFN；</li>
+<li>输出层及其他模块。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="14. 常见误区"></span><h2 id="14">14. 常见误区</h2>
+<span class="heading-anchor" id="误区一：注意力权重由人工设置"></span><h3 id="_1">误区一：注意力权重由人工设置</h3>
+<p>错误。权重由输入对应的 Q、K 动态计算，而生成 Q、K、V 的投影矩阵通过训练学习。</p>
+<span class="heading-anchor" id="误区二：Self-Attention 只关注距离较近的词"></span><h3 id="self-attention">误区二：Self-Attention 只关注距离较近的词</h3>
+<p>错误。标准 Self-Attention 可以直接比较序列中的任意两个位置；是否重点关注近邻由训练结果和输入共同决定。</p>
+<span class="heading-anchor" id="误区三：Transformer 在任何阶段都完全并行"></span><h3 id="transformer">误区三：Transformer 在任何阶段都完全并行</h3>
+<p>错误。训练阶段可以并行处理已知序列中的多个位置，但自回归生成通常仍按 Token 逐步进行。</p>
+<span class="heading-anchor" id="误区四：每个注意力头都有固定、明确的人类语义"></span><h3 id="_2">误区四：每个注意力头都有固定、明确的人类语义</h3>
+<p>不一定。不同头可能学习不同模式，但这些模式不由人工固定，也不保证都能用单一语义解释。</p>
+<span class="heading-anchor" id="误区五：注意力权重就是模型决策原因"></span><h3 id="_3">误区五：注意力权重就是模型决策原因</h3>
+<p>不准确。它只反映特定层和特定头中的信息混合权重，不是模型全部计算过程的完整解释。</p>
+<span class="heading-anchor" id="误区六：Mask 只有一种"></span><h3 id="mask">误区六：Mask 只有一种</h3>
+<p>错误。常见 Mask 至少包括：</p>
+<ul>
+<li>Causal Mask：防止当前位置看到未来 Token；</li>
+<li>Padding Mask：防止模型关注补齐长度的 Padding Token。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="15. 核心知识链"></span><h2 id="15">15. 核心知识链</h2>
+<pre><code class="language-text">Token
+  ↓
+Token Embedding + Position
+  ↓
+线性投影得到 Q、K、V
+  ↓
+Q 与 K 计算匹配分数
+  ↓
+除以 √d_k 进行缩放
+  ↓
+必要时应用 Mask
+  ↓
+Softmax 得到注意力权重
+  ↓
+使用权重汇总 V
+  ↓
+多个注意力头拼接并投影
+  ↓
+残差连接、LayerNorm、FFN
+  ↓
+重复堆叠多个 Transformer Block
+</code></pre>
+<p>必须掌握的两个公式是：</p>
+<div class="arithmatex">\[
+Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V
+\]</div>
+<div class="arithmatex">\[
+\operatorname{Attention}(Q,K,V)
+=
+\operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]</div>
+<hr/>
+<span class="heading-anchor" id="16. 自测题"></span><h2 id="16">16. 自测题</h2>
+<span class="heading-anchor" id="1. 为什么要将 \(QK^T\) 除以 \(\sqrt{d_k}\)？"></span><h3 id="1-qkt-sqrtd_k">1. 为什么要将 <span class="arithmatex">\(QK^T\)</span> 除以 <span class="arithmatex">\(\sqrt{d_k}\)</span>？</h3>
+<details>
+<summary>参考答案</summary>
+
+当维度较大时，点积结果的幅度可能变大，使 Softmax 输出过度饱和并影响梯度。缩放可以改善数值范围和训练稳定性。
+
+</details>
+<span class="heading-anchor" id="2. Q、K、V 分别承担什么职责？"></span><h3 id="2-qkv">2. Q、K、V 分别承担什么职责？</h3>
+<details>
+<summary>参考答案</summary>
+
+- Query 表示当前 Token 想匹配什么信息；
+- Key 表示每个 Token 用什么特征参与匹配；
+- Value 表示匹配后实际参与加权汇总的信息。
+
+</details>
+<span class="heading-anchor" id="3. 为什么需要 Multi-Head Attention？"></span><h3 id="3-multi-head-attention">3. 为什么需要 Multi-Head Attention？</h3>
+<details>
+<summary>参考答案</summary>
+
+它让模型在多个投影子空间中并行学习不同类型的 Token 关系，再将多个头的信息进行整合。
+
+</details>
+<span class="heading-anchor" id="4. Self-Attention 与 Cross-Attention 的区别是什么？"></span><h3 id="4-self-attention-cross-attention">4. Self-Attention 与 Cross-Attention 的区别是什么？</h3>
+<details>
+<summary>参考答案</summary>
+
+Self-Attention 的 Q、K、V 来自同一个序列；Cross-Attention 的 Query 与 Key、Value 来自不同序列或不同模块。
+
+</details>
+<span class="heading-anchor" id="5. Causal Mask 有什么作用？"></span><h3 id="5-causal-mask">5. Causal Mask 有什么作用？</h3>
+<details>
+<summary>参考答案</summary>
+
+它屏蔽未来位置，保证自回归模型预测当前位置时只能使用当前及此前的信息，避免看到未来答案。
+
+</details>
+<span class="heading-anchor" id="6. Attention 与 FFN 的主要分工是什么？"></span><h3 id="6-attention-ffn">6. Attention 与 FFN 的主要分工是什么？</h3>
+<details>
+<summary>参考答案</summary>
+
+Attention 在不同 Token 之间交换和汇总信息；FFN 对每个 Token 已汇总的表示独立进行非线性加工。
+
+</details>
+<span class="heading-anchor" id="7. 标准 Self-Attention 的主要长序列问题是什么？"></span><h3 id="7-self-attention">7. 标准 Self-Attention 的主要长序列问题是什么？</h3>
+<details>
+<summary>参考答案</summary>
+
+长度为 $n$ 的序列会产生 $n\times n$ 的注意力矩阵，时间和显存开销中包含近似 $O(n^2)$ 的序列长度项。
+
+</details>
+<span class="heading-anchor" id="8. GPT 为什么属于 Decoder-only 模型？"></span><h3 id="8-gpt-decoder-only">8. GPT 为什么属于 Decoder-only 模型？</h3>
+<details>
+<summary>参考答案</summary>
+
+GPT 堆叠带有 Causal Self-Attention 的 Transformer Block，根据已有 Token 自回归地预测下一个 Token，不使用单独的双向 Encoder。
+
+</details>
+<hr/>
+<span class="heading-anchor" id="17. 课后练习"></span><h2 id="17">17. 课后练习</h2>
+<ol>
+<li>运行单头 Self-Attention 代码，检查注意力矩阵每一行的和是否接近 1；</li>
+<li>分别在有、无 Causal Mask 时打印注意力权重，观察未来位置是否变为 0；</li>
+<li>将 <code>seq_len</code> 从 4 增加到 8，观察注意力矩阵形状如何变化；</li>
+<li>尝试将 <code>d_model</code> 与 <code>d_k</code> 设为不同值，确认输入、Q/K/V 和输出的形状；</li>
+<li>用自己的语言解释为什么“训练可并行”不等于“自回归生成也可完全并行”。</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="18. 本课小结"></span><h2 id="18">18. 本课小结</h2>
+<p>Transformer 使用 Self-Attention 计算 Token 之间的相关性，并按注意力权重汇总 Value，从而为每个 Token 构造包含上下文的信息表示。Multi-Head Attention 使模型能在多个表示子空间中学习关系；位置机制补充顺序信息；Causal Mask 防止自回归模型读取未来 Token；残差连接、LayerNorm 和 FFN 则共同组成可深度堆叠的 Transformer Block。</p>
+<p>一句话概括：</p>
+<blockquote>
+<p>Transformer 的核心是让每个 Token 动态选择并汇总上下文信息，再通过多头机制和多层 Block 逐步加工这些表示。</p>
+</blockquote></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

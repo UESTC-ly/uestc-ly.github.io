@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-进程线程与调度 · 李杨的学习笔记</title><meta name="description" content="本章解释“程序如何运行”。你会看到：程序、进程、线程、协程不是同义词；调度器决定谁使用 CPU；上下文切换有真实成本；线程过多不一定更快。"><meta property="og:title" content="03-进程线程与调度 · 李杨的学习笔记"><meta property="og:description" content="本章解释“程序如何运行”。你会看到：程序、进程、线程、协程不是同义词；调度器决定谁使用 CPU；上下文切换有真实成本；线程过多不一定更快。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-bca5d2229b7b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-bca5d2229b7b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>03-进程线程与调度</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/03-%E8%BF%9B%E7%A8%8B%E7%BA%BF%E7%A8%8B%E4%B8%8E%E8%B0%83%E5%BA%A6.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">程序、进程、线程、协程</a></li><li><a href="#_3">程序</a></li><li><a href="#_4">进程</a></li><li><a href="#_5">线程</a></li><li><a href="#_6">协程</a></li><li><a href="#_7">进程地址空间</a></li><li><a href="#forkexecwait">fork、exec、wait</a></li><li><a href="#fork">为什么 fork 后不立刻复制全部内存</a></li><li><a href="#_8">僵尸进程</a></li><li><a href="#_9">线程共享与私有</a></li><li><a href="#_10">上下文切换</a></li><li><a href="#_11">进程状态</a></li><li><a href="#_12">调度目标</a></li><li><a href="#_13">时间片</a></li><li><a href="#_14">实践任务</a></li><li><a href="#_15">自测题</a></li><li><a href="#_16">补充深入讲解</a></li><li><a href="#_17">从零开始理解：进程像“房间”，线程像“房间里干活的人”</a></li><li><a href="#_18">为什么线程不是越多越好</a></li><li><a href="#io-cpu">I/O 密集和 CPU 密集的区别</a></li><li><a href="#web">一个 Web 请求中的线程状态变化</a></li><li><a href="#1">1. 接收连接：线程可能先处于等待状态</a></li><li><a href="#2">2. 线程池取任务：进入运行态</a></li><li><a href="#3">3. 读取请求体：等待客户端数据</a></li><li><a href="#4">4. 查询数据库：等待另一个服务返回</a></li><li><a href="#5">5. 竞争锁：等待进程内的共享资源</a></li><li><a href="#6-cpu">6. 业务计算：真正占用 CPU</a></li><li><a href="#7">7. 写响应：可能等待客户端接收</a></li><li><a href="#8">8. 请求结束：线程回到线程池</a></li><li><a href="#_19">一条完整的状态时间线</a></li><li><a href="#_20">如何判断请求到底慢在哪里？</a></li><li><a href="#_21">思维导图</a></li><li><a href="#1_1">1. 程序、进程、线程、协程</a></li><li><a href="#2-forkexecwait">2. fork、exec、wait 主线</a></li><li><a href="#3_1">3. 调度与上下文切换</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>本章解释“程序如何运行”。你会看到：程序、进程、线程、协程不是同义词；调度器决定谁使用 CPU；上下文切换有真实成本；线程过多不一定更快。</p>
+<p>你应该能回答：</p>
+<ul>
+<li>程序和进程有什么区别？</li>
+<li>线程共享什么、私有什么？</li>
+<li>fork/exec/wait 如何配合？</li>
+<li>调度器为什么需要时间片？</li>
+<li>上下文切换为什么会拖慢程序？</li>
+</ul>
+<span class="heading-anchor" id="程序、进程、线程、协程"></span><h2 id="_2">程序、进程、线程、协程</h2>
+<span class="heading-anchor" id="程序"></span><h3 id="_3">程序</h3>
+<p>程序是磁盘上的静态文件，例如 <code>/bin/ls</code> 或 <code>./server</code>。它包含代码、数据、符号、动态链接信息等。</p>
+<span class="heading-anchor" id="进程"></span><h3 id="_4">进程</h3>
+<p>进程是正在运行的程序实例。它有：</p>
+<ul>
+<li>独立虚拟地址空间。</li>
+<li>文件描述符表。</li>
+<li>进程 ID。</li>
+<li>权限、资源限制、信号处理。</li>
+<li>至少一个执行线程。</li>
+</ul>
+<p>进程更像“资源容器”。</p>
+<span class="heading-anchor" id="线程"></span><h3 id="_5">线程</h3>
+<p>线程是进程内的执行流。线程共享进程的地址空间和资源，但有自己的栈、寄存器和调度状态。</p>
+<p>线程更像“CPU 执行单位”。</p>
+<span class="heading-anchor" id="协程"></span><h3 id="_6">协程</h3>
+<p>协程通常由语言运行时在用户态调度。例如 Go 的 goroutine、Python asyncio task。协程切换成本低，但如果底层系统调用阻塞，运行时必须有办法避免整个线程被卡住。</p>
+<span class="heading-anchor" id="进程地址空间"></span><h2 id="_7">进程地址空间</h2>
+<p>一个进程通常有这些区域：</p>
+<pre><code class="language-text">高地址
+  栈：函数调用帧、局部变量
+  mmap：动态库、文件映射、匿名映射
+  堆：malloc/new 分配
+  BSS：未初始化全局变量
+  Data：已初始化全局变量
+  Text：代码段
+低地址
+</code></pre>
+<p>虚拟地址空间让每个进程都像独占内存。实际上，OS 通过页表把虚拟页映射到物理页。</p>
+<span class="heading-anchor" id="fork、exec、wait"></span><h2 id="forkexecwait">fork、exec、wait</h2>
+<p>Unix 创建新程序常用三步：</p>
+<pre><code class="language-text">fork：复制当前进程，得到子进程
+exec：子进程加载新程序，替换地址空间
+wait：父进程等待并回收子进程退出状态
+</code></pre>
+<span class="heading-anchor" id="为什么 fork 后不立刻复制全部内存"></span><h3 id="fork">为什么 fork 后不立刻复制全部内存</h3>
+<p>现代 OS 使用写时复制。父子进程先共享物理页，只有写入时才复制。这样 <code>fork</code> 很快，特别适合 fork 后立刻 exec 的场景。</p>
+<span class="heading-anchor" id="僵尸进程"></span><h3 id="_8">僵尸进程</h3>
+<p>子进程退出后，内核保留退出状态，等待父进程 <code>wait</code>。如果父进程一直不回收，子进程就变成僵尸进程。僵尸进程不占用大量内存，但占用 PID 和少量内核结构。</p>
+<span class="heading-anchor" id="线程共享与私有"></span><h2 id="_9">线程共享与私有</h2>
+<p>线程共享：</p>
+<ul>
+<li>代码段、堆、全局变量。</li>
+<li>文件描述符。</li>
+<li>进程级信号处理配置。</li>
+<li>当前工作目录等。</li>
+</ul>
+<p>线程私有：</p>
+<ul>
+<li>栈。</li>
+<li>寄存器。</li>
+<li>程序计数器。</li>
+<li>线程局部存储。</li>
+<li>调度状态。</li>
+</ul>
+<p>因此，一个线程写坏堆内存，可能导致整个进程崩溃。这就是线程通信方便但隔离弱的代价。</p>
+<span class="heading-anchor" id="上下文切换"></span><h2 id="_10">上下文切换</h2>
+<p>CPU 同一时刻每个核心只能运行一个执行流。调度器切换任务时，需要：</p>
+<ol>
+<li>保存当前任务寄存器、PC、SP。</li>
+<li>切换内核栈和调度状态。</li>
+<li>可能切换地址空间。</li>
+<li>恢复下一个任务上下文。</li>
+<li>返回用户态继续执行。</li>
+</ol>
+<p>成本不仅是保存寄存器，还包括 cache/TLB 局部性丢失。线程太多、锁竞争、频繁阻塞会造成大量上下文切换。</p>
+<span class="heading-anchor" id="进程状态"></span><h2 id="_11">进程状态</h2>
+<p>常见状态：</p>
+<ul>
+<li>新建：正在创建。</li>
+<li>就绪：等待 CPU。</li>
+<li>运行：正在 CPU 上执行。</li>
+<li>阻塞：等待 I/O、锁、事件。</li>
+<li>终止：执行完毕，等待回收。</li>
+</ul>
+<p>Linux 常见状态：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R</td>
+<td>正在运行或就绪</td>
+</tr>
+<tr>
+<td>S</td>
+<td>可中断睡眠</td>
+</tr>
+<tr>
+<td>D</td>
+<td>不可中断睡眠，常见于 I/O 等待</td>
+</tr>
+<tr>
+<td>Z</td>
+<td>僵尸</td>
+</tr>
+<tr>
+<td>T</td>
+<td>停止/被跟踪</td>
+</tr>
+</tbody>
+</table></div>
+<p>大量 D 状态会拉高 load，但 CPU 不一定高。</p>
+<span class="heading-anchor" id="调度目标"></span><h2 id="_12">调度目标</h2>
+<p>不同系统调度目标不同：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>桌面</td>
+<td>响应快</td>
+</tr>
+<tr>
+<td>批处理</td>
+<td>吞吐高</td>
+</tr>
+<tr>
+<td>实时系统</td>
+<td>满足截止时间</td>
+</tr>
+<tr>
+<td>Web 服务</td>
+<td>延迟、吞吐、公平</td>
+</tr>
+</tbody>
+</table></div>
+<p>常见算法：FCFS、SJF、RR、优先级、多级反馈队列、CFS。</p>
+<span class="heading-anchor" id="时间片"></span><h2 id="_13">时间片</h2>
+<p>时间片太大：交互响应差。时间片太小：上下文切换频繁。现代调度器通常不是简单固定时间片，而是根据权重、优先级、虚拟运行时间等动态调度。</p>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_14">实践任务</h2>
+<pre><code class="language-bash">ps -ef | head
+ps -eLf | head
+top -H -p &lt;pid&gt;
+vmstat 1
+pidstat -w 1
+</code></pre>
+<p>观察：</p>
+<ul>
+<li>进程和线程数量。</li>
+<li>上下文切换次数。</li>
+<li>线程 CPU 使用情况。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_15">自测题</h2>
+<ol>
+<li>进程和线程的根本区别是什么？</li>
+<li>为什么线程太多会降低性能？</li>
+<li>fork 后为什么使用 COW？</li>
+<li>僵尸进程和孤儿进程有什么区别？</li>
+<li>CPU 不高但 load 高，可能是什么原因？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_16">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：进程像“房间”，线程像“房间里干活的人”"></span><h2 id="_17">从零开始理解：进程像“房间”，线程像“房间里干活的人”</h2>
+<p>进程可以理解为一个独立房间，里面有自己的桌子、文件柜和工具，也就是地址空间、文件描述符和资源。线程是房间里干活的人。一个房间可以有多个人同时干活，他们共享桌子和文件柜，所以交流方便；但如果两个人同时改同一份文件，就可能出错。</p>
+<p>进程之间隔着墙，互相不容易破坏；线程之间没有墙，所以效率高但更危险。</p>
+<span class="heading-anchor" id="为什么线程不是越多越好"></span><h2 id="_18">为什么线程不是越多越好</h2>
+<p>很多初学者以为线程越多，并发越高，程序越快。实际上 CPU 核心数有限。线程过多会带来：</p>
+<ul>
+<li>每个线程都需要栈内存。</li>
+<li>调度器要管理更多任务。</li>
+<li>上下文切换增加。</li>
+<li>cache/TLB 局部性变差。</li>
+<li>锁竞争更严重。</li>
+</ul>
+<p>如果 4 核机器上启动 4000 个 CPU 密集线程，大部分线程都在等待 CPU，系统会花大量时间切换而不是计算。</p>
+<span class="heading-anchor" id="I/O 密集和 CPU 密集的区别"></span><h2 id="io-cpu">I/O 密集和 CPU 密集的区别</h2>
+<p>CPU 密集任务主要消耗计算，例如压缩、加密、图像处理。线程数通常接近 CPU 核数比较合理。</p>
+<p>I/O 密集任务经常等待磁盘、网络、数据库。等待时线程不占 CPU，所以可以有更多并发。但如果每个连接一个线程，线程数太多仍会带来内存和调度成本。因此高并发 I/O 常用事件循环、协程或异步模型。</p>
+<span class="heading-anchor" id="一个 Web 请求中的线程状态变化"></span><h2 id="web">一个 Web 请求中的线程状态变化</h2>
+<p>一个 Web 请求从到达到完成，通常会经历“运行—等待—再次运行”的多次切换。这里的“等待”不等于线程一直占用 CPU：线程等待网络、磁盘、数据库或锁时，调度器通常会把 CPU 让给其他就绪线程。</p>
+<p>下面以“线程池 + 阻塞式业务代码”或“线程池配合非阻塞 I/O”的常见服务为例。具体实现会因 Web 服务器、语言运行时和 I/O 模型不同而变化，但分析思路基本相同。</p>
+<span class="heading-anchor" id="1. 接收连接：线程可能先处于等待状态"></span><h3 id="1">1. 接收连接：线程可能先处于等待状态</h3>
+<p>Web 服务通常有一个监听 socket，等待客户端连接。连接到达后，内核把事件放入监听队列，服务器线程被唤醒，取得连接并读取请求。</p>
+<p>常见情况有两种：</p>
+<ul>
+<li><strong>阻塞 I/O</strong>：线程调用 <code>accept</code> 或 <code>read</code>，如果暂时没有连接或数据，就睡眠等待；</li>
+<li><strong>非阻塞 I/O + <code>epoll</code></strong>：线程调用 <code>epoll_wait</code> 等待事件，内核没有就绪事件时，线程同样会睡眠，但它不是卡在某一个连接上，而是在等待一组连接中的任意一个变得可读或可写。</li>
+</ul>
+<p>因此，“等待 epoll”通常不是忙等。线程在内核中睡眠，不会持续消耗一个 CPU 核心。</p>
+<span class="heading-anchor" id="2. 线程池取任务：进入运行态"></span><h3 id="2">2. 线程池取任务：进入运行态</h3>
+<p>连接或请求事件就绪后，服务器把任务放入队列。线程池中的某个工作线程被唤醒，从队列取出请求，开始执行路由、鉴权、参数解析等代码：</p>
+<pre><code class="language-text">线程池空闲等待任务
+        ↓ 请求到达
+工作线程被唤醒并取出任务
+        ↓
+进入运行态，执行请求处理代码
+</code></pre>
+<p>“进入运行态”只表示线程当前获得了 CPU。它并不意味着整个请求都在计算，因为后续遇到 I/O 或锁时，线程还会离开运行态。</p>
+<span class="heading-anchor" id="3. 读取请求体：等待客户端数据"></span><h3 id="3">3. 读取请求体：等待客户端数据</h3>
+<p>如果请求带有较大的请求体，例如文件上传或 POST 数据，第一次读取时数据可能还没有完全到达：</p>
+<pre><code class="language-text">客户端发送速度较慢
+        ↓
+socket 接收缓冲区暂时没有足够数据
+        ↓
+线程等待网络数据
+</code></pre>
+<p>在阻塞式 socket 下，线程可能睡眠在 <code>read</code> 系统调用中；在非阻塞模型下，线程可能先收到“暂时不可读”，然后把连接交给 <code>epoll</code>，处理其他连接。</p>
+<p>这段时间请求的延迟增加了，但服务器 CPU 使用率可能很低。原因是请求慢在“等客户端发数据”，而不是慢在执行计算。</p>
+<span class="heading-anchor" id="4. 查询数据库：等待另一个服务返回"></span><h3 id="4">4. 查询数据库：等待另一个服务返回</h3>
+<p>业务代码经常需要访问数据库、缓存或其他 RPC 服务：</p>
+<pre><code class="language-text">应用线程发送数据库请求
+        ↓
+等待数据库处理并通过网络返回结果
+        ↓
+线程暂时不能继续当前请求
+</code></pre>
+<p>如果数据库客户端使用阻塞 I/O，工作线程可能睡眠在 socket 读取处；如果使用异步 I/O，线程可能把等待任务交给事件循环，稍后收到响应时再恢复执行。</p>
+<p>数据库等待期间可能包含多个阶段：</p>
+<ol>
+<li>等待连接池中的空闲连接；</li>
+<li>等待请求通过网络到达数据库；</li>
+<li>等待数据库执行 SQL；</li>
+<li>等待结果通过网络返回；</li>
+<li>等待应用线程重新获得 CPU。</li>
+</ol>
+<p>所以“查询数据库慢”不一定全部是数据库 CPU 慢，也可能是连接池耗尽、网络延迟、锁等待或结果传输慢。</p>
+<span class="heading-anchor" id="5. 竞争锁：等待进程内的共享资源"></span><h3 id="5">5. 竞争锁：等待进程内的共享资源</h3>
+<p>多个线程访问同一个共享资源时，通常需要互斥锁保护：</p>
+<pre><code class="language-c">lock(&amp;cache_lock);
+更新共享缓存();
+unlock(&amp;cache_lock);
+</code></pre>
+<p>如果锁已经被其他线程持有，当前线程不能继续执行临界区代码。它可能：</p>
+<ul>
+<li>短暂自旋，反复检查锁是否释放；</li>
+<li>自旋一段时间后进入睡眠；</li>
+<li>通过 <code>futex</code> 等内核机制等待被唤醒。</li>
+</ul>
+<p>因此，锁竞争也会让请求变慢。此时 CPU 可能不高，也可能因为大量线程自旋而升高，取决于锁的实现和等待时间。</p>
+<pre><code class="language-text">线程 A 持有锁 ─────────────→ 释放锁
+线程 B 请求锁 ──等待 futex─→ 被唤醒并继续
+</code></pre>
+<span class="heading-anchor" id="6. 业务计算：真正占用 CPU"></span><h3 id="6-cpu">6. 业务计算：真正占用 CPU</h3>
+<p>拿到数据并获得所需锁后，线程开始执行计算，例如：</p>
+<ul>
+<li>JSON 编解码；</li>
+<li>参数校验；</li>
+<li>权限判断；</li>
+<li>数据转换；</li>
+<li>排序、压缩、加密或模板渲染。</li>
+</ul>
+<p>这一阶段线程处于运行态并消耗 CPU。如果计算时间很长，可能出现：</p>
+<ul>
+<li>一个核心或多个核心接近 100%；</li>
+<li>线程时间片用完，被调度器暂时换下；</li>
+<li>CPU 密集线程互相竞争，出现就绪队列堆积。</li>
+</ul>
+<p>这时请求慢才更可能是“计算量大”或“CPU 资源不足”。</p>
+<span class="heading-anchor" id="7. 写响应：可能等待客户端接收"></span><h3 id="7">7. 写响应：可能等待客户端接收</h3>
+<p>业务处理完成后，线程把响应写入 socket。写入并不保证客户端已经及时接收：</p>
+<pre><code class="language-text">应用生成响应
+        ↓
+socket 发送缓冲区有空间：写入成功
+        或
+发送缓冲区已满：等待客户端继续读取
+</code></pre>
+<p>如果客户端网络很慢，或者响应很大，发送缓冲区可能被填满。阻塞式写操作会让线程等待；非阻塞模型则会注册可写事件，等 socket 再次可写时继续发送。</p>
+<p>因此，服务器已经算完业务，但客户端收得慢，仍然会导致请求完成时间变长。</p>
+<span class="heading-anchor" id="8. 请求结束：线程回到线程池"></span><h3 id="8">8. 请求结束：线程回到线程池</h3>
+<p>响应发送完成后，线程通常会：</p>
+<ol>
+<li>释放锁、数据库连接等资源；</li>
+<li>记录日志和监控指标；</li>
+<li>关闭连接，或等待 Keep-Alive 的下一个请求；</li>
+<li>将自己放回线程池，等待下一个任务。</li>
+</ol>
+<p>如果线程没有正确释放连接、锁或其他资源，后续请求可能因为资源耗尽而排队。</p>
+<span class="heading-anchor" id="一条完整的状态时间线"></span><h3 id="_19">一条完整的状态时间线</h3>
+<pre><code class="language-text">等待连接/事件
+    ↓
+被唤醒，线程进入运行态
+    ↓
+读取请求体 ──数据未到──→ 等待网络
+    ↓ 数据到达
+查询数据库 ──等待连接/网络/SQL──→ 睡眠
+    ↓ 查询完成
+竞争锁 ──锁被占用──→ futex 等待
+    ↓ 获得锁
+业务计算 ──消耗 CPU──→ 可能被时间片切换
+    ↓
+写响应 ──发送缓冲区满──→ 等待客户端读取
+    ↓
+请求完成，线程回到线程池
+</code></pre>
+<span class="heading-anchor" id="如何判断请求到底慢在哪里？"></span><h3 id="_20">如何判断请求到底慢在哪里？</h3>
+<p>不能只看 CPU 使用率。应该把请求耗时拆成多个阶段，例如：</p>
+<pre><code class="language-text">总耗时
+= 排队时间
++ 读取请求时间
++ 数据库/RPC 等待时间
++ 锁等待时间
++ CPU 计算时间
++ 写响应时间
+</code></pre>
+<p>可以结合以下现象分析：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU 高、运行队列长</td>
+<td>业务计算量大，或线程过多导致竞争</td>
+</tr>
+<tr>
+<td>CPU 低、请求仍然很慢</td>
+<td>网络、数据库、磁盘或锁等待</td>
+</tr>
+<tr>
+<td>线程大量睡眠在 I/O</td>
+<td>外部服务慢、客户端慢或网络拥塞</td>
+</tr>
+<tr>
+<td>线程大量等待锁</td>
+<td>临界区过长、锁粒度过大或热点数据竞争</td>
+</tr>
+<tr>
+<td>线程池队列很长</td>
+<td>工作线程不足，或线程都被慢 I/O 占住</td>
+</tr>
+<tr>
+<td>数据库连接池耗尽</td>
+<td>查询过慢、连接泄漏或并发量超过数据库承载能力</td>
+</tr>
+</tbody>
+</table></div>
+<p>因此，一个请求慢的准确含义是：<strong>请求完成前经历了较长的总等待或计算时间</strong>，而不是必然表示 CPU 执行得慢。请求处理线程可能在运行态、就绪态和各种睡眠/阻塞等待之间多次切换。其状态变化本身也有成本，但很多延迟来自等待的外部资源。 </p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_21">思维导图</h2>
+<blockquote>
+<p>记忆建议：先分清“资源容器”和“执行单位”，再理解调度器为什么切换执行流。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 程序、进程、线程、协程"></span><h3 id="1_1">1. 程序、进程、线程、协程</h3>
+<pre class="mermaid">mindmap
+  root((执行实体))
+    程序
+      磁盘上的静态文件
+    进程
+      资源容器
+      独立地址空间
+      文件描述符表
+    线程
+      CPU执行单位
+      私有栈和寄存器
+      共享进程资源
+    协程
+      用户态调度
+      适合IO密集
+</pre>
+<span class="heading-anchor" id="2. fork、exec、wait 主线"></span><h3 id="2-forkexecwait">2. fork、exec、wait 主线</h3>
+<pre class="mermaid">flowchart LR
+  A["父进程"] --&gt; B["fork\n复制进程结构"]
+  B --&gt; C["子进程\n初始共享COW页面"]
+  C --&gt; D["exec\n替换为新程序"]
+  D --&gt; E["运行并退出"]
+  E --&gt; F["wait\n父进程回收退出状态"]
+</pre>
+<span class="heading-anchor" id="3. 调度与上下文切换"></span><h3 id="3_1">3. 调度与上下文切换</h3>
+<pre class="mermaid">flowchart TD
+  A["就绪队列中有多个线程"] --&gt; B["调度器选择下一个运行者"]
+  B --&gt; C["保存当前CPU状态"]
+  C --&gt; D["恢复目标线程状态"]
+  D --&gt; E["继续执行"]
+  E --&gt; F["时间片用完 阻塞 或被唤醒"]
+  F --&gt; B
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

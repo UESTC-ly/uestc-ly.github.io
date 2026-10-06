@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Transformer 架构面试 20 问：从高频问题到底层机制 · 李杨的学习笔记</title><meta name="description" content="这份文档不是单纯背答案，而是帮你建立“面试可说清、追问能展开、落到公式和工程细节也不慌”的知识结构。"><meta property="og:title" content="Transformer 架构面试 20 问：从高频问题到底层机制 · 李杨的学习笔记"><meta property="og:description" content="这份文档不是单纯背答案，而是帮你建立“面试可说清、追问能展开、落到公式和工程细节也不慌”的知识结构。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-8605a90ba68d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-8605a90ba68d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">LLM / Transformer</p><h1>Transformer 架构面试 20 问：从高频问题到底层机制</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/Transformer/Transformer%E6%9E%B6%E6%9E%84%E9%9D%A2%E8%AF%9520%E9%97%AE.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">使用方式</a></li><li><a href="#_2">高频考点地图</a></li><li><a href="#q1-transformer">Q1. Transformer 的核心思想是什么？为什么它重要？</a></li><li><a href="#_3">面试官想考什么</a></li><li><a href="#_4">标准回答</a></li><li><a href="#_5">深入展开</a></li><li><a href="#_6">追问回答</a></li><li><a href="#_7">速记</a></li><li><a href="#q2-transformer-rnn-cnn">Q2. Transformer 相比 RNN 和 CNN 的优势与代价是什么？</a></li><li><a href="#_8">面试官想考什么</a></li><li><a href="#_9">标准回答</a></li><li><a href="#_10">对比表</a></li><li><a href="#_11">深入展开</a></li><li><a href="#_12">速记</a></li><li><a href="#q3-self-attention-qkv">Q3. Self-Attention 的 Q、K、V 分别是什么？</a></li><li><a href="#_13">面试官想考什么</a></li><li><a href="#_14">标准回答</a></li><li><a href="#_15">公式</a></li><li><a href="#_16">类比记忆</a></li><li><a href="#_17">追问回答</a></li><li><a href="#q4-scaled-dot-product-attention-sqrtd_k">Q4. Scaled Dot-Product Attention 为什么要除以 sqrt(d_k)？</a></li><li><a href="#_18">面试官想考什么</a></li><li><a href="#_19">标准回答</a></li><li><a href="#_20">深入解释</a></li><li><a href="#_21">速记</a></li><li><a href="#_22">常见追问</a></li><li><a href="#q5-self-attentionmasked-self-attentioncross-attention">Q5. Self-Attention、Masked Self-Attention、Cross-Attention 有什么区别？</a></li><li><a href="#_23">面试官想考什么</a></li><li><a href="#_24">标准回答</a></li><li><a href="#_25">举例</a></li><li><a href="#_26">速记</a></li><li><a href="#q6-attention-mask">Q6. Attention Mask 有哪些类型？分别解决什么问题？</a></li><li><a href="#_27">面试官想考什么</a></li><li><a href="#_28">标准回答</a></li><li><a href="#_29">底层实现</a></li><li><a href="#causal-mask">Causal Mask 示例</a></li><li><a href="#_30">常见追问</a></li><li><a href="#q7-multi-head-attention">Q7. Multi-Head Attention 为什么有效？是不是头越多越好？</a></li><li><a href="#_31">面试官想考什么</a></li><li><a href="#_32">标准回答</a></li><li><a href="#_33">形状说明</a></li><li><a href="#_34">追问回答</a></li><li><a href="#q8-transformer">Q8. Transformer 为什么需要位置编码？常见位置编码有哪些？</a></li><li><a href="#_35">面试官想考什么</a></li><li><a href="#_36">标准回答</a></li><li><a href="#_37">深入展开</a></li><li><a href="#_38">追问回答</a></li><li><a href="#_39">速记</a></li><li><a href="#q9-encoder-onlydecoder-onlyencoder-decoder">Q9. Encoder-only、Decoder-only、Encoder-Decoder 有什么区别？</a></li><li><a href="#_40">面试官想考什么</a></li><li><a href="#_41">标准回答</a></li><li><a href="#_42">对比表</a></li><li><a href="#_43">常见追问</a></li><li><a href="#q10-transformer-ffn-attention-ffn">Q10. Transformer 中 FFN 的作用是什么？为什么 Attention 后还要 FFN？</a></li><li><a href="#_44">面试官想考什么</a></li><li><a href="#_45">标准回答</a></li><li><a href="#_46">深入展开</a></li><li><a href="#_47">速记</a></li><li><a href="#q11-layernorm-transformer">Q11. 残差连接和 LayerNorm 在 Transformer 中分别有什么作用？</a></li><li><a href="#_48">面试官想考什么</a></li><li><a href="#_49">标准回答</a></li><li><a href="#pre-ln-post-ln">Pre-LN 与 Post-LN</a></li><li><a href="#_50">追问回答</a></li><li><a href="#_51">速记</a></li><li><a href="#q12-decoder-only-llm">Q12. Decoder-only LLM 的训练目标是什么？为什么训练可以并行？</a></li><li><a href="#_52">面试官想考什么</a></li><li><a href="#_53">标准回答</a></li><li><a href="#_54">举例</a></li><li><a href="#_55">追问回答</a></li><li><a href="#q13-transformer-kv-cache">Q13. Transformer 推理时为什么需要 KV Cache？它节省了什么，消耗了什么？</a></li><li><a href="#_56">面试官想考什么</a></li><li><a href="#_57">标准回答</a></li><li><a href="#_58">形状直觉</a></li><li><a href="#_59">追问回答</a></li><li><a href="#q14-transformer">Q14. Transformer 的时间复杂度和空间复杂度主要来自哪里？</a></li><li><a href="#_60">面试官想考什么</a></li><li><a href="#_61">标准回答</a></li><li><a href="#_62">更细一点</a></li><li><a href="#_63">速记</a></li><li><a href="#q15-flashattention-attention">Q15. FlashAttention 解决了什么问题？它是否改变 Attention 公式？</a></li><li><a href="#_64">面试官想考什么</a></li><li><a href="#_65">标准回答</a></li><li><a href="#_66">深入展开</a></li><li><a href="#_67">追问回答</a></li><li><a href="#q16-mhamqagqa-gqa">Q16. MHA、MQA、GQA 有什么区别？为什么大模型推理常用 GQA？</a></li><li><a href="#_68">面试官想考什么</a></li><li><a href="#_69">标准回答</a></li><li><a href="#_70">记忆图</a></li><li><a href="#_71">追问回答</a></li><li><a href="#q17-attention">Q17. Attention 权重能不能解释模型为什么这么回答？</a></li><li><a href="#_72">面试官想考什么</a></li><li><a href="#_73">标准回答</a></li><li><a href="#_74">深入展开</a></li><li><a href="#_75">追问回答</a></li><li><a href="#q18-multi-head-attention">Q18. 面试中如何推导一遍 Multi-Head Attention 的张量形状？</a></li><li><a href="#_76">面试官想考什么</a></li><li><a href="#_77">标准回答</a></li><li><a href="#_78">常见坑</a></li><li><a href="#q19-transformer">Q19. Transformer 有哪些局限？如何缓解？</a></li><li><a href="#_79">面试官想考什么</a></li><li><a href="#_80">标准回答</a></li><li><a href="#_81">缓解方式</a></li><li><a href="#_82">追问回答</a></li><li><a href="#q20-decoder-only-transformer">Q20. 如果让你从零描述一个 Decoder-only Transformer 的前向流程，你怎么讲？</a></li><li><a href="#_83">面试官想考什么</a></li><li><a href="#_84">标准回答</a></li><li><a href="#60">面试版 60 秒回答</a></li><li><a href="#_85">速记</a></li><li><a href="#_86">面试快速复盘表</a></li><li><a href="#_87">最终记忆图</a></li><li><a href="#_88">结束自测</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="使用方式"></span><h2 id="_1">使用方式</h2>
+<p>这份文档不是单纯背答案，而是帮你建立“面试可说清、追问能展开、落到公式和工程细节也不慌”的知识结构。</p>
+<p>每个问题建议按四层回答：</p>
+<ol>
+<li><strong>先一句话定性</strong>：告诉面试官你知道核心。</li>
+<li><strong>再讲机制</strong>：公式、张量形状、信息流。</li>
+<li><strong>补充取舍</strong>：为什么这样设计，有什么代价。</li>
+<li><strong>应对追问</strong>：训练、推理、复杂度、工程优化。</li>
+</ol>
+<blockquote>
+<p>记忆口诀：<strong>先总后分，先图后式，先职责后细节，先正确性后优化。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="高频考点地图"></span><h2 id="_2">高频考点地图</h2>
+<pre class="mermaid">mindmap
+  root((Transformer面试))
+    架构动机
+      RNN瓶颈
+      并行训练
+      长距离依赖
+    Attention机制
+      QKV
+      缩放点积
+      Mask
+      多头
+    结构组件
+      Embedding
+      位置编码
+      FFN
+      残差和归一化
+    模型类型
+      Encoder-only
+      Decoder-only
+      Encoder-Decoder
+    训练推理
+      自监督
+      自回归
+      KV Cache
+    工程优化
+      O(n平方)
+      FlashAttention
+      GQA和MQA
+</pre>
+<hr/>
+<span class="heading-anchor" id="Q1. Transformer 的核心思想是什么？为什么它重要？"></span><h2 id="q1-transformer">Q1. Transformer 的核心思想是什么？为什么它重要？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_3">面试官想考什么</h3>
+<p>考你是否能用一句话概括 Transformer，而不是只背“Attention is all you need”。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_4">标准回答</h3>
+<p>Transformer 的核心思想是：<strong>用 Self-Attention 让序列中每个 token 能直接和其他 token 建立关系，再通过 FFN、残差连接、归一化和多层堆叠不断更新表示。</strong></p>
+<p>它重要是因为它同时解决了两类问题：</p>
+<ul>
+<li>相比 RNN，训练时更容易并行。</li>
+<li>相比局部 CNN，更容易建模远距离依赖。</li>
+</ul>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_5">深入展开</h3>
+<p>RNN 需要按时间顺序递推隐藏状态，第 <code>t</code> 个 token 依赖第 <code>t-1</code> 个状态，因此训练并行度差。Transformer 中，同一层的所有 token 可以同时计算 Q、K、V，并行得到注意力矩阵。</p>
+<p>Self-Attention 让任意两个 token 在一层内直接交互，路径长度更短。例如第 1 个 token 和第 1000 个 token 在一层 Attention 中就能相互影响。</p>
+<pre class="mermaid">flowchart TD
+  A["输入序列"] --&gt; B["每个token生成QKV"]
+  B --&gt; C["计算任意token间相关性"]
+  C --&gt; D["按权重汇总信息"]
+  D --&gt; E["FFN逐位置加工"]
+  E --&gt; F["多层堆叠形成上下文表示"]
+</pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_6">追问回答</h3>
+<p>如果面试官问“Transformer 是否完全没有顺序概念？”</p>
+<p>答：不是。Self-Attention 本身不包含顺序偏置，所以必须加入位置编码或相对位置机制，例如 Sinusoidal Position Encoding、Learned Position Embedding、RoPE、ALiBi 等。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_7">速记</h3>
+<pre><code class="language-text">Transformer = Attention 信息路由 + FFN 非线性加工 + Residual/Norm 稳定深层训练
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q2. Transformer 相比 RNN 和 CNN 的优势与代价是什么？"></span><h2 id="q2-transformer-rnn-cnn">Q2. Transformer 相比 RNN 和 CNN 的优势与代价是什么？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_8">面试官想考什么</h3>
+<p>考你是否理解架构选择背后的 trade-off，而不是盲目说 Transformer 更强。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_9">标准回答</h3>
+<p>Transformer 的优势是并行训练能力强、长距离依赖建模路径短、可扩展性好。代价是标准全注意力需要计算 <code>T × T</code> 注意力矩阵，序列长度变长时计算和显存开销是二次增长。</p>
+<span class="heading-anchor" id="对比表"></span><h3 id="_10">对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>RNN</th>
+<th>CNN</th>
+<th>Transformer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>序列并行训练</td>
+<td>弱</td>
+<td>强</td>
+<td>强</td>
+</tr>
+<tr>
+<td>长距离依赖</td>
+<td>容易衰减</td>
+<td>依赖感受野</td>
+<td>一层可直接交互</td>
+</tr>
+<tr>
+<td>顺序归纳偏置</td>
+<td>强</td>
+<td>中等</td>
+<td>需位置编码</td>
+</tr>
+<tr>
+<td>长序列成本</td>
+<td>线性但难并行</td>
+<td>取决于卷积设计</td>
+<td>标准注意力二次方</td>
+</tr>
+<tr>
+<td>典型瓶颈</td>
+<td>时间递推</td>
+<td>局部建模</td>
+<td>注意力矩阵和显存</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart LR
+  A["RNN"] --&gt; A1["顺序依赖强"]
+  A --&gt; A2["并行困难"]
+  B["CNN"] --&gt; B1["局部窗口"]
+  B --&gt; B2["远距离需多层"]
+  C["Transformer"] --&gt; C1["全局交互"]
+  C --&gt; C2["训练并行"]
+  C --&gt; C3["长序列O平方"]
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_11">深入展开</h3>
+<p>Transformer 并不是在所有场景都绝对优于 RNN/CNN。如果序列特别长、资源有限、任务强局部化，标准 Transformer 的二次复杂度可能成为问题。因此才有稀疏注意力、滑动窗口注意力、线性注意力、FlashAttention、GQA、MQA 等优化。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_12">速记</h3>
+<pre><code class="language-text">优点：并行强、依赖短、扩展好
+缺点：位置要补、长序列贵、显存压力大
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q3. Self-Attention 的 Q、K、V 分别是什么？"></span><h2 id="q3-self-attention-qkv">Q3. Self-Attention 的 Q、K、V 分别是什么？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_13">面试官想考什么</h3>
+<p>这是最基础也最容易被追问到底层的问题。必须能讲清直觉、公式和形状。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_14">标准回答</h3>
+<p>在 Self-Attention 中，输入向量 <code>X</code> 会通过三个不同的线性变换得到：</p>
+<ul>
+<li><code>Q</code>，Query，表示当前 token 想查询什么。</li>
+<li><code>K</code>，Key，表示每个 token 能被怎样匹配。</li>
+<li><code>V</code>，Value，表示每个 token 真正提供的信息内容。</li>
+</ul>
+<p>注意力先用 <code>Q</code> 和 <code>K</code> 计算匹配分数，再用分数加权汇总 <code>V</code>。</p>
+<pre class="mermaid">flowchart TD
+  X["输入X"] --&gt; Q["线性变换得到Q"]
+  X --&gt; K["线性变换得到K"]
+  X --&gt; V["线性变换得到V"]
+  Q --&gt; S["Q和K计算相似度"]
+  K --&gt; S
+  S --&gt; W["Softmax得到权重"]
+  W --&gt; O["加权汇总V"]
+  V --&gt; O
+</pre>
+<span class="heading-anchor" id="公式"></span><h3 id="_15">公式</h3>
+<div class="arithmatex">\[
+Q=XW_Q,\quad K=XW_K,\quad V=XW_V
+\]</div>
+<div class="arithmatex">\[
+Attention(Q,K,V)=softmax\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]</div>
+<p>如果输入 <code>X</code> 的形状是：</p>
+<pre><code class="language-text">[B, T, d_model]
+</code></pre>
+<p>则单头情况下：</p>
+<pre><code class="language-text">Q: [B, T, d_k]
+K: [B, T, d_k]
+V: [B, T, d_v]
+QK^T: [B, T, T]
+Output: [B, T, d_v]
+</code></pre>
+<span class="heading-anchor" id="类比记忆"></span><h3 id="_16">类比记忆</h3>
+<pre><code class="language-text">Q = 搜索框里的问题
+K = 每篇文档的索引标签
+V = 每篇文档的正文内容
+Attention = 用问题匹配索引，再按匹配度读取正文
+</code></pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_17">追问回答</h3>
+<p>如果问“为什么 Q、K、V 要用不同矩阵？”</p>
+<p>答：因为“用于查询的特征”“用于被匹配的特征”和“要被汇总的信息内容”不一定相同。用不同投影矩阵可以让模型在不同子空间中学习不同功能。</p>
+<hr/>
+<span class="heading-anchor" id="Q4. Scaled Dot-Product Attention 为什么要除以 sqrt(d_k)？"></span><h2 id="q4-scaled-dot-product-attention-sqrtd_k">Q4. Scaled Dot-Product Attention 为什么要除以 <code>sqrt(d_k)</code>？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_18">面试官想考什么</h3>
+<p>考你是否理解缩放项不是随便加的，而是为了稳定 softmax 和梯度。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_19">标准回答</h3>
+<p><code>QK^T</code> 是点积。当 <code>d_k</code> 较大时，点积的方差会随维度增大，导致分数绝对值变大。过大的分数进入 softmax 后会使分布过于尖锐，梯度变小，训练不稳定。所以要除以 <code>sqrt(d_k)</code> 来稳定分数尺度。</p>
+<pre class="mermaid">flowchart LR
+  A["维度dk变大"] --&gt; B["点积分数幅度变大"]
+  B --&gt; C["Softmax过于尖锐"]
+  C --&gt; D["多数位置权重接近0"]
+  D --&gt; E["梯度变小"]
+  E --&gt; F["除以sqrt(dk)稳定训练"]
+</pre>
+<span class="heading-anchor" id="深入解释"></span><h3 id="_20">深入解释</h3>
+<p>假设 <code>Q</code> 和 <code>K</code> 每一维均值为 0、方差为 1，点积是 <code>d_k</code> 个随机变量之和，方差大约是 <code>d_k</code>。除以 <code>sqrt(d_k)</code> 后，方差会回到更稳定的范围。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_21">速记</h3>
+<pre><code class="language-text">不缩放：分数大 → softmax硬 → 梯度弱
+缩放后：分数稳 → softmax柔 → 训练稳
+</code></pre>
+<span class="heading-anchor" id="常见追问"></span><h3 id="_22">常见追问</h3>
+<p>问：能不能除以 <code>d_k</code>？<br/>
+答：一般不这么做。点积方差随 <code>d_k</code> 增长，标准差随 <code>sqrt(d_k)</code> 增长，所以除以标准差更符合尺度校正。</p>
+<hr/>
+<span class="heading-anchor" id="Q5. Self-Attention、Masked Self-Attention、Cross-Attention 有什么区别？"></span><h2 id="q5-self-attentionmasked-self-attentioncross-attention">Q5. Self-Attention、Masked Self-Attention、Cross-Attention 有什么区别？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_23">面试官想考什么</h3>
+<p>考你是否能区分 Encoder、Decoder 和 Encoder-Decoder 里的 Attention 来源与可见范围。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_24">标准回答</h3>
+<ul>
+<li><strong>Self-Attention</strong>：Q、K、V 都来自同一个序列，常用于 Encoder，通常可以双向看见输入。</li>
+<li><strong>Masked Self-Attention</strong>：Q、K、V 也来自同一目标序列，但用 causal mask 禁止看到未来 token，常用于 Decoder。</li>
+<li><strong>Cross-Attention</strong>：Q 来自 Decoder 当前状态，K 和 V 来自 Encoder 输出，用于让 Decoder 查询源序列信息。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["Self-Attention"] --&gt; A1["QKV来自同一序列"]
+  A --&gt; A2["常用于Encoder"]
+  B["Masked Self-Attention"] --&gt; B1["QKV来自目标序列"]
+  B --&gt; B2["禁止看未来"]
+  C["Cross-Attention"] --&gt; C1["Q来自Decoder"]
+  C --&gt; C2["KV来自Encoder"]
+</pre>
+<span class="heading-anchor" id="举例"></span><h3 id="_25">举例</h3>
+<p>机器翻译中：</p>
+<ol>
+<li>Encoder 读完整源句子，用 self-attention 得到源句表示。</li>
+<li>Decoder 生成目标句时，用 masked self-attention 看已经生成的目标词。</li>
+<li>Decoder 再用 cross-attention 查询 Encoder 的源句表示。</li>
+</ol>
+<span class="heading-anchor" id="速记"></span><h3 id="_26">速记</h3>
+<pre><code class="language-text">Self：自己看自己
+Masked Self：自己看过去的自己
+Cross：目标端拿Q去查源端KV
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q6. Attention Mask 有哪些类型？分别解决什么问题？"></span><h2 id="q6-attention-mask">Q6. Attention Mask 有哪些类型？分别解决什么问题？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_27">面试官想考什么</h3>
+<p>Mask 是 Transformer 正确性关键点，尤其 Decoder-only LLM 必问。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_28">标准回答</h3>
+<p>常见 Attention Mask 有两类：</p>
+<ol>
+<li><strong>Padding Mask</strong>：屏蔽 padding token，避免模型关注无意义填充。</li>
+<li><strong>Causal Mask</strong>：屏蔽未来 token，保证自回归生成时不能偷看答案。</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  A["Attention Mask"] --&gt; B["Padding Mask"]
+  B --&gt; B1["屏蔽PAD"]
+  B --&gt; B2["处理变长序列"]
+  A --&gt; C["Causal Mask"]
+  C --&gt; C1["屏蔽未来token"]
+  C --&gt; C2["保证自回归"]
+</pre>
+<span class="heading-anchor" id="底层实现"></span><h3 id="_29">底层实现</h3>
+<p>Mask 通常是在 softmax 前加到 attention score 上：</p>
+<pre><code class="language-text">允许位置：加 0
+禁止位置：加 -inf 或很大的负数
+</code></pre>
+<p>然后 softmax 后，禁止位置的权重接近 0。</p>
+<span class="heading-anchor" id="Causal Mask 示例"></span><h3 id="causal-mask">Causal Mask 示例</h3>
+<pre><code class="language-text">第1个位置：只能看1
+第2个位置：能看1和2
+第3个位置：能看1和2和3
+第4个位置：能看1和2和3和4
+</code></pre>
+<span class="heading-anchor" id="常见追问"></span><h3 id="_30">常见追问</h3>
+<p>问：训练 Decoder-only LLM 时，为什么可以把完整句子输入模型？<br/>
+答：因为 causal mask 会阻止每个位置看到未来 token，所以虽然完整序列并行输入，信息流仍然符合自回归约束。</p>
+<hr/>
+<span class="heading-anchor" id="Q7. Multi-Head Attention 为什么有效？是不是头越多越好？"></span><h2 id="q7-multi-head-attention">Q7. Multi-Head Attention 为什么有效？是不是头越多越好？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_31">面试官想考什么</h3>
+<p>考你是否理解多头的意义以及资源约束。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_32">标准回答</h3>
+<p>Multi-Head Attention 让模型在多个子空间中并行学习不同关系。不同头可以关注语法关系、语义关系、位置关系、指代关系等。最后把各头结果拼接并通过输出投影融合。</p>
+<p>但头不是越多越好。总 <code>d_model</code> 固定时，头越多，每个头的 <code>head_dim</code> 越小，单头表达能力可能下降，同时也会带来调度和显存开销。</p>
+<pre class="mermaid">flowchart TD
+  X["输入表示"] --&gt; H1["头1关注局部关系"]
+  X --&gt; H2["头2关注语义关系"]
+  X --&gt; H3["头3关注指代关系"]
+  X --&gt; H4["头4关注结构关系"]
+  H1 --&gt; C["拼接"]
+  H2 --&gt; C
+  H3 --&gt; C
+  H4 --&gt; C
+  C --&gt; O["输出投影融合"]
+</pre>
+<span class="heading-anchor" id="形状说明"></span><h3 id="_33">形状说明</h3>
+<pre><code class="language-text">d_model = num_heads × head_dim
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-text">d_model = 4096
+num_heads = 32
+head_dim = 128
+</code></pre>
+<p>注意力权重形状：</p>
+<pre><code class="language-text">[B, num_heads, T, T]
+</code></pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_34">追问回答</h3>
+<p>问：多头是不是简单 ensemble？<br/>
+答：不完全是。多个头共享同一层输入，但有不同投影矩阵，关注不同子空间；拼接后还会经过输出投影融合，因此是同一模块内部的多视角表示学习。</p>
+<hr/>
+<span class="heading-anchor" id="Q8. Transformer 为什么需要位置编码？常见位置编码有哪些？"></span><h2 id="q8-transformer">Q8. Transformer 为什么需要位置编码？常见位置编码有哪些？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_35">面试官想考什么</h3>
+<p>考你是否知道 Self-Attention 本身不具备顺序感。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_36">标准回答</h3>
+<p>Self-Attention 对输入 token 的排列本身没有天然顺序感。如果不加入位置信息，模型难以区分“猫追老鼠”和“老鼠追猫”。因此需要位置编码告诉模型 token 的顺序或相对距离。</p>
+<p>常见位置机制包括：</p>
+<ul>
+<li>Sinusoidal Position Encoding</li>
+<li>Learned Position Embedding</li>
+<li>Relative Position Bias</li>
+<li>RoPE</li>
+<li>ALiBi</li>
+</ul>
+<pre class="mermaid">mindmap
+  root((位置编码))
+    绝对位置
+      Sinusoidal
+      Learned
+    相对位置
+      Relative Bias
+      RoPE
+      ALiBi
+    作用
+      注入顺序
+      表达距离
+      支持长上下文外推
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_37">深入展开</h3>
+<p>原始 Transformer 使用正弦位置编码，把不同频率的 sin 和 cos 加到 token embedding 上。现代 LLM 常用 RoPE，它通过旋转 Q 和 K，使注意力分数自然包含相对位置信息。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_38">追问回答</h3>
+<p>问：RoPE 为什么常用于 LLM？<br/>
+答：RoPE 把位置信息注入 Q、K 的旋转中，使 <code>QK</code> 点积对相对距离敏感，适合自回归注意力，也常被用于长上下文扩展方案。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_39">速记</h3>
+<pre><code class="language-text">Embedding告诉模型token是谁，Position告诉模型token在哪儿。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q9. Encoder-only、Decoder-only、Encoder-Decoder 有什么区别？"></span><h2 id="q9-encoder-onlydecoder-onlyencoder-decoder">Q9. Encoder-only、Decoder-only、Encoder-Decoder 有什么区别？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_40">面试官想考什么</h3>
+<p>这是模型家族分类高频题。要能对应 BERT、GPT、T5。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_41">标准回答</h3>
+<ul>
+<li><strong>Encoder-only</strong>：双向注意力，适合理解任务，例如分类、检索、抽取。代表是 BERT。</li>
+<li><strong>Decoder-only</strong>：使用 causal mask，只能看过去，适合自回归生成。代表是 GPT、LLaMA 类模型。</li>
+<li><strong>Encoder-Decoder</strong>：Encoder 双向编码输入，Decoder 自回归生成输出，适合翻译、摘要、条件生成。代表是原始 Transformer、T5。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["Transformer类型"] --&gt; B["Encoder-only"]
+  B --&gt; B1["双向理解"]
+  B --&gt; B2["BERT"]
+  A --&gt; C["Decoder-only"]
+  C --&gt; C1["自回归生成"]
+  C --&gt; C2["GPT和LLaMA"]
+  A --&gt; D["Encoder-Decoder"]
+  D --&gt; D1["输入编码输出解码"]
+  D --&gt; D2["T5和翻译模型"]
+</pre>
+<span class="heading-anchor" id="对比表"></span><h3 id="_42">对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>可见范围</th>
+<th>训练目标常见形式</th>
+<th>适合任务</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Encoder-only</td>
+<td>双向</td>
+<td>Masked Language Modeling</td>
+<td>文本理解</td>
+</tr>
+<tr>
+<td>Decoder-only</td>
+<td>只能看过去</td>
+<td>Next Token Prediction</td>
+<td>文本生成</td>
+</tr>
+<tr>
+<td>Encoder-Decoder</td>
+<td>Encoder 双向，Decoder 因果</td>
+<td>Seq2Seq</td>
+<td>翻译、摘要</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见追问"></span><h3 id="_43">常见追问</h3>
+<p>问：为什么 GPT 适合生成？<br/>
+答：因为 GPT 类 Decoder-only 模型训练目标就是根据历史 token 预测下一个 token，和推理时逐 token 生成的形式一致。</p>
+<hr/>
+<span class="heading-anchor" id="Q10. Transformer 中 FFN 的作用是什么？为什么 Attention 后还要 FFN？"></span><h2 id="q10-transformer-ffn-attention-ffn">Q10. Transformer 中 FFN 的作用是什么？为什么 Attention 后还要 FFN？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_44">面试官想考什么</h3>
+<p>很多人只会讲 Attention，却忽略 FFN。面试官会看你是否理解 Block 的完整性。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_45">标准回答</h3>
+<p>Attention 负责不同 token 之间的信息交互，FFN 负责对每个 token 位置的表示进行非线性变换和特征加工。没有 FFN，模型主要是线性加权组合，表达能力会受限。</p>
+<pre class="mermaid">flowchart LR
+  A["Attention"] --&gt; B["跨token混合信息"]
+  B --&gt; C["每个位置得到上下文"]
+  C --&gt; D["FFN"]
+  D --&gt; E["逐位置非线性加工"]
+  E --&gt; F["更强表达能力"]
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_46">深入展开</h3>
+<p>原始 Transformer 的 FFN 是两层线性层加激活函数：</p>
+<div class="arithmatex">\[
+FFN(x)=max(0,xW_1+b_1)W_2+b_2
+\]</div>
+<p>现代 LLM 常见变体包括 GELU、SwiGLU 等。FFN 通常会先升维再降维，例如 <code>d_ff</code> 可能是 <code>4 × d_model</code> 左右，因此 FFN 往往占据大量参数。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_47">速记</h3>
+<pre><code class="language-text">Attention负责交流，FFN负责思考。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q11. 残差连接和 LayerNorm 在 Transformer 中分别有什么作用？"></span><h2 id="q11-layernorm-transformer">Q11. 残差连接和 LayerNorm 在 Transformer 中分别有什么作用？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_48">面试官想考什么</h3>
+<p>考训练稳定性。越是大模型相关岗位，越容易问 Pre-LN、Post-LN、RMSNorm。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_49">标准回答</h3>
+<p>残差连接让输入直接加到子层输出上，保留原始信息并提供更短的梯度通路，使深层网络更容易训练。LayerNorm 对每个 token 的隐藏维度做归一化，稳定激活分布，减少训练不稳定。</p>
+<pre class="mermaid">flowchart TD
+  X["输入x"] --&gt; N["LayerNorm"]
+  N --&gt; S["Attention或FFN"]
+  S --&gt; A["残差相加"]
+  X --&gt; A
+  A --&gt; Y["输出"]
+</pre>
+<span class="heading-anchor" id="Pre-LN 与 Post-LN"></span><h3 id="pre-ln-post-ln">Pre-LN 与 Post-LN</h3>
+<pre><code class="language-text">Post-LN：x -&gt; Sublayer -&gt; Add -&gt; LayerNorm
+Pre-LN： x -&gt; LayerNorm -&gt; Sublayer -&gt; Add
+</code></pre>
+<p>现代 LLM 常用 Pre-LN 或 RMSNorm 变体，因为深层训练更稳定。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_50">追问回答</h3>
+<p>问：LayerNorm 和 BatchNorm 有什么区别？<br/>
+答：BatchNorm 通常跨 batch 统计，受 batch size 影响较大；LayerNorm 是对单个样本、单个 token 的隐藏维度归一化，更适合变长序列和自回归模型。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_51">速记</h3>
+<pre><code class="language-text">Residual保信息和梯度，Norm稳尺度和训练。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q12. Decoder-only LLM 的训练目标是什么？为什么训练可以并行？"></span><h2 id="q12-decoder-only-llm">Q12. Decoder-only LLM 的训练目标是什么？为什么训练可以并行？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_52">面试官想考什么</h3>
+<p>考自监督、自回归、teacher forcing、causal mask 的统一理解。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_53">标准回答</h3>
+<p>Decoder-only LLM 通常使用 next token prediction 训练：给定前面的 token，预测下一个 token。训练时完整序列已知，可以把整段文本一次性输入模型，并用 causal mask 保证每个位置只能看到过去和当前位置，因此所有位置的 loss 可以并行计算。</p>
+<pre class="mermaid">flowchart TD
+  A["训练文本序列"] --&gt; B["右移构造标签"]
+  A --&gt; C["输入模型"]
+  C --&gt; D["Causal Mask限制未来信息"]
+  D --&gt; E["并行预测每个位置下一个token"]
+  E --&gt; F["交叉熵损失"]
+</pre>
+<span class="heading-anchor" id="举例"></span><h3 id="_54">举例</h3>
+<p>文本：</p>
+<pre><code class="language-text">我 喜欢 机器 学习
+</code></pre>
+<p>训练目标：</p>
+<pre><code class="language-text">看到 我          预测 喜欢
+看到 我 喜欢     预测 机器
+看到 我 喜欢 机器 预测 学习
+</code></pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_55">追问回答</h3>
+<p>问：训练时并行和推理时自回归矛盾吗？<br/>
+答：不矛盾。训练时答案已经存在，用 mask 防止偷看未来；推理时未来 token 尚未生成，所以必须一个 token 一个 token 生成。</p>
+<hr/>
+<span class="heading-anchor" id="Q13. Transformer 推理时为什么需要 KV Cache？它节省了什么，消耗了什么？"></span><h2 id="q13-transformer-kv-cache">Q13. Transformer 推理时为什么需要 KV Cache？它节省了什么，消耗了什么？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_56">面试官想考什么</h3>
+<p>考 LLM 工程推理性能。KV Cache 是非常高频的工程题。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_57">标准回答</h3>
+<p>自回归生成时，每生成一个新 token 都需要关注历史 token。历史 token 的 K 和 V 在模型参数固定时不会变化，因此可以缓存起来。KV Cache 避免每一步重复计算历史 token 的 K/V，从而加速推理。但它会消耗显存，并且显存占用随层数、上下文长度、batch size、head 数和 head_dim 增长。</p>
+<pre class="mermaid">flowchart TD
+  A["第1步生成"] --&gt; B["缓存K1V1"]
+  B --&gt; C["第2步生成"]
+  C --&gt; D["复用K1V1并缓存K2V2"]
+  D --&gt; E["第t步生成"]
+  E --&gt; F["只计算新token的QKV"]
+  F --&gt; G["Q查询历史K"]
+  G --&gt; H["加权历史V"]
+</pre>
+<span class="heading-anchor" id="形状直觉"></span><h3 id="_58">形状直觉</h3>
+<p>KV Cache 大小大致正比于：</p>
+<pre><code class="language-text">layers × batch_size × sequence_length × kv_heads × head_dim × 2
+</code></pre>
+<p>其中 <code>2</code> 表示 K 和 V 两份缓存。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_59">追问回答</h3>
+<p>问：KV Cache 会降低注意力的理论复杂度吗？<br/>
+答：对单步增量推理，它避免重复计算历史 token 的投影和历史之间的注意力；但新 token 仍要关注已有上下文，所以每步仍与当前上下文长度相关。它主要减少重复计算，用显存换速度。</p>
+<hr/>
+<span class="heading-anchor" id="Q14. Transformer 的时间复杂度和空间复杂度主要来自哪里？"></span><h2 id="q14-transformer">Q14. Transformer 的时间复杂度和空间复杂度主要来自哪里？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_60">面试官想考什么</h3>
+<p>考你是否理解长上下文为什么贵，以及瓶颈不只是参数量。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_61">标准回答</h3>
+<p>标准全注意力的主要成本来自注意力矩阵。序列长度为 <code>T</code> 时，每个 query 要和所有 key 计算相似度，因此注意力矩阵是 <code>T × T</code>，时间和显存都与 <code>T²</code> 强相关。FFN 的成本通常与 <code>T × d_model × d_ff</code> 相关。</p>
+<pre class="mermaid">flowchart LR
+  A["序列长度T"] --&gt; B["Attention矩阵T乘T"]
+  B --&gt; C["显存压力"]
+  B --&gt; D["计算压力"]
+  E["隐藏维度和FFN维度"] --&gt; F["FFN计算量"]
+  C --&gt; G["长上下文瓶颈"]
+  D --&gt; G
+  F --&gt; G
+</pre>
+<span class="heading-anchor" id="更细一点"></span><h3 id="_62">更细一点</h3>
+<p>Self-Attention 主要计算：</p>
+<pre><code class="language-text">QK^T: O(T² × d_head × heads)
+Attention V: O(T² × d_head × heads)
+</code></pre>
+<p>FFN 主要计算：</p>
+<pre><code class="language-text">O(T × d_model × d_ff)
+</code></pre>
+<p>训练时还要保存激活用于反向传播，因此显存压力更大。推理时如果使用 KV Cache，注意力矩阵的训练式中间激活少了，但缓存显存会随上下文长度增长。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_63">速记</h3>
+<pre><code class="language-text">参数量看模型宽度和层数，长上下文瓶颈看T平方和KV Cache。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="Q15. FlashAttention 解决了什么问题？它是否改变 Attention 公式？"></span><h2 id="q15-flashattention-attention">Q15. FlashAttention 解决了什么问题？它是否改变 Attention 公式？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_64">面试官想考什么</h3>
+<p>考你是否知道主流注意力优化的本质，不要把它误解成新模型结构。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_65">标准回答</h3>
+<p>FlashAttention 主要通过分块计算和 IO 优化减少显存读写，避免显式存储完整的巨大注意力矩阵，从而加速并降低显存占用。它不改变标准 Attention 的数学结果，目标是在数值等价或近似等价的前提下更高效地计算。</p>
+<pre class="mermaid">flowchart TD
+  A["标准Attention"] --&gt; B["显式形成大矩阵T乘T"]
+  B --&gt; C["显存读写压力大"]
+  D["FlashAttention"] --&gt; E["分块读取QKV"]
+  E --&gt; F["在线Softmax"]
+  F --&gt; G["减少中间矩阵存储"]
+  G --&gt; H["更快更省显存"]
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_66">深入展开</h3>
+<p>GPU 计算不仅受 FLOPs 影响，也受显存带宽和读写次数影响。FlashAttention 的核心优势是减少高带宽内存访问，把更多计算留在更快的片上存储中完成。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_67">追问回答</h3>
+<p>问：FlashAttention 能把 <code>O(T²)</code> 变成 <code>O(T)</code> 吗？<br/>
+答：不能从数学上的全局注意力计算量完全消除二次关系。它主要优化内存占用和实际运行效率，而不是把全注意力的依赖关系改成线性。</p>
+<hr/>
+<span class="heading-anchor" id="Q16. MHA、MQA、GQA 有什么区别？为什么大模型推理常用 GQA？"></span><h2 id="q16-mhamqagqa-gqa">Q16. MHA、MQA、GQA 有什么区别？为什么大模型推理常用 GQA？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_68">面试官想考什么</h3>
+<p>考 LLM 推理优化，尤其 KV Cache 压缩。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_69">标准回答</h3>
+<ul>
+<li><strong>MHA</strong>：Multi-Head Attention，每个 Query head 都有对应的 K/V head。</li>
+<li><strong>MQA</strong>：Multi-Query Attention，多个 Query head 共享一组 K/V head。</li>
+<li><strong>GQA</strong>：Grouped-Query Attention，把 Query heads 分成若干组，每组共享 K/V head，是 MHA 和 MQA 的折中。</li>
+</ul>
+<p>GQA 常用于大模型推理，因为它能显著减少 KV Cache 大小，同时通常比 MQA 保留更好的表达能力。</p>
+<pre class="mermaid">flowchart TD
+  A["Attention变体"] --&gt; B["MHA"]
+  B --&gt; B1["每个Q头各有KV"]
+  A --&gt; C["MQA"]
+  C --&gt; C1["所有Q头共享一组KV"]
+  A --&gt; D["GQA"]
+  D --&gt; D1["一组Q头共享一组KV"]
+  D --&gt; D2["表达和效率折中"]
+</pre>
+<span class="heading-anchor" id="记忆图"></span><h3 id="_70">记忆图</h3>
+<pre><code class="language-text">MHA：Q多，K/V也多，效果强但缓存大
+MQA：Q多，K/V一组，缓存小但压缩强
+GQA：Q多，K/V分组，常见折中方案
+</code></pre>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_71">追问回答</h3>
+<p>问：GQA 主要减少哪部分显存？<br/>
+答：主要减少推理时 KV Cache 的 K/V head 数量。因为缓存大小与 <code>kv_heads × head_dim × sequence_length × layers</code> 成正比。</p>
+<hr/>
+<span class="heading-anchor" id="Q17. Attention 权重能不能解释模型为什么这么回答？"></span><h2 id="q17-attention">Q17. Attention 权重能不能解释模型为什么这么回答？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_72">面试官想考什么</h3>
+<p>考你是否能区分“可视化线索”和“因果解释”。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_73">标准回答</h3>
+<p>Attention 权重可以提供一定的可视化线索，显示某层某头中某个 token 对其他 token 的关注分布。但它不能被简单等同为模型最终决策的完整解释。因为 Transformer 有多层、多头、残差连接、FFN 和输出投影，信息会被多次变换和混合。</p>
+<pre class="mermaid">flowchart LR
+  A["Attention权重"] --&gt; B["显示某层某头的信息路由"]
+  B --&gt; C["有解释参考价值"]
+  C --&gt; D["但不是完整因果解释"]
+  E["FFN和多层残差"] --&gt; D
+  F["输出层再加工"] --&gt; D
+</pre>
+<span class="heading-anchor" id="深入展开"></span><h3 id="_74">深入展开</h3>
+<p>一个 token 在某一层对另一个 token 权重高，只能说明这一层这一头的信息聚合中它占比较大。最终 logits 还受到后续层、其他头、FFN、残差路径的影响。</p>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_75">追问回答</h3>
+<p>问：那 Attention 可视化有没有用？<br/>
+答：有用。它可以帮助分析模型是否关注了合理位置、是否被提示词某部分强烈影响、是否存在模式偏差。但严谨解释还需要结合梯度、消融实验、表示分析等方法。</p>
+<hr/>
+<span class="heading-anchor" id="Q18. 面试中如何推导一遍 Multi-Head Attention 的张量形状？"></span><h2 id="q18-multi-head-attention">Q18. 面试中如何推导一遍 Multi-Head Attention 的张量形状？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_76">面试官想考什么</h3>
+<p>考基本功。能推 shape 往往说明你真的写过或读过实现。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_77">标准回答</h3>
+<p>假设：</p>
+<pre><code class="language-text">B = batch size
+T = sequence length
+d_model = hidden size
+H = num_heads
+D = head_dim = d_model / H
+</code></pre>
+<p>输入：</p>
+<pre><code class="language-text">X: [B, T, d_model]
+</code></pre>
+<p>线性投影：</p>
+<pre><code class="language-text">Q, K, V: [B, T, d_model]
+</code></pre>
+<p>拆头：</p>
+<pre><code class="language-text">Q, K, V: [B, H, T, D]
+</code></pre>
+<p>计算注意力分数：</p>
+<pre><code class="language-text">scores = Q @ K.transpose(-1, -2)
+scores: [B, H, T, T]
+</code></pre>
+<p>加权求和：</p>
+<pre><code class="language-text">context = weights @ V
+context: [B, H, T, D]
+</code></pre>
+<p>合并 heads：</p>
+<pre><code class="language-text">context: [B, T, d_model]
+</code></pre>
+<p>输出投影：</p>
+<pre><code class="language-text">output: [B, T, d_model]
+</code></pre>
+<pre class="mermaid">flowchart TD
+  A["X为B T dmodel"] --&gt; B["线性投影QKV"]
+  B --&gt; C["reshape成B H T D"]
+  C --&gt; D["Q乘K转置"]
+  D --&gt; E["scores为B H T T"]
+  E --&gt; F["softmax后乘V"]
+  F --&gt; G["context为B H T D"]
+  G --&gt; H["合并为B T dmodel"]
+</pre>
+<span class="heading-anchor" id="常见坑"></span><h3 id="_78">常见坑</h3>
+<ul>
+<li>softmax 是在最后一个维度做，也就是对 key 维度归一化。</li>
+<li><code>K</code> 转置的是最后两个维度，不是 batch 或 head 维度。</li>
+<li>mask 需要能 broadcast 到 <code>[B, H, T, T]</code>。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="Q19. Transformer 有哪些局限？如何缓解？"></span><h2 id="q19-transformer">Q19. Transformer 有哪些局限？如何缓解？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_79">面试官想考什么</h3>
+<p>考你是否能客观评价模型，不只讲优点。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_80">标准回答</h3>
+<p>Transformer 的主要局限包括：</p>
+<ol>
+<li>标准全注意力长序列成本高。</li>
+<li>需要大量数据和算力。</li>
+<li>对位置外推和超长上下文可能不稳定。</li>
+<li>语言模型可能产生幻觉。</li>
+<li>对训练数据偏差和提示词分布敏感。</li>
+<li>本身没有可靠事实校验机制。</li>
+</ol>
+<pre class="mermaid">mindmap
+  root((Transformer局限))
+    长序列成本
+      O平方注意力
+      KV Cache显存
+    数据和算力
+      预训练成本高
+      调参复杂
+    可靠性
+      幻觉
+      偏差
+      不确定性表达弱
+    缓解
+      检索增强
+      工具调用
+      长上下文优化
+      对齐训练
+</pre>
+<span class="heading-anchor" id="缓解方式"></span><h3 id="_81">缓解方式</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>局限</th>
+<th>缓解方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>长序列成本高</td>
+<td>FlashAttention、稀疏注意力、滑动窗口、GQA、MQA</td>
+</tr>
+<tr>
+<td>知识不实时</td>
+<td>RAG、工具调用、外部数据库</td>
+</tr>
+<tr>
+<td>幻觉</td>
+<td>检索增强、引用约束、验证器、拒答机制</td>
+</tr>
+<tr>
+<td>推理成本高</td>
+<td>量化、蒸馏、剪枝、缓存、批处理</td>
+</tr>
+<tr>
+<td>位置外推困难</td>
+<td>RoPE scaling、长上下文继续训练、相对位置方法</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="追问回答"></span><h3 id="_82">追问回答</h3>
+<p>问：RAG 能不能彻底解决幻觉？<br/>
+答：不能。RAG 可以给模型提供外部证据，降低知识缺失导致的幻觉，但检索错误、证据冲突、模型误读证据仍可能导致错误输出。</p>
+<hr/>
+<span class="heading-anchor" id="Q20. 如果让你从零描述一个 Decoder-only Transformer 的前向流程，你怎么讲？"></span><h2 id="q20-decoder-only-transformer">Q20. 如果让你从零描述一个 Decoder-only Transformer 的前向流程，你怎么讲？</h2>
+<span class="heading-anchor" id="面试官想考什么"></span><h3 id="_83">面试官想考什么</h3>
+<p>这是综合题，考你能不能把所有模块串起来。</p>
+<span class="heading-anchor" id="标准回答"></span><h3 id="_84">标准回答</h3>
+<p>我会按数据流描述：</p>
+<ol>
+<li>文本经过 tokenizer 变成 token ids。</li>
+<li>token ids 通过 embedding 矩阵变成向量。</li>
+<li>注入位置信息，例如 RoPE 或位置 embedding。</li>
+<li>进入多层 Decoder Block。</li>
+<li>每个 Block 先做 masked multi-head self-attention，让每个位置只能聚合过去上下文。</li>
+<li>再经过 FFN 做逐位置非线性加工。</li>
+<li>每个子层配合残差连接和归一化保证训练稳定。</li>
+<li>最后一层 hidden state 经过输出投影得到 vocab logits。</li>
+<li>训练时用交叉熵预测下一个 token。</li>
+<li>推理时根据 logits 采样 token，并使用 KV Cache 加速后续生成。</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  A["文本Prompt"] --&gt; B["Tokenizer"]
+  B --&gt; C["Token IDs"]
+  C --&gt; D["Embedding"]
+  D --&gt; E["位置编码"]
+  E --&gt; F["Decoder Block堆叠"]
+  F --&gt; G["Masked Self-Attention"]
+  G --&gt; H["FFN"]
+  H --&gt; I["Final Norm"]
+  I --&gt; J["Linear到词表"]
+  J --&gt; K["Logits"]
+  K --&gt; L["采样下一个token"]
+  L --&gt; M["追加上下文继续生成"]
+</pre>
+<span class="heading-anchor" id="面试版 60 秒回答"></span><h3 id="60">面试版 60 秒回答</h3>
+<p>Transformer Decoder-only 模型先把文本 token 化，再查 embedding 得到向量并加入位置信息。每层 Decoder Block 用 causal self-attention 让当前位置从历史上下文中取信息，再用 FFN 做非线性加工，残差和归一化保证深层训练稳定。多层堆叠后，最后的 hidden state 投影到词表得到 logits。训练时用 next token prediction 和交叉熵；推理时自回归逐 token 生成，并用 KV Cache 复用历史 K/V 降低重复计算。</p>
+<span class="heading-anchor" id="速记"></span><h3 id="_85">速记</h3>
+<pre><code class="language-text">文本 → token → embedding → position → 多层decoder → logits → next token
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="面试快速复盘表"></span><h2 id="_86">面试快速复盘表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>核心关键词</th>
+<th>最短答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transformer 是什么</td>
+<td>Attention + FFN + Residual + Norm</td>
+<td>并行建模序列关系的架构</td>
+</tr>
+<tr>
+<td>为什么不用 RNN</td>
+<td>并行和长依赖</td>
+<td>RNN 顺序瓶颈强</td>
+</tr>
+<tr>
+<td>QKV 是什么</td>
+<td>查询、索引、内容</td>
+<td>用 QK 算权重，用权重取 V</td>
+</tr>
+<tr>
+<td>为什么缩放</td>
+<td>softmax 稳定</td>
+<td>除以点积标准差量级</td>
+</tr>
+<tr>
+<td>Mask 有什么用</td>
+<td>可见性控制</td>
+<td>屏蔽 PAD 或未来 token</td>
+</tr>
+<tr>
+<td>多头为什么有效</td>
+<td>多子空间关系</td>
+<td>多视角看序列</td>
+</tr>
+<tr>
+<td>位置编码为何需要</td>
+<td>Attention 无序</td>
+<td>注入顺序或距离</td>
+</tr>
+<tr>
+<td>Encoder vs Decoder</td>
+<td>双向 vs 因果</td>
+<td>理解 vs 生成</td>
+</tr>
+<tr>
+<td>FFN 干什么</td>
+<td>非线性加工</td>
+<td>Attention 后逐位置思考</td>
+</tr>
+<tr>
+<td>残差和 Norm</td>
+<td>训练稳定</td>
+<td>保梯度、稳分布</td>
+</tr>
+<tr>
+<td>训练目标</td>
+<td>下一个 token</td>
+<td>自监督交叉熵</td>
+</tr>
+<tr>
+<td>KV Cache</td>
+<td>推理加速</td>
+<td>省重复算历史 K/V</td>
+</tr>
+<tr>
+<td>复杂度</td>
+<td>T 平方</td>
+<td>注意力矩阵贵</td>
+</tr>
+<tr>
+<td>FlashAttention</td>
+<td>IO 优化</td>
+<td>不改变公式，减少显存读写</td>
+</tr>
+<tr>
+<td>GQA</td>
+<td>KV 缓存优化</td>
+<td>MHA 和 MQA 折中</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="最终记忆图"></span><h2 id="_87">最终记忆图</h2>
+<pre class="mermaid">mindmap
+  root((Transformer面试总口诀))
+    输入
+      Tokenizer
+      Embedding
+      Position
+    注意力
+      Q找K
+      权重取V
+      Mask控视野
+      多头看多关系
+    模块
+      FFN加工
+      Residual保通路
+      Norm稳训练
+    类型
+      Encoder理解
+      Decoder生成
+      EncoderDecoder转换
+    工程
+      训练可并行
+      推理自回归
+      KVCache换速度
+      长上下文成本高
+</pre>
+<span class="heading-anchor" id="结束自测"></span><h2 id="_88">结束自测</h2>
+<p>闭卷回答下面 5 个问题，如果能流畅说出来，Transformer 面试主线基本稳了：</p>
+<ol>
+<li><code>QK^T</code> 为什么是注意力分数？为什么还要除以 <code>sqrt(d_k)</code>？</li>
+<li>Decoder-only 训练时为什么能并行，但推理时必须自回归？</li>
+<li>KV Cache 具体缓存什么？为什么它会吃显存？</li>
+<li>Encoder-only、Decoder-only、Encoder-Decoder 的注意力可见范围分别是什么？</li>
+<li>标准 Attention 为什么长上下文成本高？FlashAttention 到底优化了什么？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

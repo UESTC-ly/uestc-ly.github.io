@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>数据结构与命令复杂度 · 李杨的学习笔记</title><meta name="description" content="Redis 不是只保存字符串的 KV，它把常见内存数据结构封装成命令接口。命令在单个 Redis 实例事件循环中顺序执行，所以单条命令不会被其他客户端命令插入打断；但多个命令之间仍可能被其他请求穿插，业务流程需要事务、Lua 或外部幂等来补齐。"><meta property="og:title" content="数据结构与命令复杂度 · 李杨的学习笔记"><meta property="og:description" content="Redis 不是只保存字符串的 KV，它把常见内存数据结构封装成命令接口。命令在单个 Redis 实例事件循环中顺序执行，所以单条命令不会被其他客户端命令插入打断；但多个命令之间仍可能被其他请求穿插，业务流程需要事务、Lua 或外部幂等来补齐。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-a6babc321004.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-a6babc321004.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>数据结构与命令复杂度</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/01-%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E5%A4%8D%E6%9D%82%E5%BA%A6.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">类型选择先看访问路径</a></li><li><a href="#string">String：缓存、计数和位图</a></li><li><a href="#hash">Hash：字段级更新与版本化字段过期</a></li><li><a href="#list">List：简单队列和时间线片段</a></li><li><a href="#set">Set：去重和关系判断</a></li><li><a href="#zset">ZSet：排行榜、时间轮和延迟队列</a></li><li><a href="#_5">复杂度要叠加网络成本</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#_7">四类业务建模案例</a></li><li><a href="#_8">线上排查命令</a></li><li><a href="#_9">容量估算</a></li><li><a href="#_10">常见误区</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握 String、Hash、List、Set、ZSet 的内部直觉、典型命令、复杂度和适用场景。</li>
+<li>能根据访问模式选择数据类型，避免慢命令、大对象、跨 slot 多键操作和不可控扫描。</li>
+<li>理解 Redis 单命令原子性、数据结构编码优化与业务一致性之间的边界。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>Redis 不是只保存字符串的 KV，它把常见内存数据结构封装成命令接口。命令在单个 Redis 实例事件循环中顺序执行，所以单条命令不会被其他客户端命令插入打断；但多个命令之间仍可能被其他请求穿插，业务流程需要事务、Lua 或外部幂等来补齐。</p>
+<span class="heading-anchor" id="类型选择先看访问路径"></span><h3 id="_4">类型选择先看访问路径</h3>
+<p>选择 Redis 类型时不要先问“哪个省内存”，而要先画访问路径：是否按字段读写、是否需要排名、是否只判断存在、是否需要两端队列、是否会按范围读取。结构选错后，后续通常只能靠大 Key 拆分和批处理补救。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>内部直觉</th>
+<th>常用命令</th>
+<th>常见复杂度</th>
+<th>典型场景</th>
+<th>风险点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>String</td>
+<td>字节数组，可表达文本、数字、bitmap、小 JSON</td>
+<td><code>GET</code>、<code>SET</code>、<code>INCR</code>、<code>MGET</code>、<code>SETBIT</code></td>
+<td>多数 O(1)，<code>MGET</code> O(N)</td>
+<td>缓存值、计数器、令牌、位图</td>
+<td>大 value、热点计数、非幂等重试</td>
+</tr>
+<tr>
+<td>Hash</td>
+<td>key 下的 field-value 字典，小对象有紧凑编码，大对象按哈希表直觉理解</td>
+<td><code>HGET</code>、<code>HSET</code>、<code>HMGET</code>、<code>HSCAN</code>、<code>HINCRBY</code></td>
+<td>单字段平均 O(1)，扫描 O(N)</td>
+<td>对象字段缓存、配置、轻量状态</td>
+<td>字段过多形成大 Key；字段过期依赖 Redis 版本</td>
+</tr>
+<tr>
+<td>List</td>
+<td>双端链表/紧凑列表直觉，适合两端操作</td>
+<td><code>LPUSH</code>、<code>RPOP</code>、<code>BLPOP</code>、<code>LRANGE</code></td>
+<td>两端 O(1)，范围 O(S+N)</td>
+<td>简单队列、最新列表</td>
+<td>中间访问慢，可靠消费能力弱</td>
+</tr>
+<tr>
+<td>Set</td>
+<td>不重复成员集合，支持存在判断和集合运算</td>
+<td><code>SADD</code>、<code>SISMEMBER</code>、<code>SREM</code>、<code>SINTER</code></td>
+<td>单元素平均 O(1)；集合运算取决于集合数与成员数，如 <code>SINTER</code> 最坏 O(N×M)</td>
+<td>去重、标签、关系判断</td>
+<td>大集合交并差阻塞实例</td>
+</tr>
+<tr>
+<td>ZSet</td>
+<td>成员唯一，按 score 排序，通常可按 skiplist + dict 理解</td>
+<td><code>ZADD</code>、<code>ZRANGE</code>、<code>ZRANK</code>、<code>ZREM</code></td>
+<td>写/排名 O(log N)，范围 O(log N+M)</td>
+<td>排行榜、延迟队列、优先级</td>
+<td>高写排行、超大范围读取</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="String：缓存、计数和位图"></span><h3 id="string">String：缓存、计数和位图</h3>
+<p>String 的 value 是二进制安全字节序列，数字自增只是 Redis 对字符串内容执行整数解析后的原子更新。它适合“整值读写”的对象，不适合频繁修改大 JSON 的局部字段；每次 <code>SET</code> 都会替换整个 value。</p>
+<pre><code class="language-redis">SET user:42:profile '{"name":"Li","level":"gold"}' EX 600
+INCR article:1001:view_count
+SETBIT user:active:2026-08-31 42 1
+BITCOUNT user:active:2026-08-31
+</code></pre>
+<p>工程判断：</p>
+<ul>
+<li>高频计数用 <code>INCRBY</code> 比“GET 后在应用层加一再 SET”可靠，因为单命令原子。</li>
+<li>需要读取对象中少数字段时，Hash 往往比大 JSON String 更合适。</li>
+<li>bitmap 节省空间但要求 ID 可映射到偏移，稀疏大 ID 会浪费巨大空间。</li>
+</ul>
+<span class="heading-anchor" id="Hash：字段级更新与版本化字段过期"></span><h3 id="hash">Hash：字段级更新与版本化字段过期</h3>
+<p>Hash 适合“一个业务对象、多字段、小字段值、字段级读写”。它能避免每次更新都序列化整个对象。传统 Redis 版本的 TTL 只作用于整个 key；Redis 7.4 起提供 <code>HEXPIRE/HPEXPIRE</code> 等 hash field expiration 命令，可以为指定字段设置 TTL。部署在旧版本、客户端尚未支持这些命令，或字段生命周期涉及独立容量/迁移边界时，仍应拆分 key，而不是假设字段过期始终可用。</p>
+<pre><code class="language-redis">HSET user:42 name "Li" level "gold" updated_at "2026-08-31T10:00:00Z"
+HMGET user:42 name level
+HINCRBY user:42 login_count 1
+</code></pre>
+<p>边界：</p>
+<ul>
+<li>用户基础信息、统计字段、权限标记的生命周期不同，应拆成多个 Hash 或 String。</li>
+<li>单个 Hash 包含几十万字段时，本质已经是大 Key；<code>HGET</code> 仍快，但迁移、删除、扫描、持久化都会变重。</li>
+<li>需要遍历时使用 <code>HSCAN</code> 分批，不要在请求路径一次性 <code>HGETALL</code> 大 Hash。</li>
+</ul>
+<span class="heading-anchor" id="List：简单队列和时间线片段"></span><h3 id="list">List：简单队列和时间线片段</h3>
+<p>List 的优势在两端插入/弹出。它可以做轻量任务队列，但缺少成熟消息队列的消费组、重放位点、死信、延迟重试、长期保留能力。Redis Streams 比 List 更接近队列模型，但和 Kafka/RocketMQ 的定位仍不同。</p>
+<pre><code class="language-redis">LPUSH jobs:resize payload-1
+BRPOP jobs:resize 5
+LRANGE feed:user:42 0 49
+LTRIM feed:user:42 0 999
+</code></pre>
+<p>故障窗口：消费者 <code>BRPOP</code> 成功后进程崩溃，消息已经从 List 移除但业务未完成。可以用“取出后写处理中列表 + ack 后删除”缓解，但复杂度会接近重新实现消息队列。</p>
+<span class="heading-anchor" id="Set：去重和关系判断"></span><h3 id="set">Set：去重和关系判断</h3>
+<p>Set 适合成员唯一、无需顺序的场景，例如点赞用户集合、标签集合、抽奖去重。<code>SISMEMBER</code> 是典型 O(1) 关系判断；集合交并差在成员很多时会把 CPU 时间集中到单实例。</p>
+<pre><code class="language-redis">SADD post:1001:liked_users user:42
+SISMEMBER post:1001:liked_users user:42
+SINTER user:42:followees user:99:followers
+</code></pre>
+<p>工程取舍：</p>
+<ul>
+<li>只需要计数时优先用 String 计数器，不必保存完整 Set。</li>
+<li>大集合求交集适合离线预计算、分桶或数据库查询，不适合请求路径临时 <code>SINTER</code>。</li>
+<li>需要按时间或分数取 TopN 时不要用 Set，改用 ZSet。</li>
+</ul>
+<span class="heading-anchor" id="ZSet：排行榜、时间轮和延迟队列"></span><h3 id="zset">ZSet：排行榜、时间轮和延迟队列</h3>
+<p>ZSet 维护 member 到 score 的映射并按 score 排序。它适合按照积分、时间戳、优先级取范围。范围查询复杂度不仅看定位的 <code>log N</code>，还看返回元素个数 M；返回 10 万个成员会造成网络和序列化压力。</p>
+<pre><code class="language-redis">ZADD rank:daily 9527 user:42
+ZREVRANGE rank:daily 0 99 WITHSCORES
+ZRANGEBYSCORE delay:jobs -inf 1788170400000 LIMIT 0 100
+</code></pre>
+<p>延迟队列伪代码：</p>
+<pre><code class="language-pseudo">while true:
+    jobs = ZRANGEBYSCORE(delay_key, -inf, now_ms, LIMIT 0 100)
+    for job in jobs:
+        if ZREM(delay_key, job) == 1:
+            handle(job)
+</code></pre>
+<p>这个模型只保证“抢到再处理”，不保证处理成功后自动 ack；进程崩溃需要业务幂等和重新入队补偿。</p>
+<span class="heading-anchor" id="复杂度要叠加网络成本"></span><h3 id="_5">复杂度要叠加网络成本</h3>
+<p>Redis 命令复杂度只描述服务端数据结构操作，不包含网络传输、序列化、客户端排队和反序列化。<code>MGET 1000</code> 复杂度是 O(N)，但可能比 1000 次 <code>GET</code> 更快，因为减少 RTT；<code>ZRANGE 0 99999</code> 即使服务端能完成，也可能拖慢网络和客户端内存。</p>
+<pre class="mermaid">flowchart LR
+  Model["访问模式"] --&gt; Type["选择类型"]
+  Type --&gt; Command["选择命令"]
+  Command --&gt; Cost["复杂度 + 返回体大小 + RTT"]
+  Cost --&gt; Limit["限流/分页/拆分/异步化"]
+</pre>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<span class="heading-anchor" id="四类业务建模案例"></span><h3 id="_7">四类业务建模案例</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐类型</th>
+<th>核心命令</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文章浏览计数</td>
+<td>String</td>
+<td><code>INCRBY article:{id}:views 1</code></td>
+<td>单值原子累加，周期落库</td>
+</tr>
+<tr>
+<td>用户资料缓存</td>
+<td>Hash 或 String</td>
+<td><code>HMGET user:{id} name level</code></td>
+<td>字段常单独更新用 Hash；整对象读写用 String</td>
+</tr>
+<tr>
+<td>关注关系判断</td>
+<td>Set</td>
+<td><code>SISMEMBER user:{uid}:followees {target}</code></td>
+<td>大 V 关注/粉丝集合要分桶或落库</td>
+</tr>
+<tr>
+<td>积分排行榜</td>
+<td>ZSet</td>
+<td><code>ZINCRBY rank:daily 10 user:42</code></td>
+<td>排名与 TopN 读取自然匹配</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="线上排查命令"></span><h3 id="_8">线上排查命令</h3>
+<pre><code class="language-redis">TYPE user:42
+MEMORY USAGE user:42
+OBJECT ENCODING user:42
+SLOWLOG GET 10
+SCAN 0 MATCH 'user:*' COUNT 1000
+</code></pre>
+<p><code>OBJECT ENCODING</code> 可辅助理解内部编码，但不要把编码阈值写入业务假设；它们受 Redis 版本和配置影响。业务文档应描述访问模式和数据规模上限，而不是依赖某个内部编码永远不变。</p>
+<span class="heading-anchor" id="容量估算"></span><h3 id="_9">容量估算</h3>
+<pre><code class="language-text">key_count = 日活用户数 * 每用户 key 数
+memory ~= key 元数据 + value 字节 + 数据结构额外索引 + allocator 碎片
+network_out ~= QPS * 平均返回字节
+</code></pre>
+<p>容量评估要给每类 key 设上限：value 最大字节数、集合最大成员数、单次范围最大返回条数、过期时间、是否可重建。没有上限的结构会在业务增长后变成大 Key。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_10">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>KEYS *</code> 可用于线上排查</td>
+<td><code>KEYS</code> 是 O(N)，线上应优先使用 <code>SCAN</code> 分批遍历</td>
+</tr>
+<tr>
+<td>Hash 一定比 String 省内存</td>
+<td>小对象可能省，字段过多或结构膨胀后仍会造成大 Key</td>
+</tr>
+<tr>
+<td>Redis 原子命令能保证完整业务原子</td>
+<td>只保证单条命令执行不被打断，多步骤业务仍会发生竞态</td>
+</tr>
+<tr>
+<td>List 可以替代 Kafka</td>
+<td>Redis List 缺少成熟的消费组、重放、位点和长期存储能力</td>
+</tr>
+<tr>
+<td><code>SCAN</code> 不影响线上</td>
+<td><code>SCAN</code> 分批降低阻塞，但仍消耗 CPU，批量和频率要受控</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li><code>ZRANGE key 0 9999 WITHSCORES</code> 的复杂度风险在哪里？</li>
+<li>为什么 <code>SINTER</code> 在大集合上可能成为慢命令？</li>
+<li>用 Hash 缓存用户对象时，哪些字段不适合放在同一个 Key？</li>
+<li>只需要判断“用户今天是否活跃”时，Set 和 bitmap 的取舍是什么？</li>
+<li>为什么 <code>MGET</code> 可以降低 RTT，但仍需要限制 key 数和返回体大小？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<ul>
+<li>为“关注关系”“视频点赞”“文章浏览计数”“积分排行榜”分别选择 Redis 类型并写出核心命令。</li>
+<li>使用 <code>SCAN</code> 设计一个按前缀统计 Key 数量的脚本，要求每批限制数量并可中断恢复。</li>
+<li>给一个商品详情缓存设计数据规模契约：最大 value、最大字段数、TTL、是否允许空值缓存。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_13">延伸阅读</h2>
+<ul>
+<li>Redis data types：https://redis.io/docs/latest/develop/data-types/</li>
+<li>Redis command reference：https://redis.io/docs/latest/commands/</li>
+<li>Redis keyspace：https://redis.io/docs/latest/develop/using-commands/keyspace/</li>
+<li>Redis latency troubleshooting：https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/</li>
+<li>Redis hashes and field expiration：https://redis.io/docs/latest/develop/data-types/hashes/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

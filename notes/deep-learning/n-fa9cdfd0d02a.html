@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 2 章：图像处理与形态学 · 李杨的学习笔记</title><meta name="description" content="本章讨论 OpenCV 图像预处理主干：颜色空间、缩放插值、滤波卷积、梯度边缘、阈值分割、直方图增强与形态学。默认以 OpenCV 5 imgproc 为准，示例兼容 OpenCV 4.12。目标不是背函数，而是能按噪声、光照和目标形状选择参数，并把灰度图或二值图稳定送入轮廓、OCR、检测或测量流程。"><meta property="og:title" content="第 2 章：图像处理与形态学 · 李杨的学习笔记"><meta property="og:description" content="本章讨论 OpenCV 图像预处理主干：颜色空间、缩放插值、滤波卷积、梯度边缘、阈值分割、直方图增强与形态学。默认以 OpenCV 5 imgproc 为准，示例兼容 OpenCV 4.12。目标不是背函数，而是能按噪声、光照和目标形状选择参数，并把灰度图或二值图稳定送入轮廓、OCR、检测或测量流程。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-fa9cdfd0d02a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-fa9cdfd0d02a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / openCV</p><h1>第 2 章：图像处理与形态学</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/openCV/02-%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86%E4%B8%8E%E5%BD%A2%E6%80%81%E5%AD%A6.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1-cvtcolor">1. 颜色空间与 cvtColor</a></li><li><a href="#2_1">2. 缩放、采样与插值</a></li><li><a href="#3">3. 卷积、滤波与边界处理</a></li><li><a href="#4">4. 均值、高斯、中值与双边滤波</a></li><li><a href="#5-sobelscharrlaplacian">5. 梯度：Sobel、Scharr、Laplacian</a></li><li><a href="#6-canny">6. Canny 边缘检测</a></li><li><a href="#7-otsu">7. 阈值、Otsu 与自适应阈值</a></li><li><a href="#8-clahe">8. 直方图、均衡化与 CLAHE</a></li><li><a href="#9">9. 形态学：结构元素与基本操作</a></li><li><a href="#10">10. 二值图预处理流水线</a></li><li><a href="#11">11. 参数选择速查</a></li><li><a href="#12">12. 常见失败模式</a></li><li><a href="#13">13. 练习</a></li><li><a href="#_1">官方来源</a></li></ul></details><article class="note-content">
+<p>本章讨论 OpenCV 图像预处理主干：颜色空间、缩放插值、滤波卷积、梯度边缘、阈值分割、直方图增强与形态学。默认以 OpenCV 5 <code>imgproc</code> 为准，示例兼容 OpenCV 4.12。目标不是背函数，而是能按噪声、光照和目标形状选择参数，并把灰度图或二值图稳定送入轮廓、OCR、检测或测量流程。</p>
+<span class="heading-anchor" id="1. 颜色空间与 cvtColor"></span><h2 id="1-cvtcolor">1. 颜色空间与 <code>cvtColor</code></h2>
+<p>OpenCV 读入彩色图像的默认通道顺序是 BGR，不是显示库常用的 RGB；<code>cv.imread()</code> 图像直接用 Matplotlib 显示会红蓝互换。<code>cv.cvtColor(src, code[, dst[, dstCn[, hint]]])</code> 用转换码说明源和目标空间，例如 <code>COLOR_BGR2GRAY</code>、<code>COLOR_BGR2RGB</code>、<code>COLOR_BGR2HSV</code>、<code>COLOR_BGR2Lab</code>。C++ 对应 <code>cv::cvtColor(src, dst, code, dstCn, hint)</code>。</p>
+<p>灰度图适合阈值、边缘、形态学；HSV 把色相与饱和度/亮度分开，适合彩色目标粗分割；Lab/Luv 适合光照变化下的颜色差异和局部对比；YCrCb/YUV 把亮度与色度拆开，常用于视频和肤色任务。非线性颜色转换对浮点范围敏感：8 位是 0..255，<code>CV_32F</code> 通常应归一化到 0..1 后再做 BGR 到 Luv/Lab。</p>
+<pre><code class="language-python">import cv2 as cv
+
+bgr = cv.imread("input.jpg", cv.IMREAD_COLOR)
+if bgr is None:
+    raise FileNotFoundError("input.jpg")
+gray = cv.cvtColor(bgr, cv.COLOR_BGR2GRAY)
+hsv = cv.cvtColor(bgr, cv.COLOR_BGR2HSV)
+luv32 = cv.cvtColor(bgr.astype("float32") / 255.0, cv.COLOR_BGR2Luv)
+</code></pre>
+<span class="heading-anchor" id="2. 缩放、采样与插值"></span><h2 id="2_1">2. 缩放、采样与插值</h2>
+<p><code>cv.resize(src, dsize[, dst[, fx[, fy[, interpolation]]]])</code> 改变像素网格。<code>dsize</code> 非零时优先生效；否则由 <code>fx</code>、<code>fy</code> 推出输出尺寸。C++ 对应 <code>cv::resize(src, dst, dsize, fx, fy, interpolation)</code>。几何变换通常用目标像素反查源像素的逆映射，源坐标常是小数，因此必须插值。</p>
+<p>缩小时推荐 <code>INTER_AREA</code>，通常更少摩尔纹；放大时 <code>INTER_LINEAR</code> 均衡，<code>INTER_CUBIC</code> 更平滑但慢，<code>INTER_LANCZOS4</code> 质量更高；<code>INTER_NEAREST</code> 保持硬边，适合标签图、mask 和像素风格图。OpenCV 5 还保留 <code>INTER_LINEAR_EXACT</code>、<code>INTER_NEAREST_EXACT</code>；几何变换不支持 <code>CV_8S</code>、<code>CV_32S</code>。</p>
+<pre><code class="language-python">small = cv.resize(bgr, None, fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
+large = cv.resize(bgr, None, fx=2, fy=2, interpolation=cv.INTER_CUBIC)
+mask_small = cv.resize(mask, None, fx=0.5, fy=0.5, interpolation=cv.INTER_NEAREST)
+</code></pre>
+<span class="heading-anchor" id="3. 卷积、滤波与边界处理"></span><h2 id="3">3. 卷积、滤波与边界处理</h2>
+<p>滤波把每个像素的邻域计算成一个新值。线性滤波是加权求和：</p>
+<p><code>dst(x,y)=sum kernel(i,j) * src(x+i-anchor.x, y+j-anchor.y)</code></p>
+<p><code>kernel</code> 决定邻域大小和权重；<code>anchor=(-1,-1)</code> 表示核中心；<code>ddepth=-1</code> 表示输出深度与输入一致；<code>delta</code> 在写入前加偏置。Python API 是 <code>cv.filter2D(src, ddepth, kernel[, dst[, anchor[, delta[, borderType]]]])</code>，C++ 是 <code>cv::filter2D(src, dst, ddepth, kernel, anchor, delta, borderType)</code>。</p>
+<p>边界处理决定边缘处卷积是否可信。核在图像边缘会访问不存在的像素，OpenCV 用 <code>borderType</code> 外推：<code>BORDER_REPLICATE</code> 复制边缘值；<code>BORDER_CONSTANT</code> 填常数，易制造黑/亮框；<code>BORDER_REFLECT</code>/<code>BORDER_REFLECT_101</code> 镜像，适合平滑滤波，很多滤波默认 <code>BORDER_DEFAULT</code> 即反射类边界；<code>BORDER_WRAP</code> 多数场景不适合。中值滤波内部使用 <code>BORDER_REPLICATE</code>。</p>
+<p>噪声模型决定滤波选择。高斯噪声是小幅随机扰动，均值或高斯滤波能降方差；椒盐噪声是孤立黑白点，中值滤波更有效；压缩块、运动模糊、散焦不是简单随机噪声，盲目平滑会损伤边缘；低光彩噪可先处理亮度通道。</p>
+<pre><code class="language-python">import numpy as np
+
+k = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32)
+sharp = cv.filter2D(bgr, -1, k, borderType=cv.BORDER_REFLECT_101)
+</code></pre>
+<span class="heading-anchor" id="4. 均值、高斯、中值与双边滤波"></span><h2 id="4">4. 均值、高斯、中值与双边滤波</h2>
+<p><code>cv.blur(src, ksize)</code> 是归一化盒滤波，核越大噪声越低但细节越糊。<code>cv.boxFilter</code> 可选择是否归一化，未归一化时可算局部和。<code>cv.GaussianBlur(src, ksize, sigmaX[, sigmaY])</code> 用高斯权重，中心权重大、远处权重小；<code>ksize</code> 必须为正奇数，<code>sigma&lt;=0</code> 时可由核大小推导。<code>cv.medianBlur(src, ksize)</code> 取邻域中位数，适合孤立脉冲点，<code>ksize</code> 是大于 1 的奇数。<code>cv.bilateralFilter(src, d, sigmaColor, sigmaSpace)</code> 同时考虑空间距离和颜色差异，能保边去噪但慢；<code>d=5</code> 常用于实时，<code>d=9</code> 适合离线强滤波，过大的 <code>sigmaColor</code> 会卡通化。</p>
+<pre><code class="language-python">mean5 = cv.blur(bgr, (5, 5))
+gauss5 = cv.GaussianBlur(bgr, (5, 5), sigmaX=1.2)
+median3 = cv.medianBlur(bgr, 3)
+bilateral = cv.bilateralFilter(bgr, 7, 50, 50)
+</code></pre>
+<span class="heading-anchor" id="5. 梯度：Sobel、Scharr、Laplacian"></span><h2 id="5-sobelscharrlaplacian">5. 梯度：Sobel、Scharr、Laplacian</h2>
+<p>梯度描述亮度变化率，是边缘检测和 Canny 的基础。<code>cv.Sobel(src, ddepth, dx, dy, ksize=3, scale=1, delta=0, borderType=...)</code> 计算 x/y 导数。<code>dx=1,dy=0</code> 对垂直边敏感，<code>dx=0,dy=1</code> 对水平边敏感。Sobel 结合平滑和差分，比直接差分抗噪。8 位输出会截断负梯度，常用 <code>CV_16S</code> 或 <code>CV_32F</code> 中间结果。</p>
+<p>Scharr 是 3x3 一阶导数的改进核，<code>cv.Scharr(src, ddepth, dx, dy)</code> 等价于 <code>Sobel(..., ksize=cv.FILTER_SCHARR)</code>，小核下方向精度更好。Laplacian 计算二阶导数，<code>cv.Laplacian(src, ddepth, ksize)</code> 对边缘和细噪声都敏感，通常先轻微高斯平滑。</p>
+<pre><code class="language-python">gray_blur = cv.GaussianBlur(gray, (3, 3), 0)
+gx = cv.Sobel(gray_blur, cv.CV_32F, 1, 0, ksize=3)
+gy = cv.Sobel(gray_blur, cv.CV_32F, 0, 1, ksize=3)
+mag8 = cv.normalize(cv.magnitude(gx, gy), None, 0, 255, cv.NORM_MINMAX).astype("uint8")
+scharr_x = cv.Scharr(gray, cv.CV_32F, 1, 0)
+lap = cv.Laplacian(gray_blur, cv.CV_32F, ksize=3)
+</code></pre>
+<span class="heading-anchor" id="6. Canny 边缘检测"></span><h2 id="6-canny">6. Canny 边缘检测</h2>
+<p>Canny 是边缘流水线：高斯平滑降噪，计算梯度幅值和方向，非极大值抑制把粗边压细，最后用双阈值和滞后连接保留可靠边缘。Python API 为 <code>cv.Canny(image, threshold1, threshold2[, edges[, apertureSize[, L2gradient]]])</code>，C++ 为 <code>cv::Canny(image, edges, threshold1, threshold2, apertureSize, L2gradient)</code>。</p>
+<p><code>threshold2</code> 是强边缘阈值，<code>threshold1</code> 是弱边缘阈值；弱边缘只有与强边缘连通时保留。常用比例 <code>1:2</code> 或 <code>1:3</code>。<code>apertureSize</code> 是 Sobel 核大小，通常 3；噪声大时先外部 <code>GaussianBlur</code>。<code>L2gradient=False</code> 用 <code>|Gx|+|Gy|</code>，快；<code>True</code> 用欧氏幅值，更准但略慢。Canny 输入通常是 8 位单通道图。</p>
+<pre><code class="language-python">blurred = cv.GaussianBlur(gray, (5, 5), 1.2)
+edges = cv.Canny(blurred, 60, 180, apertureSize=3, L2gradient=True)
+</code></pre>
+<p>阈值经验：边缘断裂时降低低阈值或减少平滑；噪声边太多时提高高阈值或增加平滑；目标边缘弱时先做 CLAHE 或亮度归一化。</p>
+<span class="heading-anchor" id="7. 阈值、Otsu 与自适应阈值"></span><h2 id="7-otsu">7. 阈值、Otsu 与自适应阈值</h2>
+<p>阈值把灰度图转为二值图。<code>cv.threshold(src, thresh, maxval, type)</code> 返回 <code>(retval, dst)</code>；C++ 为 <code>double cv::threshold(src, dst, thresh, maxval, type)</code>。基本类型包括 <code>THRESH_BINARY</code>、<code>THRESH_BINARY_INV</code>、<code>THRESH_TRUNC</code>、<code>THRESH_TOZERO</code>、<code>THRESH_TOZERO_INV</code>。形态学和轮廓流程通常让前景为白、背景为黑。</p>
+<p>Otsu 是 <code>type</code> 的附加标志：<code>cv.THRESH_BINARY | cv.THRESH_OTSU</code>。传入的 <code>thresh</code> 会被自动阈值替代，返回值 <code>retval</code> 是计算阈值。Otsu 适合前景/背景近似双峰的图；光照不均、背景渐变或目标比例极小时常失败。OpenCV 5 文档说明 Otsu 当前用于 <code>CV_8UC1</code> 和 <code>CV_16UC1</code>，Triangle 用于 <code>CV_8UC1</code>。</p>
+<p>自适应阈值 <code>cv.adaptiveThreshold(src, maxValue, adaptiveMethod, thresholdType, blockSize, C)</code> 为每个像素按局部邻域算阈值。<code>MEAN_C</code> 用均值减 <code>C</code>，<code>GAUSSIAN_C</code> 用高斯加权均值减 <code>C</code>；<code>blockSize</code> 必须是 3、5、7... 的奇数，越大越接近全局阈值，越小越易跟随噪声。<code>C</code> 变大时局部阈值降低：对 <code>THRESH_BINARY</code> 会让更多像素为白，对 <code>THRESH_BINARY_INV</code> 则会让更少像素为白。</p>
+<pre><code class="language-python">_, binary = cv.threshold(gray, 120, 255, cv.THRESH_BINARY)
+otsu_t, otsu = cv.threshold(gray, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
+adapt = cv.adaptiveThreshold(gray, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                             cv.THRESH_BINARY, 31, 5)
+</code></pre>
+<span class="heading-anchor" id="8. 直方图、均衡化与 CLAHE"></span><h2 id="8-clahe">8. 直方图、均衡化与 CLAHE</h2>
+<p>直方图统计每个灰度或颜色区间有多少像素。<code>cv.calcHist(images, channels, mask, histSize, ranges)</code> 观察亮度分布；<code>cv.equalizeHist(gray)</code> 用累积分布函数重映射灰度，让动态范围更充分。C++ API 是 <code>cv::calcHist(...)</code> 与 <code>cv::equalizeHist(src, dst)</code>。全局均衡化只接受单通道 8 位灰度图；彩色图更推荐转到 YCrCb/Lab，只处理亮度通道。</p>
+<p>CLAHE 是受限自适应直方图均衡化：<code>cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))</code> 后 <code>apply(gray)</code>。它分块增强，并用 <code>clipLimit</code> 限制噪声放大。<code>tileGridSize</code> 越小局部对比越强、块感越明显；<code>clipLimit</code> 越大增强越强、暗部噪声越明显。</p>
+<pre><code class="language-python">hist = cv.calcHist([gray], [0], None, [256], [0, 256])
+eq = cv.equalizeHist(gray)
+
+ycrcb = cv.cvtColor(bgr, cv.COLOR_BGR2YCrCb)
+y, cr, cb = cv.split(ycrcb)
+clahe = cv.createCLAHE(2.0, (8, 8))
+y2 = clahe.apply(y)
+enhanced = cv.cvtColor(cv.merge([y2, cr, cb]), cv.COLOR_YCrCb2BGR)
+</code></pre>
+<span class="heading-anchor" id="9. 形态学：结构元素与基本操作"></span><h2 id="9">9. 形态学：结构元素与基本操作</h2>
+<p>形态学用结构元素滑动图像，以邻域最大值或最小值重写像素，常用于二值图，也可用于灰度图。结构元素由 <code>cv.getStructuringElement(shape, ksize[, anchor])</code> 生成，形状包括 <code>MORPH_RECT</code>、<code>MORPH_CROSS</code>、<code>MORPH_ELLIPSE</code>，OpenCV 5 还列出 <code>MORPH_DIAMOND</code>。矩形核作用最强；十字核更保留水平/垂直骨架；椭圆核适合圆形颗粒。核越大、<code>iterations</code> 越多，操作越激进。</p>
+<p><code>cv.erode(src, kernel)</code> 腐蚀，取覆盖区域最小值：白色前景收缩，孤立白噪声消失，细线可能断裂。<code>cv.dilate(src, kernel)</code> 膨胀，取最大值：白色前景扩大，小黑洞变小，邻近目标可能粘连。形态学默认 <code>BORDER_CONSTANT</code>，边界值使用 <code>morphologyDefaultBorderValue()</code>。</p>
+<p>复合操作由 <code>cv.morphologyEx(src, op, kernel)</code> 完成。开运算 <code>MORPH_OPEN</code> 先腐蚀后膨胀，去小白噪点；闭运算 <code>MORPH_CLOSE</code> 先膨胀后腐蚀，填小黑洞、连断笔；形态学梯度 <code>MORPH_GRADIENT</code> 是膨胀减腐蚀；顶帽 <code>MORPH_TOPHAT</code> 是原图减开运算，突出小亮结构；黑帽 <code>MORPH_BLACKHAT</code> 是闭运算减原图，突出暗裂缝或暗文字。</p>
+<pre><code class="language-python">kernel3 = cv.getStructuringElement(cv.MORPH_RECT, (3, 3))
+eroded = cv.erode(binary, kernel3, iterations=1)
+dilated = cv.dilate(binary, kernel3, iterations=1)
+opened = cv.morphologyEx(binary, cv.MORPH_OPEN, kernel3)
+closed = cv.morphologyEx(binary, cv.MORPH_CLOSE, kernel3, iterations=2)
+outline = cv.morphologyEx(binary, cv.MORPH_GRADIENT, kernel3)
+tophat = cv.morphologyEx(gray, cv.MORPH_TOPHAT,
+                         cv.getStructuringElement(cv.MORPH_RECT, (25, 1)))
+</code></pre>
+<span class="heading-anchor" id="10. 二值图预处理流水线"></span><h2 id="10">10. 二值图预处理流水线</h2>
+<p>实用流程：读图转灰度；按光照做归一化或 CLAHE；按噪声选高斯/中值/双边滤波；选择全局阈值、Otsu 或自适应阈值；确认前景白、背景黑；用开运算去孤立点，闭运算补断裂；最后用面积、长宽比、连通域或轮廓筛误检。不要一开始堆很多操作，每一步都应能解释要去掉哪类错误。</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+def preprocess_document(path: str) -&gt; np.ndarray:
+    bgr = cv.imread(path, cv.IMREAD_COLOR)
+    if bgr is None:
+        raise FileNotFoundError(path)
+
+    gray = cv.cvtColor(bgr, cv.COLOR_BGR2GRAY)
+
+    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    norm = clahe.apply(gray)
+    blur = cv.GaussianBlur(norm, (3, 3), 0)
+
+    bw = cv.adaptiveThreshold(blur, 255,
+                              cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                              cv.THRESH_BINARY_INV,
+                              blockSize=31, C=7)
+
+    dot_kernel = cv.getStructuringElement(cv.MORPH_RECT, (2, 2))
+    link_kernel = cv.getStructuringElement(cv.MORPH_RECT, (3, 3))
+    clean = cv.morphologyEx(bw, cv.MORPH_OPEN, dot_kernel, iterations=1)
+    clean = cv.morphologyEx(clean, cv.MORPH_CLOSE, link_kernel, iterations=1)
+    return clean
+
+mask = preprocess_document("input.jpg")
+cv.imwrite("binary.png", mask)
+</code></pre>
+<p>关键 C++ API 对照：</p>
+<pre><code class="language-cpp">#include &lt;opencv2/imgproc.hpp&gt;
+#include &lt;opencv2/imgcodecs.hpp&gt;
+
+cv::Mat bgr = cv::imread("input.jpg", cv::IMREAD_COLOR);
+cv::Mat gray, blur, edges, binary;
+cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+cv::GaussianBlur(gray, blur, cv::Size(5, 5), 1.2, 0, cv::BORDER_DEFAULT);
+cv::Canny(blur, edges, 60, 180, 3, true);
+
+double t = cv::threshold(gray, binary, 0, 255,
+                         cv::THRESH_BINARY | cv::THRESH_OTSU);
+cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
+
+cv::Ptr&lt;cv::CLAHE&gt; clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
+cv::Mat enhanced;
+clahe-&gt;apply(gray, enhanced);
+</code></pre>
+<span class="heading-anchor" id="11. 参数选择速查"></span><h2 id="11">11. 参数选择速查</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>首调参数</th>
+<th>变大后的效果</th>
+<th>常见起点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resize</code></td>
+<td><code>interpolation</code></td>
+<td>质量/速度/类别保持不同</td>
+<td>缩小 <code>AREA</code>，放大 <code>LINEAR/CUBIC</code>，mask <code>NEAREST</code></td>
+</tr>
+<tr>
+<td><code>GaussianBlur</code></td>
+<td><code>ksize</code>, <code>sigmaX</code></td>
+<td>去噪更强、边缘更软</td>
+<td><code>(3,3)</code> 或 <code>(5,5)</code></td>
+</tr>
+<tr>
+<td><code>medianBlur</code></td>
+<td><code>ksize</code></td>
+<td>去椒盐更强、小结构更易消失</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>Canny</code></td>
+<td><code>threshold1/2</code></td>
+<td>阈值高边少，低阈值低连通多</td>
+<td><code>60/180</code> 或按梯度分位数</td>
+</tr>
+<tr>
+<td><code>adaptiveThreshold</code></td>
+<td><code>blockSize</code>, <code>C</code></td>
+<td>块大更接近全局；C 变大时 <code>THRESH_BINARY</code> 白像素通常增多，<code>THRESH_BINARY_INV</code> 白像素通常减少</td>
+<td><code>31, 5..10</code></td>
+</tr>
+<tr>
+<td><code>CLAHE</code></td>
+<td><code>clipLimit</code>, <code>tileGridSize</code></td>
+<td>增强更强，噪声/块感更明显</td>
+<td><code>2.0, (8,8)</code></td>
+</tr>
+<tr>
+<td><code>erode/dilate</code></td>
+<td><code>kernel</code>, <code>iterations</code></td>
+<td>形态改变更激进</td>
+<td>目标最小结构的 1/2 到 1 倍</td>
+</tr>
+<tr>
+<td><code>morphologyEx</code></td>
+<td><code>op</code>, <code>kernel shape</code></td>
+<td>决定去点、补洞、提轮廓方向</td>
+<td>开去小白点，闭补小黑洞</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="12. 常见失败模式"></span><h2 id="12">12. 常见失败模式</h2>
+<ol>
+<li>BGR 当 RGB 使用：颜色阈值和显示都异常。先确认 <code>imread</code>、显示库和模型输入约定。</li>
+<li>mask 用线性缩放：二值图有灰边，标签图有非法类别。mask 优先 <code>INTER_NEAREST</code>。</li>
+<li>8 位图直接存梯度：负数被截断。梯度中间结果用 <code>CV_16S</code>/<code>CV_32F</code>。</li>
+<li>Otsu 用在光照不均图：背景渐变导致误分。改用 CLAHE、背景校正或自适应阈值。</li>
+<li>自适应 <code>blockSize</code> 太小：阈值跟着噪声走。窗口应大于目标笔画宽度数倍。</li>
+<li>形态学核过大：字符粘连、细线断裂。核大小从最小孔洞、间隙和噪点尺度反推。</li>
+<li>双边滤波过强：边缘保住但区域卡通化。只在保边平滑必要时使用。</li>
+<li>均衡化放大噪声：暗部颗粒被增强。优先 CLAHE 并限制 <code>clipLimit</code>。</li>
+</ol>
+<span class="heading-anchor" id="13. 练习"></span><h2 id="13">13. 练习</h2>
+<ol>
+<li>转 HSV、Lab、YCrCb，比较只增强亮度通道与分别增强 BGR 三通道的差异。</li>
+<li>构造高斯噪声和椒盐噪声，比较 <code>GaussianBlur</code>、<code>medianBlur</code>、<code>bilateralFilter</code> 的边缘清晰度和时间。</li>
+<li>用 <code>Sobel</code> 和 <code>Scharr</code> 检测细斜线，比较 3x3 核下方向响应。</li>
+<li>固定 Canny 高阈值，逐步降低低阈值，观察弱边缘连接和噪声边缘。</li>
+<li>对光照不均文档图比较 Otsu 与自适应阈值，调节 <code>blockSize</code> 与 <code>C</code>。</li>
+<li>用 <code>(25,1)</code> 矩形核开运算提取横线，并解释它为何压制竖线和小点。</li>
+</ol>
+<span class="heading-anchor" id="官方来源"></span><h2 id="_1">官方来源</h2>
+<ul>
+<li>OpenCV 5.0 颜色转换： https://docs.opencv.org/5.0/main_modules/imgproc_color_conversions.html</li>
+<li>OpenCV 5.0 几何变换与 <code>resize</code>： https://docs.opencv.org/5.0/main_modules/imgproc_transform.html</li>
+<li>OpenCV 5.0 滤波、梯度、形态学 API： https://docs.opencv.org/5.0/main_modules/imgproc_filter.html</li>
+<li>OpenCV 5.0 Canny 教程： https://docs.opencv.org/5.0/tutorials/imgproc/imgtrans/canny_detector/canny_detector.html</li>
+<li>OpenCV 5.0 阈值与自适应阈值 API： https://docs.opencv.org/5.0/main_modules/imgproc_misc.html</li>
+<li>OpenCV 5.0 直方图、均衡化、CLAHE： https://docs.opencv.org/5.0/main_modules/imgproc_hist.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

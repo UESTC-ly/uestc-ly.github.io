@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>10-存储系统与可靠性 · 李杨的学习笔记</title><meta name="description" content="存储系统同时追求性能和可靠性，但这两者经常冲突。本章讲缓存、写入策略、fsync、RAID、日志、快照和备份，让你理解“写成功”和“数据安全”之间的距离。"><meta property="og:title" content="10-存储系统与可靠性 · 李杨的学习笔记"><meta property="og:description" content="存储系统同时追求性能和可靠性，但这两者经常冲突。本章讲缓存、写入策略、fsync、RAID、日志、快照和备份，让你理解“写成功”和“数据安全”之间的距离。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-1b6cb99fd814.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-1b6cb99fd814.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>10-存储系统与可靠性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/10-%E5%AD%98%E5%82%A8%E7%B3%BB%E7%BB%9F%E4%B8%8E%E5%8F%AF%E9%9D%A0%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#_2">存储层级</a></li><li><a href="#_3">写入策略</a></li><li><a href="#write-through">write-through</a></li><li><a href="#write-back">write-back</a></li><li><a href="#write-around">write-around</a></li><li><a href="#fsync">fsync 的意义</a></li><li><a href="#_4">原子替换文件</a></li><li><a href="#raid">RAID</a></li><li><a href="#_5">日志和事务</a></li><li><a href="#ssd">SSD 特性</a></li><li><a href="#_6">快照和备份</a></li><li><a href="#_7">实践任务</a></li><li><a href="#_8">自测题</a></li><li><a href="#_9">补充深入讲解</a></li><li><a href="#_10">从零开始理解：性能和可靠性为什么冲突</a></li><li><a href="#wal">数据库为什么重视 WAL</a></li><li><a href="#fsync_1">fsync 为什么贵</a></li><li><a href="#raid_1">RAID、快照、备份的边界</a></li><li><a href="#_11">进一步案例：消息队列为什么要批量刷盘</a></li><li><a href="#_12">进一步案例：为什么备份必须做恢复演练</a></li><li><a href="#_13">思维导图</a></li><li><a href="#1">1. 写入策略对比</a></li><li><a href="#2">2. 安全替换文件</a></li><li><a href="#3">3. 可靠性边界</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>存储系统同时追求性能和可靠性，但这两者经常冲突。本章讲缓存、写入策略、fsync、RAID、日志、快照和备份，让你理解“写成功”和“数据安全”之间的距离。</p>
+<span class="heading-anchor" id="存储层级"></span><h2 id="_2">存储层级</h2>
+<p>一次写入可能经过多层：</p>
+<pre><code class="language-text">用户态缓冲区
+  → 内核页缓存
+  → 文件系统日志
+  → 块层队列
+  → 设备缓存
+  → SSD/HDD 介质
+</code></pre>
+<p>每一层都可能缓存、合并、重排。性能来自缓存和批量，风险也来自尚未持久化的数据。</p>
+<span class="heading-anchor" id="写入策略"></span><h2 id="_3">写入策略</h2>
+<h3 id="write-through">write-through</h3>
+<p>写入必须同步到底层。语义简单，可靠性强，但慢。</p>
+<h3 id="write-back">write-back</h3>
+<p>先写缓存，稍后刷盘。性能好，但崩溃时可能丢失尚未刷盘的数据。</p>
+<h3 id="write-around">write-around</h3>
+<p>绕过缓存写底层，避免污染缓存，但后续读取可能慢。</p>
+<p>操作系统页缓存通常采用 write-back 思路。</p>
+<span class="heading-anchor" id="fsync 的意义"></span><h2 id="fsync">fsync 的意义</h2>
+<p><code>write()</code> 返回不代表落盘。<code>fsync()</code> 要求文件数据和必要元数据持久化。</p>
+<p>但可靠落盘要考虑：</p>
+<ul>
+<li>文件数据是否刷盘。</li>
+<li>inode 元数据是否刷盘。</li>
+<li>目录项是否刷盘。</li>
+<li>存储设备是否诚实执行 flush。</li>
+<li>文件系统日志模式。</li>
+</ul>
+<span class="heading-anchor" id="原子替换文件"></span><h2 id="_4">原子替换文件</h2>
+<p>很多程序写配置或状态文件时使用：</p>
+<pre><code class="language-text">写临时文件
+fsync 临时文件
+rename 到目标文件
+fsync 目录
+</code></pre>
+<p><code>rename</code> 在同一文件系统内通常是原子的。这样可以避免崩溃后出现半写文件。</p>
+<span class="heading-anchor" id="RAID"></span><h2 id="raid">RAID</h2>
+<p>RAID 用多块磁盘组合提升性能或可靠性。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RAID 0</td>
+<td>条带化，提升性能，无冗余</td>
+</tr>
+<tr>
+<td>RAID 1</td>
+<td>镜像，提高可靠性</td>
+</tr>
+<tr>
+<td>RAID 5</td>
+<td>奇偶校验，允许坏一块盘</td>
+</tr>
+<tr>
+<td>RAID 10</td>
+<td>镜像加条带，兼顾性能和可靠性</td>
+</tr>
+</tbody>
+</table></div>
+<p>RAID 不是备份。误删除、勒索、软件 bug 会同步影响阵列。</p>
+<span class="heading-anchor" id="日志和事务"></span><h2 id="_5">日志和事务</h2>
+<p>可靠系统需要保证一组更新要么都发生，要么都不发生。日志是常用方法。</p>
+<pre><code class="language-text">1. 写 redo/undo 日志
+2. 确保日志持久化
+3. 应用真实修改
+4. 崩溃后根据日志恢复
+</code></pre>
+<p>文件系统、数据库、消息队列都大量使用日志思想。</p>
+<span class="heading-anchor" id="SSD 特性"></span><h2 id="ssd">SSD 特性</h2>
+<p>SSD 内部不能像内存一样原地覆盖。它有擦除块、页写入、FTL 映射、垃圾回收、磨损均衡。</p>
+<p>影响：</p>
+<ul>
+<li>小随机写可能导致写放大。</li>
+<li>顺序写通常更友好。</li>
+<li>TRIM 告诉 SSD 哪些块不再使用。</li>
+<li>队列深度会影响吞吐。</li>
+</ul>
+<span class="heading-anchor" id="快照和备份"></span><h2 id="_6">快照和备份</h2>
+<p>快照是某一时刻的数据视图，常依赖 COW。备份是独立副本。</p>
+<p>可靠数据保护应包括：</p>
+<ul>
+<li>本地冗余。</li>
+<li>异地备份。</li>
+<li>定期恢复演练。</li>
+<li>版本保留。</li>
+<li>防误删和防勒索策略。</li>
+</ul>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_7">实践任务</h2>
+<pre><code class="language-bash">df -h
+df -i
+mount
+iostat -x 1
+</code></pre>
+<p>观察容量、inode、挂载参数和设备延迟。</p>
+<span class="heading-anchor" id="自测题"></span><h2 id="_8">自测题</h2>
+<ol>
+<li>write-back 为什么快？风险是什么？</li>
+<li>fsync 文件和 fsync 目录有什么区别？</li>
+<li>RAID 为什么不能替代备份？</li>
+<li>SSD 为什么怕大量小随机写？</li>
+<li>日志如何帮助崩溃恢复？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_9">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：性能和可靠性为什么冲突"></span><h2 id="_10">从零开始理解：性能和可靠性为什么冲突</h2>
+<p>最快的写入方式是把数据放进内存缓存就返回；最可靠的写入方式是确认数据已经安全写到持久介质。前者快但可能丢，后者可靠但慢。存储系统所有设计都在这两者之间取舍。</p>
+<span class="heading-anchor" id="数据库为什么重视 WAL"></span><h2 id="wal">数据库为什么重视 WAL</h2>
+<p>数据库不会每次修改都随机写数据页并立即刷盘，而是先顺序写日志。顺序写更快，崩溃后可以根据日志重放或回滚。WAL 的核心原则是：数据页落盘前，描述这次修改的日志必须先落盘。</p>
+<span class="heading-anchor" id="fsync 为什么贵"></span><h2 id="fsync_1">fsync 为什么贵</h2>
+<p>fsync 可能要求把脏页、元数据、日志提交到底层设备，并等待设备确认。它会打断内核和设备的批量优化。因此高性能系统通常会 group commit，把多个请求的持久化合并成一次刷盘。</p>
+<span class="heading-anchor" id="RAID、快照、备份的边界"></span><h2 id="raid_1">RAID、快照、备份的边界</h2>
+<p>RAID 解决部分磁盘损坏，不解决误删；快照能回到某个时间点，但如果快照和源数据在同一故障域，也可能一起丢；备份必须可恢复，不能只“有一份文件”。可靠性最终要靠恢复演练验证。</p>
+<span class="heading-anchor" id="进一步案例：消息队列为什么要批量刷盘"></span><h2 id="_11">进一步案例：消息队列为什么要批量刷盘</h2>
+<p>如果每条消息都单独 fsync，吞吐会很低。消息队列通常把多条消息追加到日志文件，然后 group commit，一次 fsync 确认多条消息。这样多个请求共享一次持久化成本。</p>
+<p>代价是确认策略要设计清楚：如果消息在内存中尚未 fsync 就向客户端 ack，崩溃后可能丢；如果必须 fsync 后再 ack，延迟更高。不同系统会提供不同可靠性级别。</p>
+<span class="heading-anchor" id="进一步案例：为什么备份必须做恢复演练"></span><h2 id="_12">进一步案例：为什么备份必须做恢复演练</h2>
+<p>很多团队以为“有备份文件”就安全，但真正故障时才发现备份损坏、缺少权限、版本太旧、恢复太慢或依赖没备份。备份的价值不在于存在，而在于可恢复。恢复演练能验证 RPO（最多丢多少数据）和 RTO（多久恢复服务）。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_13">思维导图</h2>
+<blockquote>
+<p>记忆建议：存储可靠性要区分“写入成功、刷到设备、真正可恢复”。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 写入策略对比"></span><h3 id="1">1. 写入策略对比</h3>
+<pre class="mermaid">mindmap
+  root((写入策略))
+    write-through
+      同步写到底层
+      可靠但慢
+    write-back
+      先写缓存后刷盘
+      快但崩溃有风险
+    write-around
+      绕过缓存
+      避免污染缓存
+</pre>
+<span class="heading-anchor" id="2. 安全替换文件"></span><h3 id="2">2. 安全替换文件</h3>
+<pre class="mermaid">flowchart LR
+  A["写临时文件"] --&gt; B["fsync临时文件"]
+  B --&gt; C["rename到目标路径"]
+  C --&gt; D["fsync目录"]
+  D --&gt; E["崩溃后避免半写文件"]
+</pre>
+<span class="heading-anchor" id="3. 可靠性边界"></span><h3 id="3">3. 可靠性边界</h3>
+<pre class="mermaid">flowchart TD
+  A["RAID"] --&gt; B["抗单盘故障\n不是备份"]
+  C["快照"] --&gt; D["保留某时刻状态\n可能同域故障"]
+  E["备份"] --&gt; F["异地和可恢复验证"]
+  G["WAL日志"] --&gt; H["先记录意图\n再修改数据"]
+  H --&gt; I["崩溃后重放或回滚"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

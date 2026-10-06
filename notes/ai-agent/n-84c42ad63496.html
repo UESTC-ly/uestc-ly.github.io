@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-04 图片与多模态嵌入 · 李杨的学习笔记</title><meta name="description" content="一份 PDF 可能同时包含正文、截图、流程图、表格和扫描页。如果摄取过程只提取可复制文字，
+图片里的错误提示、箭头关系和界面状态就会消失。后续文本嵌入再准确，也无法检索从未进入
+表示的数据。"><meta property="og:title" content="05-04 图片与多模态嵌入 · 李杨的学习笔记"><meta property="og:description" content="一份 PDF 可能同时包含正文、截图、流程图、表格和扫描页。如果摄取过程只提取可复制文字，
+图片里的错误提示、箭头关系和界面状态就会消失。后续文本嵌入再准确，也无法检索从未进入
+表示的数据。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-84c42ad63496.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-84c42ad63496.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-04 图片与多模态嵌入</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/04-image-and-multimodal-embeddings.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">图片为什么不能只当一段空白</a></li><li><a href="#_2">四个容易混淆的概念</a></li><li><a href="#ocr">OCR：把图片中的字转成文本</a></li><li><a href="#_3">图片描述：用文字概括可见内容</a></li><li><a href="#_4">图片嵌入：把视觉输入映射为向量</a></li><li><a href="#_5">多模态嵌入：让不同模态参与同一检索任务</a></li><li><a href="#_6">两种常见检索架构</a></li><li><a href="#_7">方案一：共享空间</a></li><li><a href="#_8">方案二：分别检索后融合</a></li><li><a href="#_9">一个具体例子：检索软件错误截图</a></li><li><a href="#_10">预处理决定了模型看见什么</a></li><li><a href="#_11">页面、图片还是区域</a></li><li><a href="#_12">尺寸、方向与颜色</a></li><li><a href="#_13">重复与近重复</a></li><li><a href="#_14">图注与周围文字</a></li><li><a href="#_15">如何评估多模态检索</a></li><li><a href="#_16">隐私、版权与安全边界</a></li><li><a href="#_17">敏感视觉信息</a></li><li><a href="#_18">权利与来源</a></li><li><a href="#_19">图片中的指令</a></li><li><a href="#_20">识别错误</a></li><li><a href="#_21">方案拆分练习</a></li><li><a href="#_22">自测</a></li><li><a href="#_23">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-04</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 20 分钟方案拆分练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 05-01 至 05-03；知道 OCR、图片、文本块、元数据和相似度的基本含义</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真实图片模型可能需要下载权重或调用服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章的页面例子设计数据流，不处理真实图片</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分文字识别、图片描述、图片嵌入和多模态嵌入；</li>
+<li>解释共享向量空间与分别检索后融合的差异；</li>
+<li>为包含截图、图表和扫描页的资料保留可追溯结构；</li>
+<li>识别图片处理中的隐私、版权、提示注入和错误识别风险。</li>
+</ul>
+<span class="heading-anchor" id="图片为什么不能只当一段空白"></span><h2 id="_1">图片为什么不能只当一段空白</h2>
+<p>一份 PDF 可能同时包含正文、截图、流程图、表格和扫描页。如果摄取过程只提取可复制文字，
+图片里的错误提示、箭头关系和界面状态就会消失。后续文本嵌入再准确，也无法检索从未进入
+表示的数据。</p>
+<p>但“给图片做嵌入”也不是一个单一步骤。系统需要先确定用户想找什么：图片中的文字、
+视觉外观、对象与场景、图表关系，还是文字查询与图片之间的跨模态对应。不同目标需要
+不同处理路径。</p>
+<span class="heading-anchor" id="四个容易混淆的概念"></span><h2 id="_2">四个容易混淆的概念</h2>
+<span class="heading-anchor" id="OCR：把图片中的字转成文本"></span><h3 id="ocr">OCR：把图片中的字转成文本</h3>
+<p>光学字符识别（Optical Character Recognition，OCR）尝试读取扫描件、照片或截图中的
+文字。输出通常可以进入文本清理、切分和文本嵌入流程。</p>
+<p>OCR 适合回答“图片里写了什么”，但可能丢失布局、颜色、箭头和对象关系。识别结果还会
+出现错字、漏字和阅读顺序错误，因此必须保留原图位置和识别置信信息，便于复核。</p>
+<span class="heading-anchor" id="图片描述：用文字概括可见内容"></span><h3 id="_3">图片描述：用文字概括可见内容</h3>
+<p>图片描述或标题生成把视觉内容转换成人可读文本。例如把截图描述为“设置页面右上角出现
+红色连接失败提示”。描述可以被文本检索，但它是模型生成的二次表示，可能忽略细节或
+产生错误，不应冒充图片原文。</p>
+<span class="heading-anchor" id="图片嵌入：把视觉输入映射为向量"></span><h3 id="_4">图片嵌入：把视觉输入映射为向量</h3>
+<p>图片嵌入直接把图片或裁剪区域映射为数值向量，可用于寻找视觉上或语义上相近的图片。
+它是否能与文本向量比较，取决于模型是否把两种输入训练到兼容空间。</p>
+<span class="heading-anchor" id="多模态嵌入：让不同模态参与同一检索任务"></span><h3 id="_5">多模态嵌入：让不同模态参与同一检索任务</h3>
+<p>多模态嵌入（multimodal embedding）常用于文字找图、图片找文字或图文联合检索。它不
+等于“模型理解所有模态的全部细节”。共享空间通常只保留对训练目标有用的关联，细小数字、
+精确布局或专业符号仍可能需要 OCR、结构解析或专用模型补充。</p>
+<span class="heading-anchor" id="两种常见检索架构"></span><h2 id="_6">两种常见检索架构</h2>
+<span class="heading-anchor" id="方案一：共享空间"></span><h3 id="_7">方案一：共享空间</h3>
+<p>如果模型明确支持文本与图片进入同一个兼容空间，可以把文字查询向量与图片向量直接比较。</p>
+<p>流程可以是：</p>
+<ol>
+<li>图片按页或区域保存并生成图片向量；</li>
+<li>用户文字查询按模型要求生成文本向量；</li>
+<li>在共享空间中取得图片候选；</li>
+<li>根据来源、权限和页面结构过滤；</li>
+<li>把原图、OCR 或描述提供给后续复核。</li>
+</ol>
+<p>优点是跨模态查询直接，缺点是模型与输入模式绑定较强，而且结果可能难以解释具体匹配了
+哪个视觉因素。</p>
+<span class="heading-anchor" id="方案二：分别检索后融合"></span><h3 id="_8">方案二：分别检索后融合</h3>
+<p>系统也可以维护文本索引与图片索引：OCR 和标题进入文本检索，图片本身进入视觉检索，
+然后合并候选。</p>
+<p>这种方式可以分别选择适合文本与视觉的模型，也便于观察各通道贡献。但不同通道分数通常
+不在同一尺度，不能直接把 <code>0.8</code> 和 <code>0.8</code> 当成相等证据。需要通过排序、规则或经过验证
+的融合方法组合，并保留候选来自哪个通道。</p>
+<span class="heading-anchor" id="一个具体例子：检索软件错误截图"></span><h2 id="_9">一个具体例子：检索软件错误截图</h2>
+<p>知识库中有一页故障手册，左侧是设置步骤，右侧是一张截图，红色提示框中写着“连接被
+拒绝”，下方箭头指向代理配置。</p>
+<p>用户问“为什么配置代理后提示连接被拒绝”。可能需要三类信息：</p>
+<ul>
+<li>OCR 提取“连接被拒绝”和页面标签；</li>
+<li>图片或布局表示保留红色提示框与代理配置区域的视觉关联；</li>
+<li>文档结构保留截图属于哪一节、对应哪段解释。</li>
+</ul>
+<p>如果只嵌入整页 OCR 文本，阅读顺序错误可能把左、右栏混在一起。如果只嵌入整张图片，
+细小错误码可能无法稳定检索。如果只生成一句图片描述，代理字段的具体名称可能被省略。</p>
+<p>更稳妥的做法是保留整页、区域裁剪、OCR 文本、图片描述和文档位置之间的关系，再用任务
+评估决定哪些表示进入候选检索。</p>
+<span class="heading-anchor" id="预处理决定了模型看见什么"></span><h2 id="_10">预处理决定了模型看见什么</h2>
+<span class="heading-anchor" id="页面、图片还是区域"></span><h3 id="_11">页面、图片还是区域</h3>
+<p>整页输入保留上下文，但小字和细节可能被缩小；区域裁剪突出局部，却可能丢掉标题和图注。
+可以同时保留页面级与区域级对象，但必须用父子标识关联，避免候选失去出处。</p>
+<span class="heading-anchor" id="尺寸、方向与颜色"></span><h3 id="_12">尺寸、方向与颜色</h3>
+<p>缩放、旋转、压缩和颜色转换都可能影响输出。扫描页若方向错误，OCR 和视觉表示都会受损。
+预处理规则应版本化，并保留原始文件或可审计副本。</p>
+<span class="heading-anchor" id="重复与近重复"></span><h3 id="_13">重复与近重复</h3>
+<p>同一截图可能出现在多个版本文档中。视觉接近不代表业务版本相同。去重时不能只保留一个
+向量而丢掉各自来源、生效时间和权限。</p>
+<span class="heading-anchor" id="图注与周围文字"></span><h3 id="_14">图注与周围文字</h3>
+<p>图注、标题和相邻段落常提供图片无法独立表达的语境。可以把它们作为关联文本，而不是
+随意拼成无法追溯的长字符串。</p>
+<span class="heading-anchor" id="如何评估多模态检索"></span><h2 id="_15">如何评估多模态检索</h2>
+<p>评估问题应对应真实任务，例如：</p>
+<ul>
+<li>用错误消息文字寻找正确截图；</li>
+<li>用产品照片寻找对应说明；</li>
+<li>用图表标题寻找包含目标趋势的页面；</li>
+<li>用图片寻找相似版式或对象；</li>
+<li>在无匹配图片时返回无答案状态。</li>
+</ul>
+<p>为每个查询标注允许的图片、页面或区域，并记录为什么正确。然后分别观察 OCR 文本通道、
+视觉通道和融合结果。若融合后总分提高但关键小字查询变差，不能只看平均值宣布成功。</p>
+<p>多模态评估还应覆盖模糊照片、旋转页面、低对比度扫描、相似界面版本、不同语言图注和
+只凭图片无法确定的请求。</p>
+<span class="heading-anchor" id="隐私、版权与安全边界"></span><h2 id="_16">隐私、版权与安全边界</h2>
+<span class="heading-anchor" id="敏感视觉信息"></span><h3 id="_17">敏感视觉信息</h3>
+<p>图片可能包含人脸、证件、地址、屏幕上的访问令牌或内部界面。上传外部服务前需要执行
+数据分类与最小化，必要时在受控环境中处理。裁剪不是自动脱敏，背景仍可能暴露信息。</p>
+<span class="heading-anchor" id="权利与来源"></span><h3 id="_18">权利与来源</h3>
+<p>能生成图片向量不代表拥有复制、训练或分发图片的权利。保存来源、许可、用途限制和删除
+要求，确保重建索引时不会重新引入已撤回内容。</p>
+<span class="heading-anchor" id="图片中的指令"></span><h3 id="_19">图片中的指令</h3>
+<p>截图、扫描文档和图片描述可能包含“忽略规则”“发送数据”等文字。OCR 得到的这些内容
+仍是知识库数据，不是系统指令。多模态候选进入模型上下文时，应维持数据与控制指令边界。</p>
+<span class="heading-anchor" id="识别错误"></span><h3 id="_20">识别错误</h3>
+<p>OCR 错误或图片描述错误可能改变数字、否定词和对象关系。高风险场景不能把生成描述当作
+唯一证据；应允许用户或审核者回看原图和位置。</p>
+<span class="heading-anchor" id="方案拆分练习"></span><h2 id="_21">方案拆分练习</h2>
+<p>假设你要检索设备维修手册，资料包含正文、接线图、警告标识和零件照片。分别为以下问题
+选择 OCR、文本嵌入、图片嵌入或组合路径，并说明理由：</p>
+<ol>
+<li>“图中的警告代码 E17 是什么意思？”</li>
+<li>“找到外观相似的连接器照片。”</li>
+<li>“哪张图展示了断电后拆卸后盖？”</li>
+<li>“这页是否适用于旧型号？”</li>
+</ol>
+<p>第四个问题提醒你：图片相似性不能替代版本元数据。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_22">自测</h2>
+<ol>
+<li>OCR 与图片嵌入分别回答什么问题？</li>
+<li>为什么生成的图片描述不能冒充原图事实？</li>
+<li>分别检索后融合时，为什么不能直接比较不同通道的原始分数？</li>
+<li>区域裁剪与整页输入各有什么信息损失风险？</li>
+<li>图片中的文字为什么不能获得系统指令权限？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_23">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，未对具体多模态模型或 OCR 服务作效果与费用声明。</li>
+<li>代码与图表：图片裁剪、OCR 和跨模态检索演示均为后续计划，尚未实现或端到端验证。</li>
+<li>
+<p>摘要：<a href="n-4825cfe4d615.html">05-04 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-0a3f69ead2fc.html">05-03 文本嵌入模型选择</a></p>
+</li>
+<li>下一章：<a href="n-742817d3b965.html">05-05 批处理、缓存与成本</a></li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Pipeline、Lua 与客户端连接池 · 李杨的学习笔记</title><meta name="description" content="Pipeline 把多条命令连续发送到 Redis，减少网络往返次数；它不是事务，不保证中间命令失败时自动回滚。Lua 把多步逻辑放到服务端执行，在单实例上原子完成，但脚本执行期间会阻塞其他命令。"><meta property="og:title" content="Pipeline、Lua 与客户端连接池 · 李杨的学习笔记"><meta property="og:description" content="Pipeline 把多条命令连续发送到 Redis，减少网络往返次数；它不是事务，不保证中间命令失败时自动回滚。Lua 把多步逻辑放到服务端执行，在单实例上原子完成，但脚本执行期间会阻塞其他命令。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-1a57bc1daffc.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-1a57bc1daffc.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>Pipeline、Lua 与客户端连接池</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/08-Pipeline-Lua%E4%B8%8E%E5%AE%A2%E6%88%B7%E7%AB%AF%E8%BF%9E%E6%8E%A5%E6%B1%A0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">工程实践/示例</a></li><li><a href="#pipelinelua_1">Pipeline、事务、Lua 的区别</a></li><li><a href="#_4">客户端超时与重试</a></li><li><a href="#_5">连接池参数思路</a></li><li><a href="#cluster">Cluster 拓扑刷新</a></li><li><a href="#_6">批量大小与背压</a></li><li><a href="#_7">观测指标</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解 Pipeline 降低 RTT 的原理和不改变命令语义的边界。</li>
+<li>掌握 Lua 脚本的原子性、阻塞风险和 Cluster 限制。</li>
+<li>能在 C++/Python 客户端中设计连接池、超时、重试和熔断。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>Pipeline 把多条命令连续发送到 Redis，减少网络往返次数；它不是事务，不保证中间命令失败时自动回滚。Lua 把多步逻辑放到服务端执行，在单实例上原子完成，但脚本执行期间会阻塞其他命令。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>适用</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipeline</td>
+<td>批量读写、减少 RTT</td>
+<td>不提供事务语义</td>
+</tr>
+<tr>
+<td>Lua</td>
+<td>库存扣减、条件删除锁、幂等判断</td>
+<td>长脚本阻塞；Cluster 要同 slot</td>
+</tr>
+<tr>
+<td>连接池</td>
+<td>降低建连成本、控制并发</td>
+<td>池过大也会放大 Redis 压力</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_3">工程实践/示例</h2>
+<p>Python 连接池示例：</p>
+<pre><code class="language-python">import redis
+
+pool = redis.ConnectionPool(host="127.0.0.1", port=6379, max_connections=64)
+r = redis.Redis(connection_pool=pool, socket_timeout=0.2, socket_connect_timeout=0.2)
+
+with r.pipeline(transaction=False) as pipe:
+    for key in ["k1", "k2", "k3"]:
+        pipe.get(key)
+    values = pipe.execute()
+</code></pre>
+<p>C++ 可使用 hiredis 或 redis-plus-plus 这类客户端。连接池要设置最大连接数、等待超时、命令超时和健康检查，并避免在请求线程中无限等待。</p>
+<pre><code class="language-cpp">// 伪代码：真实接口以所选客户端官方文档为准
+auto conn = pool.acquire(timeout_ms);
+auto value = conn-&gt;get("user:42");
+pool.release(conn);
+</code></pre>
+<span class="heading-anchor" id="Pipeline、事务、Lua 的区别"></span><h3 id="pipelinelua_1">Pipeline、事务、Lua 的区别</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>减少 RTT</th>
+<th>原子执行</th>
+<th>条件判断</th>
+<th>失败回滚</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipeline</td>
+<td>是</td>
+<td>否</td>
+<td>由客户端做</td>
+<td>否</td>
+<td>批量 GET/SET</td>
+</tr>
+<tr>
+<td><code>MULTI/EXEC</code></td>
+<td>可配合 pipeline</td>
+<td>单实例顺序执行</td>
+<td><code>WATCH</code> 辅助</td>
+<td>否</td>
+<td>多命令批量提交</td>
+</tr>
+<tr>
+<td>Lua</td>
+<td>是</td>
+<td>单实例脚本原子</td>
+<td>脚本内判断</td>
+<td>否</td>
+<td>库存、锁释放、幂等</td>
+</tr>
+</tbody>
+</table></div>
+<p>Pipeline 只是把命令连续发出去，服务端仍逐条执行并逐条返回。中间某条命令失败不会阻止其他命令，也不会回滚。事务和 Lua 解决的是“命令之间不被插入”的问题，不解决跨系统副作用。</p>
+<span class="heading-anchor" id="客户端超时与重试"></span><h3 id="_4">客户端超时与重试</h3>
+<p>Redis 客户端至少要区分连接超时、命令读写超时、连接池等待超时和整体请求 deadline。没有 deadline 的连接池会把上游线程拖死；无条件重试会把故障实例打得更慢。</p>
+<pre><code class="language-text">connect_timeout_ms &lt;= 业务接口预算的 10%-20%
+command_timeout_ms 按 P99 + 抖动设置
+pool_wait_timeout_ms 小于上游请求剩余时间
+max_retries 只对幂等读或带请求号的写开启
+</code></pre>
+<p>非幂等命令风险：</p>
+<pre class="mermaid">sequenceDiagram
+  participant App
+  participant R as Redis
+  App-&gt;&gt;R: INCR counter
+  R--xApp: reply timeout after command executed
+  App-&gt;&gt;R: retry INCR
+  R--&gt;&gt;App: OK
+  Note over R: counter increased twice
+</pre>
+<p>计数、扣库存、发券等写操作如果要重试，必须带业务幂等键，或改成 Lua 在同一原子块内检查请求号。</p>
+<span class="heading-anchor" id="连接池参数思路"></span><h3 id="_5">连接池参数思路</h3>
+<p>连接池不是越大越好。过大的池会让更多请求同时进入 Redis，造成排队、超时和雪崩式重试。池大小应由实例 QPS、平均命令耗时、业务线程数和超时预算共同决定。</p>
+<pre><code class="language-text">needed_connections ~= target_qps * avg_command_latency_seconds / pipeline_batch_factor
+</code></pre>
+<p>工程配置：</p>
+<ul>
+<li>每个业务进程设置最大连接数和最大等待时间。</li>
+<li>慢路径和快路径隔离连接池，避免批处理占满在线请求连接。</li>
+<li>健康检查失败时短时间熔断，避免所有线程阻塞在同一故障节点。</li>
+<li>TLS、AUTH、DNS、拓扑刷新都应纳入连接初始化成本。</li>
+</ul>
+<span class="heading-anchor" id="Cluster 拓扑刷新"></span><h3 id="cluster">Cluster 拓扑刷新</h3>
+<p>Cluster 客户端需要维护 slot 到节点的映射。遇到 <code>MOVED</code> 应刷新 slot cache；遇到 reshard 期间的 <code>ASK</code> 应按协议对单次请求访问迁移目标。拓扑刷新不能只在启动时做，否则故障转移后连接池会持续打旧主。</p>
+<pre><code class="language-pseudo">try:
+    send_to(slot_cache[key_slot])
+catch MOVED(slot, endpoint):
+    slot_cache[slot] = endpoint
+    retry_once(endpoint)
+catch ASK(slot, endpoint):
+    send_asking_then_command(endpoint)
+</code></pre>
+<span class="heading-anchor" id="批量大小与背压"></span><h3 id="_6">批量大小与背压</h3>
+<p>Pipeline 批量过小收益有限，过大则增加单次响应体、服务端输出缓冲和客户端内存。批量任务应设置最大 key 数、最大字节数和每批 deadline。</p>
+<pre><code class="language-pseudo">batch = []
+for key in keys:
+    batch.append(GET key)
+    if len(batch) &gt;= 500 or batch_bytes &gt;= 1MB:
+        execute_with_deadline(batch, 100ms)
+        batch.clear()
+</code></pre>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_7">观测指标</h3>
+<ul>
+<li>连接池：活跃连接、空闲连接、等待队列长度、等待超时次数。</li>
+<li>命令：按命令类型的 QPS、P99/P999、超时、重试次数。</li>
+<li>Pipeline：批大小、响应字节、单批耗时、失败命令比例。</li>
+<li>Lua：脚本耗时、慢日志、<code>BUSY</code> 错误、脚本缓存 miss。</li>
+<li>Cluster：<code>MOVED/ASK</code> 次数、slot cache 刷新、节点连接失败。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipeline 等于批量原子提交</td>
+<td>Pipeline 只减少 RTT，不提供隔离和回滚</td>
+</tr>
+<tr>
+<td>Lua 越多越好</td>
+<td>长 Lua 会阻塞实例，应保持短小、可预测</td>
+</tr>
+<tr>
+<td>连接池越大越快</td>
+<td>过大连接池会增加上下文切换、排队和 Redis 压力</td>
+</tr>
+<tr>
+<td>客户端重试可以默认开启</td>
+<td>非幂等命令重试可能造成重复写</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>Pipeline 和事务的区别是什么？</li>
+<li>Lua 脚本为什么要避免访问大量 Key？</li>
+<li>Redis 客户端应设置哪些超时？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<ul>
+<li>用 Pipeline 批量读取 1000 个 Key，对比逐条读取的耗时。</li>
+<li>设计 C++ 服务的 Redis 连接池参数：最大连接数、等待时间、读写超时、失败熔断。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>Redis pipelining：https://redis.io/docs/latest/develop/using-commands/pipelining/</li>
+<li>Redis programmability：https://redis.io/docs/latest/develop/programmability/</li>
+<li>redis-py docs：https://redis.readthedocs.io/</li>
+<li>redis-plus-plus：https://github.com/sewenew/redis-plus-plus</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>分布式系统：一致性与共识 · 李杨的学习笔记</title><meta name="description" content="一致性是读写表现出来的语义，共识是在故障下让节点对值达成一致。"><meta property="og:title" content="分布式系统：一致性与共识 · 李杨的学习笔记"><meta property="og:description" content="一致性是读写表现出来的语义，共识是在故障下让节点对值达成一致。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fe750ce66092.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fe750ce66092.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 分布式系统</p><h1>分布式系统：一致性与共识</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/02-%E4%B8%80%E8%87%B4%E6%80%A7%E4%B8%8E%E5%85%B1%E8%AF%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">分章节讲解</a></li><li><a href="#1">1. 线性一致性</a></li><li><a href="#2">2. 最终一致性</a></li><li><a href="#3">3. 共识问题</a></li><li><a href="#4-raft">4. Raft</a></li><li><a href="#_7">关键对比表</a></li><li><a href="#_8">边界条件表</a></li><li><a href="#_9">常见误区总结</a></li><li><a href="#_10">自检题</a></li><li><a href="#_11">速记卡片</a></li><li><a href="#_12">深度扩展：底层原理与应用边界</a></li><li><a href="#1_1">1. 本章在「分布式系统」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_13">专题深化：具体机制、案例与追问</a></li><li><a href="#1_2">1. 具体案例：把「一致性与共识」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_1">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li><li><a href="#_14">本轮扩写：一致性语义、共识边界与面试辨析</a></li><li><a href="#1_3">1. 先区分“数据一致性”和“事务隔离”</a></li><li><a href="#2-pacelccap">2. PACELC：CAP 之外还要看正常路径</a></li><li><a href="#3_3">3. 共识不是“多数派投票”这么简单</a></li><li><a href="#4_2">4. 工程案例：库存扣减需要什么一致性</a></li><li><a href="#5_2">5. 常见误区与纠正</a></li><li><a href="#6_1">6. 追问路径</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>区分线性一致、最终一致、共识问题和 Raft 的机制边界。</li>
+<li>能从底层机制、适用边界、工程实践和面试表达四个角度解释本章概念。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出至少一个不适用场景、一个常见误区和一个纠正方式。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>一致性是读写表现出来的语义，共识是在故障下让节点对值达成一致。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>先定义一致性，再选择协议</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((一致性与共识))
+    核心概念
+      线性一致性
+      最终一致性
+      共识问题
+      Raft
+    底层视角
+      资产与状态
+      边界与信任
+      失败与恢复
+    工程动作
+      识别前提
+      选择机制
+      设定边界
+      验证效果
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  N1["线性一致性"]
+  N2["最终一致性"]
+  N3["共识问题"]
+  N4["Raft"]
+  N1 --&gt; N2
+  N2 --&gt; N3
+  N3 --&gt; N4
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_6">分章节讲解</h2>
+<span class="heading-anchor" id="1. 线性一致性"></span><h3 id="1">1. 线性一致性</h3>
+<p><strong>核心定义：</strong> 线性一致性要求每个操作看起来在调用开始与返回结束之间某个瞬间原子生效，所有客户端观察到同一个实时顺序。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 它把并发操作排列成一个符合真实时间先后关系的单一序列。
+- 常通过单领导者、多数派读写、租约读或共识日志实现。
+- 强语义通常带来更高延迟和分区时不可用，因为读写要协调最新提交位置。</p>
+<p><strong>适用场景：</strong> 适用于锁服务、配置中心、主节点选举、余额扣减、唯一约束和权限变更。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合对延迟极敏感且可容忍短暂旧值的计数、推荐、动态流等场景。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上明确哪些 API 承诺读己之写或线性一致读；面试中用“操作在调用和返回之间找线性化点”定义。</p>
+<p><strong>常见误区与纠正方式：</strong> 把主库读写等同于线性一致；纠正方式是检查故障切换、读缓存、租约和复制提交语义。</p>
+<p><strong>速记：</strong> 线性一致 = 像一个最新单机。</p>
+<span class="heading-anchor" id="2. 最终一致性"></span><h3 id="2">2. 最终一致性</h3>
+<p><strong>核心定义：</strong> 最终一致性保证在没有新写入且副本通信恢复后，多个副本最终收敛到一致状态。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 它允许读到旧值、并发冲突和临时分歧，通过异步复制、反熵、冲突解决和版本合并收敛。
+- 冲突解决可用最后写入胜出、向量时钟、CRDT、业务合并或人工仲裁。
+- 最终一致关注收敛性，仍要定义单调读、读己之写、因果一致等更细体验保证。</p>
+<p><strong>适用场景：</strong> 适用于评论计数、社交动态、缓存、搜索索引、跨地域多活和离线同步。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合直接处理强约束交易、库存唯一扣减和权限撤销等必须立即生效的操作。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上为每种冲突定义合并规则和补偿流程；面试中强调“最终一致不是没有一致性，而是收敛规则不同”。</p>
+<p><strong>常见误区与纠正方式：</strong> 最终一致等于随便不一致；纠正方式是明确传播机制、冲突检测、合并规则和最大收敛时间目标。</p>
+<p><strong>速记：</strong> 能暂歧，但要会合。</p>
+<span class="heading-anchor" id="3. 共识问题"></span><h3 id="3">3. 共识问题</h3>
+<p><strong>核心定义：</strong> 共识要求多个节点在可能失败的情况下对同一个值达成一致，满足一致性、有效性和终止性等性质。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 共识通常需要多数派交集保证两个已提交值不会冲突。
+- 在纯异步系统中遇到崩溃故障无法同时保证确定性终止，即 FLP 不可能性；现实算法依赖部分同步和随机/超时推进。
+- 共识输出常被组织为复制日志，让所有状态机按相同顺序执行命令。</p>
+<p><strong>适用场景：</strong> 适用于元数据管理、配置变更、选主、分布式锁、复制状态机和事务协调。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合每个普通业务请求都直接走昂贵共识，除非业务强一致收益大于延迟和成本。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上优先使用成熟系统如 etcd/ZooKeeper/Consul；面试中说明“共识不是简单投票，关键是多数派交集和日志顺序”。</p>
+<p><strong>常见误区与纠正方式：</strong> 多数节点同意一次就永远安全；纠正方式是加入任期、日志匹配、提交索引和成员变更协议。</p>
+<p><strong>速记：</strong> 多数派要有交集，日志要有顺序。</p>
+<span class="heading-anchor" id="4. Raft"></span><h3 id="4-raft">4. Raft</h3>
+<p><strong>核心定义：</strong> Raft 是一种易理解的共识算法，通过领导者、任期、选举、日志复制和安全提交维护复制状态机。</p>
+<p><strong>底层原理 / 机制拆解：</strong>
+- 任期是逻辑时代，节点只承认不小于自己任期的领导者，避免旧领导者继续提交。
+- 领导者接收客户端命令并复制日志，日志项复制到多数派后才能提交。
+- 跟随者根据日志索引和任期匹配回退，保证已提交日志不会被覆盖。</p>
+<p><strong>适用场景：</strong> 适用于小规模强一致元数据集群、配置中心、服务发现、分布式锁和控制面状态。</p>
+<p><strong>不适用场景 / 失败边界：</strong> 不适合超大吞吐数据面或跨洲低延迟强一致写入；多数派 RTT 会成为瓶颈。</p>
+<p><strong>工程实践或做题/面试理解：</strong> 工程上关注奇数节点、选举超时、快照压缩、成员变更和磁盘 fsync；面试按“选主-复制-提交-故障恢复”讲。</p>
+<p><strong>常见误区与纠正方式：</strong> 日志写到 leader 就算成功；纠正方式是提交必须达到多数派，并由 leader 推进 commit index。</p>
+<p><strong>速记：</strong> Raft 三件事：选主、复制、多数提交。</p>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_7">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>解决的核心问题</th>
+<th>适用边界</th>
+<th>不适用/风险边界</th>
+<th>面试抓手</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>线性一致性</td>
+<td>线性一致性要求每个操作看起来在调用开始与返回结束之间某个瞬间原子生效，所有客户端观察到同一个实时顺序。</td>
+<td>适用于锁服务、配置中心、主节点选举、余额扣减、唯一约束和权限变更。</td>
+<td>不适合对延迟极敏感且可容忍短暂旧值的计数、推荐、动态流等场景。</td>
+<td>线性一致 = 像一个最新单机。</td>
+</tr>
+<tr>
+<td>最终一致性</td>
+<td>最终一致性保证在没有新写入且副本通信恢复后，多个副本最终收敛到一致状态。</td>
+<td>适用于评论计数、社交动态、缓存、搜索索引、跨地域多活和离线同步。</td>
+<td>不适合直接处理强约束交易、库存唯一扣减和权限撤销等必须立即生效的操作。</td>
+<td>能暂歧，但要会合。</td>
+</tr>
+<tr>
+<td>共识问题</td>
+<td>共识要求多个节点在可能失败的情况下对同一个值达成一致，满足一致性、有效性和终止性等性质。</td>
+<td>适用于元数据管理、配置变更、选主、分布式锁、复制状态机和事务协调。</td>
+<td>不适合每个普通业务请求都直接走昂贵共识，除非业务强一致收益大于延迟和成本。</td>
+<td>多数派要有交集，日志要有顺序。</td>
+</tr>
+<tr>
+<td>Raft</td>
+<td>Raft 是一种易理解的共识算法，通过领导者、任期、选举、日志复制和安全提交维护复制状态机。</td>
+<td>适用于小规模强一致元数据集群、配置中心、服务发现、分布式锁和控制面状态。</td>
+<td>不适合超大吞吐数据面或跨洲低延迟强一致写入；多数派 RTT 会成为瓶颈。</td>
+<td>Raft 三件事：选主、复制、多数提交。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="边界条件表"></span><h2 id="_8">边界条件表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>边界条件</th>
+<th>应优先检查什么</th>
+<th>如果忽视会怎样</th>
+<th>推荐纠正方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入跨信任边界</td>
+<td>身份、来源、格式、权限</td>
+<td>被伪造、篡改或越权利用</td>
+<td>边界处重新认证、授权、校验和审计</td>
+</tr>
+<tr>
+<td>控制依赖人工流程</td>
+<td>owner、时限、证据</td>
+<td>例外长期存在，风险不可追踪</td>
+<td>自动化门禁 + 风险接受有效期</td>
+</tr>
+<tr>
+<td>机制带来额外复杂度</td>
+<td>性能、可用性、维护成本</td>
+<td>安全控制被绕过或误伤业务</td>
+<td>用威胁和资产价值决定控制强度</td>
+</tr>
+<tr>
+<td>运行环境会变化</td>
+<td>配置、依赖、权限漂移</td>
+<td>文档正确但系统实际暴露</td>
+<td>持续扫描、基线检测和复盘更新</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_9">常见误区总结</h2>
+<ul>
+<li><strong>线性一致性：</strong> 把主库读写等同于线性一致；纠正方式是检查故障切换、读缓存、租约和复制提交语义。</li>
+<li><strong>最终一致性：</strong> 最终一致等于随便不一致；纠正方式是明确传播机制、冲突检测、合并规则和最大收敛时间目标。</li>
+<li><strong>共识问题：</strong> 多数节点同意一次就永远安全；纠正方式是加入任期、日志匹配、提交索引和成员变更协议。</li>
+<li><strong>Raft：</strong> 日志写到 leader 就算成功；纠正方式是提交必须达到多数派，并由 leader 推进 commit index。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_10">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：一致性是读写表现出来的语义，共识是在故障下让节点对值达成一致。</li>
+<li>任选两个概念，说出它们的适用场景和不适用场景。</li>
+<li>如果机制失效，最可能先出现在哪个边界？如何验证？</li>
+<li>面试中如何用“定义 → 机制 → 场景 → 权衡 → 误区”回答本章任一概念？</li>
+<li>给一个真实系统例子，说明你会怎样落地本章控制或设计。</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_11">速记卡片</h2>
+<ul>
+<li>章节口诀：先定义一致性，再选择协议</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区 → 记忆点。</li>
+<li>工程落地：先列前提，再定机制，最后用日志、测试或演练验证。</li>
+<li>线性一致性：线性一致 = 像一个最新单机。</li>
+<li>最终一致性：能暂歧，但要会合。</li>
+<li>共识问题：多数派要有交集，日志要有顺序。</li>
+<li>Raft：Raft 三件事：选主、复制、多数提交。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_12">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「分布式系统」中的位置"></span><h3 id="1_1">1. 本章在「分布式系统」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>本章作用：</strong> 「分布式系统：一致性与共识」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是把远程调用当本地调用，忽视超时、重试、幂等、分区和一致性语义。</li>
+<li><strong>实践抓手：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 线性一致性"></span><h4 id="31">3.1 线性一致性</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 线性一致性 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 线性一致性，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 最终一致性"></span><h4 id="32">3.2 最终一致性</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 最终一致性 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 最终一致性，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 共识问题"></span><h4 id="33">3.3 共识问题</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 共识问题 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 共识问题，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 Raft"></span><h4 id="34-raft">3.4 Raft</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> Raft 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 Raft，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 设计时先声明系统模型和一致性要求，再选择复制、分片、共识或异步补偿方案。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 在网络不可靠、节点会失败、时钟不一致的条件下组织多节点协同。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_13">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「一致性与共识」放进真实问题"></span><h3 id="1_2">1. 具体案例：把「一致性与共识」放进真实问题</h3>
+<p>例如下单链路要考虑请求超时、重复提交、消息至少一次投递、库存扣减幂等、读写一致性和补偿任务。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>线性一致性提供最接近单机的读写语义。</li>
+<li>最终一致需要冲突解决和收敛规则。</li>
+<li>Raft 用任期、领导者和多数派约束避免脑裂。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>线性一致性</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>最终一致性</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>共识问题</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>Raft</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「分布式系统」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_1">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>网络分区时选择什么语义？</li>
+<li>重试是否幂等？</li>
+<li>副本之间如何收敛或提交？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用故障注入、超时重试测试、乱序重复消息测试和一致性检查验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul>
+<span class="heading-anchor" id="本轮扩写：一致性语义、共识边界与面试辨析"></span><h2 id="_14">本轮扩写：一致性语义、共识边界与面试辨析</h2>
+<span class="heading-anchor" id="1. 先区分“数据一致性”和“事务隔离”"></span><h3 id="1_3">1. 先区分“数据一致性”和“事务隔离”</h3>
+<p>很多面试错误来自把线性一致性、串行化、顺序一致性混为一谈：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>关注对象</th>
+<th>典型问题</th>
+<th>常见误区</th>
+<th>纠正方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>线性一致性</td>
+<td>单对象或多对象操作的实时可见性</td>
+<td>写成功后其他客户端是否立刻读到</td>
+<td>以为它等同于高性能</td>
+<td>强调它通常牺牲延迟和可用性</td>
+</tr>
+<tr>
+<td>顺序一致性</td>
+<td>所有客户端看到同一操作顺序</td>
+<td>是否需要尊重真实时间先后</td>
+<td>以为所有一致性都要求真实时间</td>
+<td>顺序一致不一定满足实时性</td>
+</tr>
+<tr>
+<td>因果一致性</td>
+<td>有因果关系的操作顺序</td>
+<td>评论必须在帖子之后可见</td>
+<td>误把并发事件强行排序</td>
+<td>只排序有因果依赖的事件</td>
+</tr>
+<tr>
+<td>串行化</td>
+<td>事务执行结果等价于某个串行顺序</td>
+<td>多事务并发是否破坏不变量</td>
+<td>把数据库隔离级别当复制一致性</td>
+<td>明确它属于事务调度语义</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. PACELC：CAP 之外还要看正常路径"></span><h3 id="2-pacelccap">2. PACELC：CAP 之外还要看正常路径</h3>
+<p>CAP 只强调分区发生时的一致性和可用性取舍；工程系统更多时间处于未分区状态，此时也要在延迟和一致性之间取舍。</p>
+<pre class="mermaid">flowchart LR
+  A["网络分区 P"] --&gt; B{选择}
+  B --&gt; C["保持一致 C"]
+  B --&gt; D["保持可用 A"]
+  E["无分区 E"] --&gt; F{选择}
+  F --&gt; G["更低延迟 L"]
+  F --&gt; H["更强一致 C"]
+</pre>
+<ul>
+<li><strong>适用：</strong> 讨论跨地域数据库、分布式 KV、缓存读写一致性、搜索索引刷新延迟。</li>
+<li><strong>不适用：</strong> 单机数据库事务内部的锁冲突分析，此时重点是隔离级别和并发控制。</li>
+<li><strong>面试表达：</strong> “CAP 告诉我分区时不能同时要 C 和 A；PACELC 继续提醒我，即使没有分区，也要在延迟和一致性之间选。”</li>
+</ul>
+<span class="heading-anchor" id="3. 共识不是“多数派投票”这么简单"></span><h3 id="3_3">3. 共识不是“多数派投票”这么简单</h3>
+<p>多数派只是容错的数学基础，共识还需要处理领导者、任期、日志匹配、提交规则和成员变更。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>解决什么</th>
+<th>边界条件</th>
+<th>面试追问</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任期/epoch</td>
+<td>区分新旧领导者</td>
+<td>旧 leader 可能继续对外响应</td>
+<td>如何防止脑裂写入</td>
+</tr>
+<tr>
+<td>多数派 quorum</td>
+<td>在失败节点存在时仍能推进</td>
+<td>少于多数派时必须停止写入</td>
+<td>为什么 3 节点只能容忍 1 个故障</td>
+</tr>
+<tr>
+<td>日志复制</td>
+<td>让状态机按同一顺序执行命令</td>
+<td>follower 落后或出现冲突日志</td>
+<td>leader 如何覆盖不一致日志</td>
+</tr>
+<tr>
+<td>提交规则</td>
+<td>判断日志何时对外可见</td>
+<td>不能只看单副本落盘</td>
+<td>为什么提交后不能回滚</td>
+</tr>
+<tr>
+<td>成员变更</td>
+<td>调整集群规模</td>
+<td>新旧配置可能同时存在</td>
+<td>为什么需要 joint consensus 或等价机制</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 工程案例：库存扣减需要什么一致性"></span><h3 id="4_2">4. 工程案例：库存扣减需要什么一致性</h3>
+<ul>
+<li><strong>强约束库存：</strong> 秒杀扣库存、防超卖，通常需要单分片串行化、乐观锁或强一致事务；跨分片时要谨慎设计预扣、冻结和补偿。</li>
+<li><strong>弱约束展示：</strong> 商品详情页库存展示可以允许秒级延迟，用缓存或异步刷新降低读压力。</li>
+<li><strong>订单状态：</strong> 用户支付成功后订单页必须读到确定状态，至少要保证读己之写或按主库/会话一致性读取。</li>
+<li><strong>搜索索引：</strong> 商品状态进搜索索引通常接受最终一致，但要有延迟监控和纠错任务。</li>
+</ul>
+<span class="heading-anchor" id="5. 常见误区与纠正"></span><h3 id="5_2">5. 常见误区与纠正</h3>
+<ol>
+<li><strong>误区：</strong> “用了 Raft 就所有读都强一致。”<br/>
+<strong>纠正：</strong> follower 读、lease read、read index 都有前提；要说明读路径如何确认 leader 仍有效。</li>
+<li><strong>误区：</strong> “最终一致就是随便不一致。”<br/>
+<strong>纠正：</strong> 最终一致必须说明收敛机制、冲突解决、最大延迟和异常修复。</li>
+<li><strong>误区：</strong> “CAP 三选二。”<br/>
+<strong>纠正：</strong> 分区不可避免，真实选择是在分区时偏 CP 或 AP，并在正常路径权衡延迟。</li>
+</ol>
+<span class="heading-anchor" id="6. 追问路径"></span><h3 id="6_1">6. 追问路径</h3>
+<ul>
+<li>面试官问“为什么不用强一致”：回答延迟、跨地域可用性、吞吐和热点成本。</li>
+<li>面试官问“最终一致怎么兜底”：回答幂等事件、重放、对账、补偿、延迟指标。</li>
+<li>面试官问“Raft 如何防脑裂”：回答任期、投票、心跳、提交规则和多数派交集。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

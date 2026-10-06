@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02-03 索引阶段与查询阶段 · 李杨的学习笔记</title><meta name="description" content="如果读者每问一个问题，管理员都从第一本书第一页开始通读整个图书馆，查询会非常慢，
+结果也难以重复。图书馆会先登记书名、主题、位置等信息，形成可查目录；读者提出问题
+时，再利用目录缩小范围，取出少量候选资料。"><meta property="og:title" content="02-03 索引阶段与查询阶段 · 李杨的学习笔记"><meta property="og:description" content="如果读者每问一个问题，管理员都从第一本书第一页开始通读整个图书馆，查询会非常慢，
+结果也难以重复。图书馆会先登记书名、主题、位置等信息，形成可查目录；读者提出问题
+时，再利用目录缩小范围，取出少量候选资料。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-5357e5f164bd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-5357e5f164bd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 02-rag-principles</p><h1>02-03 索引阶段与查询阶段</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/02-rag-principles/03-indexing-and-query-stages.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">图书馆为什么先编目录</a></li><li><a href="#_2">索引阶段：把资料变成可查对象</a></li><li><a href="#1">1. 接收并标识来源</a></li><li><a href="#2">2. 解析和清理内容</a></li><li><a href="#3">3. 切分为文本块</a></li><li><a href="#4">4. 添加元数据</a></li><li><a href="#5">5. 生成检索表示</a></li><li><a href="#6">6. 写入可查询存储</a></li><li><a href="#_3">查询阶段：把问题变成可核对答案</a></li><li><a href="#1_1">1. 校验问题和请求范围</a></li><li><a href="#2_1">2. 生成查询表示</a></li><li><a href="#3_1">3. 检索候选</a></li><li><a href="#4_1">4. 过滤、去重或重排</a></li><li><a href="#5_1">5. 构造上下文</a></li><li><a href="#6_1">6. 生成或组织答案</a></li><li><a href="#7">7. 返回引用和可观察信息</a></li><li><a href="#_4">一个完整例子：查询退货期限</a></li><li><a href="#_5">两个阶段的输入与输出</a></li><li><a href="#_6">“离线索引、在线查询”不是绝对划分</a></li><li><a href="#_7">常见失败边界</a></li><li><a href="#_8">流程排序练习</a></li><li><a href="#_9">自测</a></li><li><a href="#_10">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>02-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>35 分钟阅读，加 15 分钟流程排序练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 <a href="n-f59f055ad453.html">02-01 什么是 RAG</a>；知道文档、Chunk、Embedding、Top-K 和上下文的直觉含义</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用纸笔或 Markdown 表格记录每一步输入和输出</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分索引阶段（indexing stage）与查询阶段（query stage）；</li>
+<li>按顺序说出文档怎样变成候选文本块，问题怎样变成带引用的答案；</li>
+<li>为每一步标出输入、输出和最少可观察信息；</li>
+<li>根据错误现象判断应该先查数据、索引、检索、上下文还是生成环节。</li>
+</ul>
+<span class="heading-anchor" id="图书馆为什么先编目录"></span><h2 id="_1">图书馆为什么先编目录</h2>
+<p>如果读者每问一个问题，管理员都从第一本书第一页开始通读整个图书馆，查询会非常慢，
+结果也难以重复。图书馆会先登记书名、主题、位置等信息，形成可查目录；读者提出问题
+时，再利用目录缩小范围，取出少量候选资料。</p>
+<p>RAG 也常被拆成两段：</p>
+<ul>
+<li><strong>索引阶段</strong>把原始资料处理成适合查找的表示和数据结构；</li>
+<li><strong>查询阶段</strong>接收用户问题，查找候选，构造上下文并生成回答。</li>
+</ul>
+<p>“索引”在这里是宽泛的流水线概念，不只指某一种向量索引算法。即使最小示例只把数据
+放在内存中，仍然可以区分“先准备语料”和“再处理查询”。</p>
+<span class="heading-anchor" id="索引阶段：把资料变成可查对象"></span><h2 id="_2">索引阶段：把资料变成可查对象</h2>
+<p>一条常见的索引流水线包含以下步骤。具体项目可以合并或增加步骤，但不应丢失它们承担
+的责任。</p>
+<span class="heading-anchor" id="1. 接收并标识来源"></span><h3 id="1">1. 接收并标识来源</h3>
+<p>系统读取允许进入知识库的文件或记录，同时保存来源身份。例如文件路径、文档编号、
+版本、更新时间、所属租户和访问范围。</p>
+<p>如果此时丢掉来源，后面即使检索到正确句子，也很难给出可靠引用或执行权限判断。</p>
+<span class="heading-anchor" id="2. 解析和清理内容"></span><h3 id="2">2. 解析和清理内容</h3>
+<p>不同格式需要先变成系统能处理的文本与结构。页眉、乱码、重复段落和扫描件识别错误都
+可能在这里出现。本章只认识流程位置，具体格式处理将在数据摄取部分展开。</p>
+<span class="heading-anchor" id="3. 切分为文本块"></span><h3 id="3">3. 切分为文本块</h3>
+<p>长文档通常会被切成若干文本块（Chunk），每个块保留与原文的关系。块太大可能混入过多
+主题，块太小可能丢失解释所需的上下文。切分不是越细越好，也不存在脱离任务的统一最佳
+大小。</p>
+<span class="heading-anchor" id="4. 添加元数据"></span><h3 id="4">4. 添加元数据</h3>
+<p>元数据（metadata）描述文本本身之外的信息，例如标题、章节、页码、版本、时间和权限。
+元数据既帮助引用，也可以限制检索范围。权限字段不能只用于展示；需要在系统授权设计中
+真正参与判断。</p>
+<span class="heading-anchor" id="5. 生成检索表示"></span><h3 id="5">5. 生成检索表示</h3>
+<p>系统为文本块生成可比较的表示。它可能是关键词和统计特征，也可能是嵌入向量，还可能
+组合多种表示。02-01 的离线示例使用确定性向量，只用于观察数据流，不代表生产语义模型。</p>
+<span class="heading-anchor" id="6. 写入可查询存储"></span><h3 id="6">6. 写入可查询存储</h3>
+<p>文本、表示和元数据被写入某种可查询结构。它可能是内存列表、普通搜索引擎、向量索引
+或组合系统。选择哪一种取决于数据规模、查询方式、更新频率和工程约束。</p>
+<p>索引阶段的最小产物不是“一个神秘数据库”，而是一组能够回答三个问题的记录：这段内容
+是什么、来自哪里、在什么条件下允许被找回。</p>
+<span class="heading-anchor" id="查询阶段：把问题变成可核对答案"></span><h2 id="_3">查询阶段：把问题变成可核对答案</h2>
+<p>用户发来问题后，系统进入另一条流水线。</p>
+<span class="heading-anchor" id="1. 校验问题和请求范围"></span><h3 id="1_1">1. 校验问题和请求范围</h3>
+<p>空问题、过长输入、非法参数和缺少身份信息都应该尽早处理。系统还需要确定当前用户、
+租户、产品、语言或时间范围，避免在错误的数据域中查询。</p>
+<span class="heading-anchor" id="2. 生成查询表示"></span><h3 id="2_1">2. 生成查询表示</h3>
+<p>查询必须使用与索引兼容的表示方式。如果文档向量由模型 A 生成，查询却由不兼容的模型
+B 生成，数值虽然都有维度，却未必位于可比较的空间。更换表示方法时，通常需要明确的
+版本管理和重新索引策略。</p>
+<span class="heading-anchor" id="3. 检索候选"></span><h3 id="3_1">3. 检索候选</h3>
+<p>系统计算匹配程度并取得有限候选。Top-K 只规定最多取多少个，不保证这些候选相关，更不
+保证其中包含正确答案。检索结果需要保留分数、来源和过滤信息，才能排查问题。</p>
+<span class="heading-anchor" id="4. 过滤、去重或重排"></span><h3 id="4_1">4. 过滤、去重或重排</h3>
+<p>候选可能需要按权限、时间或业务范围过滤，也可能去重或使用更精细的方法重排。重排只
+能调整已有候选的顺序，不能找回第一阶段完全漏掉的内容。</p>
+<span class="heading-anchor" id="5. 构造上下文"></span><h3 id="5_1">5. 构造上下文</h3>
+<p>系统选择最终文本，控制长度，保留来源，并明确把检索内容当作不可信数据而非系统指令。
+如果上下文截断了关键条件，后续模型再强也看不到缺失部分。</p>
+<span class="heading-anchor" id="6. 生成或组织答案"></span><h3 id="6_1">6. 生成或组织答案</h3>
+<p>回答步骤根据规则、问题和上下文生成结果。它应在证据不足时允许拒答或表达不确定，而
+不是为了“必须有答案”而补写事实。</p>
+<span class="heading-anchor" id="7. 返回引用和可观察信息"></span><h3 id="7">7. 返回引用和可观察信息</h3>
+<p>用户看到的引用应指向答案实际使用的来源。调试和评估还可能记录查询、候选、过滤原因、
+上下文、模型配置、耗时和无答案状态。日志本身也可能包含敏感信息，需要限制访问和保留期。</p>
+<span class="heading-anchor" id="一个完整例子：查询退货期限"></span><h2 id="_4">一个完整例子：查询退货期限</h2>
+<p>假设知识库中有一份“标准商品 30 天内可申请退货”的当前政策，以及一份已经失效的旧版。</p>
+<p>索引阶段会读取两份文档，保存版本和生效时间，切分段落并建立可查询表示。查询阶段收到
+“标准商品最晚何时申请退货”，先限定当前产品与地区，再找回候选并排除失效版本，最后把
+当前政策段落交给回答步骤。</p>
+<p>如果最终回答错误，可以沿链路逐步提问：</p>
+<ol>
+<li>当前政策是否进入数据源？</li>
+<li>解析后“30 天”是否仍然存在？</li>
+<li>对应文本块是否带有正确版本和生效时间？</li>
+<li>检索候选中是否出现该块？</li>
+<li>过滤或重排是否误删它？</li>
+<li>上下文是否完整包含限定条件？</li>
+<li>回答是否忠实复述，引用是否指向当前版本？</li>
+</ol>
+<p>这种排查比反复修改一句 Prompt 更有效，因为错误可能早在模型看到上下文之前就发生了。</p>
+<span class="heading-anchor" id="两个阶段的输入与输出"></span><h2 id="_5">两个阶段的输入与输出</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>典型输入</th>
+<th>典型输出</th>
+<th>最少应观察什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>来源接收</td>
+<td>文件、记录、权限范围</td>
+<td>带来源身份的原始对象</td>
+<td>来源、版本、更新时间</td>
+</tr>
+<tr>
+<td>解析切分</td>
+<td>原始对象</td>
+<td>文本块及原文位置</td>
+<td>文本是否完整、块边界</td>
+</tr>
+<tr>
+<td>表示与写入</td>
+<td>文本块、元数据</td>
+<td>可查询记录</td>
+<td>表示版本、写入数量、失败项</td>
+</tr>
+<tr>
+<td>查询准备</td>
+<td>用户问题、身份、范围</td>
+<td>合法且带范围的查询</td>
+<td>空查询、范围和表示版本</td>
+</tr>
+<tr>
+<td>检索与筛选</td>
+<td>查询表示、索引</td>
+<td>带分数和来源的候选</td>
+<td>Top-K、过滤原因、候选顺序</td>
+</tr>
+<tr>
+<td>上下文构造</td>
+<td>候选、长度预算</td>
+<td>交给回答步骤的上下文</td>
+<td>选入、丢弃和截断内容</td>
+</tr>
+<tr>
+<td>回答与引用</td>
+<td>规则、问题、上下文</td>
+<td>答案、拒答或不确定状态</td>
+<td>证据支持关系、引用位置</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表强调一个原则：每一步都要有可检查的中间产物。只有最终答案而没有中间证据时，
+系统很难测试，也很难解释错误来自哪里。</p>
+<span class="heading-anchor" id="“离线索引、在线查询”不是绝对划分"></span><h2 id="_6">“离线索引、在线查询”不是绝对划分</h2>
+<p>很多系统会批量或后台建立索引，并在用户请求时执行查询，因此常把两者称为离线阶段和
+在线阶段。但这不是绝对定义：小型应用可能启动时在内存中建索引；高更新场景可能持续
+增量写入；某些请求还会临时读取实时数据。</p>
+<p>关键不是进程叫什么，而是责任是否清楚：资料何时变成可查对象，更新何时可见，查询用
+的是哪个版本，失败后怎样恢复。</p>
+<span class="heading-anchor" id="常见失败边界"></span><h2 id="_7">常见失败边界</h2>
+<ul>
+<li><strong>索引陈旧：</strong> 原文已更新，检索仍只看到旧记录。</li>
+<li><strong>表示不兼容：</strong> 文档与查询使用不同且不可比较的表示版本。</li>
+<li><strong>元数据丢失：</strong> 找到内容，却无法确认来源、时间或权限。</li>
+<li><strong>权限过滤过晚：</strong> 未授权内容已经进入上下文或日志。</li>
+<li><strong>上下文截断：</strong> 候选正确，但关键条件未进入回答输入。</li>
+<li><strong>只看最终答案：</strong> 无法区分检索失败和生成失败。</li>
+</ul>
+<p>计划中的 D02 索引流程图、D03 查询流程图和流程对象代码将在后续批次实现。本章没有声称
+这些图或代码已经完成验证。</p>
+<span class="heading-anchor" id="流程排序练习"></span><h2 id="_8">流程排序练习</h2>
+<p>把下面九项写在卡片上并排序：保存来源、解析文档、切分文本、生成表示、写入索引、校验
+查询、检索候选、构造上下文、生成带引用回答。然后为每张卡片补两行：它需要什么输入，
+它失败时最直接的可观察现象是什么。</p>
+<p>进阶练习：假设“答案引用了旧制度”，分别写出一个索引阶段原因和一个查询阶段原因。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_9">自测</h2>
+<ol>
+<li>为什么建立索引不等于选择了向量数据库？</li>
+<li>文档块为什么必须保留来源和版本？</li>
+<li>检索 Top-K 为什么不保证得到 K 个正确候选？</li>
+<li>重排为什么不能修复完全漏召回？</li>
+<li>当答案错误时，怎样判断问题发生在检索前还是生成时？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_10">本章状态与导航</h2>
+<ul>
+<li>章节状态：首批教学正文，已做轻量静态检查；未声称完成端到端实现验证。</li>
+<li>代码与图表：D02、D03 和流程对象代码均为后续计划，本章只定义其教学责任和可观察点。</li>
+<li>
+<p>摘要：<a href="n-5597587a7e42.html">02-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-89b9a829f896.html">02-02 参数化知识与外部知识</a></p>
+</li>
+<li>下一章：<a href="n-1e5faa742138.html">02-04 适用场景与不适用场景</a></li>
+<li>返回：<a href="n-12aa8105c5e5.html">02 RAG 原理索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08 训练、损失、数据与诊断 · 李杨的学习笔记</title><meta name="description" content="数据泄漏是视觉项目常见的高分陷阱。随机按图片划分并不总是安全。"><meta property="og:title" content="08 训练、损失、数据与诊断 · 李杨的学习笔记"><meta property="og:description" content="数据泄漏是视觉项目常见的高分陷阱。随机按图片划分并不总是安全。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-255b75c70d40.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-255b75c70d40.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>08 训练、损失、数据与诊断</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/08_%E8%AE%AD%E7%BB%83_%E6%8D%9F%E5%A4%B1_%E6%95%B0%E6%8D%AE%E4%B8%8E%E8%AF%8A%E6%96%AD.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">标准训练流程</a></li><li><a href="#_3">数据划分与泄漏</a></li><li><a href="#_4">损失函数</a></li><li><a href="#ce-bce">CE 与 BCE</a></li><li><a href="#focal-loss">Focal Loss</a></li><li><a href="#dice-loss">Dice Loss</a></li><li><a href="#iou">IoU 族损失</a></li><li><a href="#loss">多任务 Loss</a></li><li><a href="#_5">优化器与学习率</a></li><li><a href="#_6">预训练与迁移学习</a></li><li><a href="#_7">数据增强</a></li><li><a href="#_8">过拟合、欠拟合与诊断</a></li><li><a href="#_9">训练日志应看什么</a></li><li><a href="#_10">常见故障排查顺序</a></li><li><a href="#_11">关联阅读</a></li><li><a href="#_12">检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握视觉模型从数据到训练、验证、调参、上线前检查的完整流程。</li>
+<li>理解 CE、BCE、Focal、Dice、IoU 族损失和多任务 loss 的适用场景。</li>
+<li>能诊断过拟合、欠拟合、数据泄漏、类别不平衡、标注噪声和迁移失败。</li>
+<li>与任务选择、指标和部署联动：见 <a href="n-c270eefed507.html">07_视觉任务与典型模型.md</a>、<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a>、<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a>。</li>
+</ul>
+<span class="heading-anchor" id="标准训练流程"></span><h2 id="_2">标准训练流程</h2>
+<ol>
+<li>明确任务和输出：分类、检测、分割、OCR 等任务的标签格式不同，不能混用指标和损失。</li>
+<li>收集和清洗数据：统一采集条件、分辨率、标注规范、类别定义。</li>
+<li>划分数据集：训练、验证、测试必须按业务实体、时间、产线、场景或设备隔离，避免泄漏。</li>
+<li>建立 baseline：先用成熟模型和简单增强跑通端到端流程。</li>
+<li>训练与验证：记录 loss、指标、学习率、样本可视化、预测可视化。</li>
+<li>误差分析：按类别、尺寸、场景、设备、光照、遮挡、时间切片分析。</li>
+<li>迭代数据和模型：优先修复数据问题，再调模型容量和损失。</li>
+<li>导出和部署前验证：检查精度、速度、显存、稳定性和量化影响。</li>
+</ol>
+<span class="heading-anchor" id="数据划分与泄漏"></span><h2 id="_3">数据划分与泄漏</h2>
+<p>数据泄漏是视觉项目常见的高分陷阱。随机按图片划分并不总是安全。</p>
+<p>高风险情况：</p>
+<ul>
+<li>同一视频相邻帧同时出现在训练集和测试集。</li>
+<li>同一产品、同一病人、同一工件、同一相机点位被拆到不同集合。</li>
+<li>增强后的图片被保存后再统一随机划分。</li>
+<li>测试集参与阈值选择、早停、模型选择。</li>
+<li>文件名、水印、背景、拍摄设备暗含类别信息。</li>
+</ul>
+<p>推荐划分原则：</p>
+<ul>
+<li>按实体划分：同一对象不能跨集合。</li>
+<li>按时间划分：模拟未来数据，适合线上业务。</li>
+<li>按场景划分：专门验证跨域能力。</li>
+<li>固定测试集：只用于最终汇报，不用于日常调参。</li>
+</ul>
+<span class="heading-anchor" id="损失函数"></span><h2 id="_4">损失函数</h2>
+<span class="heading-anchor" id="CE 与 BCE"></span><h3 id="ce-bce">CE 与 BCE</h3>
+<p>Cross Entropy 适合单标签多分类：每个样本只有一个正确类别，概念上对应 softmax 概率。</p>
+<p>BCE 适合二分类或多标签分类：每个类别独立判断，概念上对应 sigmoid 概率。多标签任务不能用 softmax CE，因为多个类别可同时为真。</p>
+<p>实现时不要重复做概率变换：例如 PyTorch 的 <code>CrossEntropyLoss</code> 接收 raw logits 并在内部完成 <code>log-softmax</code>，<code>BCEWithLogitsLoss</code> 也接收 raw logits 并在内部组合 sigmoid 与 BCE，以获得更好的数值稳定性。softmax/sigmoid 概率主要用于解释、阈值判断和推理后处理。</p>
+<span class="heading-anchor" id="Focal Loss"></span><h3 id="focal-loss">Focal Loss</h3>
+<p>Focal Loss 在 CE/BCE 基础上降低易分类样本权重，强调难样本。它常用于检测中的前景/背景不平衡，也可用于长尾分类。</p>
+<p>直觉：</p>
+<ul>
+<li>易样本已经预测很准，对梯度贡献应变小。</li>
+<li>难样本、少数类、低置信正样本应获得更多学习信号。</li>
+</ul>
+<p>使用注意：</p>
+<ul>
+<li>gamma 太大可能让训练不稳定。</li>
+<li>alpha 只调类别或正负样本权重，不应代替数据修复。</li>
+</ul>
+<span class="heading-anchor" id="Dice Loss"></span><h3 id="dice-loss">Dice Loss</h3>
+<p>Dice 衡量预测区域与真实区域的重叠，常用于医学图像和小目标分割。它对类别不平衡更友好，因为关注区域交并关系，而不是逐像素平均。</p>
+<p>Dice Loss 适合：</p>
+<ul>
+<li>前景像素远少于背景。</li>
+<li>更关注区域完整性而非单个像素分类。</li>
+</ul>
+<p>风险：</p>
+<ul>
+<li>小目标上对少量像素错误很敏感。</li>
+<li>单独使用可能导致概率校准较差，常与 BCE/CE 组合。</li>
+</ul>
+<span class="heading-anchor" id="IoU 族损失"></span><h3 id="iou">IoU 族损失</h3>
+<p>检测框回归常用 IoU、GIoU、DIoU、CIoU 等损失。</p>
+<ul>
+<li>IoU Loss：直接优化框重叠，但无重叠时梯度不足。</li>
+<li>GIoU：引入最小外接框，缓解无重叠问题。</li>
+<li>DIoU：加入中心点距离。</li>
+<li>CIoU：进一步考虑宽高比。</li>
+</ul>
+<p>分割也可使用 soft IoU/Jaccard loss，强调预测 mask 与真实 mask 的交并比。</p>
+<span class="heading-anchor" id="多任务 Loss"></span><h3 id="loss">多任务 Loss</h3>
+<p>检测、实例分割、关键点、OCR 常见多任务训练。例如 Mask R-CNN 同时有分类、框回归、mask loss。</p>
+<p>多任务 loss 的关键不是简单相加，而是权重平衡：</p>
+<ul>
+<li>不同 loss 数值尺度不同，直接相加可能让某个任务支配训练。</li>
+<li>某个 head 收敛慢不一定代表整体模型坏，需分别看分支指标。</li>
+<li>可用固定权重、动态权重、不确定性权重、梯度归一化等方法。</li>
+</ul>
+<p>工程上先用论文或框架默认权重建立 baseline，再根据分支指标和可视化调整。</p>
+<span class="heading-anchor" id="优化器与学习率"></span><h2 id="_5">优化器与学习率</h2>
+<p>SGD with momentum 泛化稳定，常用于 CNN 分类和检测。Adam/AdamW 收敛快，对 Transformer 和大规模预训练迁移常用。AdamW 将权重衰减与梯度更新解耦，通常比 Adam + L2 更符合现代训练习惯。</p>
+<p>学习率策略：</p>
+<ul>
+<li>warmup：训练初期从小学习率逐步升高，避免大 batch、预训练模型或 Transformer 初始震荡。</li>
+<li>step decay：到指定 epoch 降低学习率，简单可控。</li>
+<li>cosine decay：平滑下降，常与 warmup 组合。</li>
+<li>one-cycle：先升后降，适合快速训练实验。</li>
+</ul>
+<p>学习率排查：</p>
+<ul>
+<li>loss 发散或 NaN：学习率过大、混合精度溢出、标签异常。</li>
+<li>loss 很慢：学习率过小、冻结层过多、数据增强过强。</li>
+<li>验证指标震荡：batch 太小、验证集太小、学习率偏大、标注噪声。</li>
+</ul>
+<span class="heading-anchor" id="预训练与迁移学习"></span><h2 id="_6">预训练与迁移学习</h2>
+<p>预训练模型提供通用边缘、纹理、形状和语义特征，通常能减少数据需求。</p>
+<p>常见策略：</p>
+<ul>
+<li>冻结 backbone，只训练 head：快，适合数据很少或先跑通流程。</li>
+<li>解冻高层：适合目标域与预训练域相近。</li>
+<li>全量微调：适合数据足够或域差异明显。</li>
+<li>分层学习率：backbone 小学习率，head 大学习率。</li>
+</ul>
+<p>迁移失败原因：</p>
+<ul>
+<li>输入分辨率、通道、归一化与预训练不一致。</li>
+<li>目标域差异太大，如自然图像迁移到红外、X 光、工业缺陷。</li>
+<li>标注定义与预训练语义冲突。</li>
+<li>训练集过小却全量微调导致过拟合。</li>
+</ul>
+<span class="heading-anchor" id="数据增强"></span><h2 id="_7">数据增强</h2>
+<p>增强的目标是扩大真实分布，而不是制造不可能样本。</p>
+<p>常用增强：</p>
+<ul>
+<li>几何：resize、crop、flip、rotate、affine、perspective。</li>
+<li>颜色：brightness、contrast、saturation、hue、white balance。</li>
+<li>退化：blur、noise、JPEG compression、motion blur。</li>
+<li>遮挡：cutout、random erasing。</li>
+<li>混合：mixup、cutmix、mosaic。</li>
+</ul>
+<p>任务约束：</p>
+<ul>
+<li>OCR 不宜随意水平翻转文字。</li>
+<li>医学和工业方向要确认旋转、镜像是否改变语义。</li>
+<li>检测/分割增强必须同步变换 box/mask/keypoints。</li>
+<li>小目标任务中过强 resize/crop 会直接删除目标。</li>
+</ul>
+<span class="heading-anchor" id="过拟合、欠拟合与诊断"></span><h2 id="_8">过拟合、欠拟合与诊断</h2>
+<p>过拟合表现：训练 loss 下降，训练指标高，验证指标不升反降。处理优先级：</p>
+<ol>
+<li>检查数据划分是否泄漏或验证集是否过小。</li>
+<li>增加真实数据和难例，修正噪声标注。</li>
+<li>加强合理增强。</li>
+<li>使用 weight decay、dropout、label smoothing、early stopping。</li>
+<li>减小模型容量或冻结更多层。</li>
+</ol>
+<p>欠拟合表现：训练集也学不好。处理优先级：</p>
+<ol>
+<li>检查标签、预处理、类别映射、loss 是否写错。</li>
+<li>降低增强强度。</li>
+<li>提高学习率或调整 scheduler。</li>
+<li>增大模型容量、训练更久、解冻 backbone。</li>
+<li>检查任务是否本身不可由输入信息决定。</li>
+</ol>
+<span class="heading-anchor" id="训练日志应看什么"></span><h2 id="_9">训练日志应看什么</h2>
+<ul>
+<li>train loss 与 val loss 是否同步下降。</li>
+<li>分类看 accuracy、F1、混淆矩阵；检测看 mAP、召回、不同尺寸 AP；分割看 mIoU、Dice。</li>
+<li>每个类别的指标，而不是只看平均值。</li>
+<li>正负样本比例和 hard negative。</li>
+<li>可视化一批训练样本、增强样本、预测样本。</li>
+<li>保存失败案例，按错误类型归档。</li>
+</ul>
+<span class="heading-anchor" id="常见故障排查顺序"></span><h2 id="_10">常见故障排查顺序</h2>
+<ol>
+<li>数据能否正确读取：图像、标签、类别名、坐标系、mask 编码。</li>
+<li>可视化标注是否对齐：box/mask/keypoint 是否和图像匹配。</li>
+<li>单 batch 能否过拟合：不能过拟合通常是代码、loss 或标签问题。</li>
+<li>loss 数值是否正常：NaN、恒定、极端大/小都要排查。</li>
+<li>训练与验证预处理是否一致。</li>
+<li>指标实现是否和任务匹配。</li>
+<li>检查 checkpoint 加载、冻结层、学习率、混合精度。</li>
+<li>再考虑模型结构和复杂调参。</li>
+</ol>
+<span class="heading-anchor" id="关联阅读"></span><h2 id="_11">关联阅读</h2>
+<ul>
+<li>视觉任务与模型：<a href="n-c270eefed507.html">07_视觉任务与典型模型.md</a></li>
+<li>指标与误差分析：<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a></li>
+<li>推理部署：<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a></li>
+<li>面试题：<a href="n-6c112411680d.html">11_视觉工程师面试题.md</a></li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_12">检查清单</h2>
+<ul>
+<li>[ ] 能根据任务选择 CE、BCE、Focal、Dice 或 IoU 族损失。</li>
+<li>[ ] 能解释 warmup、cosine、SGD、Adam/AdamW 的作用和适用场景。</li>
+<li>[ ] 能设计避免数据泄漏的数据划分。</li>
+<li>[ ] 能通过 loss 曲线判断过拟合和欠拟合。</li>
+<li>[ ] 能用单 batch 过拟合、标注可视化和切片评估定位训练问题。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

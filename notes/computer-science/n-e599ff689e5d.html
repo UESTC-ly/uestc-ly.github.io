@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>可靠性与幂等篇 · 李杨的学习笔记</title><meta name="description" content="可靠性是生产、存储、消费三段共同决定的。任一段失败都可能导致丢失、重复、乱序或延迟。工程上通常接受“至少一次投递 + 幂等消费 + 补偿”的组合。"><meta property="og:title" content="可靠性与幂等篇 · 李杨的学习笔记"><meta property="og:description" content="可靠性是生产、存储、消费三段共同决定的。任一段失败都可能导致丢失、重复、乱序或延迟。工程上通常接受“至少一次投递 + 幂等消费 + 补偿”的组合。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-e599ff689e5d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-e599ff689e5d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 04-消息队列</p><h1>可靠性与幂等篇</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/04-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97/03-%E5%8F%AF%E9%9D%A0%E6%80%A7%E4%B8%8E%E5%B9%82%E7%AD%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">工程实践/示例</a></li><li><a href="#_5">端到端可靠性失败矩阵</a></li><li><a href="#_6">幂等表与业务状态机</a></li><li><a href="#outbox">Outbox 模式</a></li><li><a href="#kafka-exactly-once">Kafka Exactly-once 的范围</a></li><li><a href="#_7">观测指标</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握消息不丢、可重试、可恢复的设计要点。</li>
+<li>理解重复消费的来源，并能设计幂等处理。</li>
+<li>准确认识 Kafka exactly-once 语义和限制。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>可靠性是生产、存储、消费三段共同决定的。任一段失败都可能导致丢失、重复、乱序或延迟。工程上通常接受“至少一次投递 + 幂等消费 + 补偿”的组合。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>风险</th>
+<th>常用措施</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>生产</td>
+<td>发送失败、重试重复</td>
+<td>幂等生产者、业务 event_id</td>
+</tr>
+<tr>
+<td>Broker</td>
+<td>副本不足、磁盘故障</td>
+<td>多副本、ISR 监控、保留策略</td>
+</tr>
+<tr>
+<td>消费</td>
+<td>处理成功但提交失败</td>
+<td>幂等表、去重键、事务边界</td>
+</tr>
+<tr>
+<td>下游</td>
+<td>外部 API 重复调用</td>
+<td>幂等请求号、状态机校验</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_4">工程实践/示例</h2>
+<p>幂等消费表：</p>
+<pre><code class="language-sql">CREATE TABLE processed_message (
+  consumer_group VARCHAR(128),
+  message_id VARCHAR(128),
+  processed_at TIMESTAMP,
+  PRIMARY KEY (consumer_group, message_id)
+);
+</code></pre>
+<p>消费伪代码：</p>
+<pre><code class="language-pseudo">begin transaction
+insert processed_message(group, message_id)
+if duplicate:
+    commit
+    ack
+    return
+apply_business_change()
+commit
+ack
+</code></pre>
+<p>Kafka exactly-once 不是端到端魔法保证。它主要通过幂等生产者和事务把“消费输入 offset + 生产输出消息”纳入 Kafka 事务语义。只要流程跨出 Kafka，例如写数据库、调用支付、写对象存储，就必须额外设计幂等、事务消息或补偿。</p>
+<span class="heading-anchor" id="端到端可靠性失败矩阵"></span><h3 id="_5">端到端可靠性失败矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>成功边界</th>
+<th>故障窗口</th>
+<th>结果</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>业务写 DB 前发消息</td>
+<td>broker ack 成功，DB 失败</td>
+<td>消息代表不存在的事实</td>
+<td>脏事件</td>
+<td>outbox 同事务提交</td>
+</tr>
+<tr>
+<td>DB 成功后发消息</td>
+<td>DB commit 后应用崩溃</td>
+<td>消息未发</td>
+<td>下游漏处理</td>
+<td>outbox/CDC 补发</td>
+</tr>
+<tr>
+<td>producer 发送超时</td>
+<td>broker 可能已写入</td>
+<td>应用重发</td>
+<td>重复消息</td>
+<td>event_id + 幂等生产/消费</td>
+</tr>
+<tr>
+<td>broker ack 后 leader 故障</td>
+<td>副本未复制</td>
+<td>已确认消息丢失</td>
+<td>丢消息</td>
+<td><code>acks=all</code>、ISR、监控</td>
+</tr>
+<tr>
+<td>消费成功前 commit</td>
+<td>offset 已前进</td>
+<td>业务失败</td>
+<td>业务丢失</td>
+<td>处理成功后提交</td>
+</tr>
+<tr>
+<td>消费成功后 commit 失败</td>
+<td>业务已完成</td>
+<td>重启重投</td>
+<td>重复消费</td>
+<td>幂等表/状态机</td>
+</tr>
+<tr>
+<td>调外部 API 超时</td>
+<td>对方可能已执行</td>
+<td>本地重试</td>
+<td>重复副作用</td>
+<td>外部幂等请求号</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="幂等表与业务状态机"></span><h3 id="_6">幂等表与业务状态机</h3>
+<p>幂等表适合“同一消息只应用一次”的本地数据库变更。关键是插入幂等记录和业务变更必须处在同一个事务中；先查再写不是原子操作，会在并发重投时失效。</p>
+<pre><code class="language-sql">CREATE TABLE coupon_grant (
+  user_id BIGINT NOT NULL,
+  campaign_id BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  granted_at TIMESTAMP,
+  PRIMARY KEY (user_id, campaign_id)
+);
+</code></pre>
+<p>状态机比简单去重更稳：</p>
+<pre><code class="language-pseudo">begin transaction
+row = select coupon_grant for update
+if row.status in ["GRANTED", "CANCELLED"]:
+    commit; ack; return
+if event.type == "GrantCoupon" and row.status == "INIT":
+    update status = "GRANTED"
+commit
+ack
+</code></pre>
+<p>状态机让重复、乱序和补偿事件都落在显式转移表里，避免“处理过就跳过”掩盖业务状态不合法。</p>
+<span class="heading-anchor" id="Outbox 模式"></span><h3 id="outbox">Outbox 模式</h3>
+<p>Outbox 把业务变更和待发送事件写入同一个数据库事务，再由后台 relay 投递到 MQ。relay 投递也可能重复，所以消息仍要带 <code>event_id</code>，下游仍要幂等。</p>
+<pre class="mermaid">sequenceDiagram
+  participant App
+  participant DB
+  participant Relay
+  participant MQ
+  App-&gt;&gt;DB: business row + outbox row in one tx
+  Relay-&gt;&gt;DB: fetch NEW outbox
+  Relay-&gt;&gt;MQ: send event
+  MQ--&gt;&gt;Relay: ack
+  Relay-&gt;&gt;DB: mark SENT
+</pre>
+<span class="heading-anchor" id="Kafka Exactly-once 的范围"></span><h3 id="kafka-exactly-once">Kafka Exactly-once 的范围</h3>
+<p>Kafka EOS 可把消费 offset 和生产到 Kafka 的输出放进同一个 Kafka 事务，使“读 topic A、处理、写 topic B、提交 A 的 offset”在 Kafka 内部具备原子提交/中止语义。它不自动包含外部数据库、缓存、HTTP API、对象存储和邮件短信。只要处理链路跨出 Kafka，仍需要本地事务、幂等键、状态机或补偿。</p>
+<p>事务输出的读取也有可见性条件：若消费者不应看到未提交或已中止事务的记录，需要使用 <code>isolation.level=read_committed</code>；使用 <code>read_uncommitted</code> 时可能观察到之后被中止的事务输出。EOS 因此不仅涉及生产者事务，也涉及下游消费者的读取隔离配置。</p>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_7">观测指标</h3>
+<ul>
+<li>producer：发送错误、超时、重试、幂等错误、事务 abort。</li>
+<li>broker：ISR 收缩、under replicated partition、磁盘满、unclean leader election 风险。</li>
+<li>consumer：重复消息比例、幂等冲突数、commit 失败、rebalance 次数。</li>
+<li>outbox：NEW/SENDING 积压、最老未发送年龄、投递失败原因。</li>
+<li>业务：状态机非法转移、外部 API 幂等冲突、对账差异。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>重试只会提高成功率</td>
+<td>重试也会制造重复和峰值放大</td>
+</tr>
+<tr>
+<td>幂等就是简单查一下是否处理过</td>
+<td>查重与业务变更必须在同一事务或等价原子边界内</td>
+</tr>
+<tr>
+<td>exactly-once 能保证数据库也只写一次</td>
+<td>数据库写入不自动属于 Kafka 事务</td>
+</tr>
+<tr>
+<td>ack 失败可以忽略</td>
+<td>ack/commit 失败会导致重新投递</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>“处理成功但 offset 提交失败”会发生什么？</li>
+<li>幂等键应该使用消息 ID 还是业务 ID？如何选择？</li>
+<li>Kafka EOS 的边界在哪里？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<ul>
+<li>为“发放优惠券”消费者设计幂等表和状态机。</li>
+<li>写一份生产者发送失败重试的风险清单。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>Kafka design / delivery semantics：https://kafka.apache.org/43/design/design/</li>
+<li>Kafka Streams exactly-once concepts：https://kafka.apache.org/43/streams/core-concepts/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

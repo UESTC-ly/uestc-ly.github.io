@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>11 中间件生命周期与后台任务 · 李杨的学习笔记</title><meta name="description" content="记忆句： 开关店用 lifespan，每单前后用中间件，回单后的小事用后台任务。"><meta property="og:title" content="11 中间件生命周期与后台任务 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 开关店用 lifespan，每单前后用中间件，回单后的小事用后台任务。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-afc91c68b39c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-afc91c68b39c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>11 中间件生命周期与后台任务</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/11_%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E4%B8%8E%E5%90%8E%E5%8F%B0%E4%BB%BB%E5%8A%A1.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 先问“这件事什么时候做”，再选工具</a></li><li><a href="#2">2. 中间件为什么能同时处理请求和响应？</a></li><li><a href="#3-demo">3. 最小 demo：只观察中间件前后两段</a></li><li><a href="#4-lifespan">4. lifespan：共享资源的“出生与销毁”</a></li><li><a href="#5-backgroundtasks">5. BackgroundTasks：响应之后做，但仍在当前服务中</a></li><li><a href="#6-cors">6. CORS 为什么也常放在这一章？</a></li><li><a href="#7">7. 合上笔记再回答</a></li><li><a href="#8">8. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>开关店用 lifespan，每单前后用中间件，回单后的小事用后台任务。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 先问“这件事什么时候做”，再选工具"></span><h2 id="1">1. 先问“这件事什么时候做”，再选工具</h2>
+<p>假设一个接口需要记录耗时、使用共享 HTTP 客户端，并在处理完毕后写一条通知。这三件事都不是核心业务计算，但发生的时间不同：客户端应该在应用启动时准备，计时要包住每一次请求，通知可以在响应发送后执行。</p>
+<p>如果把它们都写进路由，会出现重复代码和生命周期混乱。例如每来一个请求就创建共享资源，会失去复用价值；把每次请求的计时放到启动阶段，又根本测不到单个请求。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>作用范围</th>
+<th>适合解决的事</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lifespan</code></td>
+<td>一个应用进程的运行周期</td>
+<td>创建和关闭共享客户端、连接池等资源</td>
+</tr>
+<tr>
+<td>中间件</td>
+<td>每个经过它的请求/响应</td>
+<td>统一加响应头、记录请求信息</td>
+</tr>
+<tr>
+<td><code>BackgroundTasks</code></td>
+<td>当前响应发送后的进程内工作</td>
+<td>不要求持久可靠的小任务</td>
+</tr>
+</tbody>
+</table></div>
+<p>把应用想成餐厅：开店时准备公共设备，对应 lifespan；每单经过收银台，对应中间件；给顾客回单后补记一条内部记录，对应后台任务。类比只帮你定位时间，不代表后台任务另有一支独立、可靠的工作队伍。</p>
+<span class="heading-anchor" id="2. 中间件为什么能同时处理请求和响应？"></span><h2 id="2">2. 中间件为什么能同时处理请求和响应？</h2>
+<p>中间件像包在路由外的一层处理逻辑。请求进入时先经过它；它调用 <code>call_next(request)</code>，把请求交给后续处理；拿到响应对象后，再加工响应并返回。于是可以在调用前记录开始时间，在调用后添加耗时头。</p>
+<p>不是每个公共功能都应写成中间件。需要全局观察请求或统一处理响应头时，中间件很合适；需要为某个接口提供“当前用户”“数据库会话”等有明确类型与依赖关系的业务资源时，<code>Depends</code> 往往更清晰。区别是你在处理整个请求外层，还是在为业务函数准备输入。</p>
+<p>多个中间件会形成嵌套，响应回程与请求进入时的顺序相反。排查“响应头为什么被覆盖”等问题时，要想到这个套层关系，而不能把它们当成互不影响的独立回调。</p>
+<span class="heading-anchor" id="3. 最小 demo：只观察中间件前后两段"></span><h2 id="3-demo">3. 最小 demo：只观察中间件前后两段</h2>
+<p>保存为 <code>main.py</code>，运行 <code>python -m uvicorn main:app --reload</code>。</p>
+<pre><code class="language-python">from time import perf_counter
+from fastapi import FastAPI, Request
+
+app = FastAPI()
+
+@app.middleware("http")
+async def timer(request: Request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{perf_counter() - started:.6f}"
+    return response
+
+@app.get("/ping")
+def ping():
+    return {"message": "pong"}
+</code></pre>
+<p>打开 <code>/docs</code> 调用 <code>/ping</code>，响应正文仍是 <code>{"message":"pong"}</code>，在响应头区域查看 <code>x-process-time</code>，其值是本次测量的秒数。换一个路由时，同一个中间件也会参与处理，所以不必在每个函数中复制计时代码。</p>
+<p>这个数字测量到 <code>call_next</code> 返回响应对象为止，<strong>不是浏览器收到全部内容的总耗时</strong>。网络传输不在其中，流式响应后续持续产生和发送内容的时间也不能据此完整判断。理解测量边界，比记住计时 API 更重要。</p>
+<p>可选配套文件：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch11.py">demos/ch11.py</a>。它同时演示 lifespan、CORS 和后台任务，与正文精简例不完全相同；可用 <code>python -m uvicorn demos.ch11:app --reload</code> 启动。</p>
+<span class="heading-anchor" id="4. lifespan：共享资源的“出生与销毁”"></span><h2 id="4-lifespan">4. lifespan：共享资源的“出生与销毁”</h2>
+<p>有些资源值得在多个请求间复用，例如支持复用的 HTTP 客户端或数据库连接池。它们在应用开始接收请求前创建，在应用退出时关闭。<code>lifespan</code> 使用异步上下文管理器表达这个过程：<code>yield</code> 前负责准备，<code>yield</code> 后负责收尾。</p>
+<p>这里的 <code>yield</code> 可以记作“把控制权交给应用正常运行”。它不是每来一个请求就执行一次，也不是把 HTTP 内容流给客户端。共享资源可以放到 <code>app.state</code> 等明确位置供请求处理访问，但“能全局访问”不等于“适合全局共享”。例如一个请求专用的数据库会话，通常仍应按请求创建和释放。</p>
+<p>尤其要记住：这里的“共享”通常指<strong>同一进程内</strong>。启动多个 worker 时，每个 worker 都有自己的内存和启动过程，可能各自创建一个连接池、各自加载一份模型。不能靠一个全局布尔变量协调所有 worker，也不能假定集群只会执行一次初始化操作。</p>
+<span class="heading-anchor" id="5. BackgroundTasks：响应之后做，但仍在当前服务中"></span><h2 id="5-backgroundtasks">5. BackgroundTasks：响应之后做，但仍在当前服务中</h2>
+<p><code>BackgroundTasks</code> 让接口登记一个随后执行的函数，响应发送后再运行它。调用方可以更早拿到响应，但这件事仍然占用当前服务的资源；它不是自动创建独立服务，也不提供持久任务存储。</p>
+<p>判断是否适合它，可以问：“服务此刻重启，任务丢了能接受吗？”一条可丢失的辅助记录可以考虑这种方式；必须可靠完成的账务处理、需要重试的大批量作业，则需要持久任务机制。返回了“已接受”只表示接口接受请求，不能证明后续任务已经成功。</p>
+<p>后台函数还应自行获取和释放所需资源。请求结束后，请求专用的数据库会话等资源可能已经关闭；把会话对象直接塞给后台任务，很容易形成生命周期错误。更稳妥的是传任务所需的 ID 或简单数据，让后台工作在自己的资源范围内执行。</p>
+<span class="heading-anchor" id="6. CORS 为什么也常放在这一章？"></span><h2 id="6-cors">6. CORS 为什么也常放在这一章？</h2>
+<p>CORS 通过响应头告诉浏览器：哪些来源的前端可以跨域读取响应。来源由协议、主机、端口组成，所以 <code>http://localhost:5173</code> 与 <code>http://localhost:8000</code> 不同，<code>localhost</code> 和 <code>127.0.0.1</code> 也不能混为一谈。</p>
+<p>浏览器对某些跨域请求会先发送 OPTIONS 预检，询问目标接口是否允许指定来源、方法和头部。CORS 中间件可以统一处理这类协议要求，不必在每个路由中编写同样的逻辑。前端需要读取自定义响应头时，还可能需要在 CORS 配置的 <code>expose_headers</code> 中明确列出。</p>
+<p><strong>CORS 是浏览器的跨域访问规则，不是身份认证。</strong> curl、其他服务器等客户端不会因为浏览器的同源策略就失去发请求的能力。因此“只允许我前端的来源”不能替代认证和资源权限检查。携带 Cookie 等凭证时，要明确配置允许来源及凭证规则，不能简单把所有配置都设成通配符。</p>
+<span class="heading-anchor" id="7. 合上笔记再回答"></span><h2 id="7">7. 合上笔记再回答</h2>
+<ol>
+<li><strong>共享 HTTP 客户端应该在哪创建？</strong> 通常在 lifespan 中准备，并在退出时关闭。</li>
+<li><strong>每个接口都要加同一个响应头，应该放哪里？</strong> 通常放中间件，统一处理。</li>
+<li><strong>接口返回成功，后台任务是否一定成功？</strong> 不一定，两者发生在不同时间，后台任务还可能失败或丢失。</li>
+<li><strong>两个 worker 共用一个 <code>app.state</code> 吗？</strong> 不共用，它们是不同进程，各有自己的状态。</li>
+</ol>
+<span class="heading-anchor" id="8. 官方资料"></span><h2 id="8">8. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/middleware/">Middleware：请求与响应外层处理</a> · <a href="https://fastapi.tiangolo.com/advanced/events/">Lifespan：启动与退出</a> · <a href="https://fastapi.tiangolo.com/tutorial/background-tasks/">Background Tasks：响应后任务</a> · <a href="https://fastapi.tiangolo.com/tutorial/cors/">CORS：浏览器跨域规则</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

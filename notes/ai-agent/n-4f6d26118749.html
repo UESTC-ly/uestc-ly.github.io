@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03-07 版本、增量更新与删除 · 李杨的学习笔记</title><meta name="description" content="真实资料会修改、移动、撤回和删除。若系统只会“把全部文件再导入一遍”，小规模实验也许
+能工作，但数据变大后会产生重复、长时间不可用和难以解释的旧版本。更严重的是，原文已
+撤回而索引仍保留旧 Chunk，用户仍可能检索到失效内容。"><meta property="og:title" content="03-07 版本、增量更新与删除 · 李杨的学习笔记"><meta property="og:description" content="真实资料会修改、移动、撤回和删除。若系统只会“把全部文件再导入一遍”，小规模实验也许
+能工作，但数据变大后会产生重复、长时间不可用和难以解释的旧版本。更严重的是，原文已
+撤回而索引仍保留旧 Chunk，用户仍可能检索到失效内容。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-4f6d26118749.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-4f6d26118749.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 03-data-ingestion</p><h1>03-07 版本、增量更新与删除</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/03-data-ingestion/07-versioning-incremental-update-and-deletion.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">知识库不是一次性导入的文件夹</a></li><li><a href="#_2">四种版本不要混成一个字符串</a></li><li><a href="#_3">逻辑文档身份</a></li><li><a href="#_4">来源版本</a></li><li><a href="#_5">内容版本</a></li><li><a href="#_6">处理与索引版本</a></li><li><a href="#_7">变更检测先判断变了什么</a></li><li><a href="#_8">增量更新的最小闭环</a></li><li><a href="#_9">幂等让重试不制造副本</a></li><li><a href="#_10">更新时避免半新半旧</a></li><li><a href="#_11">删除是需要传播的业务事件</a></li><li><a href="#_12">墓碑记录表达已经删除</a></li><li><a href="#30-15">具体例子：政策从 30 天改为 15 天</a></li><li><a href="#_13">失败、重放与人工处理</a></li><li><a href="#_14">状态机练习</a></li><li><a href="#_15">自测</a></li><li><a href="#_16">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>03-07</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>初级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 25 分钟状态机练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td><a href="n-0163c5cbc7b7.html">03-05 清洗、编码与去重</a>；<a href="n-bf6b644a092d.html">03-06 元数据、权限与来源血缘</a></td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用 Markdown 表格模拟版本事件与删除状态</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>区分逻辑文档、来源版本、处理版本和索引版本；</li>
+<li>设计创建、更新、删除与失败的可审计状态转换；</li>
+<li>解释增量更新为什么需要幂等、差异识别和检查点；</li>
+<li>说明删除为什么必须传播到 Chunk、向量、缓存和引用。</li>
+</ul>
+<span class="heading-anchor" id="知识库不是一次性导入的文件夹"></span><h2 id="_1">知识库不是一次性导入的文件夹</h2>
+<p>真实资料会修改、移动、撤回和删除。若系统只会“把全部文件再导入一遍”，小规模实验也许
+能工作，但数据变大后会产生重复、长时间不可用和难以解释的旧版本。更严重的是，原文已
+撤回而索引仍保留旧 Chunk，用户仍可能检索到失效内容。</p>
+<p>因此摄取管线需要把文档生命周期当成核心数据，而不是后台脚本的附带行为。</p>
+<span class="heading-anchor" id="四种版本不要混成一个字符串"></span><h2 id="_2">四种版本不要混成一个字符串</h2>
+<span class="heading-anchor" id="逻辑文档身份"></span><h3 id="_3">逻辑文档身份</h3>
+<p>表示“这是同一份业务文档”，例如退货政策。标题或路径可能改变，逻辑身份仍可保持。</p>
+<span class="heading-anchor" id="来源版本"></span><h3 id="_4">来源版本</h3>
+<p>表示源系统中的一次业务修订，例如版本号、更新时间、事件序列号或文件修订 ID。来源
+时间戳的精度和可靠性需由源系统定义。</p>
+<span class="heading-anchor" id="内容版本"></span><h3 id="_5">内容版本</h3>
+<p>由规范化内容摘要或等价方法识别“实际内容是否变化”。它能避免重复处理，但不能替代
+业务版本，因为权限变化可能不改变正文。</p>
+<span class="heading-anchor" id="处理与索引版本"></span><h3 id="_6">处理与索引版本</h3>
+<p>Parser、清洗、切分或 Embedding 配置改变时，同一来源内容会产生不同派生结果。处理版本
+记录怎样生成，索引版本记录当前查询使用哪一批产物。</p>
+<p>把四者分开，系统才能解释“原文没变，但因为解析器修复而重新索引”这种情况。</p>
+<span class="heading-anchor" id="变更检测先判断变了什么"></span><h2 id="_7">变更检测先判断变了什么</h2>
+<p>一次同步可以遇到：</p>
+<ul>
+<li>新来源出现；</li>
+<li>正文改变；</li>
+<li>只有元数据改变；</li>
+<li>只有权限改变；</li>
+<li>路径移动但逻辑文档不变；</li>
+<li>来源暂时读取失败；</li>
+<li>来源明确删除或撤回。</li>
+</ul>
+<p>不同事件需要不同动作。权限改变应尽快影响检索范围，即使正文摘要相同；临时读取失败
+不应自动解释为删除；路径移动也不一定需要重新生成全部内容表示。</p>
+<span class="heading-anchor" id="增量更新的最小闭环"></span><h2 id="_8">增量更新的最小闭环</h2>
+<p>一个保守流程可以是：</p>
+<ol>
+<li>从源系统读取带顺序或游标的变更事件；</li>
+<li>校验事件所属来源和权限；</li>
+<li>比较逻辑身份、来源版本、内容摘要和处理配置；</li>
+<li>只生成受影响的派生产物；</li>
+<li>在新产物完整可用后切换当前版本；</li>
+<li>记录成功检查点；</li>
+<li>按策略清理旧产物，但保留必要审计证据。</li>
+</ol>
+<p>检查点表示“已确认处理到哪里”。只有某批结果持久化并可查询后才能推进检查点，否则
+进程崩溃可能跳过未完成事件。</p>
+<span class="heading-anchor" id="幂等让重试不制造副本"></span><h2 id="_9">幂等让重试不制造副本</h2>
+<p>幂等（idempotency）指同一个已识别操作重复执行，最终状态仍与执行一次一致。例如事件
+<code>source-7/version-12</code> 因网络超时被重放，不应生成两组都标成当前的 Chunk。</p>
+<p>实现通常需要稳定事件标识、期望版本或条件写入，并把外部副作用纳入设计。幂等不等于
+“永远不会失败”，而是让失败后的有限重试可以恢复到可解释状态。</p>
+<span class="heading-anchor" id="更新时避免半新半旧"></span><h2 id="_10">更新时避免半新半旧</h2>
+<p>若先删除旧 Chunk，再逐个写入新 Chunk，处理中断会让查询只看到半份文档。若直接把新
+旧记录都标成当前，查询又可能得到冲突版本。</p>
+<p>一种常见思路是先在新版本命名空间构建完整产物，验证数量、来源和权限后，再原子地或
+通过明确状态切换当前指针。具体数据库是否支持事务、别名或版本过滤，需要按实际能力
+验证。本章只说明责任，不假定所有存储都有相同机制。</p>
+<span class="heading-anchor" id="删除是需要传播的业务事件"></span><h2 id="_11">删除是需要传播的业务事件</h2>
+<p>删除不只是移除原始文件。由它派生的内容可能存在于：</p>
+<ul>
+<li>Document 与结构节点；</li>
+<li>Chunk 与检索索引；</li>
+<li>Embedding 与关键词表示；</li>
+<li>查询缓存和回答缓存；</li>
+<li>评估样本、调试副本与备份；</li>
+<li>引用地址和审计记录。</li>
+</ul>
+<p>不同存储的保留要求可能不同，但“还能否被普通查询找回”必须有明确的完成条件。对于法律
+保留、审计和备份，应由授权政策定义保留范围，不能把“为了审计”当作无限保留的理由。</p>
+<span class="heading-anchor" id="墓碑记录表达已经删除"></span><h2 id="_12">墓碑记录表达已经删除</h2>
+<p>在异步系统中，立即物理删除所有记录可能无法保证各下游同时收到事件。墓碑（tombstone）
+是一条表示某逻辑对象已删除或不可用的状态记录。消费者看到墓碑后撤回派生产物，并记录
+处理完成情况。</p>
+<p>墓碑不应包含不必要的原文，但需要有足够身份、版本、原因类别和事件顺序，防止旧的创建
+事件稍后到达又把文档复活。何时物理清除墓碑取决于系统同步与保留策略。</p>
+<span class="heading-anchor" id="具体例子：政策从 30 天改为 15 天"></span><h2 id="30-15">具体例子：政策从 30 天改为 15 天</h2>
+<p>旧政策版本 V1 已经产生 12 个 Chunk，新版本 V2 只修改其中一段。管线可以比较结构或
+内容差异，只重建受影响部分，但必须确保：</p>
+<ol>
+<li>未变化 Chunk 仍引用 V2 的有效文档关系；</li>
+<li>被修改的 V1 Chunk 不再进入当前查询；</li>
+<li>权限与生效时间随 V2 更新；</li>
+<li>版本切换前 V2 产物完整；</li>
+<li>缓存不会继续返回“30 天”；</li>
+<li>引用能够指向 V2，并在需要时解释旧版本已失效。</li>
+</ol>
+<p>若 V2 随后撤回，删除事件还要传播到所有可查询派生物。只删除上传目录里的文件远远不够。</p>
+<span class="heading-anchor" id="失败、重放与人工处理"></span><h2 id="_13">失败、重放与人工处理</h2>
+<p>事件处理需要区分可重试临时错误、确定性输入错误和策略冲突。连续失败的事件应进入可见
+队列或人工处理状态，不能阻塞所有后续无关文档，也不能静默跳过。</p>
+<p>最少可观察信息包括：事件 ID、文档 ID、期望版本、当前阶段、尝试次数、最后错误、下一
+动作和检查点。日志仍需避免泄露正文和访问凭证。</p>
+<p>计划中的增量 diff、墓碑与知识撤回测试以及 D16 生命周期图将在后续批次实现。</p>
+<span class="heading-anchor" id="状态机练习"></span><h2 id="_14">状态机练习</h2>
+<p>为一份文档画出 <code>discovered -&gt; processing -&gt; active -&gt; superseded -&gt; deleted</code> 状态，并补充
+解析失败、权限冲突和删除处理中三种状态。对每条转换回答：</p>
+<ol>
+<li>谁触发；</li>
+<li>需要哪些前置条件；</li>
+<li>失败能否重试；</li>
+<li>查询此时能看到哪个版本；</li>
+<li>哪个证据证明转换完成。</li>
+</ol>
+<span class="heading-anchor" id="自测"></span><h2 id="_15">自测</h2>
+<ol>
+<li>来源版本与内容摘要为什么不能互相替代？</li>
+<li>权限变化为什么可能要求更新，即使正文没变？</li>
+<li>检查点为什么必须在结果持久化后推进？</li>
+<li>删除为什么需要墓碑或等价的传播机制？</li>
+<li>更新时怎样避免查询看到半新半旧的数据？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_16">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已做轻量静态检查；生命周期实现尚未完成。</li>
+<li>代码与图表：增量 diff、撤回测试和 D16 均为后续计划。</li>
+<li>
+<p>摘要：<a href="n-a8fcd9a70346.html">03-07 摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-bf6b644a092d.html">03-06 元数据、权限与来源血缘</a></p>
+</li>
+<li>下一部分：<a href="n-6c8772db7ffa.html">04 文本切分（计划入口）</a></li>
+<li>返回：<a href="n-526fec9608d7.html">03 数据摄取索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

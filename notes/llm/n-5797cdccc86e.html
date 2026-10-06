@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>KV Cache 详解与实操笔记 · 李杨的学习笔记</title><meta name="description" content="很多人第一次接触大模型推理时，都会听到一句话："><meta property="og:title" content="KV Cache 详解与实操笔记 · 李杨的学习笔记"><meta property="og:description" content="很多人第一次接触大模型推理时，都会听到一句话："><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-5797cdccc86e.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-5797cdccc86e.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 04-工程化与部署</p><h1>KV Cache 详解与实操笔记</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E9%83%A8%E7%BD%B2/KV_Cache_%E8%AF%A6%E8%A7%A3%E4%B8%8E%E5%AE%9E%E6%93%8D%E7%AC%94%E8%AE%B0.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 这份笔记要解决什么问题</a></li><li><a href="#2">2. 先给一个最短定义</a></li><li><a href="#3-kv-cache">3. 为什么会需要 KV Cache</a></li><li><a href="#31">3.1 自回归生成的基本流程</a></li><li><a href="#32-kv-cache">3.2 如果没有 KV Cache，会发生什么</a></li><li><a href="#33-kv-cache">3.3 KV Cache 的核心思想</a></li><li><a href="#4">4. 回到注意力：到底缓存的是哪一部分</a></li><li><a href="#5-kv-cache-kv-cache">5. 没有 KV Cache 和有 KV Cache 的区别</a></li><li><a href="#51-kv-cache">5.1 没有 KV Cache</a></li><li><a href="#52-kv-cache">5.2 有 KV Cache</a></li><li><a href="#53">5.3 一个直觉类比</a></li><li><a href="#6-kv-cache">6. 在推理流程里，KV Cache 对应哪两个阶段</a></li><li><a href="#61-prefill">6.1 Prefill 阶段</a></li><li><a href="#62-decode">6.2 Decode 阶段</a></li><li><a href="#7-kv-cache">7. 为什么 KV Cache 能提速</a></li><li><a href="#71">7.1 关键不是“注意力消失了”</a></li><li><a href="#72">7.2 节省的主要是什么</a></li><li><a href="#73">7.3 为什么长上下文下收益更明显</a></li><li><a href="#8">8. 一个半定量的复杂度直觉</a></li><li><a href="#81-kv-cache">8.1 没有 KV Cache</a></li><li><a href="#82-kv-cache">8.2 有 KV Cache</a></li><li><a href="#9-kv-cache">9. KV Cache 的代价：显存</a></li><li><a href="#91">9.1 为什么会占显存</a></li><li><a href="#92">9.2 一个常见的显存估算思路</a></li><li><a href="#93">9.3 为什么长上下文特别贵</a></li><li><a href="#10">10. 一个具体的显存直觉例子</a></li><li><a href="#11-kv-cache">11. KV Cache 为什么特别适合流式输出</a></li><li><a href="#12-kv-cache">12. KV Cache 和训练的关系</a></li><li><a href="#121">12.1 训练时一般不用它来做标准全序列前向</a></li><li><a href="#122">12.2 推理时它几乎是核心优化</a></li><li><a href="#13-kv-cache-kv">13. 为什么说 KV Cache 只缓存 K/V，不缓存整层输出</a></li><li><a href="#14-kv-cache">14. 多轮对话里，KV Cache 是怎么工作的</a></li><li><a href="#15-prefix-cache-kv-cache">15. Prefix Cache 和 KV Cache 的关系</a></li><li><a href="#151-kv-cache">15.1 KV Cache</a></li><li><a href="#152-prefix-caching">15.2 Prefix Caching</a></li><li><a href="#16-mhamqagqa-kv-cache">16. MHA、MQA、GQA 和 KV Cache 的关系</a></li><li><a href="#161-mha">16.1 MHA：普通多头注意力</a></li><li><a href="#162-mqamulti-query-attention">16.2 MQA：Multi-Query Attention</a></li><li><a href="#163-gqagrouped-query-attention">16.3 GQA：Grouped-Query Attention</a></li><li><a href="#17-pagedattention">17. PagedAttention 是在解决什么问题</a></li><li><a href="#171">17.1 传统问题</a></li><li><a href="#172-pagedattention">17.2 PagedAttention 的思路</a></li><li><a href="#18-kv-cache">18. 连续批处理和 KV Cache 的关系</a></li><li><a href="#19-kv-cache">19. 为什么 KV Cache 会成为高并发服务的瓶颈</a></li><li><a href="#20-kv-cache">20. KV Cache 不是万能加速器</a></li><li><a href="#201-decode-prefill">20.1 它主要优化 decode，不是 prefill</a></li><li><a href="#202-attention">20.2 它不能消除长上下文 attention 本身的代价</a></li><li><a href="#203">20.3 它不直接提升模型质量</a></li><li><a href="#21-pytorch">21. 一个极简 PyTorch 直觉示例</a></li><li><a href="#22-hugging-face-transformers-kv-cache">22. 在 Hugging Face Transformers 里，KV Cache 经常以什么形式出现</a></li><li><a href="#23">23. 一个最小可运行示例：手工感受是否复用缓存</a></li><li><a href="#24">24. 常见误区</a></li><li><a href="#241-kv-cache">24.1 “KV Cache 会缓存全部计算结果”</a></li><li><a href="#242-kv-cache">24.2 “开了 KV Cache，长上下文就不贵了”</a></li><li><a href="#243-kv-cache">24.3 “KV Cache 主要优化训练”</a></li><li><a href="#244-kv-cache">24.4 “KV Cache 只和单卡推理有关”</a></li><li><a href="#245-kv-cache">24.5 “KV Cache 越大越好”</a></li><li><a href="#25-kv-cache">25. 做系统设计时，怎么看 KV Cache</a></li><li><a href="#26-kv-cache">26. 什么时候你应该特别关注 KV Cache</a></li><li><a href="#27">27. 学习路径建议</a></li><li><a href="#28">28. 最后的总结</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 这份笔记要解决什么问题"></span><h2 id="1">1. 这份笔记要解决什么问题</h2>
+<p>很多人第一次接触大模型推理时，都会听到一句话：</p>
+<blockquote>
+<p>开启 <code>KV Cache</code> 之后，推理会快很多。</p>
+</blockquote>
+<p>这句话没错，但如果只停留在这里，实际做推理优化时还是会糊涂。你很容易继续问：</p>
+<ul>
+<li>为什么它会变快</li>
+<li>到底缓存了什么</li>
+<li>它和训练有什么关系</li>
+<li>为什么开了缓存以后显存又变大了</li>
+<li>长上下文为什么会把显存吃光</li>
+<li><code>MQA</code>、<code>GQA</code>、<code>PagedAttention</code> 和它是什么关系</li>
+<li>为什么流式生成和多轮对话基本都离不开它</li>
+</ul>
+<p>这份笔记的目标就是把这些问题讲透。</p>
+<p>如果你只想先记一句话，可以先记这个版本：</p>
+<blockquote>
+<p><code>KV Cache</code> 是在自回归生成时，把历史 token 的注意力 <code>Key</code> 和 <code>Value</code> 缓存下来，后续每生成一个新 token 时不再重复计算旧 token 的 <code>K/V</code>，从而显著减少重复计算、提升解码速度。</p>
+</blockquote>
+<p>但这只是结论。真正重要的是你要知道它为什么成立，代价是什么，以及在工程里如何正确理解。</p>
+<span class="heading-anchor" id="2. 先给一个最短定义"></span><h2 id="2">2. 先给一个最短定义</h2>
+<p><code>KV Cache</code> 全称通常写作 <code>Key-Value Cache</code>，也叫：</p>
+<ul>
+<li>attention cache</li>
+<li>past key values</li>
+<li>past kv</li>
+</ul>
+<p>本质上，它是 Transformer 解码阶段的一种缓存机制：</p>
+<ul>
+<li>对已经处理过的 token</li>
+<li>把每一层注意力里的 <code>K</code> 和 <code>V</code> 保存起来</li>
+<li>后续生成新 token 时直接复用</li>
+<li>不再重复为历史 token 重新计算这些 <code>K/V</code></li>
+</ul>
+<p>它只在 <strong>推理</strong> 中特别重要，尤其是 <strong>自回归生成</strong> 场景。</p>
+<span class="heading-anchor" id="3. 为什么会需要 KV Cache"></span><h2 id="3-kv-cache">3. 为什么会需要 KV Cache</h2>
+<span class="heading-anchor" id="3.1 自回归生成的基本流程"></span><h3 id="31">3.1 自回归生成的基本流程</h3>
+<p>大语言模型生成文本，不是一次性把整段答案全算出来，而是按 token 一个接一个生成：</p>
+<ol>
+<li>输入 prompt</li>
+<li>预测下一个 token</li>
+<li>把这个 token 接到上下文后面</li>
+<li>再预测下一个 token</li>
+<li>重复直到结束</li>
+</ol>
+<p>也就是说，模型在第 <code>t</code> 步生成时，看到的是前面全部历史 token。</p>
+<span class="heading-anchor" id="3.2 如果没有 KV Cache，会发生什么"></span><h3 id="32-kv-cache">3.2 如果没有 KV Cache，会发生什么</h3>
+<p>假设当前上下文已经有 1000 个 token，你现在要生成第 1001 个 token。</p>
+<p>如果 <strong>没有 KV Cache</strong>，模型在这一轮前向时通常要把这 1000 个 token 全部重新过一遍注意力计算。<br/>
+等你再生成第 1002 个 token 时，又要把 1001 个 token 再重新过一遍。</p>
+<p>也就是说，历史越长，重复计算越多。</p>
+<p>这会导致：</p>
+<ul>
+<li>解码越来越慢</li>
+<li>同一段历史被一遍又一遍重新编码</li>
+<li>算力浪费非常明显</li>
+</ul>
+<span class="heading-anchor" id="3.3 KV Cache 的核心思想"></span><h3 id="33-kv-cache">3.3 KV Cache 的核心思想</h3>
+<p>历史 token 已经算过的 <code>K/V</code>，没必要再算第二遍。</p>
+<p>因为在推理时：</p>
+<ul>
+<li>历史 token 的表示已经固定</li>
+<li>这些 token 对应的 <code>K/V</code> 也已经固定</li>
+<li>下一步只需要为“新来的那个 token”计算 <code>Q/K/V</code></li>
+<li>然后把新 token 的 <code>Q</code> 去和“历史缓存中的 K”做注意力</li>
+</ul>
+<p>所以，缓存旧 token 的 <code>K/V</code> 是完全合理的。</p>
+<span class="heading-anchor" id="4. 回到注意力：到底缓存的是哪一部分"></span><h2 id="4">4. 回到注意力：到底缓存的是哪一部分</h2>
+<p>先看标准自注意力：</p>
+<pre><code class="language-text">Q = XW_Q
+K = XW_K
+V = XW_V
+
+Attention(Q, K, V) = softmax(QK^T / sqrt(d))V
+</code></pre>
+<p>这里：</p>
+<ul>
+<li><code>X</code> 是隐藏状态</li>
+<li><code>Q</code> 是 Query</li>
+<li><code>K</code> 是 Key</li>
+<li><code>V</code> 是 Value</li>
+</ul>
+<p>在解码时，我们关注的是“新 token 怎么看历史 token”。</p>
+<p>当一个新 token 到来时：</p>
+<ul>
+<li>它自己的 <code>Q</code> 需要重新算，因为这是新的位置</li>
+<li>它自己的 <code>K/V</code> 也要算，因为它现在也进入历史了</li>
+<li>但旧 token 的 <code>K/V</code> 不需要重算，可以直接从缓存里拿</li>
+</ul>
+<p>所以缓存的重点是：</p>
+<ul>
+<li>每一层的 <code>K</code></li>
+<li>每一层的 <code>V</code></li>
+</ul>
+<p>通常不缓存 <code>Q</code>，因为 <code>Q</code> 是当前步特有的查询。</p>
+<span class="heading-anchor" id="5. 没有 KV Cache 和有 KV Cache 的区别"></span><h2 id="5-kv-cache-kv-cache">5. 没有 KV Cache 和有 KV Cache 的区别</h2>
+<span class="heading-anchor" id="5.1 没有 KV Cache"></span><h3 id="51-kv-cache">5.1 没有 KV Cache</h3>
+<p>第 1 步：输入长度 1000，算 1000 个 token<br/>
+第 2 步：输入长度 1001，再算 1001 个 token<br/>
+第 3 步：输入长度 1002，再算 1002 个 token</p>
+<p>你会不断重复处理旧 token。</p>
+<span class="heading-anchor" id="5.2 有 KV Cache"></span><h3 id="52-kv-cache">5.2 有 KV Cache</h3>
+<p>先把 prompt 做一次完整前向，拿到所有历史 token 的 <code>K/V</code>。<br/>
+之后每一步只做：</p>
+<ul>
+<li>计算新 token 的表示</li>
+<li>计算新 token 的 <code>Q/K/V</code></li>
+<li>用新 token 的 <code>Q</code> 去和缓存里的历史 <code>K</code> 做注意力</li>
+<li>把新 token 的 <code>K/V</code> 追加到缓存</li>
+</ul>
+<p>于是每一步不再重复重算整段历史。</p>
+<span class="heading-anchor" id="5.3 一个直觉类比"></span><h3 id="53">5.3 一个直觉类比</h3>
+<p>可以把它理解成会议纪要：</p>
+<ul>
+<li>没有 KV Cache：每次新成员发言，你都要求大家把前面所有发言完整重说一遍</li>
+<li>有 KV Cache：前面说过的话已经记录好了，新成员只需要读记录，再补一句自己的内容</li>
+</ul>
+<p>前者当然极其低效。</p>
+<span class="heading-anchor" id="6. 在推理流程里，KV Cache 对应哪两个阶段"></span><h2 id="6-kv-cache">6. 在推理流程里，KV Cache 对应哪两个阶段</h2>
+<p>理解 KV Cache，最好把推理拆成两个阶段：</p>
+<ul>
+<li><code>Prefill</code></li>
+<li><code>Decode</code></li>
+</ul>
+<span class="heading-anchor" id="6.1 Prefill 阶段"></span><h3 id="61-prefill">6.1 Prefill 阶段</h3>
+<p><code>Prefill</code> 就是把用户输入的 prompt 一次性送进模型，让模型先把整段上下文编码出来。</p>
+<p>在这个阶段：</p>
+<ul>
+<li>整个 prompt 都要跑一遍</li>
+<li>各层的 <code>K/V</code> 会被建立起来</li>
+<li>最终得到首个可用于解码的缓存</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>计算量大</li>
+<li>并行性高</li>
+<li>更像“吞 prompt”</li>
+</ul>
+<span class="heading-anchor" id="6.2 Decode 阶段"></span><h3 id="62-decode">6.2 Decode 阶段</h3>
+<p><code>Decode</code> 是从第一个生成 token 开始，一步一步往后生成。</p>
+<p>在这个阶段：</p>
+<ul>
+<li>每步通常只处理 1 个新 token</li>
+<li>历史 <code>K/V</code> 来自 cache</li>
+<li>每步把新 token 的 <code>K/V</code> 追加进去</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>单步计算小</li>
+<li>并行性差</li>
+<li>对延迟非常敏感</li>
+</ul>
+<p>KV Cache 的价值主要就是体现在 <code>decode</code> 阶段。</p>
+<span class="heading-anchor" id="7. 为什么 KV Cache 能提速"></span><h2 id="7-kv-cache">7. 为什么 KV Cache 能提速</h2>
+<span class="heading-anchor" id="7.1 关键不是“注意力消失了”"></span><h3 id="71">7.1 关键不是“注意力消失了”</h3>
+<p>要避免一个误区：KV Cache 并不是让注意力计算消失，而是让 <strong>重复构造历史 <code>K/V</code> 的成本消失</strong>。</p>
+<p>每步生成时，模型仍然要做：</p>
+<ul>
+<li>当前 token 的前向传播</li>
+<li>当前 token 对历史上下文的注意力</li>
+</ul>
+<p>只是历史部分不再重新编码。</p>
+<span class="heading-anchor" id="7.2 节省的主要是什么"></span><h3 id="72">7.2 节省的主要是什么</h3>
+<p>节省的是：</p>
+<ul>
+<li>历史 token 的线性投影 <code>W_K / W_V</code></li>
+<li>历史 token 的层间重复传递</li>
+<li>历史 token 的重复 attention 前处理</li>
+</ul>
+<p>换句话说，节省的是“重复前向”的大头。</p>
+<span class="heading-anchor" id="7.3 为什么长上下文下收益更明显"></span><h3 id="73">7.3 为什么长上下文下收益更明显</h3>
+<p>上下文越长，历史 token 越多。</p>
+<p>如果没有 cache：</p>
+<ul>
+<li>每一步都要把越来越长的上下文重算一遍</li>
+</ul>
+<p>如果有 cache：</p>
+<ul>
+<li>历史长度虽然还在增长</li>
+<li>但历史 <code>K/V</code> 已经保存</li>
+<li>新增成本只和“新 token”有关，以及它与历史做 attention 的代价有关</li>
+</ul>
+<p>所以，长上下文场景下 KV Cache 的意义更大。</p>
+<span class="heading-anchor" id="8. 一个半定量的复杂度直觉"></span><h2 id="8">8. 一个半定量的复杂度直觉</h2>
+<p>这里不做严苛论文推导，只给工程上足够用的直觉。</p>
+<span class="heading-anchor" id="8.1 没有 KV Cache"></span><h3 id="81-kv-cache">8.1 没有 KV Cache</h3>
+<p>生成长度为 <code>T</code> 时，你每一步都要对已有上下文重新前向。<br/>
+总成本会随着历史长度累加，重复计算非常明显。</p>
+<span class="heading-anchor" id="8.2 有 KV Cache"></span><h3 id="82-kv-cache">8.2 有 KV Cache</h3>
+<p>有了 KV Cache 之后：</p>
+<ul>
+<li>每步只新增 1 个 token 的投影与层计算</li>
+<li>但新 token 仍需要和历史所有 cached <code>K</code> 做注意力</li>
+</ul>
+<p>所以它不是把每步计算降到常数，而是把“整段重算”变成了“只算新 token + 看历史缓存”。</p>
+<p>实践里，这个差异已经足以带来非常显著的速度提升。</p>
+<span class="heading-anchor" id="9. KV Cache 的代价：显存"></span><h2 id="9-kv-cache">9. KV Cache 的代价：显存</h2>
+<p>天下没有免费的午餐。KV Cache 提速的代价，是要占显存。</p>
+<span class="heading-anchor" id="9.1 为什么会占显存"></span><h3 id="91">9.1 为什么会占显存</h3>
+<p>因为你要把每一层、每个位置的 <code>K/V</code> 都存下来。</p>
+<p>缓存包含这些维度：</p>
+<ul>
+<li>batch size</li>
+<li>sequence length</li>
+<li>layer 数</li>
+<li>head 数</li>
+<li>head dimension</li>
+<li>数据类型（fp16 / bf16 / fp8 等）</li>
+</ul>
+<p>上下文越长，缓存越大。</p>
+<span class="heading-anchor" id="9.2 一个常见的显存估算思路"></span><h3 id="92">9.2 一个常见的显存估算思路</h3>
+<p>粗略地说，KV Cache 大小近似和下面这些量成正比：</p>
+<pre><code class="language-text">2 × batch × seq_len × num_layers × num_kv_heads × head_dim × dtype_size
+</code></pre>
+<p>这里前面的 <code>2</code> 来自：</p>
+<ul>
+<li>一份 <code>K</code></li>
+<li>一份 <code>V</code></li>
+</ul>
+<p>注意是 <code>num_kv_heads</code>，不是一定等于 <code>num_attention_heads</code>。<br/>
+如果模型用了 <code>MQA</code> 或 <code>GQA</code>，KV 头数可能更少，缓存会显著缩小。</p>
+<span class="heading-anchor" id="9.3 为什么长上下文特别贵"></span><h3 id="93">9.3 为什么长上下文特别贵</h3>
+<p>因为 cache 是按序列长度线性增长的。</p>
+<p>如果你从：</p>
+<ul>
+<li>4K 上下文</li>
+<li>扩到 32K 上下文</li>
+</ul>
+<p>那 KV Cache 体积也会近似按长度倍数增长。</p>
+<p>这就是为什么：</p>
+<ul>
+<li>长上下文模型推理难</li>
+<li>高并发更难</li>
+<li>推理服务经常被 KV Cache 卡住，而不是被参数权重卡住</li>
+</ul>
+<span class="heading-anchor" id="10. 一个具体的显存直觉例子"></span><h2 id="10">10. 一个具体的显存直觉例子</h2>
+<p>假设你有一个模型：</p>
+<ul>
+<li><code>32</code> 层</li>
+<li><code>32</code> 个 attention heads</li>
+<li>每个 head dim 是 <code>128</code></li>
+<li>batch size = <code>1</code></li>
+<li>sequence length = <code>4096</code></li>
+<li>dtype = <code>fp16</code>，每个数 <code>2</code> 字节</li>
+</ul>
+<p>如果是普通多头注意力，并且 <code>num_kv_heads = 32</code>，那单层的 KV 大小大概是：</p>
+<pre><code class="language-text">2 × 1 × 4096 × 32 × 128 × 2 bytes
+</code></pre>
+<p>算下来约为：</p>
+<pre><code class="language-text">67,108,864 bytes ≈ 64 MB / layer
+</code></pre>
+<p>再乘以 <code>32</code> 层，大约就是：</p>
+<pre><code class="language-text">2 GB
+</code></pre>
+<p>这还只是：</p>
+<ul>
+<li>batch = 1</li>
+<li>seq_len = 4096</li>
+</ul>
+<p>如果 batch 上来、上下文继续拉长，显存就会非常快地膨胀。</p>
+<p>这也是为什么服务端推理经常要精打细算：</p>
+<ul>
+<li>最大上下文长度</li>
+<li>最大并发</li>
+<li>cache 分配策略</li>
+</ul>
+<span class="heading-anchor" id="11. KV Cache 为什么特别适合流式输出"></span><h2 id="11-kv-cache">11. KV Cache 为什么特别适合流式输出</h2>
+<p>流式输出的特点是：</p>
+<ul>
+<li>用户想尽快看到第一个 token</li>
+<li>后续 token 要持续低延迟地产生</li>
+</ul>
+<p>这天然就是 decode 场景，而 decode 最依赖 KV Cache。</p>
+<p>如果没有 cache：</p>
+<ul>
+<li>每输出一个 token 都要重新把历史上下文完整过一遍</li>
+<li>流式体验会很差</li>
+</ul>
+<p>有了 cache：</p>
+<ul>
+<li>后续每个 token 的生成只需要增量计算</li>
+<li>token-by-token 的延迟更可控</li>
+</ul>
+<p>所以只要是聊天、代码补全、实时生成，KV Cache 基本都是默认配置。</p>
+<span class="heading-anchor" id="12. KV Cache 和训练的关系"></span><h2 id="12-kv-cache">12. KV Cache 和训练的关系</h2>
+<span class="heading-anchor" id="12.1 训练时一般不用它来做标准全序列前向"></span><h3 id="121">12.1 训练时一般不用它来做标准全序列前向</h3>
+<p>训练和推理不同。</p>
+<p>训练中常见的是 teacher forcing：</p>
+<ul>
+<li>整个序列一次性并行计算</li>
+<li>所有位置一起算 loss</li>
+</ul>
+<p>这时你并不是像推理那样一 token 一 token 地 decode，因此 KV Cache 不是训练主角。</p>
+<span class="heading-anchor" id="12.2 推理时它几乎是核心优化"></span><h3 id="122">12.2 推理时它几乎是核心优化</h3>
+<p>真正离不开 KV Cache 的，是推理阶段的自回归生成。</p>
+<p>所以一个简单判断是：</p>
+<ul>
+<li>训练：重点看并行前向、反向传播、激活显存</li>
+<li>推理：重点看 KV Cache、batching、调度、吞吐和延迟</li>
+</ul>
+<span class="heading-anchor" id="13. 为什么说 KV Cache 只缓存 K/V，不缓存整层输出"></span><h2 id="13-kv-cache-kv">13. 为什么说 KV Cache 只缓存 K/V，不缓存整层输出</h2>
+<p>这是因为注意力的关键复用点就在 <code>K/V</code>。</p>
+<p>对于一个新 token：</p>
+<ul>
+<li>它要用自己的 <code>Q</code></li>
+<li>去查询历史 token 的信息</li>
+</ul>
+<p>历史 token 作为被查询对象，最直接需要的就是它们的 <code>K/V</code>。</p>
+<p>如果你缓存整层所有中间状态，虽然也不是完全没用，但：</p>
+<ul>
+<li>存储成本更高</li>
+<li>复用逻辑更复杂</li>
+<li>对注意力最关键的仍然是 <code>K/V</code></li>
+</ul>
+<p>所以工程里通常说 KV Cache，就是非常明确地指 attention 的 <code>K/V</code> 缓存。</p>
+<span class="heading-anchor" id="14. 多轮对话里，KV Cache 是怎么工作的"></span><h2 id="14-kv-cache">14. 多轮对话里，KV Cache 是怎么工作的</h2>
+<p>对话场景里，你通常有一整串上下文：</p>
+<ul>
+<li>system prompt</li>
+<li>历史轮次</li>
+<li>当前用户输入</li>
+<li>模型生成结果</li>
+</ul>
+<p>当一轮回答生成中：</p>
+<ul>
+<li>历史上下文的 <code>K/V</code> 会被缓存</li>
+<li>模型边生成边追加自己的新 token 的 <code>K/V</code></li>
+</ul>
+<p>但到了下一轮用户再发消息时，是否还能复用之前的 cache，要看你的服务系统怎么组织会话。</p>
+<p>很多系统会：</p>
+<ul>
+<li>保留会话级上下文</li>
+<li>尽量复用前缀</li>
+<li>或利用 prefix caching / paged attention 进行更高级的共享</li>
+</ul>
+<p>这时 KV Cache 的概念就会延伸到“会话缓存”和“前缀共享”。</p>
+<span class="heading-anchor" id="15. Prefix Cache 和 KV Cache 的关系"></span><h2 id="15-prefix-cache-kv-cache">15. Prefix Cache 和 KV Cache 的关系</h2>
+<p>这两个词很像，但不完全一样。</p>
+<span class="heading-anchor" id="15.1 KV Cache"></span><h3 id="151-kv-cache">15.1 KV Cache</h3>
+<p>指一次生成过程中，历史 token 的 <code>K/V</code> 缓存。</p>
+<span class="heading-anchor" id="15.2 Prefix Caching"></span><h3 id="152-prefix-caching">15.2 Prefix Caching</h3>
+<p>指如果不同请求共享相同前缀，比如：</p>
+<ul>
+<li>相同系统提示词</li>
+<li>相同文档前缀</li>
+<li>相同模板 prompt</li>
+</ul>
+<p>那么这个共享前缀的 KV 也可以复用，而不是每个请求都从头 prefill 一遍。</p>
+<p>所以：</p>
+<ul>
+<li>KV Cache 更像“单请求生成过程中的缓存”</li>
+<li>Prefix Cache 更像“跨请求共享的 KV 复用”</li>
+</ul>
+<p>它们底层都和 <code>K/V</code> 缓存有关，但应用层级不同。</p>
+<span class="heading-anchor" id="16. MHA、MQA、GQA 和 KV Cache 的关系"></span><h2 id="16-mhamqagqa-kv-cache">16. MHA、MQA、GQA 和 KV Cache 的关系</h2>
+<p>这一段很重要，因为它直接关系到显存。</p>
+<span class="heading-anchor" id="16.1 MHA：普通多头注意力"></span><h3 id="161-mha">16.1 MHA：普通多头注意力</h3>
+<p>在标准多头注意力（MHA）里：</p>
+<ul>
+<li>每个 attention head 都有自己的 <code>K/V</code></li>
+</ul>
+<p>这意味着：</p>
+<ul>
+<li><code>num_kv_heads = num_attention_heads</code></li>
+<li>KV Cache 比较大</li>
+</ul>
+<span class="heading-anchor" id="16.2 MQA：Multi-Query Attention"></span><h3 id="162-mqamulti-query-attention">16.2 MQA：Multi-Query Attention</h3>
+<p>在 <code>MQA</code> 中：</p>
+<ul>
+<li>多个 query heads 共享同一组 <code>K/V</code></li>
+<li>常见形式是所有 query heads 共享一个 KV 头组</li>
+</ul>
+<p>效果：</p>
+<ul>
+<li>KV Cache 显著变小</li>
+<li>推理更友好</li>
+</ul>
+<span class="heading-anchor" id="16.3 GQA：Grouped-Query Attention"></span><h3 id="163-gqagrouped-query-attention">16.3 GQA：Grouped-Query Attention</h3>
+<p><code>GQA</code> 是 MHA 和 MQA 之间的折中。</p>
+<p>它不是所有 query heads 都共享同一组 <code>K/V</code>，而是：</p>
+<ul>
+<li>把多个 query heads 分成若干组</li>
+<li>每组共享一套 <code>K/V</code></li>
+</ul>
+<p>效果：</p>
+<ul>
+<li>比 MHA 省显存</li>
+<li>比 MQA 保留更多表达能力</li>
+</ul>
+<p>这也是今天很多大模型喜欢用 GQA 的原因之一：<br/>
+它对 KV Cache 更友好。</p>
+<span class="heading-anchor" id="17. PagedAttention 是在解决什么问题"></span><h2 id="17-pagedattention">17. PagedAttention 是在解决什么问题</h2>
+<p>当你理解了 KV Cache 的价值和显存成本，就很容易明白 <code>PagedAttention</code> 为什么重要。</p>
+<p><code>PagedAttention</code> 的核心不是“发明了 KV Cache”，而是 <strong>更高效地管理 KV Cache</strong>。</p>
+<span class="heading-anchor" id="17.1 传统问题"></span><h3 id="171">17.1 传统问题</h3>
+<p>如果你为每个请求预留一大块连续 KV Cache：</p>
+<ul>
+<li>会有内存碎片</li>
+<li>会有浪费</li>
+<li>请求长度不一致时很难高效利用显存</li>
+</ul>
+<span class="heading-anchor" id="17.2 PagedAttention 的思路"></span><h3 id="172-pagedattention">17.2 PagedAttention 的思路</h3>
+<p>像操作系统分页一样，把 KV Cache 切成块（blocks / pages）来管理。</p>
+<p>这样做的好处：</p>
+<ul>
+<li>分配更灵活</li>
+<li>碎片更少</li>
+<li>多请求混合时更容易调度</li>
+<li>长短请求更容易共存</li>
+</ul>
+<p>这就是为什么 vLLM 会强调：</p>
+<ul>
+<li><code>PagedAttention</code></li>
+<li>continuous batching</li>
+<li>block-based KV cache</li>
+</ul>
+<p>它本质上是在把 KV Cache 这件事做得更工程化、更高效。</p>
+<span class="heading-anchor" id="18. 连续批处理和 KV Cache 的关系"></span><h2 id="18-kv-cache">18. 连续批处理和 KV Cache 的关系</h2>
+<p>在传统 static batching 里，你往往希望同一批请求长度接近。<br/>
+但在线服务中，请求到达时间、prompt 长度、生成长度都不一致，这会导致批处理效率很差。</p>
+<p>连续批处理（continuous batching）会让系统：</p>
+<ul>
+<li>在不同时间把请求动态混进同一个执行流</li>
+<li>已完成的请求退出</li>
+<li>新请求及时补进来</li>
+</ul>
+<p>而这一切成立的前提之一，就是底层要能灵活管理每个请求的 KV Cache。</p>
+<p>所以你可以把关系记成：</p>
+<ul>
+<li>KV Cache：让单请求解码高效</li>
+<li>PagedAttention：让 KV Cache 管理高效</li>
+<li>Continuous batching：让多请求调度高效</li>
+</ul>
+<span class="heading-anchor" id="19. 为什么 KV Cache 会成为高并发服务的瓶颈"></span><h2 id="19-kv-cache">19. 为什么 KV Cache 会成为高并发服务的瓶颈</h2>
+<p>很多人以为推理服务的瓶颈只在模型参数本身，其实在长上下文和高并发下，KV Cache 经常才是第一瓶颈。</p>
+<p>原因很简单：</p>
+<ul>
+<li>模型权重通常固定</li>
+<li>KV Cache 随请求数和上下文长度动态增长</li>
+</ul>
+<p>当你有很多活跃请求时，每个请求都需要：</p>
+<ul>
+<li>自己那份历史 <code>K/V</code></li>
+</ul>
+<p>于是显存压力来自：</p>
+<ul>
+<li>请求数</li>
+<li>每个请求的 prompt 长度</li>
+<li>每个请求当前已经生成了多少 token</li>
+</ul>
+<p>这也是推理服务经常要设置：</p>
+<ul>
+<li>max context length</li>
+<li>max batch tokens</li>
+<li>max active sequences</li>
+</ul>
+<p>本质都是在控制 KV Cache 的总占用。</p>
+<span class="heading-anchor" id="20. KV Cache 不是万能加速器"></span><h2 id="20-kv-cache">20. KV Cache 不是万能加速器</h2>
+<p>这点也很关键。</p>
+<span class="heading-anchor" id="20.1 它主要优化 decode，不是 prefill"></span><h3 id="201-decode-prefill">20.1 它主要优化 decode，不是 prefill</h3>
+<p>如果你的请求特点是：</p>
+<ul>
+<li>prompt 很长</li>
+<li>生成很短</li>
+</ul>
+<p>那主要开销可能在 <code>prefill</code>，而不是 <code>decode</code>。<br/>
+这时 KV Cache 依然有用，但体感提升未必像长生成场景那么夸张。</p>
+<span class="heading-anchor" id="20.2 它不能消除长上下文 attention 本身的代价"></span><h3 id="202-attention">20.2 它不能消除长上下文 attention 本身的代价</h3>
+<p>虽然历史 <code>K/V</code> 不用重算，但新 token 仍然要对整段历史做 attention。</p>
+<p>所以：</p>
+<ul>
+<li>上下文越长</li>
+<li>新 token 的 attention 范围越大</li>
+</ul>
+<p>KV Cache 只是避免重复计算，不是让长上下文注意力变成零成本。</p>
+<span class="heading-anchor" id="20.3 它不直接提升模型质量"></span><h3 id="203">20.3 它不直接提升模型质量</h3>
+<p>KV Cache 是推理优化，不是训练优化，也不是能力增强方法。<br/>
+它让模型更快、更省重复算力，但不会让模型更聪明。</p>
+<span class="heading-anchor" id="21. 一个极简 PyTorch 直觉示例"></span><h2 id="21-pytorch">21. 一个极简 PyTorch 直觉示例</h2>
+<p>下面不是完整 Transformer 实现，只是帮助你建立“缓存追加”的感觉。</p>
+<pre><code class="language-python">import torch
+
+
+batch = 1
+num_heads = 4
+head_dim = 8
+
+# 假设历史已经有 10 个 token 的 K/V
+cached_k = torch.randn(batch, num_heads, 10, head_dim)
+cached_v = torch.randn(batch, num_heads, 10, head_dim)
+
+# 当前新 token 的 Q/K/V
+q_new = torch.randn(batch, num_heads, 1, head_dim)
+k_new = torch.randn(batch, num_heads, 1, head_dim)
+v_new = torch.randn(batch, num_heads, 1, head_dim)
+
+# 把新 token 追加进缓存
+all_k = torch.cat([cached_k, k_new], dim=2)
+all_v = torch.cat([cached_v, v_new], dim=2)
+
+# 当前 token 只需要拿自己的 q 去看整个历史
+scores = torch.matmul(q_new, all_k.transpose(-2, -1)) / (head_dim ** 0.5)
+weights = torch.softmax(scores, dim=-1)
+output = torch.matmul(weights, all_v)
+
+print(output.shape)  # [1, 4, 1, 8]
+</code></pre>
+<p>这段代码表达了三个关键点：</p>
+<ol>
+<li>历史 <code>K/V</code> 已经存在于缓存里  </li>
+<li>新 token 只把自己的 <code>K/V</code> 追加进去  </li>
+<li>当前 token 的 <code>Q</code> 去查询“历史 + 当前”的 <code>K/V</code></li>
+</ol>
+<p>这就是 KV Cache 的最基本直觉。</p>
+<span class="heading-anchor" id="22. 在 Hugging Face Transformers 里，KV Cache 经常以什么形式出现"></span><h2 id="22-hugging-face-transformers-kv-cache">22. 在 Hugging Face Transformers 里，KV Cache 经常以什么形式出现</h2>
+<p>在 <code>transformers</code> 生态里，你经常会看到：</p>
+<ul>
+<li><code>past_key_values</code></li>
+<li><code>use_cache=True</code></li>
+</ul>
+<p>比如：</p>
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+model_name = "gpt2"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+inputs = tokenizer("Hello, how are", return_tensors="pt")
+
+with torch.no_grad():
+    outputs = model(**inputs, use_cache=True)
+
+past_key_values = outputs.past_key_values
+next_token_logits = outputs.logits[:, -1, :]
+</code></pre>
+<p>后续生成时，可以把 <code>past_key_values</code> 传回模型：</p>
+<pre><code class="language-python">next_token_id = next_token_logits.argmax(dim=-1, keepdim=True)
+
+with torch.no_grad():
+    outputs2 = model(
+        input_ids=next_token_id,
+        past_key_values=past_key_values,
+        use_cache=True,
+    )
+</code></pre>
+<p>这个 API 设计非常直接地体现了 KV Cache 的思想：</p>
+<ul>
+<li>第一次前向，建立 cache</li>
+<li>后续只喂新 token + past_key_values</li>
+</ul>
+<span class="heading-anchor" id="23. 一个最小可运行示例：手工感受是否复用缓存"></span><h2 id="23">23. 一个最小可运行示例：手工感受是否复用缓存</h2>
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+model_name = "gpt2"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+model.eval()
+
+prompt = "The capital of France is"
+inputs = tokenizer(prompt, return_tensors="pt")
+
+with torch.no_grad():
+    out = model(**inputs, use_cache=True)
+
+past = out.past_key_values
+next_id = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+generated_ids = [next_id]
+
+for _ in range(10):
+    with torch.no_grad():
+        out = model(input_ids=next_id, past_key_values=past, use_cache=True)
+    past = out.past_key_values
+    next_id = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+    generated_ids.append(next_id)
+
+all_ids = torch.cat([inputs["input_ids"]] + generated_ids, dim=1)
+print(tokenizer.decode(all_ids[0], skip_special_tokens=True))
+</code></pre>
+<p>这段代码里的关键不是效果多好，而是你能看到：</p>
+<ul>
+<li>第一轮输入整个 prompt</li>
+<li>后面每轮只输入一个 token</li>
+<li>但模型仍然知道整个历史</li>
+</ul>
+<p>为什么它知道？因为历史在 <code>past_key_values</code> 里。</p>
+<span class="heading-anchor" id="24. 常见误区"></span><h2 id="24">24. 常见误区</h2>
+<span class="heading-anchor" id="24.1 “KV Cache 会缓存全部计算结果”"></span><h3 id="241-kv-cache">24.1 “KV Cache 会缓存全部计算结果”</h3>
+<p>不对。它缓存的是注意力相关的 <code>K/V</code>，不是整个网络每一步的所有中间张量。</p>
+<span class="heading-anchor" id="24.2 “开了 KV Cache，长上下文就不贵了”"></span><h3 id="242-kv-cache">24.2 “开了 KV Cache，长上下文就不贵了”</h3>
+<p>不对。长上下文仍然贵，只是没有那么重复地贵。</p>
+<span class="heading-anchor" id="24.3 “KV Cache 主要优化训练”"></span><h3 id="243-kv-cache">24.3 “KV Cache 主要优化训练”</h3>
+<p>不对。它主要优化推理，尤其是自回归解码。</p>
+<span class="heading-anchor" id="24.4 “KV Cache 只和单卡推理有关”"></span><h3 id="244-kv-cache">24.4 “KV Cache 只和单卡推理有关”</h3>
+<p>不对。分布式推理、服务编排、批处理调度、长上下文系统设计，都深受 KV Cache 影响。</p>
+<span class="heading-anchor" id="24.5 “KV Cache 越大越好”"></span><h3 id="245-kv-cache">24.5 “KV Cache 越大越好”</h3>
+<p>不对。缓存大意味着上下文能力强，但也意味着显存成本更高、并发能力可能下降。</p>
+<span class="heading-anchor" id="25. 做系统设计时，怎么看 KV Cache"></span><h2 id="25-kv-cache">25. 做系统设计时，怎么看 KV Cache</h2>
+<p>如果你是从工程角度考虑推理服务，可以把 KV Cache 当作一个资源池问题。</p>
+<p>你需要同时考虑：</p>
+<ul>
+<li>单请求上下文长度</li>
+<li>平均生成长度</li>
+<li>请求并发数</li>
+<li>batch 调度策略</li>
+<li>数据类型精度</li>
+<li>MHA / GQA / MQA 结构</li>
+<li>是否启用 prefix caching</li>
+<li>是否使用 paged attention</li>
+</ul>
+<p>很多系统设计的本质，是在做下面几件事的平衡：</p>
+<ul>
+<li>让 decode 足够快</li>
+<li>让显存撑得住</li>
+<li>让并发尽量高</li>
+<li>让不同长度请求共存时浪费尽量少</li>
+</ul>
+<span class="heading-anchor" id="26. 什么时候你应该特别关注 KV Cache"></span><h2 id="26-kv-cache">26. 什么时候你应该特别关注 KV Cache</h2>
+<p>下面这些场景，KV Cache 基本都应该进入你的第一优先级分析：</p>
+<ul>
+<li>聊天机器人响应慢</li>
+<li>长上下文推理显存爆掉</li>
+<li>服务并发上不去</li>
+<li>TTFT 和 TPOT 指标异常</li>
+<li>vLLM/TGI/自研推理服务需要调优</li>
+<li>你在比较 MHA、GQA、MQA 的推理成本</li>
+</ul>
+<p>其中：</p>
+<ul>
+<li><code>TTFT</code>：time to first token，往往和 prefill 关系更大</li>
+<li><code>TPOT</code>：time per output token，往往和 decode + KV Cache 更相关</li>
+</ul>
+<span class="heading-anchor" id="27. 学习路径建议"></span><h2 id="27">27. 学习路径建议</h2>
+<p>如果你想把 KV Cache 放进更大的知识地图里，建议顺序是：</p>
+<ol>
+<li>Transformer 自注意力  </li>
+<li>自回归解码  </li>
+<li>Prefill / Decode 两阶段  </li>
+<li>KV Cache  </li>
+<li>MQA / GQA  </li>
+<li>PagedAttention  </li>
+<li>Continuous batching  </li>
+<li>长上下文推理优化</li>
+</ol>
+<p>这条线走通之后，你对现代 LLM 推理系统的理解会清晰很多。</p>
+<span class="heading-anchor" id="28. 最后的总结"></span><h2 id="28">28. 最后的总结</h2>
+<p>你可以用下面这组句子快速回忆 <code>KV Cache</code>：</p>
+<ul>
+<li>它缓存的是历史 token 的注意力 <code>K/V</code></li>
+<li>它主要用于推理，不是训练主优化</li>
+<li>它的核心价值是避免重复重算历史上下文</li>
+<li>它让 decode 阶段显著提速</li>
+<li>它的代价是显存随上下文长度和并发增长</li>
+<li><code>MQA/GQA</code> 可以降低 KV Cache 成本</li>
+<li><code>PagedAttention</code> 是更高效的 KV Cache 管理方式</li>
+</ul>
+<p>如果只保留一句话，就保留这句：</p>
+<blockquote>
+<p><code>KV Cache</code> 的本质，是用显存换解码速度，用缓存复用历史注意力状态，避免自回归生成时对旧 token 做重复计算。</p>
+</blockquote>
+<p>如果你愿意，下一步我可以继续把这份笔记扩展成两种版本之一：</p>
+<ol>
+<li>加一版“配图思维导图式”的极简讲义  </li>
+<li>再补一篇“从 KV Cache 到 PagedAttention 与 vLLM”的进阶笔记</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

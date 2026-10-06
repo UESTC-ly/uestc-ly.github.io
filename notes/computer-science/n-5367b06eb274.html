@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>生命周期与服务韧性 · 李杨的学习笔记</title><meta name="description" content="本章关注单进程/单服务的启动关闭、连接与资源保护；跨服务调用链中的熔断、降级和治理见 韧性工程：限流、熔断、降级 。"><meta property="og:title" content="生命周期与服务韧性 · 李杨的学习笔记"><meta property="og:description" content="本章关注单进程/单服务的启动关闭、连接与资源保护；跨服务调用链中的熔断、降级和治理见 韧性工程：限流、熔断、降级 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5367b06eb274.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5367b06eb274.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 02-网络服务开发</p><h1>生命周期与服务韧性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/02-%E7%BD%91%E7%BB%9C%E6%9C%8D%E5%8A%A1%E5%BC%80%E5%8F%91/06-%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E4%B8%8E%E6%9C%8D%E5%8A%A1%E9%9F%A7%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">优雅启动</a></li><li><a href="#ready-live">ready 与 live</a></li><li><a href="#_5">优雅关闭与连接排空</a></li><li><a href="#_6">关闭预算</a></li><li><a href="#_7">信号处理</a></li><li><a href="#_8">信号到关闭流程</a></li><li><a href="#_9">限流</a></li><li><a href="#_10">限流返回值</a></li><li><a href="#_11">超时</a></li><li><a href="#_12">超时覆盖所有等待点</a></li><li><a href="#_13">重试</a></li><li><a href="#_14">熔断与降级</a></li><li><a href="#_15">熔断状态的取舍</a></li><li><a href="#_16">幂等与重试风暴</a></li><li><a href="#_17">工程实践/示例</a></li><li><a href="#_18">优雅关闭伪代码</a></li><li><a href="#_19">重试策略伪代码</a></li><li><a href="#_20">错误分类</a></li><li><a href="#_21">故障排查/观测</a></li><li><a href="#_22">级联故障信号</a></li><li><a href="#_23">关闭验证</a></li><li><a href="#_24">推导示例</a></li><li><a href="#deadline">调用链 deadline 分配</a></li><li><a href="#_25">熔断与限流的顺序</a></li><li><a href="#_26">如何讲优雅关闭</a></li><li><a href="#_27">最小验收清单</a></li><li><a href="#_28">常见误区</a></li><li><a href="#_29">自测题</a></li><li><a href="#_30">实践任务</a></li><li><a href="#_31">延伸阅读</a></li></ul></details><article class="note-content">
+<p>本章关注单进程/单服务的启动关闭、连接与资源保护；跨服务调用链中的熔断、降级和治理见<a href="n-37e7c300537e.html">韧性工程：限流、熔断、降级</a>。</p>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>理解服务优雅启动、关闭和连接排空。</li>
+<li>掌握信号处理的安全边界。</li>
+<li>能解释限流、超时、重试、熔断、降级和幂等。</li>
+<li>能识别重试风暴和级联故障。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<span class="heading-anchor" id="优雅启动"></span><h3 id="_4">优雅启动</h3>
+<p>启动不只是 <code>listen</code> 成功。生产服务通常需要：</p>
+<ol>
+<li>加载配置和密钥。</li>
+<li>初始化日志、指标和 tracing。</li>
+<li>建立依赖连接池。</li>
+<li>完成健康检查依赖。</li>
+<li>开始监听端口。</li>
+<li>对外暴露 ready 状态。</li>
+</ol>
+<p>如果服务还没准备好就接流量，会把初始化失败放大成用户请求失败。</p>
+<span class="heading-anchor" id="ready 与 live"></span><h3 id="ready-live">ready 与 live</h3>
+<p><code>live</code> 表示进程是否还应该被运行时保留，<code>ready</code> 表示实例是否适合接收新流量。启动阶段依赖未准备好时应保持 not ready；关闭排空时也应先切 not ready，让负载均衡停止分配新请求。不要因为一个下游短暂失败就轻易让 live 失败，否则运行时会频繁重启实例并放大故障。</p>
+<span class="heading-anchor" id="优雅关闭与连接排空"></span><h3 id="_5">优雅关闭与连接排空</h3>
+<p>关闭流程：</p>
+<pre class="mermaid">flowchart TD
+    A["receive shutdown signal"] --&gt; B["mark not ready"]
+    B --&gt; C["withdraw traffic and stop new work"]
+    C --&gt; D["drain in-flight requests"]
+    D --&gt; E["flush logs/metrics"]
+    E --&gt; F["close resources"]
+    F --&gt; G["exit"]
+</pre>
+<p>连接排空要求：</p>
+<ul>
+<li>停止接收新连接或新请求。</li>
+<li>已接收请求在 deadline 内完成。</li>
+<li>超过关闭预算后强制结束。</li>
+<li>对长连接通知客户端重连。</li>
+</ul>
+<span class="heading-anchor" id="关闭预算"></span><h3 id="_6">关闭预算</h3>
+<p>优雅关闭必须有总预算。预算内完成：停止接入、等待在途请求、flush 日志指标、释放资源；预算耗尽后进入强制关闭。没有预算会导致发布或缩容卡住，有预算但不记录强制关闭数量会掩盖真实尾部问题。</p>
+<span class="heading-anchor" id="信号处理"></span><h3 id="_7">信号处理</h3>
+<p>信号 handler 里只能做异步信号安全的事情。常见工程做法是：</p>
+<ul>
+<li>handler 设置 <code>volatile sig_atomic_t</code> 标志，或向 pipe/eventfd 写一个字节。</li>
+<li>主事件循环看到标志后执行完整关闭逻辑。</li>
+</ul>
+<p>不要在 signal handler 里做复杂日志、加锁、分配内存或关闭大量对象。</p>
+<span class="heading-anchor" id="信号到关闭流程"></span><h3 id="_8">信号到关闭流程</h3>
+<p>收到 <code>SIGTERM</code> 后不应直接 <code>exit()</code>。更稳妥的路径是 handler 通知主循环，主循环切 ready、停止 accept、关闭空闲连接、等待在途请求，并在 deadline 到达后关闭剩余连接。若服务运行在 systemd、Kubernetes 或容器平台，要理解平台发送信号和强杀之间的时间窗口。</p>
+<span class="heading-anchor" id="限流"></span><h3 id="_9">限流</h3>
+<p>限流用于保护服务容量。常见策略：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>说明</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定窗口</td>
+<td>每个窗口固定额度</td>
+<td>简单但边界突刺明显</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>按时间片平滑统计</td>
+<td>API 网关</td>
+</tr>
+<tr>
+<td>令牌桶</td>
+<td>按速率生成令牌，允许短突发</td>
+<td>通用请求限流</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>固定速率流出</td>
+<td>平滑下游流量</td>
+</tr>
+<tr>
+<td>并发限制</td>
+<td>限制同时处理请求数</td>
+<td>保护线程、连接和下游</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="限流返回值"></span><h3 id="_10">限流返回值</h3>
+<p>限流不是静默丢弃。HTTP API 通常返回 429 或 503，并带上可选 <code>Retry-After</code>；RPC 通常返回资源耗尽或不可用状态。内部队列满时要让调用方知道请求没有被接受，避免调用方以为请求已经进入处理流程。</p>
+<span class="heading-anchor" id="超时"></span><h3 id="_11">超时</h3>
+<p>超时应该分层：</p>
+<ul>
+<li>连接建立超时。</li>
+<li>请求读取超时。</li>
+<li>业务处理超时。</li>
+<li>下游 RPC 超时。</li>
+<li>整体 deadline。</li>
+</ul>
+<p>整体 deadline 应向下游传递，避免每层都重新给一个完整超时，导致总耗时失控。</p>
+<span class="heading-anchor" id="超时覆盖所有等待点"></span><h3 id="_12">超时覆盖所有等待点</h3>
+<p>只设置 socket read timeout 不够。请求可能卡在 accept 后读 header、线程池排队、连接池 acquire、下游调用、数据库锁等待或响应写回。每个等待点都要能消费同一个总体 deadline，并在超时后释放占用的槽位。</p>
+<span class="heading-anchor" id="重试"></span><h3 id="_13">重试</h3>
+<p>重试只适合短暂、可恢复、幂等或可去重的失败。重试策略需要：</p>
+<ul>
+<li>最大次数。</li>
+<li>指数退避和随机抖动。</li>
+<li>只对可重试错误重试。</li>
+<li>尊重整体 deadline。</li>
+<li>配合熔断和限流。</li>
+</ul>
+<span class="heading-anchor" id="熔断与降级"></span><h3 id="_14">熔断与降级</h3>
+<p>熔断是在依赖持续失败时快速失败，避免继续压垮依赖。常见状态：</p>
+<pre class="mermaid">stateDiagram-v2
+    Closed --&gt; Open: failure rate high
+    Open --&gt; HalfOpen: sleep window elapsed
+    HalfOpen --&gt; Closed: probe success
+    HalfOpen --&gt; Open: probe failed
+</pre>
+<p>降级是在完整能力不可用时提供低成本或弱一致结果，例如返回缓存、默认值、简化结果或只读模式。</p>
+<span class="heading-anchor" id="熔断状态的取舍"></span><h3 id="_15">熔断状态的取舍</h3>
+<p>熔断器应基于时间窗口内的请求量和失败比例，而不是单纯累计错误数。请求量太少时失败比例没有统计意义；half-open 探测数量太大又会瞬间压回故障依赖。降级结果必须带指标和日志，避免用户长期拿到低质量结果而系统看起来“全绿”。</p>
+<span class="heading-anchor" id="幂等与重试风暴"></span><h3 id="_16">幂等与重试风暴</h3>
+<p>幂等表示同一请求执行多次与执行一次的业务效果一致。写操作常用幂等键、请求去重表或业务唯一约束保护。</p>
+<p>重试风暴是故障时大量客户端同时重试，流量成倍放大。应通过退避、抖动、限流、熔断和服务端 <code>Retry-After</code> 等机制控制。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_17">工程实践/示例</h2>
+<span class="heading-anchor" id="优雅关闭伪代码"></span><h3 id="_18">优雅关闭伪代码</h3>
+<pre><code class="language-cpp">volatile std::sig_atomic_t stopping = 0;
+
+void onSignal(int) {
+    stopping = 1;  // 处理函数只做最小、异步信号安全的通知
+}
+
+void eventLoop() {
+    bool draining = false;
+    while (running) {
+        pollOnce();
+        if (stopping != 0 &amp;&amp; !draining) {
+            health.setNotReady();
+            acceptor.stop();
+            connectionManager.startDrain(std::chrono::seconds(30));
+            draining = true;
+        }
+        connectionManager.closeExpiredDrainingConnections();
+        if (connectionManager.drained()) running = false;
+    }
+}
+</code></pre>
+<p>更完整的事件驱动服务可使用 self-pipe、<code>eventfd</code> 或 <code>signalfd</code>：信号处理函数只执行异步信号安全的通知，真正的健康状态切换、停止 accept 和连接排空仍在事件循环中完成。不要把普通“线程安全”等同于 POSIX 的“异步信号安全”。</p>
+<span class="heading-anchor" id="重试策略伪代码"></span><h3 id="_19">重试策略伪代码</h3>
+<pre><code class="language-cpp">for (int attempt = 0; attempt &lt; maxAttempts; ++attempt) {
+    auto result = call(deadline.remaining());
+    if (result.ok()) return result;
+    if (!result.retryable() || deadline.expired()) return result;
+    sleepWithJitter(backoff(attempt), deadline.remaining());
+}
+</code></pre>
+<span class="heading-anchor" id="错误分类"></span><h3 id="_20">错误分类</h3>
+<p>重试前先分类错误：</p>
+<ul>
+<li>可重试：短暂网络错误、连接池暂不可用、被限流且有剩余 deadline；</li>
+<li>不可重试：参数错误、鉴权失败、业务唯一约束冲突；</li>
+<li>结果不确定：写请求发送后连接断开、提交阶段超时。</li>
+</ul>
+<p>结果不确定的写操作不能简单再次执行，必须依赖幂等键、请求去重表或业务状态查询。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_21">故障排查/观测</h2>
+<span class="heading-anchor" id="级联故障信号"></span><h3 id="_22">级联故障信号</h3>
+<p>级联故障常见指标组合是：下游延迟上升、本服务线程池/连接池等待上升、重试次数上升、错误率上升、P99 拉长、队列长度增加。此时盲目扩容客户端或加大连接池可能继续压垮下游。优先减少并发、打开熔断、降低重试和启用降级。</p>
+<span class="heading-anchor" id="关闭验证"></span><h3 id="_23">关闭验证</h3>
+<p>验证优雅关闭时应模拟：无请求关闭、长请求关闭、慢客户端关闭、WebSocket 长连接关闭、线程池仍有任务关闭。观察 ready 切换时间、最后一个新请求时间、在途请求完成数、强制关闭数和进程退出码。</p>
+<span class="heading-anchor" id="推导示例"></span><h2 id="_24">推导示例</h2>
+<span class="heading-anchor" id="调用链 deadline 分配"></span><h3 id="deadline">调用链 deadline 分配</h3>
+<p>入口请求剩余 300 ms 时，本服务如果排队用了 40 ms，业务计算用了 30 ms，下游 RPC 就只剩约 230 ms，还要预留响应写回时间。每层重新设置 300 ms 会让总耗时线性放大；多层重试时还可能成倍放大。</p>
+<pre><code class="language-text">ingress deadline -&gt; queue wait -&gt; local work -&gt; downstream remaining -&gt; response
+</code></pre>
+<span class="heading-anchor" id="熔断与限流的顺序"></span><h3 id="_25">熔断与限流的顺序</h3>
+<p>限流保护本服务入口，熔断保护对下游的调用。故障时通常先通过限流限制新请求，再通过熔断快速失败已进入的下游调用，最后按业务重要性降级。三者都要暴露指标，否则无法判断是容量不足、依赖故障还是策略过严。</p>
+<span class="heading-anchor" id="如何讲优雅关闭"></span><h3 id="_26">如何讲优雅关闭</h3>
+<p>完整回答应包含：收到信号、切 not ready、停止 accept 或新请求、等待在途请求、长连接通知重连、超时强制关闭、flush 日志指标和退出码。只说“收到 SIGTERM 后 close”会遗漏流量摘除和关闭预算。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_27">最小验收清单</h3>
+<ul>
+<li>ready/live 语义分离。</li>
+<li>每个等待点受 deadline 控制。</li>
+<li>限流、熔断、降级都有指标。</li>
+<li>关闭测试覆盖慢请求和长连接。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_28">常见误区</h2>
+<ul>
+<li>收到信号后立即 <code>exit</code>，丢失正在处理的请求。</li>
+<li>每层服务都重试三次，导致调用链指数放大。</li>
+<li>对非幂等写请求无脑重试。</li>
+<li>熔断只按错误数，不看请求量和时间窗口。</li>
+<li>降级没有观测指标，线上静默返回低质量结果。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_29">自测题</h2>
+<ol>
+<li>ready 和 live 健康检查分别表达什么？</li>
+<li>为什么优雅关闭要先停止接入新流量？</li>
+<li>整体 deadline 如何防止调用链耗时失控？</li>
+<li>熔断的 half-open 状态有什么作用？</li>
+<li>如何让创建订单接口支持安全重试？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_30">实践任务</h2>
+<ul>
+<li>给 TCP 服务加 <code>SIGTERM</code> 优雅关闭。</li>
+<li>实现一个令牌桶限流器。</li>
+<li>给 RPC 调用加指数退避和 jitter。</li>
+<li>设计一个带幂等键的写接口，并说明服务端存储策略。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_31">延伸阅读</h2>
+<ul>
+<li><code>signal-safety(7)</code>: https://man7.org/linux/man-pages/man7/signal-safety.7.html</li>
+<li>Google SRE Book - Handling Overload: https://sre.google/sre-book/handling-overload/</li>
+<li>Google SRE Book - Addressing Cascading Failures: https://sre.google/sre-book/addressing-cascading-failures/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

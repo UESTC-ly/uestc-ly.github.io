@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04-06 设计切分实验 · 李杨的学习笔记</title><meta name="description" content="一句方案名称不能说明要改善什么。可能的问题是正确证据没有进入前 K 个候选，也可能是命中
+块缺少例外条件，或重复块挤满最终上下文。不同问题需要不同观察。"><meta property="og:title" content="04-06 设计切分实验 · 李杨的学习笔记"><meta property="og:description" content="一句方案名称不能说明要改善什么。可能的问题是正确证据没有进入前 K 个候选，也可能是命中
+块缺少例外条件，或重复块挤满最终上下文。不同问题需要不同观察。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-aebd899551b6.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-aebd899551b6.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 04-chunking</p><h1>04-06 设计切分实验</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/04-chunking/06-designing-chunking-experiments.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">“换成语义切分会更好”还不是实验</a></li><li><a href="#_2">第一步：定义问题与成功条件</a></li><li><a href="#_3">第二步：冻结可比较的实验材料</a></li><li><a href="#_4">第三步：建立简单基线</a></li><li><a href="#_5">第四步：设计变量矩阵</a></li><li><a href="#_6">第五步：保存逐查询证据</a></li><li><a href="#_7">第六步：同时看多个结果维度</a></li><li><a href="#_8">设计有诊断力的查询</a></li><li><a href="#_9">失败后怎样迭代</a></li><li><a href="#_10">回归与停止条件</a></li><li><a href="#_11">工程与安全边界</a></li><li><a href="#_12">纸面实验模板</a></li><li><a href="#_13">自测</a></li><li><a href="#_14">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>04-06</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>进阶</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>50 分钟阅读，加 35 分钟实验方案</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 <a href="n-b13bae3a5aa7.html">04-05 大小、重叠、元数据与质量</a>；理解 <a href="n-100cdb087696.html">01-06 最小测量纪律</a></td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>设计阶段不联网；实际实验费用取决于所选表示与检索服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用固定小语料和人工候选表完成纸面实验</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>把“切分更好”改写成可验证假设；</li>
+<li>建立固定语料、查询、相关性标签和基线配置；</li>
+<li>一次改变一个主要变量，并保存逐查询证据；</li>
+<li>同时观察检索质量、上下文完整性、资源成本和安全边界。</li>
+</ul>
+<span class="heading-anchor" id="“换成语义切分会更好”还不是实验"></span><h2 id="_1">“换成语义切分会更好”还不是实验</h2>
+<p>一句方案名称不能说明要改善什么。可能的问题是正确证据没有进入前 K 个候选，也可能是命中
+块缺少例外条件，或重复块挤满最终上下文。不同问题需要不同观察。</p>
+<p>可验证假设应包含对象、变化、指标和边界。例如：</p>
+<blockquote>
+<p>对当前售后手册和已标注的 60 条查询，在保持解析器、表示模型、检索参数和候选数不变时，
+结构感知切分相较固定长度基线能减少“标题与规则分离”的缺陷；是否改善 Recall@K 由实验
+结果决定。</p>
+</blockquote>
+<p>这里的查询数量仅是示例写法，不是推荐规模，也不是已执行结果。Recall@K 的含义见
+<a href="n-100cdb087696.html">01-06 最小测量纪律</a>。</p>
+<span class="heading-anchor" id="第一步：定义问题与成功条件"></span><h2 id="_2">第一步：定义问题与成功条件</h2>
+<p>先从失败样例出发，写明当前证据：</p>
+<ul>
+<li>哪些查询没有召回正确块；</li>
+<li>哪些命中块丢失了条件、标题或表头；</li>
+<li>哪些候选因重叠高度重复；</li>
+<li>哪些父块扩展后超过上下文预算；</li>
+<li>哪些格式或权限范围最容易出错。</li>
+</ul>
+<p>成功条件不能只写“答案更好”。可以分别定义：候选层的命中指标、块完整性缺陷率、最终上下文
+中的证据覆盖、索引时间、块数量、存储量和查询延迟。回答正确性与引用支持属于下游指标，应与
+切分指标分开记录。</p>
+<span class="heading-anchor" id="第二步：冻结可比较的实验材料"></span><h2 id="_3">第二步：冻结可比较的实验材料</h2>
+<p>最小实验包包括：</p>
+<ol>
+<li>固定版本的原始语料及其来源清单；</li>
+<li>固定查询集，覆盖直接事实、例外条件、跨段问题和无答案问题；</li>
+<li>每条查询的相关证据范围或相关块判定规则；</li>
+<li>统一的解析结果，除非实验变量本身就是解析方式；</li>
+<li>固定的表示模型、检索方式、过滤条件、K 值和随机因素；</li>
+<li>配置文件、运行时间、代码版本和输出目录。</li>
+</ol>
+<p>若语料在两次运行之间更新，就无法判断差异来自切分还是内容。若相关性标签随候选结果临时
+改变，也会引入评估偏差。</p>
+<span class="heading-anchor" id="第三步：建立简单基线"></span><h2 id="_4">第三步：建立简单基线</h2>
+<p>基线应容易解释和复现，例如“按段落优先、超限后按句子、最后固定长度兜底”。复杂方法只有在
+同一实验包上超过这个基线，并且成本与风险可接受时，才有采用依据。</p>
+<p>不要同时更换切分器、表示模型、向量库和排序器。结果即使变化，也无法归因。每一轮只改变一个
+主要因素；多个参数的组合实验应明确实验矩阵，而不是混成一次手工调参。</p>
+<span class="heading-anchor" id="第四步：设计变量矩阵"></span><h2 id="_5">第四步：设计变量矩阵</h2>
+<p>可比较的切分变量包括：</p>
+<ul>
+<li>边界策略：固定、句子、段落、结构或语义；</li>
+<li>目标大小与硬上限；</li>
+<li>重叠单位和范围；</li>
+<li>标题是否作为受控前缀加入表示文本；</li>
+<li>表格是整体、行组还是父子表示；</li>
+<li>父块大小与子块大小；</li>
+<li>命中后扩展相邻块或父块的规则。</li>
+</ul>
+<p>一个实验表应为每个配置分配稳定标识，例如 <code>chunk-baseline-v1</code>。不要用“新方案”“最终版”这类
+随时间失去含义的名字。</p>
+<span class="heading-anchor" id="第五步：保存逐查询证据"></span><h2 id="_6">第五步：保存逐查询证据</h2>
+<p>汇总指标可能掩盖严重失败。每条查询至少保存：</p>
+<ul>
+<li>查询标识和查询文本或受控摘要；</li>
+<li>预期证据范围；</li>
+<li>候选块标识、顺序、分数和过滤结果；</li>
+<li>候选对应的原文位置与切分配置；</li>
+<li>哪些块进入最终上下文，哪些因预算被丢弃；</li>
+<li>失败类别和人工备注；</li>
+<li>必要的延迟与资源统计。</li>
+</ul>
+<p>对敏感查询和候选要使用授权存储、脱敏或不可逆标识。可复现不等于可以无限保存原始数据。</p>
+<span class="heading-anchor" id="第六步：同时看多个结果维度"></span><h2 id="_7">第六步：同时看多个结果维度</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>可观察问题</th>
+<th>不能直接推出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>候选命中</td>
+<td>正确证据是否进入前 K 个候选</td>
+<td>最终答案一定正确</td>
+</tr>
+<tr>
+<td>块完整性</td>
+<td>条件、标题、表头是否同块或可恢复</td>
+<td>该块一定排在前面</td>
+</tr>
+<tr>
+<td>候选多样性</td>
+<td>Top-K 是否被近似重复块占满</td>
+<td>多样性越高一定越好</td>
+</tr>
+<tr>
+<td>上下文覆盖</td>
+<td>最终上下文是否包含回答所需证据</td>
+<td>生成一定忠实使用证据</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>块数、索引时间、存储、查询延迟</td>
+<td>生产环境成本已经确定</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>权限过滤和来源映射是否保持</td>
+<td>系统已经绝对安全</td>
+</tr>
+</tbody>
+</table></div>
+<p>实验结论必须限定在当前语料、查询、标签、配置和环境内。小样本探索可用于发现问题，不能包装
+成普遍规律。</p>
+<span class="heading-anchor" id="设计有诊断力的查询"></span><h2 id="_8">设计有诊断力的查询</h2>
+<p>只用“退货政策是什么”这类宽泛问题，难以区分切分策略。查询集应包含：</p>
+<ul>
+<li><strong>直接事实：</strong> “标准商品退货期限是什么？”</li>
+<li><strong>例外条件：</strong> “定制商品有质量问题时怎么办？”</li>
+<li><strong>跨结构：</strong> “退货申请需要哪些步骤和凭证？”</li>
+<li><strong>表格定位：</strong> “定制商品这一行的例外是什么？”</li>
+<li><strong>无答案：</strong> 语料没有海外退货规则时询问海外政策；</li>
+<li><strong>权限边界：</strong> 无权用户询问受限内部流程；</li>
+<li><strong>干扰项：</strong> 同时存在旧版、相似产品或否定表达。</li>
+</ul>
+<p>无答案查询很重要：把块切得更碎、召回得更多，不应迫使系统从不相关片段拼出答案。</p>
+<span class="heading-anchor" id="失败后怎样迭代"></span><h2 id="_9">失败后怎样迭代</h2>
+<p>观察到失败时，先归类再修改：</p>
+<ol>
+<li>原文缺失或解析错误，返回数据准备阶段；</li>
+<li>正确范围被切断，调整边界、结构继承或父子关系；</li>
+<li>正确块存在但未进入候选，检查表示、查询和检索；</li>
+<li>正确候选被重复项挤出，检查重叠与去重；</li>
+<li>正确候选进入但上下文丢失，检查预算与扩展；</li>
+<li>上下文正确但答案错误，转向生成与引用评估。</li>
+</ol>
+<p>不要用切分参数修复所有问题。链路位置判断错了，会得到更复杂却没有针对性的配置。</p>
+<span class="heading-anchor" id="回归与停止条件"></span><h2 id="_10">回归与停止条件</h2>
+<p>新方案不仅要修复目标样例，还要运行原有查询集。更大的父块可能改善跨段问题，却降低精确事实
+查询的候选聚焦度；更高重叠可能修复边界，却增加重复和成本。</p>
+<p>停止调参前应写清：哪些成功条件已满足，哪些指标退化仍可接受，哪些风险需要后续工作，以及
+为什么继续增加复杂度不再划算。不存在只凭单一最高分自动决定的“最终切分器”。</p>
+<span class="heading-anchor" id="工程与安全边界"></span><h2 id="_11">工程与安全边界</h2>
+<p>本章的命令、脚本和自动化实验均为后续计划，当前只提供实验设计。实际运行前应固定环境、
+预算和数据访问范围。测试集不得把生产敏感信息复制到权限更弱的开发环境。</p>
+<p>权限查询不能只作为质量样本；它还需要独立的安全测试和审计。检索文本仍是不可信数据，实验
+中命中提示注入内容不代表应该执行其中指令。</p>
+<span class="heading-anchor" id="纸面实验模板"></span><h2 id="_12">纸面实验模板</h2>
+<p>为两个配置填写以下字段：</p>
+<pre><code class="language-text">实验标识：
+假设：
+固定语料版本：
+固定查询集版本：
+唯一主要变量：
+候选层指标：
+块完整性检查：
+资源记录：
+安全与权限检查：
+逐查询输出位置：
+结论适用范围：
+未解决问题：
+</code></pre>
+<p>然后选择一条例外条件查询，画出“原文 -&gt; 块 -&gt; 候选 -&gt; 最终上下文”的证据链。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_13">自测</h2>
+<ol>
+<li>为什么“语义切分更好”不是可验证假设？</li>
+<li>比较两套切分配置时，哪些条件应保持不变？</li>
+<li>为什么必须保存逐查询结果而不能只看平均指标？</li>
+<li>哪类问题不应该通过继续调整切分参数解决？</li>
+<li>一个实验结论需要写明哪些适用范围？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_14">本章状态与导航</h2>
+<ul>
+<li>章节状态：首批教学正文，已做轻量静态检查；实验模板为计划，未声称已运行。</li>
+<li>证据边界：任何性能结论都必须绑定语料、查询、标签、配置和环境。</li>
+<li>安全边界：测试数据、候选和日志仍受权限、脱敏和保留期限约束。</li>
+<li>
+<p>摘要：<a href="n-c96ea4c2e23f.html">04-06 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-b13bae3a5aa7.html">04-05 大小、重叠、元数据与质量</a></p>
+</li>
+<li>下一站：<a href="n-6c8772db7ffa.html">04 文本切分索引</a></li>
+<li>返回：<a href="n-cf7d5431540b.html">文档总索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>03. 指令系统与寻址方式 · 李杨的学习笔记</title><meta name="description" content="指令系统是软件和硬件之间的接口：编译器生成指令，CPU 按指令规定执行操作。指令格式决定“做什么、操作数在哪、结果写到哪”。"><meta property="og:title" content="03. 指令系统与寻址方式 · 李杨的学习笔记"><meta property="og:description" content="指令系统是软件和硬件之间的接口：编译器生成指令，CPU 按指令规定执行操作。指令格式决定“做什么、操作数在哪、结果写到哪”。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-3fabb0267543.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-3fabb0267543.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>03. 指令系统与寻址方式</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/03-%E6%8C%87%E4%BB%A4%E7%B3%BB%E7%BB%9F%E4%B8%8E%E5%AF%BB%E5%9D%80%E6%96%B9%E5%BC%8F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-isa">1. ISA 是什么？</a></li><li><a href="#2">2. 指令格式</a></li><li><a href="#3">3. 指令类型</a></li><li><a href="#4">4. 寻址方式</a></li><li><a href="#_4">立即寻址</a></li><li><a href="#_5">寄存器寻址</a></li><li><a href="#_6">直接寻址</a></li><li><a href="#_7">变址寻址</a></li><li><a href="#5">5. 指令执行基本周期</a></li><li><a href="#6">6. 指令长度</a></li><li><a href="#7-risc-cisc">7. RISC 与 CISC</a></li><li><a href="#8">8. 指令系统与编译器</a></li><li><a href="#9">9. 常见坑</a></li><li><a href="#10">10. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>指令系统 ISA 是什么？</li>
+<li>一条机器指令通常由哪些字段组成？</li>
+<li>操作码、地址码、寻址方式分别解决什么问题？</li>
+<li>RISC 和 CISC 的核心区别是什么？</li>
+<li>为什么指令格式会影响 CPU 设计复杂度？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>指令系统是软件和硬件之间的接口：编译器生成指令，CPU 按指令规定执行操作。指令格式决定“做什么、操作数在哪、结果写到哪”。</p>
+<blockquote>
+<p>记忆口诀：<strong>操作码说做什么，地址码说找谁，寻址方式说怎么找。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((指令系统))
+    指令格式
+      操作码
+      地址码
+      立即数
+      寄存器编号
+    指令类型
+      数据传送
+      算术逻辑
+      控制转移
+      输入输出
+    寻址方式
+      立即寻址
+      直接寻址
+      间接寻址
+      寄存器寻址
+      变址寻址
+    ISA风格
+      RISC
+      CISC
+</pre>
+<span class="heading-anchor" id="1. ISA 是什么？"></span><h2 id="1-isa">1. ISA 是什么？</h2>
+<p>ISA，Instruction Set Architecture，指令集体系结构，是硬件提供给软件的抽象接口。</p>
+<p>它规定：</p>
+<ul>
+<li>有哪些指令。</li>
+<li>指令格式是什么。</li>
+<li>有哪些寄存器。</li>
+<li>支持哪些数据类型。</li>
+<li>内存寻址方式。</li>
+<li>异常和中断机制。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["编译器"] --&gt; B["机器指令 ISA"]
+  B --&gt; C["CPU硬件实现"]
+</pre>
+<p>同一个 ISA 可以有不同微架构实现，例如不同 CPU 都能兼容同一指令集。</p>
+<span class="heading-anchor" id="2. 指令格式"></span><h2 id="2">2. 指令格式</h2>
+<p>一条指令通常包含：</p>
+<pre><code class="language-text">操作码 + 操作数字段
+</code></pre>
+<pre class="mermaid">flowchart LR
+  A["Opcode操作码"] --&gt; B["Operand1"]
+  B --&gt; C["Operand2"]
+  C --&gt; D["Destination"]
+</pre>
+<p>例子：</p>
+<pre><code class="language-text">ADD R1, R2, R3
+含义：R1 = R2 + R3
+</code></pre>
+<p>其中：</p>
+<ul>
+<li><code>ADD</code> 是操作码。</li>
+<li><code>R1/R2/R3</code> 是寄存器操作数。</li>
+</ul>
+<span class="heading-anchor" id="3. 指令类型"></span><h2 id="3">3. 指令类型</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>作用</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据传送</td>
+<td>寄存器、内存之间移动数据</td>
+<td>LOAD、STORE、MOV</td>
+</tr>
+<tr>
+<td>算术逻辑</td>
+<td>加减、与或、移位</td>
+<td>ADD、SUB、AND、SHL</td>
+</tr>
+<tr>
+<td>控制转移</td>
+<td>改变程序执行流</td>
+<td>JMP、BEQ、CALL、RET</td>
+</tr>
+<tr>
+<td>输入输出</td>
+<td>与外设交互</td>
+<td>IN、OUT 或内存映射 I/O</td>
+</tr>
+<tr>
+<td>系统控制</td>
+<td>特权操作</td>
+<td>中断返回、页表切换</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 寻址方式"></span><h2 id="4">4. 寻址方式</h2>
+<p>寻址方式说明如何得到操作数或操作数地址。</p>
+<pre class="mermaid">mindmap
+  root((寻址方式))
+    立即寻址
+      操作数在指令中
+    直接寻址
+      地址在指令中
+    间接寻址
+      地址中存地址
+    寄存器寻址
+      操作数在寄存器
+    寄存器间接
+      寄存器中是内存地址
+    变址寻址
+      基址加偏移
+</pre>
+<span class="heading-anchor" id="立即寻址"></span><h3 id="_4">立即寻址</h3>
+<p>操作数直接写在指令里：</p>
+<pre><code class="language-text">ADD R1, R2, #5
+</code></pre>
+<span class="heading-anchor" id="寄存器寻址"></span><h3 id="_5">寄存器寻址</h3>
+<p>操作数在寄存器中：</p>
+<pre><code class="language-text">ADD R1, R2, R3
+</code></pre>
+<span class="heading-anchor" id="直接寻址"></span><h3 id="_6">直接寻址</h3>
+<p>指令中给出内存地址：</p>
+<pre><code class="language-text">LOAD R1, [1000]
+</code></pre>
+<span class="heading-anchor" id="变址寻址"></span><h3 id="_7">变址寻址</h3>
+<p>有效地址 = 基址寄存器 + 偏移量。</p>
+<p>数组访问常用这种思想：</p>
+<pre><code class="language-text">base + index * element_size
+</code></pre>
+<span class="heading-anchor" id="5. 指令执行基本周期"></span><h2 id="5">5. 指令执行基本周期</h2>
+<pre class="mermaid">flowchart LR
+  A["取指 IF"] --&gt; B["译码 ID"]
+  B --&gt; C["取操作数"]
+  C --&gt; D["执行 EX"]
+  D --&gt; E["访存 MEM"]
+  E --&gt; F["写回 WB"]
+</pre>
+<p>不是所有指令都需要所有阶段。例如寄存器加法通常不需要数据访存阶段。</p>
+<span class="heading-anchor" id="6. 指令长度"></span><h2 id="6">6. 指令长度</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指令长度</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定长指令</td>
+<td>译码简单，取指方便，但编码空间可能浪费</td>
+</tr>
+<tr>
+<td>变长指令</td>
+<td>编码紧凑，表达灵活，但译码复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>RISC 通常偏定长，CISC 通常支持变长。</p>
+<span class="heading-anchor" id="7. RISC 与 CISC"></span><h2 id="7-risc-cisc">7. RISC 与 CISC</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>RISC</th>
+<th>CISC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>指令数量</td>
+<td>少而简单</td>
+<td>多而复杂</td>
+</tr>
+<tr>
+<td>指令长度</td>
+<td>通常定长</td>
+<td>常变长</td>
+</tr>
+<tr>
+<td>执行周期</td>
+<td>更容易流水线化</td>
+<td>指令执行差异大</td>
+</tr>
+<tr>
+<td>访存</td>
+<td>Load/Store 架构常见</td>
+<td>指令可直接操作内存</td>
+</tr>
+<tr>
+<td>硬件控制</td>
+<td>相对简单</td>
+<td>可能更复杂</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["ISA设计"] --&gt; B["RISC"]
+  A --&gt; C["CISC"]
+  B --&gt; B1["简单定长易流水"]
+  C --&gt; C1["复杂灵活编码紧凑"]
+</pre>
+<p>注意：现代处理器内部实现会融合很多思想，不能简单认为 RISC 一定快、CISC 一定慢。</p>
+<span class="heading-anchor" id="8. 指令系统与编译器"></span><h2 id="8">8. 指令系统与编译器</h2>
+<p>编译器要把高级语言翻译成目标 ISA 的指令。</p>
+<pre class="mermaid">flowchart LR
+  A["高级语言表达式"] --&gt; B["中间表示"]
+  B --&gt; C["寄存器分配"]
+  C --&gt; D["指令选择"]
+  D --&gt; E["机器码"]
+</pre>
+<p>ISA 的寄存器数量、寻址方式、指令类型会影响编译器生成代码的质量。</p>
+<span class="heading-anchor" id="9. 常见坑"></span><h2 id="9">9. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ISA 和微架构混淆</td>
+<td>ISA 是接口，微架构是实现</td>
+</tr>
+<tr>
+<td>寻址方式和地址混淆</td>
+<td>寻址方式描述如何得到操作数</td>
+</tr>
+<tr>
+<td>RISC/CISC 绝对化</td>
+<td>现代 CPU 实现很复杂</td>
+</tr>
+<tr>
+<td>指令执行阶段固定化</td>
+<td>不同指令可能阶段不同</td>
+</tr>
+<tr>
+<td>立即数当地址</td>
+<td>立即数是操作数本身</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10. 学习自检"></span><h2 id="10">10. 学习自检</h2>
+<ol>
+<li>ISA 为什么是软硬件接口？</li>
+<li>操作码和地址码分别表示什么？</li>
+<li>立即寻址和直接寻址有什么区别？</li>
+<li>为什么定长指令更容易译码？</li>
+<li>RISC 为什么更容易流水线化？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

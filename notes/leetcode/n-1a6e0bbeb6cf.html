@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>289. 生命游戏 · 李杨的学习笔记</title><meta name="description" content="口诀： 活二三，死三生；判断读旧盘，更新写原盘。"><meta property="og:title" content="289. 生命游戏 · 李杨的学习笔记"><meta property="og:description" content="口诀： 活二三，死三生；判断读旧盘，更新写原盘。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-1a6e0bbeb6cf.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-1a6e0bbeb6cf.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">数组</p><h1>289. 生命游戏</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E6%95%B0%E7%BB%84/%E7%94%9F%E5%91%BD%E6%B8%B8%E6%88%8F%EF%BC%88289%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">规则与核心原因</a></li><li><a href="#c">C++ 模板：邻居统计拆成函数</a></li><li><a href="#_2">本次代码纠错</a></li><li><a href="#_3">边界、复杂度与迁移</a></li></ul></details><article class="note-content"><span class="heading-anchor" id="289. 生命游戏"></span>
+<ul>
+<li>题型：矩阵模拟 / 同时更新。</li>
+<li>主解法：复制旧棋盘，读取快照计算下一状态，写入原棋盘。</li>
+<li>不返回结果，直接修改 <code>board</code>；此版本使用辅助空间，不是常数空间原地算法。</li>
+</ul>
+<span class="heading-anchor" id="规则与核心原因"></span><h2 id="_1">规则与核心原因</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>旧状态</th>
+<th>周围八格的活细胞数</th>
+<th>下一状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>活细胞 1</td>
+<td>2 或 3</td>
+<td>1</td>
+</tr>
+<tr>
+<td>活细胞 1</td>
+<td>其他</td>
+<td>0</td>
+</tr>
+<tr>
+<td>死细胞 0</td>
+<td>恰好 3</td>
+<td>1</td>
+</tr>
+<tr>
+<td>死细胞 0</td>
+<td>其他</td>
+<td>0</td>
+</tr>
+</tbody>
+</table></div>
+<p>口诀：<strong>活二三，死三生；判断读旧盘，更新写原盘。</strong></p>
+<p>所有细胞同时变化，不能让先修改的格子影响后续判断。例如：</p>
+<pre><code class="language-text">旧状态       下一状态
+0 0 0        0 1 0
+1 1 1        0 1 0
+0 0 0        0 1 0
+</code></pre>
+<p>左右两个活细胞各只有一个活邻居，会死亡；中间活细胞有两个活邻居，应存活。若先把左侧改成 0，再读取原棋盘判断中间，就会误判。上下中间的死细胞各有三个活邻居，会复活。</p>
+<span class="heading-anchor" id="C++ 模板：邻居统计拆成函数"></span><h2 id="c">C++ 模板：邻居统计拆成函数</h2>
+<p>行列偏移都枚举 <code>-1、0、1</code>，排除 <code>(0,0)</code> 自身，剩余八个方向。越界位置不统计。</p>
+<pre><code class="language-cpp">class Solution {
+public:
+    int getAliveNum(const vector&lt;vector&lt;int&gt;&gt;&amp; board,
+                    int row, int col, int rows, int cols) {
+        int res = 0;
+        for (int dr = -1; dr &lt;= 1; dr++) {
+            for (int dc = -1; dc &lt;= 1; dc++) {
+                if (dr == 0 &amp;&amp; dc == 0) continue;
+                int nr = row + dr;
+                int nc = col + dc;
+                if (nr &gt;= 0 &amp;&amp; nr &lt; rows &amp;&amp; nc &gt;= 0 &amp;&amp; nc &lt; cols) {
+                    res += board[nr][nc];
+                }
+            }
+        }
+        return res;
+    }
+
+    void gameOfLife(vector&lt;vector&lt;int&gt;&gt;&amp; board) {
+        int rows = board.size();
+        int cols = board[0].size();
+        vector&lt;vector&lt;int&gt;&gt; snap = board; // 独立副本，不是引用
+
+        for (int row = 0; row &lt; rows; row++) {
+            for (int col = 0; col &lt; cols; col++) {
+                int alive = getAliveNum(snap, row, col, rows, cols);
+                if (snap[row][col] == 1) {
+                    board[row][col] = (alive == 2 || alive == 3) ? 1 : 0;
+                } else {
+                    board[row][col] = (alive == 3) ? 1 : 0;
+                }
+            }
+        }
+    }
+};
+</code></pre>
+<p>统计函数的形参名虽然是 <code>board</code>，实参传的是 <code>snap</code>，读取的仍是快照。每次判断自身和邻居都来自同一份旧状态，因此遍历顺序不影响结果。</p>
+<span class="heading-anchor" id="本次代码纠错"></span><h2 id="_2">本次代码纠错</h2>
+<ul>
+<li><code>const vector&lt;vector&lt;int&gt;&gt;&amp; const board</code> 非法：引用本身不能再加 <code>const</code>，保留类型前的 <code>const</code> 即可。</li>
+<li>边界必须 <code>nc &lt; cols</code>，不能 <code>nc &lt;= cols</code>；最后合法列下标是 <code>cols-1</code>。</li>
+<li><code>int alive = getAliveNum(...);</code> 是赋值语句，以分号结束，不能紧接函数体式的 <code>{</code>。</li>
+<li>快照变量名统一用 <code>snap</code>，不能读取未定义的 <code>old</code>。</li>
+<li>活细胞存活条件为 <code>alive == 2 || alive == 3</code>，不要重复写两个 <code>== 2</code>。</li>
+</ul>
+<p>引用和快照区别见 <a href="n-daa7f9f0a953.html#const">C++基础</a>。</p>
+<span class="heading-anchor" id="边界、复杂度与迁移"></span><h2 id="_3">边界、复杂度与迁移</h2>
+<p>题目棋盘非空且元素为 0 或 1。单个活细胞没有邻居，下一轮死亡；全零棋盘保持全零。每个格子最多检查八个邻居，时间 <code>O(rows × cols)</code>，快照额外空间 <code>O(rows × cols)</code>，没有单独返回的输出容器。</p>
+<p>一类题：<strong>下一状态依赖旧状态，且要求同时更新</strong> → 保存旧状态 → 枚举邻域并检查边界 → 根据规则计算新值。与矩阵置零一样，要防止新写入的数据污染后续判断。</p></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

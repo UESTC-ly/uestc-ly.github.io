@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Agent 与工作流：学习总览 · 李杨的学习笔记</title><meta name="description" content="目标：不依赖具体框架，能够说明并实现模型调用、工具调用、状态流转、错误处理、权限控制、人工介入、长任务调度和日志追踪；在此基础上再理解 LangChain、LangGraph、LlamaIndex 与模型厂商原生 SDK 的抽象。"><meta property="og:title" content="Agent 与工作流：学习总览 · 李杨的学习笔记"><meta property="og:description" content="目标：不依赖具体框架，能够说明并实现模型调用、工具调用、状态流转、错误处理、权限控制、人工介入、长任务调度和日志追踪；在此基础上再理解 LangChain、LangGraph、LlamaIndex 与模型厂商原生 SDK 的抽象。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-c2d1c327d8ab.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-c2d1c327d8ab.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 04-Agent与工作流</p><h1>Agent 与工作流：学习总览</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/04-Agent%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81/00-%E6%80%BB%E8%A7%88.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 本组笔记导航</a></li><li><a href="#2">2. 总体心智模型</a></li><li><a href="#3">3. 推荐学习顺序</a></li><li><a href="#_1">第一阶段：最小闭环</a></li><li><a href="#_2">第二阶段：可控性</a></li><li><a href="#_3">第三阶段：状态与可靠性</a></li><li><a href="#_4">第四阶段：扩展能力</a></li><li><a href="#_5">第五阶段：框架映射</a></li><li><a href="#4">4. 核心原则清单</a></li><li><a href="#5">5. 最小验收目标</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>目标：不依赖具体框架，能够说明并实现模型调用、工具调用、状态流转、错误处理、权限控制、人工介入、长任务调度和日志追踪；在此基础上再理解 LangChain、LangGraph、LlamaIndex 与模型厂商原生 SDK 的抽象。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 本组笔记导航"></span><h2 id="1">1. 本组笔记导航</h2>
+<ol>
+<li><a href="n-114d7efccc27.html">ReAct 与 Tool Calling</a>：理解 Agent 的基本循环，以及模型如何提出工具调用请求。</li>
+<li><a href="n-739a448fa401.html">Planning 与 Memory</a>：学习任务拆解、重新规划和记忆读写边界。</li>
+<li><a href="n-e9620c567a61.html">Agent、Workflow 与状态机</a>：区分自主决策与确定性编排，并设计可持久化状态。</li>
+<li><a href="n-10bacf09499c.html">工具权限控制与可靠性</a>：覆盖鉴权、超时、重试、幂等、补偿和可观测性。</li>
+<li><a href="n-c636497af2cd.html">Human-in-the-loop 与长任务</a>：处理审批、暂停恢复、队列、异步任务和取消。</li>
+<li><a href="n-a8a0a7b5115b.html">MCP 与多 Agent</a>：掌握 MCP 的基本角色，并判断何时需要多 Agent。</li>
+<li><a href="n-32a53bcf87b2.html">框架映射与原生实现</a>：把概念映射到常见框架，并给出脱离框架的实现蓝图。</li>
+<li><a href="n-038cf904eb7e.html">综合练习与验收清单</a>：通过一个端到端练习验证是否真正掌握。</li>
+</ol>
+<span class="heading-anchor" id="2. 总体心智模型"></span><h2 id="2">2. 总体心智模型</h2>
+<p>一个可控的 Agent 系统不是“把模型放进循环”这么简单，而是由以下部分组成：</p>
+<pre><code class="language-text">用户请求
+   ↓
+输入整理与上下文加载
+   ↓
+模型决策：直接回答 / 生成计划 / 请求工具 / 请求人工确认
+   ↓
+策略层：校验参数、检查权限、预算与风险
+   ↓
+执行层：调用工具或提交异步任务
+   ↓
+状态层：保存消息、结果、阶段、重试次数和检查点
+   ↓
+观测层：日志、Trace、指标、审计记录
+   ↓
+继续决策或生成最终答案
+</code></pre>
+<p>关键边界是：</p>
+<ul>
+<li><strong>模型决定建议什么</strong>：例如选择工具、生成参数、提出计划。</li>
+<li><strong>应用程序决定允许什么</strong>：例如工具是否存在、参数是否合规、用户是否有权限、是否需要确认。</li>
+<li><strong>真实系统决定执行结果</strong>：数据库、业务 API、队列和人工审批才是事实来源。</li>
+<li>工具返回值、检索内容和用户输入都应视为不可信数据，不能自动升级为系统指令。</li>
+</ul>
+<span class="heading-anchor" id="3. 推荐学习顺序"></span><h2 id="3">3. 推荐学习顺序</h2>
+<span class="heading-anchor" id="第一阶段：最小闭环"></span><h3 id="_1">第一阶段：最小闭环</h3>
+<p>先手写一个只支持 2～3 个只读工具的循环：模型请求工具 → 本地校验 → 执行 → 回传结果 → 模型回答。暂时不引入复杂 Agent 框架。</p>
+<span class="heading-anchor" id="第二阶段：可控性"></span><h3 id="_2">第二阶段：可控性</h3>
+<p>加入最大步数、工具白名单、参数 Schema 校验、超时、有限重试、错误分类、结构化日志和调用 ID。</p>
+<span class="heading-anchor" id="第三阶段：状态与可靠性"></span><h3 id="_3">第三阶段：状态与可靠性</h3>
+<p>把内存中的消息列表改成显式状态；增加状态机、检查点、幂等键、断点恢复和人工审批。</p>
+<span class="heading-anchor" id="第四阶段：扩展能力"></span><h3 id="_4">第四阶段：扩展能力</h3>
+<p>再学习 Planning、Memory、MCP、长任务和多 Agent，并比较它们与确定性 Workflow 的适用边界。</p>
+<span class="heading-anchor" id="第五阶段：框架映射"></span><h3 id="_5">第五阶段：框架映射</h3>
+<p>最后把已经理解的原语映射到 LangChain、LangGraph、LlamaIndex 和模型厂商 SDK。框架是实现加速器，不是概念本身。</p>
+<span class="heading-anchor" id="4. 核心原则清单"></span><h2 id="4">4. 核心原则清单</h2>
+<ul>
+<li>先定义状态和边界，再决定是否使用 Agent。</li>
+<li>能用确定性 Workflow 表达的步骤，不要交给模型自由决定。</li>
+<li>工具调用必须经过本地解析、Schema 校验、权限控制和审计。</li>
+<li>有副作用的工具必须考虑人工确认、幂等和补偿。</li>
+<li>所有循环都要有预算：最大步数、总耗时、Token、费用和并发数。</li>
+<li>失败处理要区分参数错误、权限错误、超时、限流、临时故障和业务拒绝。</li>
+<li>长任务必须持久化状态，不能只依赖一次 HTTP 请求或进程内内存。</li>
+<li>Memory 不是“把所有聊天记录都塞回 Prompt”，而是带来源、范围、时效和删除策略的状态管理。</li>
+<li>日志既要能追踪一次任务的完整链路，也要避免记录密码、令牌和不必要的敏感数据。</li>
+</ul>
+<span class="heading-anchor" id="5. 最小验收目标"></span><h2 id="5">5. 最小验收目标</h2>
+<p>完成本组学习后，应能独立画出并解释以下链路：</p>
+<pre><code class="language-text">请求 → 状态加载 → 模型调用 → 工具请求 → Schema 校验
+     → 权限判断 → 工具执行 → 错误分类/重试/补偿
+     → 状态持久化 → 必要时人工审批 → 最终响应
+</code></pre>
+<p>还应能够回答：</p>
+<ol>
+<li>这个任务为什么需要 Agent，而不是普通 Workflow？</li>
+<li>模型生成的工具参数为什么不能直接执行？</li>
+<li>进程重启后如何从上一个安全检查点继续？</li>
+<li>哪些错误可以重试，哪些错误必须停止或请求人工处理？</li>
+<li>何时应该拆成多个 Agent，何时拆分只会增加成本和故障面？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

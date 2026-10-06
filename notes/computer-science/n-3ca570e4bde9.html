@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>搜索原理：倒排索引、分词与 BM25 · 李杨的学习笔记</title><meta name="description" content="正排索引是 doc_id -&gt; 文档内容/字段 ，适合按主键取回完整文档；倒排索引是 term -&gt; doc_id 列表 ，适合从词项快速找到候选文档。搜索查询不是扫描全部文档，而是把 query 分析成 term，读取相关 postings list，求交、求并或按评分合并。"><meta property="og:title" content="搜索原理：倒排索引、分词与 BM25 · 李杨的学习笔记"><meta property="og:description" content="正排索引是 doc_id -&gt; 文档内容/字段 ，适合按主键取回完整文档；倒排索引是 term -&gt; doc_id 列表 ，适合从词项快速找到候选文档。搜索查询不是扫描全部文档，而是把 query 分析成 term，读取相关 postings list，求交、求并或按评分合并。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-3ca570e4bde9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-3ca570e4bde9.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 05-搜索与存储</p><h1>搜索原理：倒排索引、分词与 BM25</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/05-%E6%90%9C%E7%B4%A2%E4%B8%8E%E5%AD%98%E5%82%A8/01-%E6%90%9C%E7%B4%A2%E5%8E%9F%E7%90%86-%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95%E5%88%86%E8%AF%8DBM25.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">倒排索引解决什么问题</a></li><li><a href="#_4">索引构建流水线</a></li><li><a href="#term-dictionary-postings">Term Dictionary 与 Postings</a></li><li><a href="#_5">分词、归一化与字段建模</a></li><li><a href="#tfidf-bm25">TF/IDF 与 BM25 直觉</a></li><li><a href="#_6">查询执行与评分时序</a></li><li><a href="#_7">工程实践/示例</a></li><li><a href="#_8">技术文档检索字段方案</a></li><li><a href="#_9">相关性问题排查</a></li><li><a href="#_10">常见误区</a></li><li><a href="#_11">自测题</a></li><li><a href="#_12">实践任务</a></li><li><a href="#_13">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解倒排索引从文档、词项到 postings list 的构建流程。</li>
+<li>掌握 term dictionary、postings、跳表、位置表如何支撑查询、短语匹配和排序。</li>
+<li>能解释分词、归一化、停用词、同义词对召回、精度和索引膨胀的影响。</li>
+<li>理解 TF/IDF 与 BM25 的公式直觉、参数含义、工程局限和排查方法。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="倒排索引解决什么问题"></span><h3 id="_3">倒排索引解决什么问题</h3>
+<p>正排索引是 <code>doc_id -&gt; 文档内容/字段</code>，适合按主键取回完整文档；倒排索引是 <code>term -&gt; doc_id 列表</code>，适合从词项快速找到候选文档。搜索查询不是扫描全部文档，而是把 query 分析成 term，读取相关 postings list，求交、求并或按评分合并。</p>
+<pre class="mermaid">flowchart LR
+  D1["doc1: redis cache invalidation"] --&gt; A["Analyzer"]
+  D2["doc2: kafka cache rebuild"] --&gt; A
+  A --&gt; T1["cache"]
+  A --&gt; T2["redis"]
+  A --&gt; T3["kafka"]
+  T1 --&gt; P1["postings: doc1, doc2"]
+  T2 --&gt; P2["postings: doc1"]
+  T3 --&gt; P3["postings: doc2"]
+</pre>
+<p>理论保证：只要索引构建和查询分析使用一致的 token 规则，包含某个 term 的文档可以通过该 term 的 postings 找到。工程假设：索引和原文之间存在 refresh/提交延迟，删除和更新也可能以 tombstone 或新 segment 的形式延后清理。</p>
+<span class="heading-anchor" id="索引构建流水线"></span><h3 id="_4">索引构建流水线</h3>
+<p>典型构建流程是：解析文档、字段分析、生成 token、记录 term 到 doc 的关系、排序压缩、写入 segment。</p>
+<pre><code class="language-text">raw document
+  -&gt; field extraction
+  -&gt; char filter
+  -&gt; tokenizer
+  -&gt; token filters
+  -&gt; term dictionary + postings
+  -&gt; stored fields / doc values
+  -&gt; segment commit
+</code></pre>
+<p>postings 中通常不只保存 doc_id，还会按需要保存词频、位置和偏移：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据</th>
+<th>作用</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>doc_id</td>
+<td>找到包含 term 的文档</td>
+<td>必需，通常差分压缩</td>
+</tr>
+<tr>
+<td>term frequency</td>
+<td>计算 TF/BM25</td>
+<td>增加 postings 元数据</td>
+</tr>
+<tr>
+<td>positions</td>
+<td>短语查询、邻近查询、高亮</td>
+<td>索引更大</td>
+</tr>
+<tr>
+<td>offsets</td>
+<td>精确高亮原文片段</td>
+<td>写入和存储成本更高</td>
+</tr>
+<tr>
+<td>norms</td>
+<td>文档长度归一化、字段 boost</td>
+<td>每文档每字段额外信息</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Term Dictionary 与 Postings"></span><h3 id="term-dictionary-postings">Term Dictionary 与 Postings</h3>
+<p>term dictionary 负责把词项映射到 postings 的位置。工程实现通常会把词典组织成可压缩、可快速定位的数据结构，例如有序词典、前缀压缩、FST 或块索引；postings list 则按 doc_id 递增保存，便于求交、跳跃和压缩。</p>
+<p>两个常见查询路径：</p>
+<ol>
+<li><code>must: redis AND cache</code>：读取两个 postings list，用较短列表驱动求交，跳过不可能命中的 doc_id。</li>
+<li><code>should: redis OR kafka</code>：合并多个 postings，累加词项分数，再按 top K 维护候选集。</li>
+</ol>
+<p>性能关键不只在“有没有索引”，还在 postings 的长度、词项区分度、字段选择、排序条件和是否需要读取原文。</p>
+<span class="heading-anchor" id="分词、归一化与字段建模"></span><h3 id="_5">分词、归一化与字段建模</h3>
+<p>Analyzer 通常由 char filter、tokenizer、token filter 组成。英文常见归一化包括小写、词干化、停用词；中文需要词典、粒度和歧义处理；代码、SKU、邮箱、URL、型号字段通常不能按普通自然语言分词处理。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>常见建模</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>标题</td>
+<td>text 分词 + keyword 子字段</td>
+<td>既支持相关性，也支持精确聚合/排序</td>
+</tr>
+<tr>
+<td>SKU/订单号</td>
+<td>keyword</td>
+<td>不应拆词，按完整值精确匹配</td>
+</tr>
+<tr>
+<td>品牌</td>
+<td>keyword + normalizer</td>
+<td>需要大小写/全半角归一化和聚合</td>
+</tr>
+<tr>
+<td>摘要/正文</td>
+<td>text + 领域词典</td>
+<td>提升召回，保留 BM25 评分</td>
+</tr>
+<tr>
+<td>标签</td>
+<td>keyword 或受控词表</td>
+<td>方便过滤、聚合和规则提升</td>
+</tr>
+</tbody>
+</table></div>
+<p>同义词要区分索引期和查询期。索引期同义词扩大索引、变更后需要重建；查询期同义词更灵活，但查询变重，且多词同义词可能影响短语匹配。停用词也不是越多越好，技术文档中的 <code>to</code>、<code>in</code>、<code>go</code> 可能是语言或命令的一部分。</p>
+<span class="heading-anchor" id="TF/IDF 与 BM25 直觉"></span><h3 id="tfidf-bm25">TF/IDF 与 BM25 直觉</h3>
+<p>TF/IDF 的核心直觉是：词在当前文档出现越多越相关，词在全局越少见越有区分度。朴素 TF 容易被长文档放大，BM25 引入词频饱和和文档长度归一化。</p>
+<p>BM25 常见形式：</p>
+<pre><code class="language-text">score(D, Q) = sum over q_i in Q:
+  IDF(q_i) * ((tf(q_i, D) * (k1 + 1)) /
+  (tf(q_i, D) + k1 * (1 - b + b * |D| / avgdl)))
+</code></pre>
+<p>参数直觉：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>含义</th>
+<th>调大后的倾向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tf</code></td>
+<td>term 在文档字段中的出现次数</td>
+<td>分数上升但会饱和</td>
+</tr>
+<tr>
+<td><code>IDF</code></td>
+<td>term 的稀有程度</td>
+<td>稀有词影响更大</td>
+</tr>
+<tr>
+<td><code>k1</code></td>
+<td>词频饱和速度</td>
+<td>更信任重复出现的词</td>
+</tr>
+<tr>
+<td><code>b</code></td>
+<td>文档长度归一化强度</td>
+<td>更惩罚长字段</td>
+</tr>
+<tr>
+<td><code>avgdl</code></td>
+<td>平均字段长度</td>
+<td>数据分布变化会影响评分</td>
+</tr>
+</tbody>
+</table></div>
+<p>局限：BM25 不理解语义、否定、事实正确性和时间新鲜度；对短字段、模板化文档、同义表达、数字和实体歧义需要额外规则、字段 boost、过滤、向量召回或重排补足。</p>
+<span class="heading-anchor" id="查询执行与评分时序"></span><h3 id="_6">查询执行与评分时序</h3>
+<pre class="mermaid">sequenceDiagram
+  participant C as Client
+  participant A as Analyzer
+  participant I as InvertedIndex
+  participant S as Scorer
+  C-&gt;&gt;A: query text
+  A--&gt;&gt;C: tokens
+  C-&gt;&gt;I: lookup postings
+  I--&gt;&gt;S: candidate docs + tf/positions
+  S-&gt;&gt;S: BM25 / boost / filter
+  S--&gt;&gt;C: top K doc ids + scores
+</pre>
+<p>过滤条件应尽量变成不参与评分的 filter bitset，减少候选集；排序字段若不是相关性，应关注 doc values、字段类型和深分页成本。</p>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_7">工程实践/示例</h2>
+<span class="heading-anchor" id="技术文档检索字段方案"></span><h3 id="_8">技术文档检索字段方案</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>查询方式</th>
+<th>监控点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>title</code></td>
+<td>text + keyword</td>
+<td>match、短语、精确提升</td>
+<td>标题命中率、误召回</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>text</td>
+<td>BM25 主召回</td>
+<td>postings 长度、慢查询</td>
+</tr>
+<tr>
+<td><code>code_terms</code></td>
+<td>keyword 数组</td>
+<td>term 精确召回</td>
+<td>无结果率、大小写问题</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>keyword</td>
+<td>filter/boost/aggregation</td>
+<td>标签覆盖率</td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td>date</td>
+<td>filter/sort/衰减</td>
+<td>新内容曝光</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="相关性问题排查"></span><h3 id="_9">相关性问题排查</h3>
+<pre><code class="language-text">query 原文
+  -&gt; analyzer 输出是否符合预期
+  -&gt; mapping 是否用了正确字段
+  -&gt; postings 是否命中目标文档
+  -&gt; explain 查看 IDF/tf/长度归一
+  -&gt; profile 查看耗时阶段
+  -&gt; 调整词典、同义词、boost、filter 或重排
+</code></pre>
+<p>核心指标：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无结果率</td>
+<td>过高说明分词、同义词或数据覆盖不足</td>
+</tr>
+<tr>
+<td>点击率/首点位置</td>
+<td>评估排序质量</td>
+</tr>
+<tr>
+<td>P95/P99 查询延迟</td>
+<td>反映 postings、聚合、排序和 IO 压力</td>
+</tr>
+<tr>
+<td>高频 query TopK</td>
+<td>人工评估头部体验</td>
+</tr>
+<tr>
+<td>explain 样本</td>
+<td>验证评分是否符合直觉</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_10">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>分词越细越好</td>
+<td>太细会提高召回但引入噪声，短词 postings 也更长</td>
+</tr>
+<tr>
+<td>BM25 能理解语义</td>
+<td>BM25 主要基于词项匹配，语义同义需要额外召回或重排</td>
+</tr>
+<tr>
+<td>同义词只会提升效果</td>
+<td>同义词扩大召回，也可能引入误召回和索引膨胀</td>
+</tr>
+<tr>
+<td>搜索相关性只调 boost</td>
+<td>mapping、分析器、字段质量、数据新鲜度同样关键</td>
+</tr>
+<tr>
+<td>IDF 越高越好</td>
+<td>稀有词可能是拼写错误、噪声或孤立实体，需要结合业务判断</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_11">自测题</h2>
+<ol>
+<li>倒排索引和正排索引分别适合什么查询？</li>
+<li>SKU 字段为什么通常用 keyword，而不是 text？</li>
+<li>BM25 中 IDF、词频饱和和文档长度归一分别解决什么问题？</li>
+<li>查询期同义词和索引期同义词在成本、灵活性和重建上的差异是什么？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_12">实践任务</h2>
+<ul>
+<li>为“机场跑道异物检测论文库”设计标题、作者、摘要、关键词、DOI、年份字段的 analyzer 和 mapping。</li>
+<li>选 10 条查询，记录分词结果、命中文档、explain 分数，并解释召回差异。</li>
+<li>构造一个误召回案例，分别尝试停用词、同义词、字段 boost 和 filter 的修复效果。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_13">延伸阅读</h2>
+<ul>
+<li>Elasticsearch analysis：https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis.html</li>
+<li>Elasticsearch similarity：https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules-similarity.html</li>
+<li>OpenSearch analyzers：https://opensearch.org/docs/latest/analyzers/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04 响应模型与异常处理 · 李杨的学习笔记</title><meta name="description" content="记忆句： 输入先校验，输出守约定，失败用 raise。"><meta property="og:title" content="04 响应模型与异常处理 · 李杨的学习笔记"><meta property="og:description" content="记忆句： 输入先校验，输出守约定，失败用 raise。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-ac448ac1309f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-ac448ac1309f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python-FastAPI</p><h1>04 响应模型与异常处理</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/04_%E5%93%8D%E5%BA%94%E6%A8%A1%E5%9E%8B%E4%B8%8E%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 接口有两个方向的约定</a></li><li><a href="#2-response_model">2. response_model 在函数返回后做什么</a></li><li><a href="#3-http">3. HTTP 状态码与响应内容一起表达结果</a></li><li><a href="#4-raise">4. 为什么错误要用 raise</a></li><li><a href="#5-demo">5. 最小 demo：成功时筛选，失败时中断</a></li><li><a href="#6">6. 需要知道的两条边界</a></li><li><a href="#7">7. 合上笔记，检查三件事</a></li><li><a href="#8">8. 官方资料</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>记忆句：<strong>输入先校验，输出守约定，失败用 raise。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="1. 接口有两个方向的约定"></span><h2 id="1">1. 接口有两个方向的约定</h2>
+<p>请求模型规定“客户端可以交什么”，响应模型规定“服务端承诺返回什么”。输入与输出不必一样：创建任务时客户端提供标题，服务端创建成功后可能返回编号；内部记录包含处理备注，对外响应却不应该把备注一起发出去。</p>
+<p>因此，模型的划分应围绕使用场景，而不是强求“一张表只有一个模型”。常见的 <code>TaskCreate</code> 描述创建输入，<code>TaskOut</code> 描述公开输出。名称本身没有特殊魔法，关键是两份约定不同。</p>
+<p>可以把响应模型看成发货清单：内部仓库里有很多信息，最终只把清单允许的内容交给收件人。但它不会判断收件人有没有资格收货。<strong>输出字段筛选与权限检查是两件事。</strong> 即使响应只含编号和标题，也仍需要在合适的场景检查当前用户是否有权读取这个任务。</p>
+<span class="heading-anchor" id="2. response_model 在函数返回后做什么"></span><h2 id="2-response_model">2. response_model 在函数返回后做什么</h2>
+<p>声明 <code>response_model=TaskOut</code> 后，框架会按这个模型处理普通返回值：检查结构是否满足约定、准备可序列化的数据，并在本章这种默认模型配置下筛选出声明的字段。它也会把相应输出结构写入接口文档。</p>
+<p>这意味着函数返回一个包含额外内部字段的字典时，客户端未必能看到全部字段；但如果应有的字段缺失，或某个值无法通过输出校验，框架也不会把错误数据悄悄当作正常结果发出去。</p>
+<p>输出校验失败与请求校验失败的责任不同。客户端把任务编号传成文本，可以得到 422，提示修改输入；服务端自己返回了不符合承诺的数据，则是服务端实现出了问题，默认会表现为服务端错误，应该修复代码。不要把两者都归结为“参数错误”。</p>
+<span class="heading-anchor" id="3. HTTP 状态码与响应内容一起表达结果"></span><h2 id="3-http">3. HTTP 状态码与响应内容一起表达结果</h2>
+<p>只返回 <code>{"error":"任务不存在"}</code>，如果没有改变状态码，客户端仍可能收到 200。人读文字知道失败，自动化客户端却常常先按状态码决定是否重试、提示登录或继续处理，这会造成行为不一致。</p>
+<p>状态码描述结果的大类，响应体补充具体原因。例如 404 表示没有找到目标资源，<code>detail</code> 可以说明“任务不存在”。同一个状态码可以有不同的业务细节；同一个中文提示也不能替代正确的状态码。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态码</th>
+<th>适合怎样理解</th>
+<th>常见场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>200</td>
+<td>请求成功</td>
+<td>查询任务成功</td>
+</tr>
+<tr>
+<td>201</td>
+<td>创建成功</td>
+<td>创建了新任务</td>
+</tr>
+<tr>
+<td>204</td>
+<td>成功且没有响应体</td>
+<td>删除成功，不再返回内容</td>
+</tr>
+<tr>
+<td>401</td>
+<td>需要有效身份凭证</td>
+<td>缺少登录凭证或凭证无效</td>
+</tr>
+<tr>
+<td>403</td>
+<td>不允许进行这项操作</td>
+<td>已识别身份但权限不足</td>
+</tr>
+<tr>
+<td>404</td>
+<td>找不到目标</td>
+<td>任务不存在</td>
+</tr>
+<tr>
+<td>409</td>
+<td>与当前状态冲突</td>
+<td>请求与唯一性或状态规则冲突</td>
+</tr>
+<tr>
+<td>422</td>
+<td>输入没有通过校验</td>
+<td>编号不是整数、标题缺失</td>
+</tr>
+<tr>
+<td>500</td>
+<td>服务端未能正确完成处理</td>
+<td>未处理异常或输出不符合约定</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表是常见语义，不表示框架能自动推断所有业务状态。尤其是 409、404 等业务判断，通常需要代码明确决定。204 则有一个直接约束：它的含义就是没有响应体，不应再附带一个 JSON 对象。</p>
+<span class="heading-anchor" id="4. 为什么错误要用 raise"></span><h2 id="4-raise">4. 为什么错误要用 raise</h2>
+<p><code>HTTPException</code> 是一种供框架识别的异常。使用 <code>raise</code> 会中断当前正常处理流程，让框架生成对应状态码和错误响应。它适合表达已经预料到的业务失败，例如目标不存在。</p>
+<p>如果写成 <code>return HTTPException(...)</code>，就只是把异常对象当作普通返回值交出去，不等于通知框架按异常处理。记忆时可以把 <code>return</code> 理解成“正常处理完，把结果交出去”，把 <code>raise</code> 理解成“这条正常流程无法继续，交给异常处理机制”。</p>
+<p>也不要把所有异常都捕获后包装成“任务不存在”。程序写错、数据库连接失败，与确实查不到任务有不同原因；混在一起会让用户收到错误提示，也让开发者失去排查方向。</p>
+<span class="heading-anchor" id="5. 最小 demo：成功时筛选，失败时中断"></span><h2 id="5-demo">5. 最小 demo：成功时筛选，失败时中断</h2>
+<p>完成环境安装后，将代码复制到 <code>main.py</code>，在该文件所在目录运行 <code>python -m uvicorn main:app --reload</code>。切换章节前按 <code>Ctrl+C</code> 停止上一章。</p>
+<pre><code class="language-python">from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI()
+records = {1: {"id": 1, "title": "复习", "internal_note": "内部字段"}}
+
+class TaskOut(BaseModel):
+    id: int
+    title: str
+
+@app.get("/tasks/{task_id}", response_model=TaskOut)
+def read_task(task_id: int):
+    if task_id not in records:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return records[task_id]
+</code></pre>
+<p>打开 <a href="http://127.0.0.1:8000/docs">交互文档</a>，展开接口并选择 <strong>Try it out</strong>。输入 1 后执行：状态码是 200，响应只有 <code>id</code> 和 <code>title</code>，内部备注被筛掉。输入 9 后执行：状态码是 404，响应中有 <code>detail: "任务不存在"</code>。</p>
+<p>最后在浏览器访问 <code>http://127.0.0.1:8000/tasks/abc</code>，观察 422。对照三种情况：1 的输入正确且资源存在，9 的输入正确但资源不存在，abc 连输入校验都没有通过。它们分别落在正常返回、业务检查、输入校验三个位置。</p>
+<p>本例的 <code>records</code> 只是内存字典，用于演示，不是数据库。可选配套：<a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python-FastAPI/demos/ch04.py">demos/ch04.py</a>，配套文件独立于正文，可能保留更完整的演示内容。</p>
+<span class="heading-anchor" id="6. 需要知道的两条边界"></span><h2 id="6">6. 需要知道的两条边界</h2>
+<p>第一，响应模型描述通常的成功返回结构。抛出 <code>HTTPException</code> 后走的是异常处理流程，不会强行把 <code>{"detail": ...}</code> 塞进 <code>TaskOut</code>。如果希望 OpenAPI 文档详细列出每一种业务错误，需要另行声明相应响应说明；写了异常分支，不意味着所有说明都会自动补齐。</p>
+<p>第二，直接返回 <code>Response</code> 或 <code>JSONResponse</code> 时，你正在更直接地控制响应，会绕过通常的响应模型处理。此时不能继续依赖 <code>response_model</code> 替你校验和过滤字段。入门阶段，普通 JSON 接口优先返回字典或模型，可以让约定集中在模型上。</p>
+<span class="heading-anchor" id="7. 合上笔记，检查三件事"></span><h2 id="7">7. 合上笔记，检查三件事</h2>
+<p><strong>输入模型和输出模型为什么分开？</strong> 客户端提交的内容与服务端公开的内容不同，分开才能清楚表达两端约定。</p>
+<p><strong>查不到任务为什么不是 422？</strong> 输入可能完全符合要求，只是业务对象不存在。格式正确与资源存在不是同一件事。</p>
+<p><strong>响应模型是不是权限系统？</strong> 不是。它约束输出的数据结构，是否允许访问仍需单独检查。</p>
+<span class="heading-anchor" id="8. 官方资料"></span><h2 id="8">8. 官方资料</h2>
+<p><a href="https://fastapi.tiangolo.com/tutorial/response-model/">Response Model</a> · <a href="https://fastapi.tiangolo.com/tutorial/handling-errors/">Handling Errors</a> · <a href="https://fastapi.tiangolo.com/advanced/response-directly/">Return a Response Directly</a></p>
+<hr/>
+<p><a href="n-3bc10661bfbf.html">返回学习地图</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

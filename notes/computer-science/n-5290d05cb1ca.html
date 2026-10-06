@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>11-网络与分布式系统基础 · 李杨的学习笔记</title><meta name="description" content="网络在应用看来是 Socket，在内核看来是协议栈、缓冲区、连接状态、队列和网卡。本章用 OS 视角理解网络，并连接到分布式系统中的延迟、超时和排查。"><meta property="og:title" content="11-网络与分布式系统基础 · 李杨的学习笔记"><meta property="og:description" content="网络在应用看来是 Socket，在内核看来是协议栈、缓冲区、连接状态、队列和网卡。本章用 OS 视角理解网络，并连接到分布式系统中的延迟、超时和排查。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-5290d05cb1ca.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-5290d05cb1ca.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 操作系统</p><h1>11-网络与分布式系统基础</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/11-%E7%BD%91%E7%BB%9C%E4%B8%8E%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%80.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">本章目标</a></li><li><a href="#socket">Socket 是什么</a></li><li><a href="#_2">接收网络包的路径</a></li><li><a href="#tcp">TCP 三次握手与队列</a></li><li><a href="#tcp_1">TCP 发送和接收缓冲区</a></li><li><a href="#_3">流量控制和拥塞控制</a></li><li><a href="#time_wait-close_wait">TIME_WAIT 和 CLOSE_WAIT</a></li><li><a href="#os">分布式系统中的 OS 因素</a></li><li><a href="#_4">排查网络慢</a></li><li><a href="#_5">自测题</a></li><li><a href="#_6">补充深入讲解</a></li><li><a href="#_7">从零开始理解：网络慢不一定是网线慢</a></li><li><a href="#tcp_2">TCP 队列为什么重要</a></li><li><a href="#close_wait">CLOSE_WAIT 为什么通常是应用问题</a></li><li><a href="#_8">分布式超时为什么不能随便设</a></li><li><a href="#_9">进一步案例：短连接为什么容易造成资源压力</a></li><li><a href="#_10">进一步案例：重试为什么可能放大故障</a></li><li><a href="#_11">思维导图</a></li><li><a href="#1">1. 收包路径</a></li><li><a href="#2-tcp">2. TCP 服务端队列</a></li><li><a href="#3">3. 常见状态记忆</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="本章目标"></span><h2 id="_1">本章目标</h2>
+<p>网络在应用看来是 Socket，在内核看来是协议栈、缓冲区、连接状态、队列和网卡。本章用 OS 视角理解网络，并连接到分布式系统中的延迟、超时和排查。</p>
+<span class="heading-anchor" id="Socket 是什么"></span><h2 id="socket">Socket 是什么</h2>
+<p>Socket 是网络通信端点。TCP 服务端典型流程：</p>
+<pre><code class="language-text">socket()
+  → bind()
+  → listen()
+  → accept()
+  → read()/write()
+  → close()
+</code></pre>
+<p>监听 fd 和连接 fd 不同。监听 fd 接收新连接；accept 返回的连接 fd 用于和具体客户端通信。</p>
+<span class="heading-anchor" id="接收网络包的路径"></span><h2 id="_2">接收网络包的路径</h2>
+<pre><code class="language-text">网卡收到数据帧
+  → DMA 写入内存 ring buffer
+  → 中断或 NAPI 通知内核
+  → 驱动构造 skb
+  → 协议栈处理以太网/IP/TCP
+  → 数据进入 socket 接收缓冲区
+  → epoll/read 唤醒应用
+</code></pre>
+<p>高流量下，系统可能减少中断，转为 NAPI 轮询，降低中断风暴。</p>
+<span class="heading-anchor" id="TCP 三次握手与队列"></span><h2 id="tcp">TCP 三次握手与队列</h2>
+<p>服务端 <code>listen</code> 后有两个重要队列：</p>
+<ul>
+<li>半连接队列：收到 SYN，尚未完成握手。</li>
+<li>全连接队列：握手完成，等待 accept。</li>
+</ul>
+<p>SYN flood 主要攻击半连接队列。应用 accept 太慢会导致全连接队列积压。</p>
+<span class="heading-anchor" id="TCP 发送和接收缓冲区"></span><h2 id="tcp_1">TCP 发送和接收缓冲区</h2>
+<p>Socket 有发送缓冲区和接收缓冲区。</p>
+<p>如果应用读得慢：</p>
+<ul>
+<li>接收缓冲区变满。</li>
+<li>TCP 接收窗口变小。</li>
+<li>对端发送速度下降。</li>
+</ul>
+<p>如果应用写得快：</p>
+<ul>
+<li>发送缓冲区变满。</li>
+<li>阻塞写或非阻塞返回 EAGAIN。</li>
+</ul>
+<p>这就是网络层的背压。</p>
+<span class="heading-anchor" id="流量控制和拥塞控制"></span><h2 id="_3">流量控制和拥塞控制</h2>
+<p>流量控制：保护接收方，避免发送方压垮接收缓冲区。</p>
+<p>拥塞控制：保护网络路径，避免过多数据造成丢包和排队。</p>
+<p>吞吐不只取决于带宽，还取决于 RTT、丢包、拥塞窗口、接收窗口和应用读写速度。</p>
+<span class="heading-anchor" id="TIME_WAIT 和 CLOSE_WAIT"></span><h2 id="time_wait-close_wait">TIME_WAIT 和 CLOSE_WAIT</h2>
+<p>TIME_WAIT 通常在主动关闭方。它用于可靠关闭和避免旧报文污染新连接。</p>
+<p>CLOSE_WAIT 表示对端关闭了连接，本端应用还没 close。大量 CLOSE_WAIT 往往说明应用 fd 泄漏或连接生命周期管理错误。</p>
+<span class="heading-anchor" id="分布式系统中的 OS 因素"></span><h2 id="os">分布式系统中的 OS 因素</h2>
+<p>很多分布式问题其实有 OS 根源：</p>
+<ul>
+<li>超时设置太短，遇到调度延迟或 GC 就误判失败。</li>
+<li>线程池满导致请求排队。</li>
+<li>fd 限制导致无法接受新连接。</li>
+<li>容器 CPU throttle 造成周期性延迟。</li>
+<li>磁盘 fsync 慢拖慢写请求。</li>
+<li>缺页或 swap 导致尾延迟。</li>
+</ul>
+<span class="heading-anchor" id="排查网络慢"></span><h2 id="_4">排查网络慢</h2>
+<p>如果 RTT 高，可能是网络路径问题。若 RTT 正常但接口慢，重点看应用层：线程池、队列、数据库、锁、GC、磁盘日志、下游依赖。</p>
+<p>常用命令：</p>
+<pre><code class="language-bash">ss -s
+ss -ant
+ss -lntp
+ip addr
+ip route
+ulimit -n
+</code></pre>
+<span class="heading-anchor" id="自测题"></span><h2 id="_5">自测题</h2>
+<ol>
+<li>accept 返回的新 fd 为什么不能用监听 fd 替代？</li>
+<li>半连接队列和全连接队列分别存什么？</li>
+<li>CLOSE_WAIT 多通常说明什么？</li>
+<li>RTT 正常但接口慢，可能是什么原因？</li>
+<li>TCP 流量控制和拥塞控制有什么区别？</li>
+</ol>
+<span class="heading-anchor" id="补充深入讲解"></span><h2 id="_6">补充深入讲解</h2>
+<span class="heading-anchor" id="从零开始理解：网络慢不一定是网线慢"></span><h2 id="_7">从零开始理解：网络慢不一定是网线慢</h2>
+<p>一次接口请求包括客户端排队、DNS、建连、TLS、服务端 accept、应用排队、业务处理、数据库、响应写回。网络 RTT 正常，只能说明基础链路可能没问题，不能说明服务端处理快。</p>
+<span class="heading-anchor" id="TCP 队列为什么重要"></span><h2 id="tcp_2">TCP 队列为什么重要</h2>
+<p>服务端连接建立不是直接交给应用。半连接队列保存握手未完成连接，全连接队列保存握手完成但未 accept 的连接。应用 accept 慢时，全连接队列会积压；攻击者发大量 SYN 时，半连接队列会受压。</p>
+<span class="heading-anchor" id="CLOSE_WAIT 为什么通常是应用问题"></span><h2 id="close_wait">CLOSE_WAIT 为什么通常是应用问题</h2>
+<p>CLOSE_WAIT 表示对端已经关闭，本端内核也知道了，但应用还没 close。大量 CLOSE_WAIT 往往是代码没有关闭连接，或者处理线程卡住。调内核参数通常治标不治本。</p>
+<span class="heading-anchor" id="分布式超时为什么不能随便设"></span><h2 id="_8">分布式超时为什么不能随便设</h2>
+<p>超时太短会误杀正常请求，太长会让资源长期占用。合理超时要考虑网络 RTT、服务端排队、GC、调度延迟、下游延迟和重试放大。超时还必须配合幂等和限流，否则重试会把系统打得更慢。</p>
+<span class="heading-anchor" id="进一步案例：短连接为什么容易造成资源压力"></span><h2 id="_9">进一步案例：短连接为什么容易造成资源压力</h2>
+<p>每个 TCP 连接都要握手、维护状态、分配缓冲区，关闭后还可能进入 TIME_WAIT。大量短连接会增加 CPU、内核内存、端口和队列压力。HTTP keep-alive、连接池和复用协议能显著降低这些成本。</p>
+<p>但长连接也要管理心跳、超时、连接泄漏和负载均衡迁移。没有绝对最优，只有适合业务的连接生命周期。</p>
+<span class="heading-anchor" id="进一步案例：重试为什么可能放大故障"></span><h2 id="_10">进一步案例：重试为什么可能放大故障</h2>
+<p>下游变慢时，如果所有上游都立即重试，会让下游收到更多请求，进一步变慢，形成重试风暴。正确做法是超时、指数退避、抖动、限流、熔断和幂等。操作系统层面的连接、队列和线程资源，最终会被分布式策略影响。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_11">思维导图</h2>
+<blockquote>
+<p>记忆建议：网络问题要同时看内核队列、TCP 状态和应用读写速度。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 收包路径"></span><h3 id="1">1. 收包路径</h3>
+<pre class="mermaid">flowchart LR
+  A["网卡收到帧"] --&gt; B["DMA写入ring buffer"]
+  B --&gt; C["中断或NAPI轮询"]
+  C --&gt; D["驱动构造skb"]
+  D --&gt; E["IP TCP协议栈"]
+  E --&gt; F["socket接收缓冲区"]
+  F --&gt; G["epoll或read唤醒应用"]
+</pre>
+<span class="heading-anchor" id="2. TCP 服务端队列"></span><h3 id="2-tcp">2. TCP 服务端队列</h3>
+<pre class="mermaid">flowchart TD
+  A["客户端SYN"] --&gt; B["半连接队列"]
+  B --&gt; C["三次握手完成"]
+  C --&gt; D["全连接队列"]
+  D --&gt; E["accept返回连接fd"]
+  B --&gt; F["SYN flood风险"]
+  D --&gt; G["accept慢导致积压"]
+</pre>
+<span class="heading-anchor" id="3. 常见状态记忆"></span><h3 id="3">3. 常见状态记忆</h3>
+<pre class="mermaid">mindmap
+  root((网络排查))
+    TIME_WAIT
+      主动关闭方保留状态
+      短连接多会增多
+    CLOSE_WAIT
+      对端已关
+      本应用未close
+    缓冲区
+      读慢导致接收窗口变小
+      写快导致EAGAIN或阻塞
+    分布式
+      超时
+      重试放大
+      队列排队
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

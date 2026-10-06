@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-01 Flat 与近似最近邻索引 · 李杨的学习笔记</title><meta name="description" content="假设书架上只有十本书，管理员要找与“退货期限”最相关的三本。最直接的方法是把问题与
+每本书的向量逐一比较，再按相似度排序。这就是 Flat 搜索的核心：不先排除候选，而是对
+当前可搜索集合中的每条向量计算距离或相似度。"><meta property="og:title" content="06-01 Flat 与近似最近邻索引 · 李杨的学习笔记"><meta property="og:description" content="假设书架上只有十本书，管理员要找与“退货期限”最相关的三本。最直接的方法是把问题与
+每本书的向量逐一比较，再按相似度排序。这就是 Flat 搜索的核心：不先排除候选，而是对
+当前可搜索集合中的每条向量计算距离或相似度。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-e9288013e6ed.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-e9288013e6ed.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 06-indexes-vector-databases</p><h1>06-01 Flat 与近似最近邻索引</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/06-indexes-vector-databases/01-flat-and-ann-indexes.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从逐本查书开始</a></li><li><a href="#top-k">精确最近邻与 Top-K</a></li><li><a href="#ann">为什么需要 ANN</a></li><li><a href="#_2">用召回描述近似误差</a></li><li><a href="#_3">四类常见成本</a></li><li><a href="#_4">建立可复现基线</a></li><li><a href="#_5">安全与版本边界</a></li><li><a href="#_6">纸笔练习</a></li><li><a href="#_7">自测</a></li><li><a href="#_8">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>06-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 15 分钟纸笔练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解嵌入向量、相似度度量、Top-K 和表示版本</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>用本章的小型候选表手工完成全量比较与近似搜索</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释 Flat 全量搜索为什么是重要基线；</li>
+<li>区分精确最近邻与近似最近邻（Approximate Nearest Neighbor，ANN）；</li>
+<li>说明召回、延迟、内存和构建成本之间的基本权衡；</li>
+<li>为一次索引比较列出必须固定的数据、度量、过滤和版本条件。</li>
+</ul>
+<span class="heading-anchor" id="从逐本查书开始"></span><h2 id="_1">从逐本查书开始</h2>
+<p>假设书架上只有十本书，管理员要找与“退货期限”最相关的三本。最直接的方法是把问题与
+每本书的向量逐一比较，再按相似度排序。这就是 Flat 搜索的核心：不先排除候选，而是对
+当前可搜索集合中的每条向量计算距离或相似度。</p>
+<p>Flat 并不表示数据一定保存在一个普通文件里，也不表示实现毫无优化。它描述的是搜索逻辑：
+在给定过滤条件后，对所有合格向量做完整比较。只要度量、数据和数值计算一致，它能提供
+一个清晰的精确基线。数据较小时，这种简单性还可能比复杂索引更容易维护。</p>
+<span class="heading-anchor" id="精确最近邻与 Top-K"></span><h2 id="top-k">精确最近邻与 Top-K</h2>
+<p>最近邻搜索接收查询向量，按约定度量找到最接近的记录。<code>Top-K</code> 表示只返回排名最靠前的
+K 条。例如 K 为 3 时，系统返回三个候选，而不是承诺这三个候选都与问题有关。</p>
+<p>这里有三个不能混用的概念：</p>
+<ol>
+<li><strong>距离或相似度：</strong> 数值怎样计算，例如余弦相似度或欧氏距离；</li>
+<li><strong>搜索算法：</strong> 怎样寻找高分候选，例如 Flat 或 ANN 索引；</li>
+<li><strong>业务相关性：</strong> 候选是否真正支持当前问题，是否最新并且允许当前用户访问。</li>
+</ol>
+<p>精确搜索只保证在给定向量、过滤范围和度量下没有因为近似算法而漏掉更近的记录。它不保证
+嵌入模型正确表达了业务含义，也不保证原始资料正确。</p>
+<span class="heading-anchor" id="为什么需要 ANN"></span><h2 id="ann">为什么需要 ANN</h2>
+<p>当记录增多时，每次查询都比较全部向量会消耗更多计算和内存带宽。ANN 的共同思路是提前
+组织数据，查询时只检查更可能成为近邻的一部分候选。它可能通过图、分区、压缩或多种方法
+减少工作量，因此常能换取更低延迟或更高吞吐，但代价是可能跳过真正的近邻。</p>
+<p>一个直观例子是查城市餐馆。Flat 像逐家阅读全城菜单；ANN 像先根据街区、菜系或熟人推荐
+缩小范围，再细看少数餐馆。后者更快，却可能因为分类不准而错过街区边界上的好选择。</p>
+<span class="heading-anchor" id="用召回描述近似误差"></span><h2 id="_2">用召回描述近似误差</h2>
+<p>评估 ANN 时，可以把同一批查询的 Flat 结果当作算法基线，再观察 ANN 找回了多少基线
+候选。若精确 Top-5 中有四条也出现在 ANN Top-5 中，说明这次查询找回了大部分精确候选，
+但不能据此推断最终答案质量。真正的业务相关文档可能不在精确向量 Top-5 中，也可能被
+权限过滤排除。</p>
+<p>因此至少需要两层评估：</p>
+<ul>
+<li><strong>索引层：</strong> ANN 相对精确搜索漏掉了哪些候选；</li>
+<li><strong>任务层：</strong> 检索结果是否包含支持正确回答、符合权限与时效要求的资料。</li>
+</ul>
+<p>只报告平均查询时间而不报告召回，会隐藏速度来自哪里；只报告召回而忽略资源、构建与更新
+成本，也无法判断系统是否可运行。</p>
+<span class="heading-anchor" id="四类常见成本"></span><h2 id="_3">四类常见成本</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>需要观察的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查询成本</td>
+<td>单次延迟、并发下的吞吐、尾部延迟是否满足目标</td>
+</tr>
+<tr>
+<td>召回损失</td>
+<td>相对精确基线漏掉哪些近邻，是否集中在特定语言或主题</td>
+</tr>
+<tr>
+<td>存储与内存</td>
+<td>原向量、索引结构、副本和元数据各占多少资源</td>
+</tr>
+<tr>
+<td>构建与更新</td>
+<td>初建、增量写入、删除、重建和切换版本需要多久及怎样回滚</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些维度通常不能同时最优。更激进地减少搜索范围，可能降低延迟却增加漏召回；保留更复杂
+结构可能改善查询，却增加内存与构建时间。正确做法不是背诵固定参数，而是先写出可接受的
+任务指标，再用代表性数据比较。</p>
+<span class="heading-anchor" id="建立可复现基线"></span><h2 id="_4">建立可复现基线</h2>
+<p>一次有意义的比较应固定：语料快照、查询集、相关性标注、嵌入模型与预处理版本、向量维度、
+相似度度量、归一化方式、过滤条件和 Top-K。还应记录硬件、并发、预热方式与测量口径。
+本章没有运行这些实验，因此不提供任何精确性能数字。</p>
+<p>如果数据量允许，先保留 Flat 路径很有价值。它既能验证 ANN 的近似损失，也能帮助排查
+“问题来自嵌入还是索引”。当 Flat 同样找不到目标文档时，继续调 ANN 参数通常不是根治。</p>
+<span class="heading-anchor" id="安全与版本边界"></span><h2 id="_5">安全与版本边界</h2>
+<p>搜索范围必须先受租户、权限、来源状态与删除状态约束。若系统先从全库取候选，再在生成后
+删除无权内容，敏感文本可能已经进入日志、重排器或模型上下文。具体实现可以使用预过滤、
+分区或受控的后过滤，但安全目标必须是未经授权的数据不越过允许的处理边界。</p>
+<p>索引还必须绑定表示版本。更换嵌入模型、维度、度量或关键预处理规则后，旧向量与新查询
+不应被悄悄混用。切换期间需要双版本、重建或明确回滚方案。</p>
+<span class="heading-anchor" id="纸笔练习"></span><h2 id="_6">纸笔练习</h2>
+<p>写出六条候选的相似度排序，把前两条当作精确 Top-2。然后设计一种只检查其中三条记录的
+“近似策略”，说明它为何可能漏掉精确结果。最后补充两个业务条件，例如地区和权限，观察
+“向量最近”与“最终可用”为什么不是同一集合。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_7">自测</h2>
+<ol>
+<li>Flat 搜索为什么适合作为 ANN 的比较基线？</li>
+<li>ANN 找回精确 Top-K 是否等于回答正确？为什么？</li>
+<li>比较两种索引时，哪些条件必须固定？</li>
+<li>Flat 也找不到目标资料时，应优先检查哪些上游环节？</li>
+<li>为什么权限检查不能只放在回答生成之后？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_8">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学草稿，已做轻量静态检查；算法实现与基准仍待后续验证。</li>
+<li>代码与图表：从零向量存储、Top-K 代码和索引选择图仍是计划项，本章未声称已经执行。</li>
+<li>
+<p>摘要：<a href="n-d80ef39a5864.html">06-01 章节摘要</a></p>
+</li>
+<li>
+<p>下一章：<a href="n-5b638535ac00.html">06-02 HNSW 的分层图直觉</a></p>
+</li>
+<li>返回：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

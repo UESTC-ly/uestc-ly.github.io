@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01. 内置容器与基础语义 · 李杨的学习笔记</title><meta name="description" content="适用版本：Python 3.11+。本章重点不是背诵方法名，而是建立“对象、引用、可变性、哈希性和复杂度”的直觉。它们会直接影响 Agent 的消息状态、工具参数和上下文记忆是否可靠。"><meta property="og:title" content="01. 内置容器与基础语义 · 李杨的学习笔记"><meta property="og:description" content="适用版本：Python 3.11+。本章重点不是背诵方法名，而是建立“对象、引用、可变性、哈希性和复杂度”的直觉。它们会直接影响 Agent 的消息状态、工具参数和上下文记忆是否可靠。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-e169de51a12f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-e169de51a12f.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">02-语言 / python_ai_agent</p><h1>01. 内置容器与基础语义</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/02-%E8%AF%AD%E8%A8%80/python_ai_agent/01_%E5%86%85%E7%BD%AE%E5%AE%B9%E5%99%A8%E4%B8%8E%E5%9F%BA%E7%A1%80%E8%AF%AD%E4%B9%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#_3">可运行示例</a></li><li><a href="#1">1. 先建立对象与引用模型</a></li><li><a href="#_4">名称、身份、相等与哈希</a></li><li><a href="#_5">引用图与生命周期</a></li><li><a href="#_6">可变与不可变</a></li><li><a href="#_7">可变性与默认值的设计边界</a></li><li><a href="#2-list">2. 列表 list</a></li><li><a href="#_8">创建、索引和切片</a></li><li><a href="#_9">序列协议与常用增删查改</a></li><li><a href="#_10">常用方法与排序</a></li><li><a href="#_11">易踩坑：重复初始化嵌套列表</a></li><li><a href="#3-tuple">3. 元组 tuple</a></li><li><a href="#_12">命名元组：轻量记录</a></li><li><a href="#_13">打包、解包与不可变记录</a></li><li><a href="#4-dict">4. 字典 dict</a></li><li><a href="#_14">创建与取值</a></li><li><a href="#_15">映射协议、更新与缺省值</a></li><li><a href="#_16">合并、解包与字典视图</a></li><li><a href="#_17">合并策略与动态视图</a></li><li><a href="#5-set-frozenset">5. 集合 set 与 frozenset</a></li><li><a href="#_18">哈希集合的操作与边界</a></li><li><a href="#6">6. 推导式：简洁但要保持可读</a></li><li><a href="#_19">求值顺序、作用域与惰性</a></li><li><a href="#7">7. 解包与结构化数据流转</a></li><li><a href="#_20">星号解包的规则与边界</a></li><li><a href="#8">8. 浅拷贝、深拷贝与不可变边界</a></li><li><a href="#copy">copy 协议、循环引用与不可变更新</a></li><li><a href="#9">9. 复杂度直觉</a></li><li><a href="#_21">平均复杂度、最坏情况与内存取舍</a></li><li><a href="#10">10. 容器选择指南</a></li><li><a href="#_22">一个可复用的选型流程</a></li><li><a href="#_23">常见坑</a></li><li><a href="#_24">容器状态的排错清单</a></li><li><a href="#ai-agent">面向 AI Agent 的应用提示</a></li><li><a href="#_25">练习题</a></li><li><a href="#_26">练习提示与验收标准</a></li><li><a href="#_27">小结</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>适用版本：Python 3.11+。本章重点不是背诵方法名，而是建立“对象、引用、可变性、哈希性和复杂度”的直觉。它们会直接影响 Agent 的消息状态、工具参数和上下文记忆是否可靠。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>完成本章后，你应该能够：</p>
+<ol>
+<li>根据数据的顺序性、唯一性、键值映射和可变性，选择列表、元组、字典或集合。</li>
+<li>解释“变量赋值不是复制”，并能识别别名、浅拷贝和深拷贝的差异。</li>
+<li>熟练使用切片、推导式、解包、模式化取值和常用容器方法。</li>
+<li>对常用操作的时间复杂度有足够直觉，避免在 Agent 循环中写出隐蔽的性能问题。</li>
+<li>设计不会意外修改共享消息、工具参数或缓存的容器代码。</li>
+</ol>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<ul>
+<li>容器的结构语义：list 表示有序可重复序列，tuple 表示固定结构，dict 表示键值映射，set 表示唯一元素集合。</li>
+<li>对象关系语义：赋值通常共享引用；可变性、哈希性和拷贝深度决定对象能否安全共享、缓存或作为键。</li>
+<li>算法直觉：列表适合顺序访问，字典和集合适合平均常数时间查找；数据规模和访问模式决定选择。</li>
+<li>Agent 边界：消息轨迹和运行状态需要明确的修改权限、复制边界和序列化规则。</li>
+</ul>
+<span class="heading-anchor" id="可运行示例"></span><h2 id="_3">可运行示例</h2>
+<p>本章带有 python 标记的代码块均可复制到 Python 3.11+ 中单独运行；示例后的注释和说明解释了关键输出及其原因。</p>
+<span class="heading-anchor" id="1. 先建立对象与引用模型"></span><h2 id="1">1. 先建立对象与引用模型</h2>
+<p>Python 变量更像“贴在对象上的标签”。执行 <code>b = a</code> 时，通常只是让两个名字指向同一个对象，而不是复制对象。</p>
+<pre><code class="language-python">tasks = ["检索", "总结"]
+alias = tasks
+alias.append("回答")
+
+print(tasks)             # ['检索', '总结', '回答']
+print(tasks is alias)    # True：两个名字指向同一个列表对象
+
+snapshot = tasks.copy()
+snapshot.append("发送")
+print(tasks)             # ['检索', '总结', '回答']
+print(snapshot)          # ['检索', '总结', '回答', '发送']
+print(tasks is snapshot) # False
+</code></pre>
+<p><code>is</code> 判断是否为同一个对象，<code>==</code> 判断内容是否相等。业务代码应使用 <code>==</code> 比较值；<code>is</code> 通常只用于 <code>None</code>、单例或确实需要身份判断的场景：<code>value is None</code>。</p>
+<span class="heading-anchor" id="名称、身份、相等与哈希"></span><h3 id="_4">名称、身份、相等与哈希</h3>
+<p>一句话直觉：名字只是引用，身份回答“是不是同一个对象”，相等回答“值是否相同”，哈希则为字典和集合提供快速定位。四者有关联，但不能混为一谈。</p>
+<ul>
+<li><code>id(obj)</code> 在对象存活期间标识其身份；同一个对象的 <code>id</code> 不变，但对象销毁后这个整数可能被复用。</li>
+<li><code>a is b</code> 不调用用户定义的比较逻辑，只比较身份；<code>a == b</code> 通常会调用 <code>a.__eq__(b)</code>，必要时再尝试反向比较。</li>
+<li>可哈希对象必须在生命周期内保持哈希值稳定，并满足“相等对象哈希相等”。因此可变容器通常不可哈希。</li>
+<li>字符串和小整数的驻留（interning）是实现优化，不能用来推断业务身份；不要写 <code>status is "ok"</code> 这类代码。</li>
+</ul>
+<pre><code class="language-python">class Value:
+    def __init__(self, number: int) -&gt; None:
+        self.number = number
+
+    def __eq__(self, other: object) -&gt; bool:
+        return isinstance(other, Value) and self.number == other.number
+
+
+left = Value(1)
+right = Value(1)
+print(left == right)  # True：值相等
+print(left is right)  # False：是两个实例
+
+try:
+    hash(left)
+except TypeError as exc:
+    print(type(exc).__name__)  # TypeError：定义 __eq__ 后默认不可哈希
+
+missing = object()  # 每次创建都是独一无二的身份哨兵
+value = None
+print(value is None)  # True：推荐用 is 判断 None
+print(value is missing)  # False
+</code></pre>
+<p>这个示例中，<code>Value.__eq__</code> 只表达值比较，没有承诺对象可作为缓存键。若确实需要可哈希值对象，应让它不可变（例如使用冻结的 <code>dataclass</code>），或自行实现稳定的 <code>__hash__</code>，并确保参与比较的字段不会改变。哈希表先按哈希值定位，再用相等比较确认，所以“哈希相等”不代表“对象相等”。</p>
+<span class="heading-anchor" id="引用图与生命周期"></span><h3 id="_5">引用图与生命周期</h3>
+<p>容器不是把值“装进盒子”后与外界隔离，而是保存对其他对象的引用；嵌套列表、字典和 Agent 消息因此形成对象图。<code>del name</code> 只删除一个名字，不一定销毁对象；当没有可达引用时，CPython 通常会通过引用计数回收，循环引用则由垃圾回收器处理。引用计数是 CPython 实现细节，不应作为业务逻辑或资源释放机制。</p>
+<p>真正需要关闭的文件、网络连接和锁，应使用上下文管理器；不要用“对象大概会被回收”代替显式清理。把这条原则带到 Agent 中，就是把状态容器和外部资源分开：状态可复制、可序列化，资源由 <code>with</code> 或 <code>async with</code> 管理。</p>
+<span class="heading-anchor" id="可变与不可变"></span><h3 id="_6">可变与不可变</h3>
+<ul>
+<li>可变对象：列表、字典、集合，以及大多数自定义类实例；创建后可在原对象上修改。</li>
+<li>不可变对象：整数、浮点数、布尔值、字符串、元组、<code>frozenset</code> 等；看起来像“修改”的操作实际上会返回新对象。</li>
+<li>元组本身不可变，但其中可以放入可变对象，所以“元组完全深度不可变”是错误的。</li>
+</ul>
+<pre><code class="language-python">name = "agent"
+old_id = id(name)
+name += "-v1"
+print(name)                 # agent-v1
+print(old_id == id(name))   # False：字符串拼接产生新字符串
+
+config = ("gpt", ["search"])
+config[1].append("calculator")
+print(config)               # ('gpt', ['search', 'calculator'])
+</code></pre>
+<p>在 Agent 中，外层消息常用列表，单条消息常用字典；如果一条消息需要作为缓存键或放进集合，必须将其规范化为只包含可哈希值的元组，或明确设计一个不可变数据结构。</p>
+<p>“不可变”通常只描述对象自身的结构不能被原地改变，并不意味着引用永远不能指向别处，也不保证嵌套对象不可变。例如 <code>name += "-v1"</code> 是创建新字符串并让 <code>name</code> 重新绑定；而 <code>config[1].append(...)</code> 修改的是元组引用到的列表。</p>
+<span class="heading-anchor" id="可变性与默认值的设计边界"></span><h3 id="_7">可变性与默认值的设计边界</h3>
+<p>函数参数、类属性和 Agent 状态都可能因为共享可变对象而产生跨请求污染。初始化函数里优先接收 <code>None</code> 再创建新容器；需要共享的只读配置则可以用元组、<code>MappingProxyType</code> 或明确的不可变模型。</p>
+<pre><code class="language-python">from types import MappingProxyType
+
+
+def add_tag(tag: str, tags: list[str] | None = None) -&gt; list[str]:
+    current = [] if tags is None else list(tags)
+    current.append(tag)
+    return current
+
+
+first = add_tag("search")
+second = add_tag("browser")
+print(first)   # ['search']
+print(second)  # ['browser']：两次调用不共享默认列表
+
+base_config = {"timeout": 30}
+read_only_config = MappingProxyType(base_config)
+try:
+    read_only_config["timeout"] = 10
+except TypeError as exc:
+    print(type(exc).__name__)  # TypeError：代理不允许通过此视图写入
+base_config["timeout"] = 10
+print(read_only_config["timeout"])  # 10：代理仍反映底层映射的变化
+</code></pre>
+<p><code>MappingProxyType</code> 是只读视图而不是深度冻结：底层字典仍可被持有它的代码改变，嵌套值也未自动冻结。若边界需要真正不可变且可校验的结构，应该在边界处复制并使用合适的模型，而不是把代理当作安全沙箱。</p>
+<span class="heading-anchor" id="2. 列表 list"></span><h2 id="2-list">2. 列表 <code>list</code></h2>
+<p>列表是有序、可重复、可变的序列，适合表示“按顺序处理的一批对象”。索引从 <code>0</code> 开始，负索引从末尾开始。</p>
+<span class="heading-anchor" id="创建、索引和切片"></span><h3 id="_8">创建、索引和切片</h3>
+<pre><code class="language-python">steps = ["理解问题", "调用工具", "整理证据", "输出答案"]
+
+print(steps[0])       # 理解问题
+print(steps[-1])      # 输出答案
+print(steps[1:3])     # ['调用工具', '整理证据']，左闭右开
+print(steps[:2])      # 前两个元素
+print(steps[::2])     # ['理解问题', '整理证据']，步长为 2
+print(steps[::-1])    # 反向副本
+
+steps[1] = "调用检索工具"
+del steps[3]
+steps.extend(["校验引用", "输出答案"])
+print(steps)
+</code></pre>
+<p>切片产生一个新的列表；<code>steps[1:3]</code> 不会改变原列表。切片赋值却会修改原列表，并且允许替换不同长度的片段：</p>
+<pre><code class="language-python">items = ["a", "b", "c", "d"]
+items[1:3] = ["B", "C", "C2"]
+print(items)  # ['a', 'B', 'C', 'C2', 'd']
+</code></pre>
+<span class="heading-anchor" id="序列协议与常用增删查改"></span><h3 id="_9">序列协议与常用增删查改</h3>
+<p>一句话直觉：<code>list</code> 是保存对象引用的可变动态数组；索引读取快，任意位置插入或删除要移动后续引用。它实现了序列协议，因此可以被 <code>len</code>、<code>in</code>、索引、切片和 <code>for</code> 统一使用。</p>
+<ul>
+<li>读取：<code>items[i]</code>、<code>items[-1]</code>；越界抛 <code>IndexError</code>。</li>
+<li>切片：<code>items[start:stop:step]</code> 左闭右开，结果是新列表；<code>step</code> 不能为 0。</li>
+<li>追加：<code>append(x)</code> 加一个元素，<code>extend(iterable)</code> 逐个加入；二者都原地修改并返回 <code>None</code>。</li>
+<li>删除：<code>pop(i)</code> 删除并返回元素，<code>remove(x)</code> 删除第一个相等项，<code>del items[i]</code> 只删除不返回，<code>clear()</code> 清空。</li>
+<li>查询：<code>x in items</code> 线性扫描；<code>index(x)</code> 找首个位置，找不到抛 <code>ValueError</code>；<code>count(x)</code> 统计相等项。</li>
+<li>复制：<code>items.copy()</code> 或 <code>items[:]</code> 只复制外层；它们不是深拷贝。</li>
+</ul>
+<pre><code class="language-python">events = ["start"]
+events.append(["tool_call", "search"])  # 一个列表作为单个元素
+events.extend(["tool_result", "finish"])  # 迭代加入两个字符串
+
+print(events)
+print(events[1][0])           # tool_call：嵌套索引
+print(events[-2:])            # ['tool_result', 'finish']：新列表切片
+
+last = events.pop()
+print(last, events)
+try:
+    events.remove("missing")
+except ValueError as exc:
+    print(type(exc).__name__)  # ValueError：remove 找不到目标
+</code></pre>
+<p>这里 <code>append</code> 和 <code>extend</code> 的差异尤其容易影响 Agent 事件轨迹：一次工具调用通常应作为一个事件对象追加；若误用 <code>extend(event_dict)</code>，字典会被按键迭代，轨迹结构就会损坏。方法的返回值也要注意：原地方法通常返回 <code>None</code>，不要写 <code>events = events.append(...)</code>。</p>
+<p>列表底层会预留一部分容量，尾部 <code>append</code> 在多数情况下是摊销 O(1)；扩容时会分配新数组并复制引用。这个实现细节解释了“多数时候快”，但不应依赖精确容量或内存布局。</p>
+<span class="heading-anchor" id="常用方法与排序"></span><h3 id="_10">常用方法与排序</h3>
+<pre><code class="language-python">scores = [0.8, 0.3, 0.95]
+scores.append(0.6)          # 尾部添加一个元素
+scores.extend([0.7, 0.4])   # 尾部添加多个元素
+scores.insert(0, 1.0)       # 指定位置插入；中间插入可能较慢
+removed = scores.pop()      # 默认弹出末尾元素并返回它
+scores.remove(0.3)          # 删除第一个等于 0.3 的元素
+scores.sort(reverse=True)   # 原地排序，返回 None
+
+print(removed)              # 0.4
+print(scores)               # [1.0, 0.95, 0.8, 0.7, 0.6]
+print(sorted(scores, key=lambda score: -score))
+</code></pre>
+<p><code>list.sort()</code> 原地修改并返回 <code>None</code>；<code>sorted()</code> 接受任意可迭代对象并返回新列表。实际项目中，优先使用有含义的 <code>key</code>，不要依赖复杂的多次排序副作用。</p>
+<p>排序使用 TimSort，并且是稳定排序：两个元素的 <code>key</code> 相同时，原来的相对顺序保留。<code>key</code> 函数对每个元素调用一次；用它代替在比较过程中反复计算通常更清晰、更快。</p>
+<pre><code class="language-python">records = [
+    {"name": "A", "priority": 1, "arrival": 2},
+    {"name": "B", "priority": 1, "arrival": 1},
+    {"name": "C", "priority": 2, "arrival": 3},
+]
+ordered = sorted(records, key=lambda item: (-item["priority"], item["arrival"]))
+print([item["name"] for item in ordered])  # ['C', 'B', 'A']
+
+same_priority = sorted(records, key=lambda item: item["priority"])
+print([item["name"] for item in same_priority])  # ['A', 'B', 'C']：稳定保留 A 在 B 前
+</code></pre>
+<p>若数据已经有序并且只需要插入一个元素，可考虑 <code>bisect</code>，避免每次重新排序；若要持续取出最高优先级任务，则 <code>heapq</code> 比“列表排序后弹出”更合适。两者都不替代对任务状态的显式去重和幂等校验。</p>
+<span class="heading-anchor" id="易踩坑：重复初始化嵌套列表"></span><h3 id="_11">易踩坑：重复初始化嵌套列表</h3>
+<pre><code class="language-python">wrong = [[]] * 3
+wrong[0].append("共享")
+print(wrong)  # [['共享'], ['共享'], ['共享']]
+
+right = [[] for _ in range(3)]
+right[0].append("独立")
+print(right)  # [['独立'], [], []]
+</code></pre>
+<p><code>[[]] * 3</code> 复制的是同一个内层列表的引用；推导式才会为每次循环创建新列表。</p>
+<span class="heading-anchor" id="3. 元组 tuple"></span><h2 id="3-tuple">3. 元组 <code>tuple</code></h2>
+<p>元组是有序、可重复、不可变的序列，适合表示“结构固定的一条记录”，例如坐标、工具调用结果的固定字段或字典键。</p>
+<pre><code class="language-python">tool_result = ("search", 3, True)
+name, count, ok = tool_result
+print(name, count, ok)  # search 3 True
+
+single = ("only",)      # 单元素元组必须有逗号
+not_tuple = ("only")
+print(type(single).__name__)     # tuple
+print(type(not_tuple).__name__)  # str
+
+cache_key = ("weather", "Shanghai", "celsius")
+cache = {cache_key: "晴，27°C"}
+print(cache[cache_key])           # 晴，27°C
+</code></pre>
+<p>元组能作为字典键的前提是其所有成员都可哈希。<code>("user", [1, 2])</code> 不能作为键，因为列表不可哈希。</p>
+<span class="heading-anchor" id="命名元组：轻量记录"></span><h3 id="_12">命名元组：轻量记录</h3>
+<pre><code class="language-python">from collections import namedtuple
+
+Token = namedtuple("Token", ["text", "kind"])
+token = Token("Python", "keyword")
+print(token.text, token.kind)  # Python keyword
+</code></pre>
+<p>在新代码中，如果记录字段较多、需要验证或默认值，通常优先考虑 <code>dataclass</code> 或 Pydantic 模型；<code>namedtuple</code> 适合轻量、低依赖的不可变记录。</p>
+<span class="heading-anchor" id="打包、解包与不可变记录"></span><h3 id="_13">打包、解包与不可变记录</h3>
+<p>元组字面量的关键不是括号，而是逗号：<code>point = 1, 2</code> 与 <code>point = (1, 2)</code> 都会打包成元组。函数多返回值实际上也是打包，再由调用方解包。解包数量必须匹配，除非使用一个带 <code>*</code> 的目标收集剩余项。</p>
+<pre><code class="language-python">def split_tool_result() -&gt; tuple[str, int, str]:
+    return "search", 200, "ok"
+
+
+name, status, message = split_tool_result()
+print(name, status, message)  # search 200 ok
+
+head, *body, tail = ("system", "user", "tool", "assistant")
+print(head, body, tail)  # system ['user', 'tool'] assistant
+
+try:
+    first, second = (1, 2, 3)
+except ValueError as exc:
+    print(type(exc).__name__)  # ValueError：没有使用星号目标
+</code></pre>
+<p>元组拼接、切片和重复都会创建新元组；它适合小型固定结构，不适合频繁原地追加。若字段需要按名称读取，<code>namedtuple</code> 可提供轻量属性访问；若需要可读的默认值、校验、可变更新或序列化契约，<code>dataclass</code>/Pydantic 更合适。元组只保证外层不可变，放进其中的列表仍能变，也因此可能无法哈希。</p>
+<p>在 Agent 中，可把“模型名、版本、温度”这类不会在一次调用中变化的缓存键表示成元组；把对外返回的消息记录表示成裸元组则可读性偏弱，通常应该使用带字段名的模型。</p>
+<span class="heading-anchor" id="4. 字典 dict"></span><h2 id="4-dict">4. 字典 <code>dict</code></h2>
+<p>字典是“键到值”的可变映射。Python 3.7+ 语言规范保证遍历顺序与插入顺序一致，但不要把它误解为按键排序。</p>
+<span class="heading-anchor" id="创建与取值"></span><h3 id="_14">创建与取值</h3>
+<pre><code class="language-python">message = {
+    "role": "user",
+    "content": "帮我总结这段文本",
+    "metadata": {"request_id": "req-001"},
+}
+
+print(message["role"])                    # user
+print(message.get("tool_name"))           # None：缺失时不抛异常
+print(message.get("tool_name", "none"))   # none
+
+message["metadata"]["source"] = "chat"
+message.setdefault("tags", []).append("summarize")
+print(message["tags"])                    # ['summarize']
+
+for key, value in message.items():
+    print(f"{key}={value!r}")
+</code></pre>
+<p><code>d[key]</code> 适合“缺失就是程序错误”的必填字段；<code>get</code> 适合可选字段。<code>setdefault</code> 会在缺失时插入默认值，但默认表达式会在调用前求值，复杂默认值不要滥用。</p>
+<span class="heading-anchor" id="映射协议、更新与缺省值"></span><h3 id="_15">映射协议、更新与缺省值</h3>
+<p>一句话直觉：字典是通过哈希键定位值的可变映射；<code>key in data</code> 检查的是键，不是值。它实现映射协议，除了字面量外，也可以用 <code>collections.abc.Mapping</code> 只读地接收各种映射实现。</p>
+<ul>
+<li><code>data[key]</code>：键必须存在，缺失抛 <code>KeyError</code>；适合必填字段。</li>
+<li><code>data.get(key, default)</code>：缺失时返回默认值，不会写入字典；适合可选字段。</li>
+<li><code>data[key] = value</code> / <code>update(other)</code>：新增或覆盖；<code>update</code> 接受映射或键值对可迭代对象。</li>
+<li><code>pop(key[, default])</code>、<code>popitem()</code>、<code>clear()</code>：删除并可取回值；<code>popitem</code> 在现代 Python 中取最后插入项。</li>
+<li><code>setdefault(key, default)</code>：存在时返回旧值，缺失时插入并返回默认值；默认表达式会先求值。</li>
+<li><code>defaultdict(factory)</code>：读取不存在的键时按需创建值，适合分组/计数，但读取也可能改变数据。</li>
+</ul>
+<pre><code class="language-python">from collections import defaultdict
+
+events = [
+    {"tool": "search", "status": "ok"},
+    {"tool": "search", "status": "error"},
+    {"tool": "browser", "status": "ok"},
+]
+
+counts: dict[str, int] = {}
+for event in events:
+    tool = event["tool"]
+    counts[tool] = counts.get(tool, 0) + 1
+print(counts)  # {'search': 2, 'browser': 1}
+
+grouped: defaultdict[str, list[str]] = defaultdict(list)
+for event in events:
+    grouped[event["status"]].append(event["tool"])
+print(dict(grouped))  # {'ok': ['search', 'browser'], 'error': ['search']}
+
+removed = counts.pop("browser")
+print(removed, counts)  # 1 {'search': 2}
+</code></pre>
+<p><code>defaultdict</code> 的“缺失即创建”很方便，但在只读检查或拼写错误场景可能悄悄产生新键；Agent 的输入校验通常更适合普通字典加显式错误。对于纯计数还可考虑 <code>collections.Counter</code>，它表达意图更清晰。</p>
+<span class="heading-anchor" id="合并、解包与字典视图"></span><h3 id="_16">合并、解包与字典视图</h3>
+<pre><code class="language-python">base = {"temperature": 0.2, "timeout": 30}
+override = {"timeout": 10, "model": "gpt"}
+merged = base | override       # Python 3.9+；右侧同名键覆盖左侧
+base |= {"retries": 2}         # 原地合并
+
+request = {"messages": [], **merged}
+print(request)
+print(list(merged.keys()))
+</code></pre>
+<p><code>keys()</code>、<code>values()</code>、<code>items()</code> 返回动态视图；在遍历字典时直接增删键会触发 <code>RuntimeError</code>。若需要修改，先复制键列表：<code>for key in list(data): ...</code>。</p>
+<p>字典的键必须可哈希且相等性稳定，常用键是字符串、整数、元组。可变列表、字典、集合不能作为键。</p>
+<span class="heading-anchor" id="合并策略与动态视图"></span><h3 id="_17">合并策略与动态视图</h3>
+<p><code>left | right</code> 和 <code>{**left, **right}</code> 都返回新字典，右侧值覆盖左侧同名键；<code>left |= right</code> 原地更新左侧。这个“最后写入者覆盖”规则适合分层配置，但不等于递归合并：嵌套字典会整体替换。</p>
+<pre><code class="language-python">base = {"model": "small", "limits": {"tokens": 1000}}
+override = {"limits": {"tokens": 2000}}
+merged = base | override
+print(merged)  # {'model': 'small', 'limits': {'tokens': 2000}}
+print(base)    # {'model': 'small', 'limits': {'tokens': 1000}}：| 不修改左侧
+
+data = {"a": 1, "b": 2}
+keys = data.keys()  # 动态视图，不是创建时的静态列表
+data["c"] = 3
+print(list(keys))  # ['a', 'b', 'c']
+
+for key in list(data):  # 先复制键，允许在循环中删除
+    if key == "b":
+        del data[key]
+print(data)  # {'a': 1, 'c': 3}
+</code></pre>
+<p>字典视图会反映后续变化，<code>keys</code>/<code>items</code> 在一定条件下还支持集合运算；若需要稳定快照，显式调用 <code>list(...)</code> 或 <code>dict(...)</code>。遍历期间改变字典大小会抛 <code>RuntimeError</code>，即使某些“只改值不改键”的操作看起来能工作，也应保持代码简单、避免依赖细节。</p>
+<p>API 边界若只需要读取，可把参数标注为 <code>Mapping[str, object]</code>，这样调用方可以传入普通字典或其他映射；若函数要修改，就明确标注/接收 <code>MutableMapping</code>，并记录副作用。</p>
+<span class="heading-anchor" id="5. 集合 set 与 frozenset"></span><h2 id="5-set-frozenset">5. 集合 <code>set</code> 与 <code>frozenset</code></h2>
+<p>集合是无序（不应依赖显示顺序）、不重复、可变的元素集合；底层哈希结构使成员测试通常很快。<code>frozenset</code> 是不可变集合，可以作为字典键或另一个集合的元素。</p>
+<pre><code class="language-python">requested = {"search", "calculator", "search"}
+available = {"search", "browser", "calculator"}
+
+print(requested)                    # {'search', 'calculator'}，顺序不作保证
+print("search" in requested)        # True
+print(requested &amp; available)        # 交集：共同支持的工具
+print(requested - available)        # 差集：不可用工具
+print(requested | available)        # 并集
+print(requested &lt;= available)       # 是否为子集
+
+immutable = frozenset({"read", "write"})
+permissions = {immutable: "文件权限集合"}
+print(permissions[immutable])
+</code></pre>
+<p>集合元素也必须可哈希，因此不能直接放入列表或字典。对于 Agent 的“去重工具名、已访问 URL、已处理消息 ID”，集合通常比列表更直接；如果需要稳定输出，去重后再排序或保留原顺序（见下方示例）。</p>
+<span class="heading-anchor" id="哈希集合的操作与边界"></span><h3 id="_18">哈希集合的操作与边界</h3>
+<p>集合用元素的哈希值定位槽位，再用相等比较确认是否已存在，所以 <code>add</code>、<code>in</code>、<code>remove</code> 通常是平均 O(1)。这是平均复杂度而不是排序保证；集合显示顺序不属于业务契约，跨进程运行还可能受哈希随机化影响。</p>
+<ul>
+<li><code>add(x)</code> 加入一个元素，重复加入没有额外效果；<code>update(iterable)</code> 批量加入。</li>
+<li><code>remove(x)</code> 不存在时抛 <code>KeyError</code>；<code>discard(x)</code> 不存在时静默忽略，清理不确定输入时更安全。</li>
+<li><code>pop()</code> 删除并返回某个元素，但不要把它当作“第一个”；<code>clear()</code> 清空。</li>
+<li><code>&amp;</code>、<code>|</code>、<code>-</code>、<code>^</code> 表示交集、并集、差集、对称差；<code>issubset</code>/<code>&lt;=</code> 和 <code>issuperset</code>/<code>&gt;=</code> 比较包含关系。</li>
+</ul>
+<pre><code class="language-python">allowed = {"search", "browser"}
+requested = {"search", "search", "calculator"}
+print(requested &amp; allowed)  # {'search'}
+
+requested.add("calculator")  # 重复 add 不增加元素
+requested.discard("missing")  # 不抛异常
+try:
+    requested.remove("missing")
+except KeyError as exc:
+    print(type(exc).__name__)  # KeyError
+
+print(requested &gt;= {"search"})  # True：requested 是超集
+</code></pre>
+<p>集合元素必须可哈希，但“可哈希”不等于“业务上适合去重”：两个不同格式的 URL 可能语义等价，却仍会被视为不同字符串。Agent 去重前要先规范化大小写、尾斜杠或事件 ID，并在需要稳定展示时使用 <code>sorted</code> 或稳定去重列表。</p>
+<span class="heading-anchor" id="6. 推导式：简洁但要保持可读"></span><h2 id="6">6. 推导式：简洁但要保持可读</h2>
+<p>列表、集合、字典和生成器都有推导式。推导式适合“一次映射 + 可读过滤”，不适合塞入多个副作用或三层嵌套逻辑。</p>
+<pre><code class="language-python">raw_tools = [" search ", "", "browser", "search"]
+
+clean_tools = [name.strip() for name in raw_tools if name.strip()]
+unique_tools = {name.strip() for name in raw_tools if name.strip()}
+tool_lengths = {name: len(name) for name in unique_tools}
+
+print(clean_tools)    # ['search', 'browser', 'search']
+print(unique_tools)   # {'search', 'browser'}，顺序不保证
+print(tool_lengths)   # {'search': 6, 'browser': 7}，键顺序不应作为逻辑依据
+
+# 保留首次出现顺序的去重：dict 的键保持插入顺序
+stable_unique = list(dict.fromkeys(clean_tools))
+print(stable_unique)  # ['search', 'browser']
+</code></pre>
+<p>如果推导式需要在同一表达式中重复调用昂贵函数，先用普通循环保存中间结果；可读性和可观测性通常比少写一行更重要。</p>
+<span class="heading-anchor" id="求值顺序、作用域与惰性"></span><h3 id="_19">求值顺序、作用域与惰性</h3>
+<p>一句话直觉：推导式把“遍历、变换、过滤”压缩成一个表达式；它仍按从左到右、外层到内层的顺序求值。列表/集合/字典推导式会立即创建结果，生成器表达式只在迭代时计算。</p>
+<p>推导式的循环变量在 Python 3 中有独立的隐式作用域，不会覆盖外层同名变量；但推导式里的函数调用、对象属性修改等副作用仍然会发生。赋值表达式（<code>:=</code>）为了让结果在外层可用有特殊规则，初学时应慎用，复杂逻辑直接写普通循环更易调试。</p>
+<pre><code class="language-python">items = [1, 2, 3]
+n = "outer"
+squares = [item * item for item in items]
+print(squares, n)  # [1, 4, 9] outer：item 没有泄漏到外层
+
+rows = [(row, col) for row in range(2) for col in range(2)]
+print(rows)  # [(0, 0), (0, 1), (1, 0), (1, 1)]：外层循环先变化
+
+mapping = {word: len(word) for word in ["ai", "agent", "ai"]}
+print(mapping)  # {'ai': 2, 'agent': 5}：重复键由最后一次写入覆盖
+
+lazy = (item * 2 for item in range(3))
+print(next(lazy))  # 0：此时才计算第一个值
+print(list(lazy))  # [2, 4]：生成器已消耗一个元素
+</code></pre>
+<p>生成器表达式适合把大批工具结果串成流水线，避免一次性把全部结果放进内存；它是一次性的，若需要多次遍历应保存数据或重新创建表达式。推导式中不要隐藏网络请求、写日志、修改全局状态等副作用，否则重读代码时很难判断执行时机。</p>
+<span class="heading-anchor" id="7. 解包与结构化数据流转"></span><h2 id="7">7. 解包与结构化数据流转</h2>
+<pre><code class="language-python">first, *middle, last = ["system", "user", "assistant", "tool"]
+print(first)   # system
+print(middle)  # ['user', 'assistant']
+print(last)    # tool
+
+defaults = {"timeout": 30, "retries": 2}
+user_config = {"timeout": 10}
+final_config = {**defaults, **user_config}
+print(final_config)  # {'timeout': 10, 'retries': 2}
+
+def run_tool(name: str, *, timeout: int, retries: int) -&gt; str:
+    return f"{name}: timeout={timeout}, retries={retries}"
+
+print(run_tool("search", **final_config))
+</code></pre>
+<p>星号解包能表达“保留剩余元素”，双星号解包能组合映射。对于工具调用参数，使用关键字参数和 <code>**payload</code> 能减少参数位置错位；但仍要先验证外部输入，不要让任意用户字段无检查地传入敏感函数。</p>
+<span class="heading-anchor" id="星号解包的规则与边界"></span><h3 id="_20">星号解包的规则与边界</h3>
+<p>序列解包要求可迭代对象；普通目标数量必须精确匹配。一个解包目标可以带一个 <code>*</code>，它总是接收一个新建的列表（即使只剩一个或零个元素），并且同一层不能出现两个星号目标。映射解包要求键是字符串且不能出现重复关键字，后者会在函数调用时抛 <code>TypeError</code>。</p>
+<pre><code class="language-python">tools = ["search", "browser", "calculator"]
+first, *rest = tools
+print(first, rest)  # search ['browser', 'calculator']
+
+def call_tool(name: str, *, timeout: int, trace_id: str) -&gt; str:
+    return f"{name}:{timeout}:{trace_id}"
+
+payload = {"timeout": 10, "trace_id": "t-1"}
+print(call_tool("search", **payload))  # search:10:t-1
+
+try:
+    call_tool("search", **{"timeout": 10, "trace_id": "t-1", "debug": True})
+except TypeError as exc:
+    print(type(exc).__name__)  # TypeError：未知关键字不能越过函数签名
+</code></pre>
+<p>解包只负责结构展开，不负责信任边界校验。来自模型或用户的工具参数仍应先做 schema 校验、白名单过滤和权限检查；不要因为写成 <code>**payload</code> 就把任意键传进高权限函数。需要合并配置时，先用字典合并得到允许字段，再用关键字专用参数调用。</p>
+<span class="heading-anchor" id="8. 浅拷贝、深拷贝与不可变边界"></span><h2 id="8">8. 浅拷贝、深拷贝与不可变边界</h2>
+<p>浅拷贝只复制最外层容器；嵌套对象仍然共享。深拷贝会递归复制（但对锁、连接、生成器等对象并不适用）。</p>
+<pre><code class="language-python">from copy import copy, deepcopy
+
+original = {
+    "messages": [{"role": "user", "content": "你好"}],
+    "tags": ["new"],
+}
+shallow = copy(original)
+deep = deepcopy(original)
+
+shallow["messages"][0]["content"] = "被浅拷贝修改"
+shallow["tags"].append("shallow")
+deep["messages"][0]["content"] = "只改深拷贝"
+
+print(original["messages"][0]["content"])        # 被浅拷贝修改
+print(original["tags"])                            # ['new', 'shallow']
+print(deep["messages"][0]["content"])             # 只改深拷贝
+print(original is shallow)                         # False
+print(original["messages"] is shallow["messages"]) # True
+</code></pre>
+<p>在 Agent 中，常见的错误是为了“试运行一个分支”而浅拷贝整个状态，然后在分支里追加消息，结果主轨迹也被修改。更稳妥的策略是：</p>
+<ul>
+<li>状态结构简单时，明确复制会被修改的嵌套层：<code>{**state, "messages": [*state["messages"], new_message]}</code>。</li>
+<li>状态复杂且要求隔离时使用 <code>deepcopy</code>，并测试其中是否包含不可复制对象。</li>
+<li>更进一步，使用不可变消息对象或 Pydantic/dataclass 的 <code>frozen</code> 设计，把“修改”变成创建新状态。</li>
+</ul>
+<span class="heading-anchor" id="copy 协议、循环引用与不可变更新"></span><h3 id="copy">copy 协议、循环引用与不可变更新</h3>
+<p><code>copy.copy</code> 先创建外层对象，再复用内部引用；<code>copy.deepcopy</code> 递归复制，并通过备忘录避免同一对象重复复制以及循环引用无限递归。自定义类可以实现 <code>__copy__</code>/<code>__deepcopy__</code> 控制行为，但文件句柄、锁、套接字、生成器和事件循环等资源通常不应复制。</p>
+<pre><code class="language-python">from copy import deepcopy
+from dataclasses import dataclass, replace
+
+graph: list[object] = []
+graph.append(graph)  # 循环引用
+clone = deepcopy(graph)
+print(clone is clone[0])  # True：deepcopy 保留了循环结构
+
+@dataclass(frozen=True)
+class AgentState:
+    step: int
+    status: str
+
+
+state = AgentState(step=1, status="running")
+next_state = replace(state, step=2)
+print(state)       # AgentState(step=1, status='running')
+print(next_state)  # AgentState(step=2, status='running')
+</code></pre>
+<p>深拷贝解决的是 Python 对象图的隔离，不等于安全序列化：它可能保留自定义对象、执行自定义复制逻辑，且成本随图大小增长。跨进程或持久化边界应使用明确 schema（例如 JSON 可表示结构或模型的序列化），并单独处理资源引用、密钥和大对象。</p>
+<p>对于 Agent 分支状态，“复制整棵树”常常过贵；可以采用结构共享加局部复制（只复制将要追加的消息列表），或用不可变模型和 <code>replace</code> 形成新版本。关键是明确哪些字段是值、哪些字段是外部资源，以及重试时是否需要同一快照。</p>
+<span class="heading-anchor" id="9. 复杂度直觉"></span><h2 id="9">9. 复杂度直觉</h2>
+<p>下表是对常见操作的平均情况直觉；哈希冲突、扩容和具体实现会影响常数，不应把它当作绝对保证。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>容器/操作</th>
+<th>平均复杂度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>列表按索引读取 <code>items[i]</code></td>
+<td>O(1)</td>
+<td>连续数组定位</td>
+</tr>
+<tr>
+<td>列表尾部 <code>append/pop()</code></td>
+<td>O(1) 摊销</td>
+<td>偶尔扩容，但平均很快</td>
+</tr>
+<tr>
+<td>列表中间插入/删除</td>
+<td>O(n)</td>
+<td>后续元素需要移动</td>
+</tr>
+<tr>
+<td>列表成员测试 <code>x in items</code></td>
+<td>O(n)</td>
+<td>从头到尾线性查找</td>
+</tr>
+<tr>
+<td>字典按键读取/写入</td>
+<td>O(1) 平均</td>
+<td>基于哈希表</td>
+</tr>
+<tr>
+<td>集合成员测试 <code>x in values</code></td>
+<td>O(1) 平均</td>
+<td>基于哈希表</td>
+</tr>
+<tr>
+<td>字典/集合遍历</td>
+<td>O(n)</td>
+<td>n 是元素数量</td>
+</tr>
+<tr>
+<td>排序 <code>sorted(items)</code></td>
+<td>O(n log n)</td>
+<td>TimSort，返回新列表</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果 Agent 要频繁判断“某 ID 是否处理过”，使用集合；如果要按 ID 找消息，使用字典；如果要维护顺序队列，使用列表或 <code>collections.deque</code>。不要在大列表中反复用 <code>in</code> 再线性扫描，必要时预先建立索引。</p>
+<span class="heading-anchor" id="平均复杂度、最坏情况与内存取舍"></span><h3 id="_21">平均复杂度、最坏情况与内存取舍</h3>
+<p>复杂度是随着元素数量 <code>n</code> 增长的尺度，不是一次运行的精确耗时。字典/集合的 O(1) 是平均情况；恶意或极端哈希冲突可能退化，扩容也会产生阶段性的复制成本。列表的 O(n) 扫描在小数据上可能比建立索引更省内存和常数，因此要结合规模、访问频率和生命周期衡量。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作模式</th>
+<th>常见选择</th>
+<th>原因与边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>顺序追加、按索引读取</td>
+<td><code>list</code></td>
+<td>连续存储、索引 O(1)；中间删除需移动元素</td>
+</tr>
+<tr>
+<td>两端反复入队/出队</td>
+<td><code>collections.deque</code></td>
+<td>两端操作 O(1)；不适合任意位置索引</td>
+</tr>
+<tr>
+<td>已排序序列中插入/查找位置</td>
+<td><code>bisect</code> + <code>list</code></td>
+<td>二分查找位置 O(log n)，真正插入仍需移动 O(n)</td>
+</tr>
+<tr>
+<td>持续取优先级最高项</td>
+<td><code>heapq</code></td>
+<td>原生是最小堆：最小值在堆顶；最大优先级通常存负优先级或包装比较规则。取堆顶 O(1)，插入/弹出 O(log n)，不保证整体有序</td>
+</tr>
+<tr>
+<td>按 ID 高频定位</td>
+<td><code>dict</code></td>
+<td>平均 O(1)；需考虑键规范化和内存占用</td>
+</tr>
+<tr>
+<td>只判断是否见过</td>
+<td><code>set</code></td>
+<td>平均 O(1) 成员测试；不提供稳定顺序</td>
+</tr>
+</tbody>
+</table></div>
+<p>Agent 任务队列常同时维护多个索引：队列保存处理顺序，字典保存任务详情，集合保存幂等 ID。索引不是“多余复制”，而是用内存换查找时间；完成、取消或过期时必须同步更新，否则会出现幽灵任务。</p>
+<pre><code class="language-python">from collections import deque
+
+pending = deque(["task-1", "task-2"])
+details = {"task-1": {"prompt": "查天气"}, "task-2": {"prompt": "总结"}}
+finished: set[str] = set()
+
+task_id = pending.popleft()
+details[task_id]["attempt"] = 1
+finished.add(task_id)
+print(task_id, task_id in finished)  # task-1 True
+
+details.pop(task_id)
+print(list(pending), details)  # ['task-2'] {'task-2': {'prompt': '总结'}}
+</code></pre>
+<p>如果任务状态需要落库或跨进程传输，<code>deque</code>、集合和堆的内部结构都不应直接序列化为公共协议；先转换为带版本字段的列表/字典模型。</p>
+<span class="heading-anchor" id="10. 容器选择指南"></span><h2 id="10">10. 容器选择指南</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>推荐</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>有序、允许重复、需要修改</td>
+<td><code>list</code></td>
+<td>顺序明确，支持索引和追加</td>
+</tr>
+<tr>
+<td>固定结构记录、希望不可变</td>
+<td><code>tuple</code></td>
+<td>可解包，可作为键（成员可哈希时）</td>
+</tr>
+<tr>
+<td>按名称查找字段</td>
+<td><code>dict</code></td>
+<td>键值映射，平均 O(1) 查找</td>
+</tr>
+<tr>
+<td>去重、交集/差集、快速成员判断</td>
+<td><code>set</code></td>
+<td>哈希集合语义清晰</td>
+</tr>
+<tr>
+<td>不可变权限集合或集合键</td>
+<td><code>frozenset</code></td>
+<td>可哈希、不可变</td>
+</tr>
+<tr>
+<td>两端高效进出队列</td>
+<td><code>collections.deque</code></td>
+<td>左右端操作 O(1)</td>
+</tr>
+<tr>
+<td>结构化且需要校验的记录</td>
+<td><code>dataclass</code>/Pydantic</td>
+<td>字段名、默认值和校验更明确</td>
+</tr>
+</tbody>
+</table></div>
+<p>一个面向 Agent 的典型状态可以是：</p>
+<pre><code class="language-python">state = {
+    "messages": [
+        {
+            "role": "system",
+            "content": "你是一个可靠的助手",
+        },
+        {"role": "user", "content": "查询订单"},
+    ],
+    "visited_tool_ids": set(),
+    "metadata": {"request_id": "req-001"},
+}
+</code></pre>
+<p>这里列表表达时序，字典表达字段，集合表达去重状态。若状态需要跨进程、写入数据库或作为 API 输入输出，应进一步转换为可序列化且有 schema 的模型，并避免把集合直接暴露给只支持 JSON 的边界。</p>
+<span class="heading-anchor" id="一个可复用的选型流程"></span><h3 id="_22">一个可复用的选型流程</h3>
+<p>拿到新字段时按四个问题判断：是否有顺序？是否允许重复？是否按键查找？是否需要原地更新？前两问决定序列/集合，第三问决定映射，第四问再决定可变容器或不可变记录。若字段要跨模块传递，还要再问“是否需要 schema、JSON 或哈希键”。</p>
+<p>例如：</p>
+<ol>
+<li><code>messages</code> 是按时间排列且会追加，优先 <code>list</code>；如果分支之间共享，改用局部复制或不可变状态更新。</li>
+<li><code>tools_by_name</code> 需要按名称定位，使用 <code>dict[str, Tool]</code>；不要用列表每次线性扫描。</li>
+<li><code>allowed_tools</code> 只关心包含关系，使用 <code>set[str]</code>；需要公开稳定顺序时额外维护排序结果。</li>
+<li><code>cache_key</code> 必须稳定、可哈希，使用由字符串/数字/元组组成的规范化元组；不要直接把输入字典的字符串表示当键。</li>
+<li><code>message</code> 需要校验、版本和序列化时，裸 <code>dict</code> 适合边界早期，成熟接口应升级为 <code>dataclass</code> 或 Pydantic 模型；这不是容器“性能更好”，而是契约更明确。</li>
+</ol>
+<p>容器选型没有“永远最快”的答案。列表扫描可能胜过字典索引的构建成本，小型固定记录用元组可能比模型轻，但工具调用边界更看重错误可见性和可观测性。先用访问模式与契约做决定，再用基准测试验证热点。</p>
+<span class="heading-anchor" id="常见坑"></span><h2 id="_23">常见坑</h2>
+<ol>
+<li><code>a = b</code> 不是复制；修改可变对象时要先确认是否存在别名。</li>
+<li><code>is</code> 不用于普通值比较；<code>x is None</code> 才是典型写法。</li>
+<li><code>[[0] * 3] * 3</code> 会共享内层列表；嵌套容器优先用推导式创建。</li>
+<li><code>dict[key]</code> 缺键会抛 <code>KeyError</code>，<code>get</code> 缺键返回默认值；不要为掩盖 schema 错误而到处使用 <code>get</code>。</li>
+<li>字典和集合的顺序不是排序结果；集合不应依赖显示顺序。</li>
+<li><code>list.sort()</code> 返回 <code>None</code>；需要新列表时用 <code>sorted()</code>。</li>
+<li>遍历字典时增删键会报错；先取 <code>list(data)</code> 再修改。</li>
+<li>可变对象作为默认参数会跨调用共享：<code>def f(items=[]): ...</code> 应改为 <code>items: list[str] | None = None</code>，在函数体内初始化。</li>
+<li><code>copy.copy</code> 只复制一层；Agent 状态含嵌套消息时应明确复制边界。</li>
+<li>直接把用户输入拼接到列表或字典并不等于验证；进入工具调用前要检查类型、长度、允许值和权限。</li>
+</ol>
+<span class="heading-anchor" id="容器状态的排错清单"></span><h3 id="_24">容器状态的排错清单</h3>
+<p>当 Agent 出现“上一轮消息被改写”“重试重复执行”或“输出顺序偶尔变化”时，按顺序检查：</p>
+<ol>
+<li>打印对象的 <code>id</code> 和关键嵌套字段的 <code>id</code>，确认是否存在别名；不要只打印值，因为值相同不代表对象独立。</li>
+<li>检查所有分支是否共享 <code>messages</code>、<code>metadata</code> 或工具参数；浅拷贝只隔离第一层。</li>
+<li>检查集合/字典的遍历结果是否被误当作排序结果；对用户可见输出显式排序。</li>
+<li>检查缓存键是否包含列表、字典等不可哈希成员，或是否把顺序不同但语义相同的配置视为不同键。</li>
+<li>检查状态是否混入连接、锁、生成器等资源；把资源生命周期移到上下文管理器，而不是复制或序列化它们。</li>
+</ol>
+<p>排错时优先写一个最小状态对象和断言，再扩大到真实工作流。这样可以把“容器语义错误”与模型输出、网络时序等其他变量分开。</p>
+<span class="heading-anchor" id="面向 AI Agent 的应用提示"></span><h2 id="ai-agent">面向 AI Agent 的应用提示</h2>
+<ul>
+<li><strong>消息轨迹</strong>：用 <code>list[dict]</code> 表达顺序，但不要在多个分支之间共享并原地修改同一列表；分支执行前创建明确的状态副本。</li>
+<li><strong>工具注册表</strong>：用 <code>dict[str, Tool]</code> 按名称索引工具，用 <code>set[str]</code> 管理允许调用的工具名；调用前做白名单检查。</li>
+<li><strong>去重与幂等</strong>：用集合保存已经处理的事件 ID、工具调用 ID 或 URL；需要持久化时转换为列表并排序，避免依赖集合顺序。</li>
+<li><strong>缓存键</strong>：用由字符串、数字和元组组成的不可变键；不要把可变请求字典直接当键。若要缓存结构化请求，可规范化排序后构造元组。</li>
+<li><strong>状态快照</strong>：日志和重试通常需要快照。浅拷贝只够复制“不会继续修改的嵌套部分”；涉及消息树时优先设计不可变边界或测试深拷贝。</li>
+<li><strong>JSON 边界</strong>：JSON 原生支持对象、数组、字符串、数字、布尔和 <code>null</code>，不直接支持集合、元组语义或任意 Python 对象；API 输出前要显式转换。</li>
+</ul>
+<span class="heading-anchor" id="练习题"></span><h2 id="_25">练习题</h2>
+<ol>
+<li>写函数 <code>deduplicate_preserve_order(items)</code>，在不改变首次出现顺序的前提下去重，并说明它对不可哈希元素的限制。</li>
+<li>给定 <code>messages: list[dict]</code>，统计每个 <code>role</code> 的消息数，要求缺少 <code>role</code> 时给出清晰错误，而不是静默跳过。</li>
+<li>实现 <code>merge_config(defaults, override)</code>：返回新字典，不修改任一输入；对 <code>timeout</code>、<code>retries</code> 做非负整数校验。</li>
+<li>给出一个会因浅拷贝而污染主 Agent 状态的最小复现，再用“只复制必要层”的方式修复，并写断言证明两个分支互不影响。</li>
+<li><strong>综合题</strong>：设计一个待处理任务队列，任务包含 <code>id</code>、<code>prompt</code>、<code>priority</code>。要求支持按 ID 去重、快速判断已完成任务、按优先级取出任务，并解释你选择 <code>list</code>、<code>dict</code>、<code>set</code> 或 <code>deque</code> 的原因。可以先实现简单版本，再讨论如何用堆优化取出最高优先级任务。</li>
+<li><strong>综合题</strong>：设计一个 Agent 状态快照函数，只保留 <code>messages</code>、<code>tool_calls</code>、<code>metadata</code> 三个字段，并保证调用者修改返回值不会影响原状态。请讨论深拷贝成本、不可序列化对象和更适合生产环境的模型化方案。</li>
+</ol>
+<span class="heading-anchor" id="练习提示与验收标准"></span><h3 id="_26">练习提示与验收标准</h3>
+<ul>
+<li>第 1 题：提示：用一个集合记录已见值，再按原序遍历输入。验收：重复字符串只保留首次出现；对不可哈希输入要么明确报错，要么在题目中定义规范化规则。</li>
+<li>第 2 题：提示：先用 <code>message["role"]</code> 访问必填字段，再决定是否捕获 <code>KeyError</code>。验收：缺失字段不会被静默跳过，空输入返回空统计。</li>
+<li>第 3 题：提示：用新字典合并，再对覆盖后的字段统一验证。验收：两个输入的 <code>id</code> 和嵌套值均不因调用而改变；负数、布尔值和非整数被拒绝。</li>
+<li>第 4 题：提示：先故意只复制外层，再对嵌套列表追加事件。验收：测试能先稳定复现污染，再证明局部复制后的主分支和子分支互不影响。</li>
+<li>第 5 题：提示：先区分“任务详情索引”“已完成集合”“待处理顺序”，再考虑 <code>heapq</code>。验收：重复任务 ID 不会重复入队；取出、完成、取消后所有索引保持一致。</li>
+<li>第 6 题：提示：先定义允许复制的字段和复制深度，再选择局部复制、<code>deepcopy</code> 或不可变模型。验收：修改快照中的任意嵌套消息、调用参数和元数据都不能改动原状态，并说明不能复制资源时的处理策略。</li>
+</ul>
+<span class="heading-anchor" id="小结"></span><h2 id="_27">小结</h2>
+<p>列表表达顺序，元组表达固定结构，字典表达映射，集合表达唯一性与集合运算。真正需要掌握的是它们背后的语义：赋值共享引用，可变对象可能被意外修改，哈希性决定能否作为键，复杂度决定循环中的成本。把这些原则应用到消息轨迹、工具注册、缓存键和 Agent 状态中，就能少掉大量难以定位的状态污染和性能问题。</p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

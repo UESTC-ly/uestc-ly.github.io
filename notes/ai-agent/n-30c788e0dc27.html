@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06. Workflow、状态机与 Human in the Loop · 李杨的学习笔记</title><meta name="description" content="生产级 Agent 不是一次性脚本，而是一个可暂停、可恢复、可审计、可重试、可审批的工作流系统。"><meta property="og:title" content="06. Workflow、状态机与 Human in the Loop · 李杨的学习笔记"><meta property="og:description" content="生产级 Agent 不是一次性脚本，而是一个可暂停、可恢复、可审计、可重试、可审批的工作流系统。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-30c788e0dc27.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-30c788e0dc27.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>06. Workflow、状态机与 Human in the Loop</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/06-Workflow%E7%8A%B6%E6%80%81%E6%9C%BA%E4%B8%8EHuman-in-the-Loop.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-while">1. 为什么不能只靠 while 循环？</a></li><li><a href="#2">2. 状态机基本结构</a></li><li><a href="#3-durable-execution">3. Durable Execution</a></li><li><a href="#4-checkpoint">4. Checkpoint 应该保存什么？</a></li><li><a href="#5-human-in-the-loop">5. Human in the Loop 的类型</a></li><li><a href="#_4">什么时候必须有人参与？</a></li><li><a href="#6">6. 审批节点设计</a></li><li><a href="#7">7. 重试与幂等</a></li><li><a href="#8">8. 回滚和补偿</a></li><li><a href="#9">9. 工作流可观测性</a></li><li><a href="#10">10. 学习自检</a></li><li><a href="#_5">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>为什么生产 Agent 不能只靠 while 循环？</li>
+<li>状态机、工作流、durable execution、checkpoint 分别解决什么问题？</li>
+<li>哪些节点需要 Human in the Loop？</li>
+<li>如何设计重试、回滚、幂等和暂停恢复？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>生产级 Agent 不是一次性脚本，而是一个可暂停、可恢复、可审计、可重试、可审批的工作流系统。</p>
+<blockquote>
+<p>记忆口诀：<strong>能暂停，能恢复，能审计，能回滚，才算生产 Agent。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((Agent工作流))
+    状态机
+      Nodes
+      Edges
+      Conditions
+      State
+    Durable Execution
+      Checkpoint
+      Resume
+      Retry
+      Audit
+    HITL
+      Approval
+      Clarification
+      Review
+      Override
+    工程控制
+      Idempotency
+      Timeout
+      Queue
+      Rollback
+      Compensation
+</pre>
+<span class="heading-anchor" id="1. 为什么不能只靠 while 循环？"></span><h2 id="1-while">1. 为什么不能只靠 while 循环？</h2>
+<p>简单 demo 常写成：</p>
+<pre><code class="language-text">while not done:
+    ask_model()
+    call_tool()
+</code></pre>
+<p>但生产中会遇到：</p>
+<ul>
+<li>工具超时。</li>
+<li>进程重启。</li>
+<li>用户需要审批。</li>
+<li>长任务跨小时或跨天。</li>
+<li>外部 API 限流。</li>
+<li>某一步已经执行，不能重复执行。</li>
+<li>需要审计每一步决策。</li>
+</ul>
+<p>所以需要显式工作流和状态管理。</p>
+<span class="heading-anchor" id="2. 状态机基本结构"></span><h2 id="2">2. 状态机基本结构</h2>
+<pre class="mermaid">flowchart TD
+  A["Start"] --&gt; B["Plan"]
+  B --&gt; C["Retrieve"]
+  C --&gt; D["Act"]
+  D --&gt; E["Verify"]
+  E --&gt; F{通过}
+  F -- 否 --&gt; B
+  F -- 是 --&gt; G["Done"]
+</pre>
+<p>状态机包含：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>元素</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node</td>
+<td>一个可执行步骤</td>
+</tr>
+<tr>
+<td>Edge</td>
+<td>步骤之间的转移</td>
+</tr>
+<tr>
+<td>Condition</td>
+<td>分支条件</td>
+</tr>
+<tr>
+<td>State</td>
+<td>跨节点共享的数据</td>
+</tr>
+<tr>
+<td>Checkpoint</td>
+<td>可恢复快照</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3. Durable Execution"></span><h2 id="3-durable-execution">3. Durable Execution</h2>
+<p>Durable execution 指工作流即使中断，也能从上次检查点恢复，而不是从头开始。</p>
+<pre class="mermaid">flowchart LR
+  A["执行节点1"] --&gt; B["保存Checkpoint"]
+  B --&gt; C["执行节点2"]
+  C --&gt; D["进程崩溃"]
+  D --&gt; E["恢复Checkpoint"]
+  E --&gt; F["从节点2后继续"]
+</pre>
+<p>它解决：</p>
+<ul>
+<li>长任务中断。</li>
+<li>服务重启。</li>
+<li>人类审批等待。</li>
+<li>重试和恢复。</li>
+<li>审计和复盘。</li>
+</ul>
+<span class="heading-anchor" id="4. Checkpoint 应该保存什么？"></span><h2 id="4-checkpoint">4. Checkpoint 应该保存什么？</h2>
+<p>建议保存：</p>
+<ul>
+<li>当前节点。</li>
+<li>任务目标。</li>
+<li>已完成动作。</li>
+<li>工具调用结果。</li>
+<li>外部动作 ID。</li>
+<li>错误和重试次数。</li>
+<li>人类审批状态。</li>
+<li>重要上下文摘要。</li>
+</ul>
+<p>不要保存：</p>
+<ul>
+<li>明文 secrets。</li>
+<li>无用大日志。</li>
+<li>可重新获取的大型文件全文。</li>
+</ul>
+<span class="heading-anchor" id="5. Human in the Loop 的类型"></span><h2 id="5-human-in-the-loop">5. Human in the Loop 的类型</h2>
+<pre class="mermaid">mindmap
+  root((HITL))
+    Clarification
+      信息不足
+      需求歧义
+    Approval
+      高风险动作
+      费用支出
+      外部发送
+    Review
+      法务合规
+      代码合并
+      数据删除
+    Override
+      人类接管
+      修改计划
+      停止任务
+</pre>
+<span class="heading-anchor" id="什么时候必须有人参与？"></span><h3 id="_4">什么时候必须有人参与？</h3>
+<ul>
+<li>发送外部邮件或消息。</li>
+<li>删除、修改重要数据。</li>
+<li>付款、下单、提交合同。</li>
+<li>访问敏感信息。</li>
+<li>模型不确定且代价高。</li>
+<li>法律、医疗、金融等高风险场景。</li>
+</ul>
+<span class="heading-anchor" id="6. 审批节点设计"></span><h2 id="6">6. 审批节点设计</h2>
+<pre class="mermaid">flowchart TD
+  A["Agent提出动作"] --&gt; B["生成审批摘要"]
+  B --&gt; C["展示参数和风险"]
+  C --&gt; D{人类审批}
+  D -- 通过 --&gt; E["执行工具"]
+  D -- 拒绝 --&gt; F["取消或改计划"]
+  D -- 修改 --&gt; G["更新参数"]
+  G --&gt; C
+</pre>
+<p>审批摘要应该包含：</p>
+<ul>
+<li>要执行什么。</li>
+<li>为什么执行。</li>
+<li>影响范围。</li>
+<li>具体参数。</li>
+<li>可逆性。</li>
+<li>风险等级。</li>
+</ul>
+<span class="heading-anchor" id="7. 重试与幂等"></span><h2 id="7">7. 重试与幂等</h2>
+<p>重试不能盲目。只读操作通常可重试；写操作必须保证幂等或需要补偿机制。</p>
+<pre class="mermaid">flowchart TD
+  A["工具失败"] --&gt; B{错误类型}
+  B -- 超时或限流 --&gt; C["可重试"]
+  B -- 参数错误 --&gt; D["修正参数"]
+  B -- 权限不足 --&gt; E["停止或请求授权"]
+  B -- 已部分执行 --&gt; F["查询状态或补偿"]
+</pre>
+<span class="heading-anchor" id="8. 回滚和补偿"></span><h2 id="8">8. 回滚和补偿</h2>
+<p>有些操作不能真正回滚，只能补偿。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>回滚方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>写数据库草稿</td>
+<td>删除或恢复旧版本</td>
+</tr>
+<tr>
+<td>发邮件</td>
+<td>不能回滚，只能补发说明</td>
+</tr>
+<tr>
+<td>创建订单</td>
+<td>取消订单</td>
+</tr>
+<tr>
+<td>转账</td>
+<td>需要反向交易或人工处理</td>
+</tr>
+</tbody>
+</table></div>
+<p>设计 Agent 时要提前知道工具的可逆性。</p>
+<span class="heading-anchor" id="9. 工作流可观测性"></span><h2 id="9">9. 工作流可观测性</h2>
+<p>每个节点应记录：</p>
+<ul>
+<li>输入。</li>
+<li>输出。</li>
+<li>工具调用参数。</li>
+<li>工具结果。</li>
+<li>模型选择理由的可审计摘要。</li>
+<li>耗时。</li>
+<li>成本。</li>
+<li>错误。</li>
+<li>审批人和审批结果。</li>
+</ul>
+<span class="heading-anchor" id="10. 学习自检"></span><h2 id="10">10. 学习自检</h2>
+<ol>
+<li>durable execution 解决什么问题？</li>
+<li>checkpoint 应该保存哪些信息？</li>
+<li>哪些动作必须 Human in the Loop？</li>
+<li>幂等性为什么对写工具重要？</li>
+<li>回滚和补偿有什么区别？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_5">参考</h2>
+<ul>
+<li>LangGraph Durable Execution: https://docs.langchain.com/oss/python/langgraph/durable-execution</li>
+<li>LangGraph Persistence: https://docs.langchain.com/oss/python/langgraph/persistence</li>
+<li>OpenAI Agents SDK: https://platform.openai.com/docs/guides/agents-sdk/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

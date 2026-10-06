@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>缓存与数据库一致性 · 李杨的学习笔记</title><meta name="description" content="旁路缓存是后端最常见模式：读时先查缓存，未命中查数据库并写缓存；写时先更新数据库，再删除缓存。删除缓存比更新缓存更常见，因为缓存值可能由复杂聚合计算得到。"><meta property="og:title" content="缓存与数据库一致性 · 李杨的学习笔记"><meta property="og:description" content="旁路缓存是后端最常见模式：读时先查缓存，未命中查数据库并写缓存；写时先更新数据库，再删除缓存。删除缓存比更新缓存更常见，因为缓存值可能由复杂聚合计算得到。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-fdc994af4e2a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-fdc994af4e2a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 03-Redis</p><h1>缓存与数据库一致性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/03-Redis/07-%E7%BC%93%E5%AD%98%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E4%B8%80%E8%87%B4%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">核心原理</a></li><li><a href="#_4">工程实践/示例</a></li><li><a href="#cache-aside">Cache-aside 并发时间线</a></li><li><a href="#cdcoutbox">CDC、outbox 与对账</a></li><li><a href="#_5">版本化写缓存</a></li><li><a href="#_6">失败矩阵</a></li><li><a href="#_7">观测指标</a></li><li><a href="#_8">常见误区</a></li><li><a href="#_9">自测题</a></li><li><a href="#_10">实践任务</a></li><li><a href="#_11">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握旁路缓存、读写穿透、写回等常见模式。</li>
+<li>能分析先删缓存、后写库、延迟双删、binlog 订阅等方案的失败窗口。</li>
+<li>理解缓存一致性通常是工程上的最终一致，而不是强一致魔法。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_3">核心原理</h2>
+<p>旁路缓存是后端最常见模式：读时先查缓存，未命中查数据库并写缓存；写时先更新数据库，再删除缓存。删除缓存比更新缓存更常见，因为缓存值可能由复杂聚合计算得到。</p>
+<pre class="mermaid">sequenceDiagram
+  participant App
+  participant Cache as Redis
+  participant DB
+  App-&gt;&gt;Cache: GET key
+  Cache--&gt;&gt;App: miss
+  App-&gt;&gt;DB: SELECT
+  DB--&gt;&gt;App: row
+  App-&gt;&gt;Cache: SET key ttl
+</pre>
+<p>写路径常用：</p>
+<pre><code class="language-pseudo">begin transaction
+update db
+commit
+delete cache
+</code></pre>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_4">工程实践/示例</h2>
+<p>失败窗口要显式设计补偿：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>失败后果</th>
+<th>补偿</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DB 更新失败</td>
+<td>缓存旧值仍可读</td>
+<td>返回失败，不删缓存</td>
+</tr>
+<tr>
+<td>DB 成功，删缓存失败</td>
+<td>旧缓存继续存在</td>
+<td>重试、消息补偿、binlog 订阅删除</td>
+</tr>
+<tr>
+<td>删缓存后回源并发</td>
+<td>旧值可能被重新写入缓存</td>
+<td>写后删、延迟双删、版本校验</td>
+</tr>
+</tbody>
+</table></div>
+<p>对于高价值数据，可在缓存值中携带版本号或更新时间：</p>
+<pre><code class="language-json">{"version": 1024, "payload": {"status": "paid"}}
+</code></pre>
+<span class="heading-anchor" id="Cache-aside 并发时间线"></span><h3 id="cache-aside">Cache-aside 并发时间线</h3>
+<p>旁路缓存常用“读 miss 回源写缓存，写 DB 后删缓存”。它不是强一致协议，而是把短暂不一致窗口控制在业务可接受范围内。</p>
+<pre class="mermaid">sequenceDiagram
+  participant R1 as Reader
+  participant W as Writer
+  participant C as Redis
+  participant DB
+  R1-&gt;&gt;C: GET order:42
+  C--&gt;&gt;R1: miss
+  R1-&gt;&gt;DB: SELECT status=unpaid
+  W-&gt;&gt;DB: UPDATE status=paid COMMIT
+  W-&gt;&gt;C: DEL order:42
+  R1-&gt;&gt;C: SET old unpaid EX 300
+  Note over C: 旧值被回填
+</pre>
+<p>这个窗口通常用版本号、写后再删、延迟双删或 CDC 删除降低。延迟双删不是强保证：如果读请求比延迟更慢，仍可能回填旧值；如果删缓存失败，仍需要可靠重试。</p>
+<span class="heading-anchor" id="CDC、outbox 与对账"></span><h3 id="cdcoutbox">CDC、outbox 与对账</h3>
+<p>高价值业务不应只依赖“应用写 DB 后顺手删缓存”。更稳的做法是让数据库提交和变更事件有可恢复记录。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>流程</th>
+<th>优点</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>删除缓存重试表</td>
+<td>DB commit 后写删除任务</td>
+<td>简单，适合本服务内补偿</td>
+<td>应用崩溃前没写任务仍有窗口</td>
+</tr>
+<tr>
+<td>Outbox</td>
+<td>业务表和 outbox 同事务提交，异步投递删除/事件</td>
+<td>事务边界清晰，可重放</td>
+<td>增加 outbox 扫描和投递延迟</td>
+</tr>
+<tr>
+<td>CDC/binlog</td>
+<td>订阅数据库变更删除缓存</td>
+<td>覆盖非本应用写入</td>
+<td>需要处理延迟、乱序、schema 变更</td>
+</tr>
+<tr>
+<td>周期对账</td>
+<td>DB 与缓存抽样或全量比对</td>
+<td>发现长期脏数据</td>
+<td>不是实时修复</td>
+</tr>
+</tbody>
+</table></div>
+<p>Outbox 表示例：</p>
+<pre><code class="language-sql">CREATE TABLE outbox_event (
+  id BIGINT PRIMARY KEY,
+  aggregate_type VARCHAR(64) NOT NULL,
+  aggregate_id VARCHAR(128) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  payload JSON NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  created_at TIMESTAMP NOT NULL
+);
+</code></pre>
+<span class="heading-anchor" id="版本化写缓存"></span><h3 id="_5">版本化写缓存</h3>
+<p>当回源结果可能与写入并发交错时，缓存值携带版本，并使用 Lua 或 CAS 只允许新版本覆盖旧版本。</p>
+<pre><code class="language-pseudo">cached = redis.get(key)
+if cached.version &lt;= db_row.version:
+    redis.set(key, {version: db_row.version, payload: db_row}, ttl)
+</code></pre>
+<p>如果多个 key 共同表达一个对象，应尽量使用同一个版本号。读路径发现组合版本不一致时，可以回源或返回降级结果，避免把不同时间点的字段拼成伪状态。</p>
+<span class="heading-anchor" id="失败矩阵"></span><h3 id="_6">失败矩阵</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>故障</th>
+<th>结果</th>
+<th>补偿</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DB 提交前</td>
+<td>DB 失败</td>
+<td>缓存旧值仍存在</td>
+<td>返回失败，不删缓存</td>
+</tr>
+<tr>
+<td>DB 提交后</td>
+<td>应用崩溃未删缓存</td>
+<td>旧值继续可读</td>
+<td>outbox/CDC/定时对账</td>
+</tr>
+<tr>
+<td>删除缓存时</td>
+<td>Redis 超时</td>
+<td>不知道是否删除成功</td>
+<td>幂等重试 <code>DEL</code></td>
+</tr>
+<tr>
+<td>回源后写缓存</td>
+<td>写入旧版本</td>
+<td>脏缓存</td>
+<td>版本校验、延迟删除</td>
+</tr>
+<tr>
+<td>CDC 延迟</td>
+<td>删除晚到</td>
+<td>旧缓存窗口变长</td>
+<td>监控延迟，关键读读 DB</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="观测指标"></span><h3 id="_7">观测指标</h3>
+<ul>
+<li>缓存命中率、miss 回源 QPS、回源耗时。</li>
+<li>删除缓存失败次数、重试队列堆积、outbox 未投递年龄。</li>
+<li>CDC/binlog 消费延迟、乱序或跳过事件数。</li>
+<li>缓存版本落后 DB 的抽样比例。</li>
+<li>业务侧“读到旧状态”的投诉/校验计数。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_8">常见误区</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认知</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>更新 DB 后更新缓存更实时</td>
+<td>并发写可能乱序覆盖，复杂聚合也难保持正确</td>
+</tr>
+<tr>
+<td>延迟双删能保证强一致</td>
+<td>它只是降低旧值窗口，仍需根据业务容忍度评估</td>
+</tr>
+<tr>
+<td>TTL 可以替代一致性设计</td>
+<td>TTL 是兜底，不是故障补偿机制</td>
+</tr>
+<tr>
+<td>缓存和数据库能轻易端到端 exactly-once</td>
+<td>跨系统一致性需要事务消息、幂等和补偿组合</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="自测题"></span><h2 id="_9">自测题</h2>
+<ol>
+<li>为什么常见方案是“更新数据库后删除缓存”？</li>
+<li>删除缓存失败应如何处理？</li>
+<li>版本号如何降低乱序写缓存风险？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_10">实践任务</h2>
+<ul>
+<li>为“订单状态页”设计缓存一致性方案，列出失败窗口和补偿任务。</li>
+<li>用伪代码实现删除缓存失败后的可靠重试队列。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_11">延伸阅读</h2>
+<ul>
+<li>Redis caching patterns：https://redis.io/solutions/caching/</li>
+<li>MySQL binary log reference：https://dev.mysql.com/doc/refman/en/binary-log.html</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

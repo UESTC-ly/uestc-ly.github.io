@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 3 章：分割、形态学、特征与运动 · 李杨的学习笔记</title><meta name="description" content="前置阅读： 第 1 章：图像数字化与基础 ， 第 2 章：空域与频域图像增强 。完成传统方法主线后，继续阅读 第 4 章：深度学习视觉基础 。"><meta property="og:title" content="第 3 章：分割、形态学、特征与运动 · 李杨的学习笔记"><meta property="og:description" content="前置阅读： 第 1 章：图像数字化与基础 ， 第 2 章：空域与频域图像增强 。完成传统方法主线后，继续阅读 第 4 章：深度学习视觉基础 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-fb54133d36f3.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-fb54133d36f3.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>第 3 章：分割、形态学、特征与运动</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/03_%E5%88%86%E5%89%B2_%E5%BD%A2%E6%80%81%E5%AD%A6_%E7%89%B9%E5%BE%81%E4%B8%8E%E8%BF%90%E5%8A%A8.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#1">1. 分割的目标</a></li><li><a href="#2">2. 阈值分割</a></li><li><a href="#3_1">3. 区域生长、连通域与轮廓</a></li><li><a href="#4">4. 分水岭</a></li><li><a href="#5">5. 形态学基础</a></li><li><a href="#6">6. 复合形态学</a></li><li><a href="#7-harris">7. Harris 角点</a></li><li><a href="#8-sift">8. SIFT</a></li><li><a href="#9-hog">9. HOG</a></li><li><a href="#10">10. 光流</a></li><li><a href="#11">11. 传统视觉流水线模板</a></li><li><a href="#12">12. 工程陷阱</a></li><li><a href="#13">13. 传统方法与深度学习的关系</a></li><li><a href="#14">14. 高频问答与速记</a></li><li><a href="#_2">本章检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握阈值、区域生长、连通域、分水岭和形态学的核心思想。</li>
+<li>理解 Harris、SIFT、HOG、光流等传统特征与运动估计方法。</li>
+<li>能设计传统图像处理流程，并知道何时与深度学习模型结合。</li>
+<li>能回答面试中关于边缘、分割、特征、光流和工程调参的高频问题。</li>
+</ul>
+<p>前置阅读：<a href="n-1f5f2df9b6d2.html">第 1 章：图像数字化与基础</a>，<a href="n-087305bf151c.html">第 2 章：空域与频域图像增强</a>。完成传统方法主线后，继续阅读 <a href="n-1b807f1149b0.html">第 4 章：深度学习视觉基础</a>。</p>
+<span class="heading-anchor" id="1. 分割的目标"></span><h2 id="1">1. 分割的目标</h2>
+<p>图像分割把像素划分为前景/背景或多个区域。传统分割依赖可解释线索：灰度、颜色、纹理、边缘、连通性、形状和运动。它通常不是单个算法完成，而是一条流水线：</p>
+<ol>
+<li>预处理：灰度化、去噪、光照校正、颜色空间转换。</li>
+<li>初分割：阈值、边缘、区域、聚类或背景差分。</li>
+<li>后处理：形态学、连通域、轮廓、面积和形状过滤。</li>
+<li>评价：观察中间结果，并用误检、漏检、IoU、边界误差或业务指标验证。</li>
+</ol>
+<p>分割的难点常来自光照不均、目标纹理变化、边界弱、阴影反光、目标粘连和尺度变化。</p>
+<span class="heading-anchor" id="2. 阈值分割"></span><h2 id="2">2. 阈值分割</h2>
+<p>全局阈值：</p>
+<div class="arithmatex">\[
+g(x,y)=
+\begin{cases}
+1, &amp; f(x,y)\ge T\\
+0, &amp; f(x,y)&lt;T
+\end{cases}
+\]</div>
+<p>适合前景和背景灰度分布差异明显、光照稳定的场景。Otsu 自动选择使类间方差最大的阈值：</p>
+<div class="arithmatex">\[
+\sigma_b^2(T)=\omega_0(T)\omega_1(T)[\mu_0(T)-\mu_1(T)]^2
+\]</div>
+<p>当直方图近似双峰时 Otsu 很有效；目标比例极小、背景渐变或前景背景重叠时容易失败。</p>
+<p>自适应阈值根据局部窗口计算阈值：</p>
+<div class="arithmatex">\[
+T(x,y)=\operatorname{mean}_{\Omega(x,y)}(f)-C
+\]</div>
+<p>窗口越小越能跟随局部光照，也越容易跟随噪声；窗口越大越稳定，但可能不能处理阴影变化。</p>
+<span class="heading-anchor" id="3. 区域生长、连通域与轮廓"></span><h2 id="3_1">3. 区域生长、连通域与轮廓</h2>
+<p>区域生长从种子点出发，把满足相似性条件的邻域像素加入区域。核心参数是种子选择、邻域类型和相似阈值。它适合边界连续且区域内部一致的任务，但对噪声、种子位置和阈值敏感。</p>
+<p>连通域分析把二值图中的相邻前景像素归为组件。4 邻域只看上下左右，8 邻域还看对角。常用过滤特征：</p>
+<ul>
+<li>面积：去掉小噪点或过大背景。</li>
+<li>外接矩形：筛长宽比和尺寸。</li>
+<li>质心：定位目标中心。</li>
+<li>圆度：<span class="arithmatex">\(4\pi A/P^2\)</span>，越接近 1 越圆。</li>
+<li>填充率：区域面积 / 外接框面积。</li>
+</ul>
+<p>轮廓更关注边界，可用于形状匹配、矩、凸包、最小外接矩形和几何测量。轮廓前通常要确保前景为白、背景为黑。</p>
+<span class="heading-anchor" id="4. 分水岭"></span><h2 id="4">4. 分水岭</h2>
+<p>分水岭把灰度图看作地形，亮度或梯度幅值对应高度。从标记点开始“注水”，不同区域相遇处形成分割边界。它适合粘连目标分离，例如细胞、颗粒、硬币。</p>
+<p>典型流程：</p>
+<ol>
+<li>平滑去噪。</li>
+<li>阈值得到粗前景。</li>
+<li>距离变换得到目标中心候选。</li>
+<li>膨胀或背景估计得到确定背景。</li>
+<li>构造 markers。</li>
+<li>在原图或梯度图上运行分水岭。</li>
+<li>用边界和连通域过滤结果。</li>
+</ol>
+<p>工程陷阱：</p>
+<ul>
+<li>marker 不准会直接导致过分割或欠分割。</li>
+<li>梯度噪声会产生大量碎盆地，必须先平滑或合并。</li>
+<li>分水岭是分割工具，不是语义理解工具；目标外观差异大时需结合学习方法。</li>
+</ul>
+<span class="heading-anchor" id="5. 形态学基础"></span><h2 id="5">5. 形态学基础</h2>
+<p>形态学用结构元素处理集合或二值图。设前景集合为 <span class="arithmatex">\(A\)</span>，结构元素为 <span class="arithmatex">\(B\)</span>。</p>
+<p>腐蚀：</p>
+<div class="arithmatex">\[
+A\ominus B=\{z\mid B_z\subseteq A\}
+\]</div>
+<p>膨胀：</p>
+<div class="arithmatex">\[
+A\oplus B=\{z\mid \hat{B}_z\cap A\neq \emptyset\}
+\]</div>
+<p>直觉：</p>
+<ul>
+<li>腐蚀让白色前景变小，能去小白点，但会断细线。</li>
+<li>膨胀让白色前景变大，能补小孔和断裂，但会粘连邻近目标。</li>
+<li>结构元素越大，作用越强；迭代次数越多，等价于更激进的形状修改。</li>
+</ul>
+<p>结构元素形状要匹配目标：矩形适合文字、条形结构；椭圆适合圆形颗粒；十字适合保留水平/垂直骨架。</p>
+<span class="heading-anchor" id="6. 复合形态学"></span><h2 id="6">6. 复合形态学</h2>
+<p>开运算：</p>
+<div class="arithmatex">\[
+A\circ B=(A\ominus B)\oplus B
+\]</div>
+<p>先腐蚀后膨胀，常用于去小白噪声、断开细连接。</p>
+<p>闭运算：</p>
+<div class="arithmatex">\[
+A\bullet B=(A\oplus B)\ominus B
+\]</div>
+<p>先膨胀后腐蚀，常用于填小黑洞、连接断裂笔画。</p>
+<p>其他操作：</p>
+<ul>
+<li>形态学梯度：膨胀减腐蚀，得到边界带。</li>
+<li>顶帽：原图减开运算，突出小亮结构。</li>
+<li>黑帽：闭运算减原图，突出小暗结构。</li>
+<li>骨架：保留形状拓扑中轴，常用于细线结构分析。</li>
+</ul>
+<p>使用原则：形态学应针对具体错误类型，例如“去小白点”“补小孔”“断开细桥”，不要无目标地堆叠开闭运算。</p>
+<span class="heading-anchor" id="7. Harris 角点"></span><h2 id="7-harris">7. Harris 角点</h2>
+<p>角点是两个方向上灰度都明显变化的位置。Harris 从局部窗口的自相关变化出发：</p>
+<div class="arithmatex">\[
+E(u,v)=\sum_{x,y}w(x,y)[I(x+u,y+v)-I(x,y)]^2
+\]</div>
+<p>小位移近似后得到结构张量：</p>
+<div class="arithmatex">\[
+M=
+\sum w(x,y)
+\begin{bmatrix}
+I_x^2&amp;I_xI_y\\
+I_xI_y&amp;I_y^2
+\end{bmatrix}
+\]</div>
+<p>响应函数：</p>
+<div class="arithmatex">\[
+R=\det(M)-k(\operatorname{trace}(M))^2
+\]</div>
+<p>若两个特征值都大，说明水平和垂直方向都变化明显，是角点；一个大一个小说明是边缘；两个都小说明是平坦区域。</p>
+<p>参数影响：</p>
+<ul>
+<li>窗口越大：更稳定，但定位更粗。</li>
+<li><span class="arithmatex">\(k\)</span> 通常取 <code>0.04..0.06</code>，越大越抑制边缘响应。</li>
+<li>阈值越高：角点更少更可靠；阈值越低：召回高但噪点多。</li>
+</ul>
+<span class="heading-anchor" id="8. SIFT"></span><h2 id="8-sift">8. SIFT</h2>
+<p>SIFT 解决尺度和旋转变化下的局部特征匹配。核心步骤：</p>
+<ol>
+<li>构建高斯尺度空间。</li>
+<li>用 DoG 近似 LoG，寻找尺度空间极值点。</li>
+<li>精确定位关键点，剔除低对比度点和边缘响应点。</li>
+<li>根据邻域梯度方向分配主方向。</li>
+<li>在旋转归一化邻域内统计梯度方向直方图，形成 128 维描述子。</li>
+</ol>
+<p>DoG：</p>
+<div class="arithmatex">\[
+D(x,y,\sigma)=L(x,y,k\sigma)-L(x,y,\sigma)
+\]</div>
+<p>其中 <span class="arithmatex">\(L=G_\sigma * I\)</span>。SIFT 的强项是尺度、旋转和一定光照变化下稳定；弱项是速度较慢，对大视角变化、非刚体变形和重复纹理仍可能失败。</p>
+<p>工程流程：检测关键点，计算描述子，KNN 匹配，Lowe ratio test，RANSAC 估计单应或基础矩阵，最后检查内点比例和几何一致性。</p>
+<span class="heading-anchor" id="9. HOG"></span><h2 id="9-hog">9. HOG</h2>
+<p>HOG 通过局部梯度方向分布描述形状，经典用于行人检测。流程：</p>
+<ol>
+<li>Gamma/颜色归一化。</li>
+<li>计算梯度 <span class="arithmatex">\(G_x,G_y\)</span>。</li>
+<li>将图像划分为 cell，统计方向直方图。</li>
+<li>多个 cell 组成 block，做归一化。</li>
+<li>拼接所有 block 特征，输入 SVM 或其他分类器。</li>
+</ol>
+<p>HOG 的直觉是：局部边缘方向的统计能描述物体轮廓，而对小范围光照变化较鲁棒。cell 越小细节越多但噪声敏感，block 归一化能减弱光照强弱影响，方向 bin 越多表达更细但维度更高。</p>
+<span class="heading-anchor" id="10. 光流"></span><h2 id="10">10. 光流</h2>
+<p>光流估计像素随时间的运动。基本假设是亮度恒定：</p>
+<div class="arithmatex">\[
+I(x,y,t)=I(x+u,y+v,t+1)
+\]</div>
+<p>一阶泰勒展开得到光流约束方程：</p>
+<div class="arithmatex">\[
+I_xu+I_yv+I_t=0
+\]</div>
+<p>一个像素只有一个方程、两个未知量，这是孔径问题。Lucas-Kanade 假设小窗口内运动一致，用多个像素方程最小二乘求解；Horn-Schunck 加入全局平滑约束，得到稠密光流。</p>
+<p>Lucas-Kanade 适合稀疏角点跟踪；Farneback、TV-L1、深度光流模型适合稠密运动估计。传统光流对大位移、运动模糊、遮挡、光照变化和低纹理区域敏感，通常需要金字塔、多尺度和可靠性过滤。</p>
+<span class="heading-anchor" id="11. 传统视觉流水线模板"></span><h2 id="11">11. 传统视觉流水线模板</h2>
+<p>规则稳定的小目标检测：</p>
+<ol>
+<li>相机固定，控制曝光和光源。</li>
+<li>颜色空间转换或背景建模。</li>
+<li>滤波降噪和光照校正。</li>
+<li>阈值分割候选区域。</li>
+<li>形态学清理。</li>
+<li>连通域提取。</li>
+<li>面积、长宽比、圆度、纹理或位置规则过滤。</li>
+<li>保存中间图和参数，用验证集评估误检/漏检。</li>
+</ol>
+<p>图像拼接/定位：</p>
+<ol>
+<li>灰度化和必要增强。</li>
+<li>SIFT/ORB 等特征检测与描述。</li>
+<li>KNN 匹配和 ratio test。</li>
+<li>RANSAC 估计单应、基础矩阵或位姿。</li>
+<li>检查内点数、重投影误差和几何方向。</li>
+</ol>
+<p>视频运动分析：</p>
+<ol>
+<li>解码并检查帧率、时间戳和分辨率。</li>
+<li>稳定化或 ROI 限定。</li>
+<li>背景差分/光流/特征点跟踪。</li>
+<li>轨迹平滑和异常过滤。</li>
+<li>输出事件、速度、方向或目标状态。</li>
+</ol>
+<span class="heading-anchor" id="12. 工程陷阱"></span><h2 id="12">12. 工程陷阱</h2>
+<ul>
+<li>阈值只在一张样本上有效，换光照立刻失效。</li>
+<li>前景黑白定义混乱，导致形态学和轮廓方向全错。</li>
+<li>结构元素尺寸没有结合目标物理尺寸和像素尺度。</li>
+<li>把边缘当边界，忽略阴影、纹理和反光。</li>
+<li>特征匹配只看描述子距离，不做几何一致性检查。</li>
+<li>光流默认亮度恒定，自动曝光和闪烁会破坏假设。</li>
+<li>相机移动时直接做背景差分，会把全图都当运动。</li>
+<li>只保存最终结果，不保存中间图，调参无法复现。</li>
+</ul>
+<span class="heading-anchor" id="13. 传统方法与深度学习的关系"></span><h2 id="13">13. 传统方法与深度学习的关系</h2>
+<p>传统方法的价值在于可解释、可控、低成本和小数据友好。深度学习的价值在于学习复杂语义、适应外观变化和减少手写规则。实际项目中常见组合：</p>
+<ul>
+<li>传统前处理：去畸变、配准、ROI 裁剪、质量筛选。</li>
+<li>深度模型：分类、检测、分割、关键点或重识别。</li>
+<li>传统后处理：NMS 后规则过滤、连通域修正、几何一致性检查、测量计算。</li>
+<li>传统兜底：模型低置信度时使用规则或人工复核。</li>
+</ul>
+<p>不要用“传统还是深度”做二选一。正确问题是：数据量、变化范围、实时性、可解释性、维护成本和错误代价分别是什么。</p>
+<span class="heading-anchor" id="14. 高频问答与速记"></span><h2 id="14">14. 高频问答与速记</h2>
+<p><strong>Q：Otsu 为什么适合双峰直方图？</strong><br/>
+A：它最大化前景和背景的类间方差。双峰说明两个类别灰度可分，阈值更有意义。</p>
+<p><strong>Q：开运算和闭运算怎么记？</strong><br/>
+A：开是先腐蚀后膨胀，去小白点、断细连接；闭是先膨胀后腐蚀，补小黑洞、连断裂。</p>
+<p><strong>Q：Harris 为什么能找角点？</strong><br/>
+A：角点在两个方向移动都会让窗口灰度变化大，对应结构张量两个特征值都大。</p>
+<p><strong>Q：SIFT 为什么有尺度不变性？</strong><br/>
+A：它在高斯尺度空间中检测带有尺度的极值点，再依据邻域梯度为关键点分配主方向；描述时使用该尺度与方向形成归一化局部坐标。</p>
+<p><strong>Q：HOG 和 SIFT 有什么区别？</strong><br/>
+A：二者都用梯度方向统计。SIFT 是局部关键点描述子，偏匹配；HOG 是密集窗口形状描述，偏检测/分类。</p>
+<p><strong>Q：光流约束为什么不够解？</strong><br/>
+A：一个像素只有 <span class="arithmatex">\(I_xu+I_yv+I_t=0\)</span> 一个方程，但未知运动有 <span class="arithmatex">\(u,v\)</span> 两个分量，需要窗口一致性或平滑约束。</p>
+<p>速记：</p>
+<ul>
+<li>阈值靠灰度差，区域靠连通和相似，分水岭靠 marker。</li>
+<li>腐蚀缩白，膨胀扩白。</li>
+<li>Harris 看两个方向是否都变。</li>
+<li>SIFT：尺度空间、主方向、梯度直方图。</li>
+<li>光流三假设：亮度恒定、小运动、局部一致。</li>
+</ul>
+<span class="heading-anchor" id="本章检查清单"></span><h2 id="_2">本章检查清单</h2>
+<ul>
+<li>[ ] 能说明全局阈值、Otsu、自适应阈值适用条件。</li>
+<li>[ ] 能设计区域生长、连通域和轮廓过滤流程。</li>
+<li>[ ] 能描述分水岭的 marker 流程和过分割原因。</li>
+<li>[ ] 能写出腐蚀、膨胀、开闭运算的含义和公式。</li>
+<li>[ ] 能解释 Harris 响应函数和参数影响。</li>
+<li>[ ] 能讲清 SIFT 的尺度空间、方向分配和描述子思想。</li>
+<li>[ ] 能说明 HOG 的 cell、block、方向直方图和归一化作用。</li>
+<li>[ ] 能推导光流约束方程并解释孔径问题。</li>
+<li>[ ] 能给出传统方法与深度学习组合的工程方案。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

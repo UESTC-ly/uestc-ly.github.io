@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Alpaca 与 LLM 指令微调详细教程 · 李杨的学习笔记</title><meta name="description" content="很多人第一次接触大语言模型微调时，会在训练框架里看到 alpaca 、 sharegpt 、 conversation 、 sft 这些词，很容易混在一起。"><meta property="og:title" content="Alpaca 与 LLM 指令微调详细教程 · 李杨的学习笔记"><meta property="og:description" content="很多人第一次接触大语言模型微调时，会在训练框架里看到 alpaca 、 sharegpt 、 conversation 、 sft 这些词，很容易混在一起。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-ca2ac555bf65.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-ca2ac555bf65.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>Alpaca 与 LLM 指令微调详细教程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/Alpaca%E4%B8%8ELLM%E6%8C%87%E4%BB%A4%E5%BE%AE%E8%B0%83.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">目录</a></li><li><a href="#31-stanford-alpaca">3.1 狭义的 Stanford Alpaca</a></li><li><a href="#32-alpaca">3.2 广义的 alpaca 格式</a></li><li><a href="#41-instruction-input">4.1 为什么要把 instruction 和 input 分开</a></li><li><a href="#42-input">4.2 input 为空时怎么办</a></li><li><a href="#81">8.1 自回归语言模型的基本目标</a></li><li><a href="#82-loss">8.2 为什么常常只对答案部分计算 loss</a></li><li><a href="#83-label-shift">8.3 Label Shift 是什么</a></li><li><a href="#84">8.4 一个简化理解</a></li><li><a href="#91">9.1 预训练</a></li><li><a href="#92">9.2 继续预训练</a></li><li><a href="#93-alpaca-sft">9.3 Alpaca 类 SFT</a></li><li><a href="#94-rlhf">9.4 RLHF</a></li><li><a href="#101-alpaca">10.1 Alpaca 更适合什么</a></li><li><a href="#102-sharegpt">10.2 ShareGPT 更适合什么</a></li><li><a href="#103">10.3 面试里怎么答区别</a></li><li><a href="#111">11.1 人工标注</a></li><li><a href="#112">11.2 教师模型蒸馏 / 数据合成</a></li><li><a href="#113">11.3 现有任务数据改造</a></li><li><a href="#114">11.4 业务日志改造</a></li><li><a href="#131">13.1 指令模板</a></li><li><a href="#132-system-prompt">13.2 System Prompt</a></li><li><a href="#133-chat-template">13.3 Chat Template</a></li><li><a href="#141-lora">14.1 LoRA 是什么</a></li><li><a href="#142-qlora">14.2 QLoRA 是什么</a></li><li><a href="#143-alpaca">14.3 它们和 Alpaca 的关系</a></li><li><a href="#151">15.1 选基座模型</a></li><li><a href="#152">15.2 数据清洗</a></li><li><a href="#153">15.3 训练配置</a></li><li><a href="#154">15.4 验证方式</a></li><li><a href="#161">16.1 长度截断</a></li><li><a href="#162-packing">16.2 Packing</a></li><li><a href="#163">16.3 显存和吞吐的典型权衡</a></li><li><a href="#181-alpaca">18.1 误区一：Alpaca 就是一个模型</a></li><li><a href="#182-alpaca">18.2 误区二：只要转成 alpaca 格式就一定有效</a></li><li><a href="#183-sft">18.3 误区三：SFT 之后模型就一定更聪明</a></li><li><a href="#184-prompt">18.4 误区四：prompt 模板无所谓</a></li><li><a href="#185-loss">18.5 误区五：只看训练 loss 就够了</a></li><li><a href="#191-alpaca">19.1 面试官问：什么是 Alpaca</a></li><li><a href="#192-alpaca-lora">19.2 面试官问：Alpaca 和 LoRA 是什么关系</a></li><li><a href="#193-alpaca-sharegpt">19.3 面试官问：Alpaca 和 ShareGPT 怎么选</a></li><li><a href="#194-loss">19.4 面试官问：为什么只对回答部分算 loss</a></li><li><a href="#195-alpaca">19.5 面试官问：Alpaca 微调最关键的因素是什么</a></li><li><a href="#201">20.1 数据层</a></li><li><a href="#202">20.2 模板层</a></li><li><a href="#203">20.3 训练层</a></li><li><a href="#204">20.4 评测层</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="目录"></span><h2 id="_1">目录</h2>
+<ol>
+<li>Alpaca 到底是什么</li>
+<li>为什么它在 LLM 微调里这么常见</li>
+<li>Stanford Alpaca 和广义 alpaca 格式的区别</li>
+<li>Alpaca 数据格式长什么样</li>
+<li>一条 Alpaca 样本是怎样变成训练文本的</li>
+<li>Alpaca 为什么属于监督微调</li>
+<li>训练时模型到底在学什么</li>
+<li>Loss Mask、Label Shift 和训练目标怎么理解</li>
+<li>Alpaca、预训练、继续预训练、RLHF 的关系</li>
+<li>Alpaca 和 ShareGPT、多轮对话格式有什么区别</li>
+<li>Alpaca 数据通常从哪里来</li>
+<li>数据质量为什么比数据格式更重要</li>
+<li>指令模板、System Prompt 和聊天模板的关系</li>
+<li>Alpaca 数据怎么配合 LoRA、QLoRA 训练</li>
+<li>训练流程应该怎样搭起来</li>
+<li>长度截断、Packing、显存和吞吐的权衡</li>
+<li>怎么判断你的任务适不适合用 Alpaca 格式</li>
+<li>常见误区和踩坑点</li>
+<li>面试高频问答</li>
+<li>实战清单</li>
+<li>最终总结</li>
+</ol>
+<hr/>
+<span class="heading-anchor" id="1. Alpaca 到底是什么"></span><h1 id="1-alpaca">1. Alpaca 到底是什么</h1>
+<p>很多人第一次接触大语言模型微调时，会在训练框架里看到 <code>alpaca</code>、<code>sharegpt</code>、<code>conversation</code>、<code>sft</code> 这些词，很容易混在一起。</p>
+<p>先给一句最重要的定义：</p>
+<blockquote>
+<p><strong>Alpaca 在 LLM 微调语境里，通常指一种“单轮指令监督微调数据范式”，也常指由 Stanford Alpaca 项目带火的 instruction-input-output 数据格式。</strong></p>
+</blockquote>
+<p>它不是一种新的优化器，不是某种特殊网络结构，也不是参数高效微调方法。</p>
+<p>它更像是：</p>
+<ul>
+<li>一种组织训练样本的方式</li>
+<li>一种让基础模型学会“听指令回答”的监督数据形式</li>
+<li>一类被大量训练框架直接支持的数据模板</li>
+</ul>
+<p>如果再压缩成一句更容易记的话：</p>
+<blockquote>
+<p><strong>预训练让模型“会说话”，Alpaca 类指令数据让模型“会按要求说话”。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="2. 为什么它在 LLM 微调里这么常见"></span><h1 id="2-llm">2. 为什么它在 LLM 微调里这么常见</h1>
+<p>基础大模型在预训练阶段，主要目标通常是：</p>
+<blockquote>
+<p>根据前面的上下文，预测下一个 token。</p>
+</blockquote>
+<p>这种训练让模型获得了语言建模能力、知识记忆能力和一定推理能力，但它并不天然等于“好用的助手”。</p>
+<p>比如一个只做过预训练的模型，面对下面这类请求时，表现可能并不稳定：</p>
+<ul>
+<li>请把这段话翻译成英文</li>
+<li>请用三点总结文章</li>
+<li>请从合同里抽取金额和日期</li>
+<li>请用面试者能听懂的话解释什么是 Transformer</li>
+</ul>
+<p>原因在于：</p>
+<ul>
+<li>它知道语言统计规律</li>
+<li>但未必真正学过“大量明确的任务指令 -&gt; 标准回答”</li>
+</ul>
+<p>这就是 Alpaca 类数据出现的价值：</p>
+<ul>
+<li>把训练样本组织成明确的任务输入和目标输出</li>
+<li>让模型学会遵循指令、控制格式、贴近助手式响应</li>
+<li>用较少数据完成从“基础模型”到“指令模型”的迁移</li>
+</ul>
+<p>所以 Alpaca 的核心价值不是增加模型参数，而是：</p>
+<blockquote>
+<p><strong>把模型的通用语言能力，重新塑形成可用的任务执行能力。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="3. Stanford Alpaca 和广义 alpaca 格式的区别"></span><h1 id="3-stanford-alpaca-alpaca">3. Stanford Alpaca 和广义 alpaca 格式的区别</h1>
+<p>这部分特别容易在面试和实战里混淆。</p>
+<span class="heading-anchor" id="3.1 狭义的 Stanford Alpaca"></span><h2 id="31-stanford-alpaca">3.1 狭义的 Stanford Alpaca</h2>
+<p><strong>Stanford Alpaca</strong> 是斯坦福团队在 LLaMA 基座上做的一个早期指令微调项目。它的重要意义在于：</p>
+<ul>
+<li>证明了较小规模的高质量指令数据，也能让基座模型明显更像聊天助手</li>
+<li>带火了通过教师模型生成 instruction-following 数据的思路</li>
+<li>让很多开源训练框架开始支持统一的 instruction 数据格式</li>
+</ul>
+<span class="heading-anchor" id="3.2 广义的 alpaca 格式"></span><h2 id="32-alpaca">3.2 广义的 alpaca 格式</h2>
+<p>后来在工程实践里，很多人说“alpaca 数据”，其实说的是这一类结构：</p>
+<pre><code class="language-json">{
+  "instruction": "解释什么是哈希表",
+  "input": "",
+  "output": "哈希表是一种通过键快速查找值的数据结构。"
+}
+</code></pre>
+<p>也就是说，今天很多场景里：</p>
+<ul>
+<li><code>Alpaca</code> 不再特指原始 Stanford Alpaca 数据集本身</li>
+<li>而是泛指单轮指令微调格式</li>
+</ul>
+<p>所以面试时可以这样回答：</p>
+<blockquote>
+<p><strong>严格说，Stanford Alpaca 是一个具体项目；工程上常说的 alpaca，更常是指 instruction-input-output 这种单轮 SFT 数据格式。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="4. Alpaca 数据格式长什么样"></span><h1 id="4-alpaca">4. Alpaca 数据格式长什么样</h1>
+<p>最常见的 Alpaca 字段有三个：</p>
+<pre><code class="language-json">{
+  "instruction": "请解释什么是监督学习",
+  "input": "",
+  "output": "监督学习是利用带标签数据训练模型，让模型学习输入和输出之间映射关系的方法。"
+}
+</code></pre>
+<p>它们分别表示：</p>
+<ul>
+<li><code>instruction</code>：任务要求，是主问题</li>
+<li><code>input</code>：额外上下文，可为空</li>
+<li><code>output</code>：期望模型生成的标准答案</li>
+</ul>
+<span class="heading-anchor" id="4.1 为什么要把 instruction 和 input 分开"></span><h2 id="41-instruction-input">4.1 为什么要把 instruction 和 input 分开</h2>
+<p>因为很多任务本质上由两部分构成：</p>
+<ul>
+<li>“你要做什么”</li>
+<li>“你基于什么材料做”</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-json">{
+  "instruction": "请总结下面文本的核心观点",
+  "input": "大模型推理成本持续上升，企业开始关注蒸馏与量化方案。",
+  "output": "核心观点是：随着推理成本升高，企业更关注蒸馏和量化来降低部署成本。"
+}
+</code></pre>
+<p>这样拆开以后，模型更容易学到：</p>
+<ul>
+<li>哪部分是任务定义</li>
+<li>哪部分是待处理内容</li>
+</ul>
+<span class="heading-anchor" id="4.2 input 为空时怎么办"></span><h2 id="42-input">4.2 input 为空时怎么办</h2>
+<p>很多样本没有额外上下文，这时 <code>input</code> 直接空字符串即可。</p>
+<p>例如：</p>
+<pre><code class="language-json">{
+  "instruction": "请给出 Python 中列表和元组的区别",
+  "input": "",
+  "output": "列表可变，元组不可变；列表通常用于可修改集合，元组适合固定结构数据。"
+}
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="5. 一条 Alpaca 样本是怎样变成训练文本的"></span><h1 id="5-alpaca">5. 一条 Alpaca 样本是怎样变成训练文本的</h1>
+<p>模型训练时并不是直接“理解 JSON”，而是先把结构化字段拼成一段文本，再送入 tokenizer。</p>
+<p>一个常见模板是：</p>
+<pre><code class="language-text">Below is an instruction that describes a task, paired with an input that provides further context.
+Write a response that appropriately completes the request.
+
+### Instruction:
+请解释什么是监督学习
+
+### Input:
+
+### Response:
+监督学习是利用带标签数据训练模型，让模型学习输入和输出之间映射关系的方法。
+</code></pre>
+<p>所以本质流程是：</p>
+<ol>
+<li>读取一条 JSON 样本</li>
+<li>根据 prompt template 拼成统一文本</li>
+<li>tokenizer 把文本切成 token</li>
+<li>用这些 token 构造训练标签</li>
+<li>计算 loss 并更新参数</li>
+</ol>
+<p>这说明一个关键事实：</p>
+<blockquote>
+<p><strong>Alpaca 格式只是上游的数据组织方式，真正训练时模型看到的是“模板化后的文本序列”。</strong></p>
+</blockquote>
+<p>这也是为什么同一份数据，在不同训练框架或不同 chat template 下，训练效果会有差异。</p>
+<hr/>
+<span class="heading-anchor" id="6. Alpaca 为什么属于监督微调"></span><h1 id="6-alpaca">6. Alpaca 为什么属于监督微调</h1>
+<p><strong>监督微调（Supervised Fine-Tuning, SFT）</strong> 的核心是：</p>
+<ul>
+<li>训练集中有明确输入</li>
+<li>也有明确目标输出</li>
+<li>模型通过最小化预测输出和标准答案之间的差异来学习</li>
+</ul>
+<p>Alpaca 数据正符合这个定义：</p>
+<ul>
+<li>输入端：<code>instruction + input</code></li>
+<li>监督信号：<code>output</code></li>
+</ul>
+<p>因此它天然属于 SFT，而不是预训练，也不是强化学习。</p>
+<p>可以这样区分：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>训练阶段</th>
+<th>数据形式</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>预训练</td>
+<td>大规模原始文本</td>
+<td>学语言建模能力</td>
+</tr>
+<tr>
+<td>监督微调</td>
+<td>指令-答案对</td>
+<td>学会按要求完成任务</td>
+</tr>
+<tr>
+<td>偏好优化 / RLHF</td>
+<td>多个回答及偏好</td>
+<td>学会更符合人类偏好</td>
+</tr>
+</tbody>
+</table></div>
+<p>所以 Alpaca 解决的问题是：</p>
+<blockquote>
+<p><strong>让模型从“会续写”进化为“会按照人类指令完成任务”。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="7. 训练时模型到底在学什么"></span><h1 id="7">7. 训练时模型到底在学什么</h1>
+<p>很多初学者会误以为：</p>
+<blockquote>
+<p>Alpaca 微调是在教模型“理解 JSON 字段”。</p>
+</blockquote>
+<p>其实不是。</p>
+<p>模型真正学的是：</p>
+<ul>
+<li>看到某种任务描述时，应该以什么方式组织回答</li>
+<li>哪些回答风格更符合指令</li>
+<li>哪些信息该保留，哪些不该胡编</li>
+<li>某类任务通常输出什么结构</li>
+</ul>
+<p>例如对“请把下面内容翻译成英文”这类 instruction，模型会逐渐学到：</p>
+<ul>
+<li>不要继续闲聊</li>
+<li>不要解释原理</li>
+<li>应该直接给译文</li>
+</ul>
+<p>对“请用三点总结”这类 instruction，它会学到：</p>
+<ul>
+<li>输出应该更短</li>
+<li>最好分点</li>
+<li>应聚焦关键信息</li>
+</ul>
+<p>所以 Alpaca 微调学到的，不只是知识内容，还有：</p>
+<ul>
+<li>响应风格</li>
+<li>任务边界</li>
+<li>输出格式</li>
+<li>助手行为模式</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. Loss Mask、Label Shift 和训练目标怎么理解"></span><h1 id="8-loss-masklabel-shift">8. Loss Mask、Label Shift 和训练目标怎么理解</h1>
+<p>这是训练里很关键、也很容易被忽略的一部分。</p>
+<span class="heading-anchor" id="8.1 自回归语言模型的基本目标"></span><h2 id="81">8.1 自回归语言模型的基本目标</h2>
+<p>大部分指令微调还是在做自回归训练：</p>
+<blockquote>
+<p>给定前面的 token，预测下一个 token。</p>
+</blockquote>
+<p>所以即便是 SFT，底层 loss 形式通常仍然是 token-level cross entropy。</p>
+<span class="heading-anchor" id="8.2 为什么常常只对答案部分计算 loss"></span><h2 id="82-loss">8.2 为什么常常只对答案部分计算 loss</h2>
+<p>假设训练文本是：</p>
+<pre><code class="language-text">### Instruction:
+解释什么是监督学习
+
+### Response:
+监督学习是...
+</code></pre>
+<p>如果我们对整段都计算 loss，那么模型不仅要学答案，还要去“背模板”和“复现问题文本”。</p>
+<p>因此很多 SFT 实现会：</p>
+<ul>
+<li>prompt 部分 label 设为 <code>-100</code></li>
+<li>只对 response 部分计算 loss</li>
+</ul>
+<p>这就是常说的 <strong>loss mask</strong>。</p>
+<p>它的好处是：</p>
+<ul>
+<li>训练目标更聚焦在“生成答案”</li>
+<li>避免把过多优化能力浪费在复制 instruction 上</li>
+</ul>
+<span class="heading-anchor" id="8.3 Label Shift 是什么"></span><h2 id="83-label-shift">8.3 Label Shift 是什么</h2>
+<p>自回归模型训练时，输入序列和预测目标会错开一个位置。</p>
+<p>例如输入是：</p>
+<pre><code class="language-text">A B C
+</code></pre>
+<p>模型的学习目标是：</p>
+<ul>
+<li>看到 <code>A</code> 预测 <code>B</code></li>
+<li>看到 <code>A B</code> 预测 <code>C</code></li>
+</ul>
+<p>在 SFT 里本质也一样，只是文本内容变成了“模板 + 指令 + 回答”。</p>
+<span class="heading-anchor" id="8.4 一个简化理解"></span><h2 id="84">8.4 一个简化理解</h2>
+<p>你可以把 Alpaca 训练想成：</p>
+<blockquote>
+<p><strong>给模型看“问题 + 部分答案前缀”，让它一步步把标准答案续写出来。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="9. Alpaca、预训练、继续预训练、RLHF 的关系"></span><h1 id="9-alpacarlhf">9. Alpaca、预训练、继续预训练、RLHF 的关系</h1>
+<p>这四个概念经常同时出现，但各自解决的问题不同。</p>
+<span class="heading-anchor" id="9.1 预训练"></span><h2 id="91">9.1 预训练</h2>
+<p>目标：</p>
+<ul>
+<li>学语言规律</li>
+<li>学知识分布</li>
+<li>学通用表示</li>
+</ul>
+<p>数据：</p>
+<ul>
+<li>海量原始文本</li>
+</ul>
+<span class="heading-anchor" id="9.2 继续预训练"></span><h2 id="92">9.2 继续预训练</h2>
+<p>也叫领域继续预训练，通常是在某个行业文本上继续做语言建模，比如：</p>
+<ul>
+<li>法律文本</li>
+<li>医疗文档</li>
+<li>代码仓库</li>
+</ul>
+<p>目标：</p>
+<ul>
+<li>增强模型在特定领域的语言和知识适配</li>
+</ul>
+<span class="heading-anchor" id="9.3 Alpaca 类 SFT"></span><h2 id="93-alpaca-sft">9.3 Alpaca 类 SFT</h2>
+<p>目标：</p>
+<ul>
+<li>让模型学会遵循任务指令</li>
+<li>输出更像助手，而不是普通文本续写器</li>
+</ul>
+<span class="heading-anchor" id="9.4 RLHF"></span><h2 id="94-rlhf">9.4 RLHF</h2>
+<p><strong>基于人类反馈的强化学习（Reinforcement Learning from Human Feedback, RLHF）</strong> 更关注：</p>
+<ul>
+<li>多个回答哪个更好</li>
+<li>哪种回答更安全、更有帮助、更符合偏好</li>
+</ul>
+<p>所以一个常见流水线是：</p>
+<ol>
+<li>预训练</li>
+<li>继续预训练（可选）</li>
+<li>Alpaca 类 SFT</li>
+<li>偏好优化 / RLHF（可选）</li>
+</ol>
+<p>其中 Alpaca 往往是“把模型变成助手”的第一步。</p>
+<hr/>
+<span class="heading-anchor" id="10. Alpaca 和 ShareGPT、多轮对话格式有什么区别"></span><h1 id="10-alpaca-sharegpt">10. Alpaca 和 ShareGPT、多轮对话格式有什么区别</h1>
+<p>这是实战里最常见的比较题之一。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Alpaca</th>
+<th>ShareGPT / Conversation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>典型结构</td>
+<td>instruction, input, output</td>
+<td>messages / role-based turns</td>
+</tr>
+<tr>
+<td>对话轮数</td>
+<td>通常单轮</td>
+<td>通常多轮</td>
+</tr>
+<tr>
+<td>适合任务</td>
+<td>分类、抽取、总结、翻译、解释</td>
+<td>聊天、追问、连续对话、角色扮演</td>
+</tr>
+<tr>
+<td>上下文建模</td>
+<td>较弱</td>
+<td>更强</td>
+</tr>
+<tr>
+<td>数据构造难度</td>
+<td>更低</td>
+<td>更高</td>
+</tr>
+<tr>
+<td>模板复杂度</td>
+<td>更简单</td>
+<td>更复杂</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10.1 Alpaca 更适合什么"></span><h2 id="101-alpaca">10.1 Alpaca 更适合什么</h2>
+<p>适合：</p>
+<ul>
+<li>单轮任务</li>
+<li>有明确输入和标准输出的场景</li>
+<li>数据生产成本有限的微调任务</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li>摘要</li>
+<li>改写</li>
+<li>翻译</li>
+<li>信息抽取</li>
+<li>领域问答</li>
+</ul>
+<span class="heading-anchor" id="10.2 ShareGPT 更适合什么"></span><h2 id="102-sharegpt">10.2 ShareGPT 更适合什么</h2>
+<p>适合：</p>
+<ul>
+<li>多轮客服</li>
+<li>助手连续追问</li>
+<li>角色扮演</li>
+<li>对话记忆</li>
+<li>工具调用前后的多轮交互</li>
+</ul>
+<span class="heading-anchor" id="10.3 面试里怎么答区别"></span><h2 id="103">10.3 面试里怎么答区别</h2>
+<p>可以直接说：</p>
+<blockquote>
+<p><strong>Alpaca 更像单轮 instruction tuning，ShareGPT 更像多轮 conversation tuning。前者结构简单、训练稳定；后者更贴近真实聊天，但数据组织和模板处理更复杂。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="11. Alpaca 数据通常从哪里来"></span><h1 id="11-alpaca">11. Alpaca 数据通常从哪里来</h1>
+<p>常见来源有四类。</p>
+<span class="heading-anchor" id="11.1 人工标注"></span><h2 id="111">11.1 人工标注</h2>
+<p>优点：</p>
+<ul>
+<li>质量高</li>
+<li>风格可控</li>
+<li>适合高价值领域</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>贵</li>
+<li>慢</li>
+</ul>
+<span class="heading-anchor" id="11.2 教师模型蒸馏 / 数据合成"></span><h2 id="112">11.2 教师模型蒸馏 / 数据合成</h2>
+<p>也就是用强模型生成 instruction-output 对。</p>
+<p>优点：</p>
+<ul>
+<li>快</li>
+<li>容易扩规模</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>容易把教师模型的幻觉和偏差一起带进来</li>
+<li>风格可能单一</li>
+</ul>
+<span class="heading-anchor" id="11.3 现有任务数据改造"></span><h2 id="113">11.3 现有任务数据改造</h2>
+<p>把分类、抽取、问答等现有数据集，转成 instruction format。</p>
+<p>例如把情感分类数据改成：</p>
+<pre><code class="language-json">{
+  "instruction": "判断下面句子的情感倾向，输出正面、负面或中性",
+  "input": "这家餐厅上菜太慢了",
+  "output": "负面"
+}
+</code></pre>
+<span class="heading-anchor" id="11.4 业务日志改造"></span><h2 id="114">11.4 业务日志改造</h2>
+<p>把真实用户请求和合格回复整理成训练集。</p>
+<p>这是很多企业里最有价值的一类数据，因为它最贴近真实流量。</p>
+<hr/>
+<span class="heading-anchor" id="12. 数据质量为什么比数据格式更重要"></span><h1 id="12">12. 数据质量为什么比数据格式更重要</h1>
+<p>很多人会把注意力放在“是不是 alpaca 格式”，但真正决定效果的，往往是数据质量。</p>
+<p>因为格式只是容器，内容才是监督信号。</p>
+<p>高质量数据通常具备这些特征：</p>
+<ul>
+<li>指令表述清晰</li>
+<li>输入上下文完整</li>
+<li>输出正确且自洽</li>
+<li>风格稳定</li>
+<li>任务覆盖合理</li>
+<li>难度分布有层次</li>
+</ul>
+<p>低质量数据常见问题有：</p>
+<ul>
+<li>指令模糊</li>
+<li>输出错误</li>
+<li>口吻乱跳</li>
+<li>中英文掺杂无规律</li>
+<li>答案过长且空话多</li>
+<li>一条样本里有多个冲突目标</li>
+</ul>
+<p>面试时一个加分点是主动指出：</p>
+<blockquote>
+<p><strong>同样都是 Alpaca 格式，10 万条脏数据往往不如 1 万条高质量数据。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="13. 指令模板、System Prompt 和聊天模板的关系"></span><h1 id="13-system-prompt">13. 指令模板、System Prompt 和聊天模板的关系</h1>
+<p>这部分是很多训练事故的来源。</p>
+<span class="heading-anchor" id="13.1 指令模板"></span><h2 id="131">13.1 指令模板</h2>
+<p>指的是把 <code>instruction/input/output</code> 拼接成训练文本的方式。</p>
+<p>例如：</p>
+<pre><code class="language-text">### Instruction:
+{instruction}
+
+### Input:
+{input}
+
+### Response:
+{output}
+</code></pre>
+<span class="heading-anchor" id="13.2 System Prompt"></span><h2 id="132-system-prompt">13.2 System Prompt</h2>
+<p>指系统层面的角色约束，例如：</p>
+<ul>
+<li>你是一个专业法律助手</li>
+<li>你需要简洁回答</li>
+<li>回答必须输出 JSON</li>
+</ul>
+<p>如果训练数据里长期带某种 system 约束，模型会更稳定地学会对应行为。</p>
+<span class="heading-anchor" id="13.3 Chat Template"></span><h2 id="133-chat-template">13.3 Chat Template</h2>
+<p>很多现代模型不是直接训练纯文本模板，而是训练角色化消息格式，例如：</p>
+<ul>
+<li>system</li>
+<li>user</li>
+<li>assistant</li>
+</ul>
+<p>这时即便上游数据还是 Alpaca，训练前也可能先转换成消息格式再套 chat template。</p>
+<p>所以实战里常见链路是：</p>
+<p><code>alpaca JSON -&gt; 内部 messages 表示 -&gt; tokenizer.apply_chat_template -&gt; token 序列</code></p>
+<p>这就是为什么：</p>
+<blockquote>
+<p><strong>同一份 Alpaca 数据，如果聊天模板和模型预训练时的模板不一致，效果可能明显下降。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="14. Alpaca 数据怎么配合 LoRA、QLoRA 训练"></span><h1 id="14-alpaca-loraqlora">14. Alpaca 数据怎么配合 LoRA、QLoRA 训练</h1>
+<p>这里非常关键：</p>
+<blockquote>
+<p><strong>Alpaca 是数据格式，LoRA / QLoRA 是参数更新方式。</strong></p>
+</blockquote>
+<p>它们经常一起出现，但属于两个不同维度。</p>
+<span class="heading-anchor" id="14.1 LoRA 是什么"></span><h2 id="141-lora">14.1 LoRA 是什么</h2>
+<p><strong>低秩适配（Low-Rank Adaptation, LoRA）</strong> 是一种参数高效微调方法。</p>
+<p>它不直接更新全部模型参数，而是在部分线性层旁边挂上低秩增量矩阵，只训练这些小矩阵。</p>
+<p>优点：</p>
+<ul>
+<li>显存占用更低</li>
+<li>训练更快</li>
+<li>便于多任务切换 adapter</li>
+</ul>
+<span class="heading-anchor" id="14.2 QLoRA 是什么"></span><h2 id="142-qlora">14.2 QLoRA 是什么</h2>
+<p><strong>量化低秩适配（Quantized Low-Rank Adaptation, QLoRA）</strong> 的思路是：</p>
+<ul>
+<li>基座模型用低比特量化存储</li>
+<li>仍训练 LoRA adapter</li>
+</ul>
+<p>这样可以在更低显存上微调更大模型。</p>
+<span class="heading-anchor" id="14.3 它们和 Alpaca 的关系"></span><h2 id="143-alpaca">14.3 它们和 Alpaca 的关系</h2>
+<p>可以把它们分成两层：</p>
+<ul>
+<li>数据层：Alpaca</li>
+<li>参数更新层：LoRA / QLoRA / Full Fine-Tuning</li>
+</ul>
+<p>也就是说，同一份 Alpaca 数据：</p>
+<ul>
+<li>可以做全量微调</li>
+<li>也可以做 LoRA</li>
+<li>也可以做 QLoRA</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="15. 训练流程应该怎样搭起来"></span><h1 id="15">15. 训练流程应该怎样搭起来</h1>
+<p>一个比较完整的 Alpaca 微调流程通常是：</p>
+<ol>
+<li>选基座模型</li>
+<li>准备或清洗 instruction 数据</li>
+<li>定义 prompt/chat template</li>
+<li>tokenizer 编码</li>
+<li>构造 labels 和 loss mask</li>
+<li>选择训练方式</li>
+<li>训练与验证</li>
+<li>导出 adapter 或合并权重</li>
+<li>推理评测</li>
+</ol>
+<span class="heading-anchor" id="15.1 选基座模型"></span><h2 id="151">15.1 选基座模型</h2>
+<p>需要考虑：</p>
+<ul>
+<li>模型大小</li>
+<li>上下文长度</li>
+<li>中英文能力</li>
+<li>授权协议</li>
+<li>是否已有 chat template</li>
+</ul>
+<span class="heading-anchor" id="15.2 数据清洗"></span><h2 id="152">15.2 数据清洗</h2>
+<p>通常至少要做：</p>
+<ul>
+<li>去重</li>
+<li>去空样本</li>
+<li>去乱码</li>
+<li>去明显错误答案</li>
+<li>统一风格</li>
+<li>过滤过长或过短样本</li>
+</ul>
+<span class="heading-anchor" id="15.3 训练配置"></span><h2 id="153">15.3 训练配置</h2>
+<p>关键超参数包括：</p>
+<ul>
+<li>学习率</li>
+<li>batch size</li>
+<li>gradient accumulation</li>
+<li>max length</li>
+<li>warmup ratio</li>
+<li>epoch 数</li>
+<li>LoRA rank / alpha / dropout</li>
+</ul>
+<span class="heading-anchor" id="15.4 验证方式"></span><h2 id="154">15.4 验证方式</h2>
+<p>不要只看训练 loss，还要看：</p>
+<ul>
+<li>指令跟随能力</li>
+<li>输出格式稳定性</li>
+<li>领域问题正确率</li>
+<li>幻觉率</li>
+<li>长文本退化情况</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="16. 长度截断、Packing、显存和吞吐的权衡"></span><h1 id="16-packing">16. 长度截断、Packing、显存和吞吐的权衡</h1>
+<p>这部分非常工程化，但很重要。</p>
+<span class="heading-anchor" id="16.1 长度截断"></span><h2 id="161">16.1 长度截断</h2>
+<p>如果 <code>instruction + input + output</code> 太长，需要截断。</p>
+<p>风险在于：</p>
+<ul>
+<li>截断到答案尾部，会让监督信号不完整</li>
+<li>截断到输入关键信息，会导致答案失真</li>
+</ul>
+<p>一般要优先保证：</p>
+<ul>
+<li>样本结构完整</li>
+<li>关键指令不被截断</li>
+<li>答案监督尽量保留</li>
+</ul>
+<span class="heading-anchor" id="16.2 Packing"></span><h2 id="162-packing">16.2 Packing</h2>
+<p><strong>Packing</strong> 是把多条短样本拼到一个序列里，以提升 GPU 利用率。</p>
+<p>优点：</p>
+<ul>
+<li>减少 padding 浪费</li>
+<li>提升吞吐</li>
+</ul>
+<p>风险：</p>
+<ul>
+<li>不同样本边界处理不当会串样本</li>
+<li>mask 逻辑错误会污染 loss</li>
+</ul>
+<span class="heading-anchor" id="16.3 显存和吞吐的典型权衡"></span><h2 id="163">16.3 显存和吞吐的典型权衡</h2>
+<p>为了让训练能跑起来，常见手段有：</p>
+<ul>
+<li>减小 <code>max_length</code></li>
+<li>用 LoRA/QLoRA</li>
+<li>用梯度累积</li>
+<li>用更小 batch</li>
+<li>开混合精度</li>
+<li>开 gradient checkpointing</li>
+</ul>
+<p>工程上没有“绝对最优”，只有在资源约束下的可接受平衡。</p>
+<hr/>
+<span class="heading-anchor" id="17. 怎么判断你的任务适不适合用 Alpaca 格式"></span><h1 id="17-alpaca">17. 怎么判断你的任务适不适合用 Alpaca 格式</h1>
+<p>有一个很实用的判断标准：</p>
+<blockquote>
+<p><strong>如果你的任务能较自然地表达为“给定指令和上下文，输出一段期望答案”，那它大概率适合先用 Alpaca 格式。</strong></p>
+</blockquote>
+<p>比较适合的任务：</p>
+<ul>
+<li>问答</li>
+<li>摘要</li>
+<li>改写</li>
+<li>分类</li>
+<li>抽取</li>
+<li>翻译</li>
+<li>代码解释</li>
+<li>领域助手</li>
+</ul>
+<p>不太适合只靠单轮 Alpaca 搞定的任务：</p>
+<ul>
+<li>强依赖多轮历史的对话</li>
+<li>复杂工具调用编排</li>
+<li>长链路 agent 行为学习</li>
+<li>偏好排序优化</li>
+</ul>
+<p>这时可能需要：</p>
+<ul>
+<li>conversation 格式</li>
+<li>tool-calling 格式</li>
+<li>preference 数据</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="18. 常见误区和踩坑点"></span><h1 id="18">18. 常见误区和踩坑点</h1>
+<span class="heading-anchor" id="18.1 误区一：Alpaca 就是一个模型"></span><h2 id="181-alpaca">18.1 误区一：Alpaca 就是一个模型</h2>
+<p>不准确。</p>
+<p>更准确地说：</p>
+<ul>
+<li>Stanford Alpaca 是一个具体项目</li>
+<li>广义 alpaca 是一种 instruction 数据格式</li>
+</ul>
+<span class="heading-anchor" id="18.2 误区二：只要转成 alpaca 格式就一定有效"></span><h2 id="182-alpaca">18.2 误区二：只要转成 alpaca 格式就一定有效</h2>
+<p>不对。</p>
+<p>格式转换不等于信息增量，真正决定效果的是：</p>
+<ul>
+<li>样本质量</li>
+<li>模板设计</li>
+<li>基座模型适配性</li>
+<li>训练配置</li>
+</ul>
+<span class="heading-anchor" id="18.3 误区三：SFT 之后模型就一定更聪明"></span><h2 id="183-sft">18.3 误区三：SFT 之后模型就一定更聪明</h2>
+<p>SFT 更多是在塑造行为和任务适配，不一定提升基础推理上限。</p>
+<p>它可能让模型：</p>
+<ul>
+<li>更听话</li>
+<li>更像助手</li>
+<li>更擅长特定任务</li>
+</ul>
+<p>但未必让模型在所有问题上都“智商上升”。</p>
+<span class="heading-anchor" id="18.4 误区四：prompt 模板无所谓"></span><h2 id="184-prompt">18.4 误区四：prompt 模板无所谓</h2>
+<p>实际很重要。</p>
+<p>如果模板和模型原本 chat 格式差别太大，可能导致：</p>
+<ul>
+<li>输出风格错乱</li>
+<li>停止词异常</li>
+<li>回答格式不稳定</li>
+</ul>
+<span class="heading-anchor" id="18.5 误区五：只看训练 loss 就够了"></span><h2 id="185-loss">18.5 误区五：只看训练 loss 就够了</h2>
+<p>不够。</p>
+<p>很多模型训练 loss 很漂亮，但上线后会出现：</p>
+<ul>
+<li>拒答异常</li>
+<li>胡编</li>
+<li>重复输出</li>
+<li>忽略格式要求</li>
+<li>多轮跟随差</li>
+</ul>
+<p>因此一定要做任务级评测。</p>
+<hr/>
+<span class="heading-anchor" id="19. 面试高频问答"></span><h1 id="19">19. 面试高频问答</h1>
+<span class="heading-anchor" id="19.1 面试官问：什么是 Alpaca"></span><h2 id="191-alpaca">19.1 面试官问：什么是 Alpaca</h2>
+<p>推荐回答：</p>
+<blockquote>
+<p><strong>Alpaca 在大模型微调里通常指一种单轮指令监督微调范式。狭义上它是 Stanford Alpaca 项目；广义上常表示 instruction-input-output 这种数据格式。它的作用是让预训练模型学会按指令完成任务。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="19.2 面试官问：Alpaca 和 LoRA 是什么关系"></span><h2 id="192-alpaca-lora">19.2 面试官问：Alpaca 和 LoRA 是什么关系</h2>
+<p>推荐回答：</p>
+<blockquote>
+<p><strong>Alpaca 是数据格式或数据范式，LoRA 是参数高效微调方法。前者决定喂什么数据，后者决定怎么更新参数。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="19.3 面试官问：Alpaca 和 ShareGPT 怎么选"></span><h2 id="193-alpaca-sharegpt">19.3 面试官问：Alpaca 和 ShareGPT 怎么选</h2>
+<p>推荐回答：</p>
+<blockquote>
+<p><strong>如果任务主要是单轮问答、抽取、总结、翻译，Alpaca 更简单直接；如果需要多轮历史、角色切换和连续上下文，ShareGPT 或 message-based 格式更合适。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="19.4 面试官问：为什么只对回答部分算 loss"></span><h2 id="194-loss">19.4 面试官问：为什么只对回答部分算 loss</h2>
+<p>推荐回答：</p>
+<blockquote>
+<p><strong>因为我们希望优化重点放在 assistant response，而不是让模型去背 prompt 模板和用户问题文本。通常会用 label mask 把 prompt 部分设为 ignore index，只对答案 token 计算交叉熵。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="19.5 面试官问：Alpaca 微调最关键的因素是什么"></span><h2 id="195-alpaca">19.5 面试官问：Alpaca 微调最关键的因素是什么</h2>
+<p>推荐回答：</p>
+<blockquote>
+<p><strong>不是格式本身，而是数据质量、模板一致性、基座模型适配性和评测闭环。</strong></p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="20. 实战清单"></span><h1 id="20">20. 实战清单</h1>
+<p>如果你要自己做一轮 Alpaca 微调，推荐按下面顺序检查。</p>
+<span class="heading-anchor" id="20.1 数据层"></span><h2 id="201">20.1 数据层</h2>
+<ul>
+<li>样本是否真实反映目标任务</li>
+<li>指令是否清楚</li>
+<li>输出是否正确</li>
+<li>风格是否统一</li>
+<li>是否存在大量重复样本</li>
+<li>是否有异常长样本和乱码</li>
+</ul>
+<span class="heading-anchor" id="20.2 模板层"></span><h2 id="202">20.2 模板层</h2>
+<ul>
+<li>是否与基座模型 chat template 一致</li>
+<li>是否保留 system 约束</li>
+<li>是否明确区分 instruction / input / response</li>
+<li>停止词和特殊 token 是否正确</li>
+</ul>
+<span class="heading-anchor" id="20.3 训练层"></span><h2 id="203">20.3 训练层</h2>
+<ul>
+<li>选择 full / LoRA / QLoRA 哪种方案</li>
+<li>最大长度是否合理</li>
+<li>learning rate 是否过大</li>
+<li>是否只对 response 算 loss</li>
+<li>是否开启梯度检查点和混合精度</li>
+</ul>
+<span class="heading-anchor" id="20.4 评测层"></span><h2 id="204">20.4 评测层</h2>
+<ul>
+<li>是否覆盖真实任务样本</li>
+<li>是否检查格式遵循</li>
+<li>是否检查幻觉</li>
+<li>是否做人工 spot check</li>
+<li>是否对比微调前后差异</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="21. 最终总结"></span><h1 id="21">21. 最终总结</h1>
+<p>把整篇教程压缩成几句话，就是：</p>
+<blockquote>
+<p><strong>Alpaca 的核心不是一个神秘模型，而是一种让大语言模型做指令监督微调的通用数据范式。</strong></p>
+<p><strong>它通常把样本组织成 instruction、input、output，用来训练模型学会遵循任务要求、控制输出风格和适配具体业务。</strong></p>
+<p><strong>它和 LoRA、QLoRA 不是同一层概念；Alpaca 决定“喂什么数据”，LoRA/QLoRA 决定“怎么高效更新参数”。</strong></p>
+<p><strong>真正决定效果的关键，通常不是格式名，而是数据质量、模板一致性、loss 设计、训练配置和评测方法。</strong></p>
+</blockquote>
+<p>如果你以后再看到：</p>
+<ul>
+<li>“把数据转成 alpaca 格式”</li>
+<li>“用 alpaca 数据做 LoRA 微调”</li>
+<li>“alpaca 和 sharegpt 的区别”</li>
+</ul>
+<p>你就可以把它们统一理解到同一张图里：</p>
+<ul>
+<li>Alpaca：单轮 instruction 数据范式</li>
+<li>SFT：训练阶段</li>
+<li>LoRA / QLoRA：参数更新方法</li>
+<li>Chat Template：样本转 token 的桥梁</li>
+<li>Eval：决定模型是不是真的可用</li>
+</ul>
+<p>这样就不会再把“数据格式、训练阶段、参数更新方式、对话模板”混成一件事。</p></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

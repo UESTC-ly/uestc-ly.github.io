@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>macOS / Ubuntu 大模型微调实战教程：LLaMA-Factory + LoRA + DeepSeek-R1-Distill-Qwen-1.5B · 李杨的学习笔记</title><meta name="description" content="本文整理了一次完整跑通的本地微调实战流程，目标是在 macOS 或 Ubuntu 环境下，用 LLaMA-Factory 对 DeepSeek-R1-Distill-Qwen-1.5B 做一次 LoRA SFT 微调，并在 WebUI 中验证微调效果。"><meta property="og:title" content="macOS / Ubuntu 大模型微调实战教程：LLaMA-Factory + LoRA + DeepSeek-R1-Distill-Qwen-1.5B · 李杨的学习笔记"><meta property="og:description" content="本文整理了一次完整跑通的本地微调实战流程，目标是在 macOS 或 Ubuntu 环境下，用 LLaMA-Factory 对 DeepSeek-R1-Distill-Qwen-1.5B 做一次 LoRA SFT 微调，并在 WebUI 中验证微调效果。"><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-4b1239d420b7.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-4b1239d420b7.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 04-工程化与部署</p><h1>macOS / Ubuntu 大模型微调实战教程：LLaMA-Factory + LoRA + DeepSeek-R1-Distill-Qwen-1.5B</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E5%B7%A5%E7%A8%8B%E5%8C%96%E4%B8%8E%E9%83%A8%E7%BD%B2/llamafactory-finetuning-practice.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 这次实战最后完成了什么</a></li><li><a href="#2-ubuntu">2. 为什么这套方案适合本机和 Ubuntu</a></li><li><a href="#3">3. 先区分两类系统环境</a></li><li><a href="#31-macos">3.1 macOS 路线</a></li><li><a href="#32-ubuntu">3.2 Ubuntu 路线</a></li><li><a href="#4">4. 前置准备</a></li><li><a href="#41">4.1 目录准备</a></li><li><a href="#42-llama-factory">4.2 准备 LLaMA-Factory 仓库</a></li><li><a href="#43-ubuntu">4.3 Ubuntu 额外依赖</a></li><li><a href="#5-uv-python-311">5. 使用 uv 创建 Python 3.11 环境</a></li><li><a href="#6-llama-factory">6. 安装 LLaMA-Factory 依赖</a></li><li><a href="#7">7. 设置常用环境变量</a></li><li><a href="#71-macos">7.1 macOS</a></li><li><a href="#72-ubuntu">7.2 Ubuntu</a></li><li><a href="#8">8. 下载基座模型</a></li><li><a href="#81-hugging-face">8.1 安装 Hugging Face 命令行工具</a></li><li><a href="#82-deepseek-r1-distill-qwen-15b">8.2 下载 DeepSeek-R1-Distill-Qwen-1.5B</a></li><li><a href="#83">8.3 如何判断模型是否下载完整</a></li><li><a href="#9">9. 代理与下载速度的一个实战结论</a></li><li><a href="#10">10. 准备训练数据集</a></li><li><a href="#101">10.1 数据文件位置</a></li><li><a href="#102">10.2 数据格式</a></li><li><a href="#103">10.3 注册数据集</a></li><li><a href="#104">10.4 数据量建议</a></li><li><a href="#11-llama-factory-webui">11. 启动 LLaMA-Factory WebUI</a></li><li><a href="#111-macos">11.1 macOS</a></li><li><a href="#112-ubuntu">11.2 Ubuntu</a></li><li><a href="#12-webui">12. 在 WebUI 训练页面如何填写</a></li><li><a href="#121">12.1 基础配置</a></li><li><a href="#122">12.2 训练参数建议</a></li><li><a href="#123-epoch">12.3 关于 epoch 的真实经验</a></li><li><a href="#13">13. 训练过程怎么看是否正常</a></li><li><a href="#14">14. 训练结果放在哪里</a></li><li><a href="#15-webui-chat">15. 如何在 WebUI 的 Chat 页面验证微调效果</a></li><li><a href="#151">15.1 先理解一个关键点</a></li><li><a href="#152-chat">15.2 Chat 页面正确填写方式</a></li><li><a href="#153">15.3 正确的验证流程</a></li><li><a href="#154">15.4 如何判断微调是否真的生效</a></li><li><a href="#16">16. 导出与合并模型</a></li><li><a href="#161-webui-export">16.1 在 WebUI 的 Export 页面处理</a></li><li><a href="#162">16.2 合并后的结果放在哪里</a></li><li><a href="#17">17. 常见问题与踩坑总结</a></li><li><a href="#171-huggingface-cli-command-not-found">17.1 huggingface-cli: command not found</a></li><li><a href="#172-uv-pip-install-e-torchmetrics-extras">17.2 uv pip install -e &quot;.[torch,metrics]&quot; 报 extras 警告</a></li><li><a href="#173-file-datamagic_conchjson-not-found">17.3 File data/magic_conch.json not found</a></li><li><a href="#174">17.4 模型下载非常慢</a></li><li><a href="#175-ubuntu-cuda-false">17.5 Ubuntu 上 cuda: False</a></li><li><a href="#176-chat">17.6 Chat 页面看不到微调效果</a></li><li><a href="#177-epoch">17.7 小数据集把 epoch 设太大</a></li><li><a href="#18">18. 推荐的最小可复现参数</a></li><li><a href="#19">19. 一套最简执行顺序</a></li><li><a href="#20-macos-ubuntu">20. macOS 和 Ubuntu 的最终建议</a></li><li><a href="#21">21. 这次实战的结论</a></li><li><a href="#22">22. 参考资料</a></li></ul></details><article class="note-content">
+<p>本文整理了一次完整跑通的本地微调实战流程，目标是在 <code>macOS</code> 或 <code>Ubuntu</code> 环境下，用 <code>LLaMA-Factory</code> 对 <code>DeepSeek-R1-Distill-Qwen-1.5B</code> 做一次 <code>LoRA SFT</code> 微调，并在 WebUI 中验证微调效果。</p>
+<p>这份教程默认你已经有如下背景：</p>
+<ul>
+<li>你会用命令行</li>
+<li>使用 <code>uv</code> 管理 Python 环境</li>
+<li>想先跑通一遍完整流程，再做更大规模训练</li>
+<li>当前这次实战的实际项目路径是 <code>/Volumes/DevExpand/LLM/FineTuning</code></li>
+</ul>
+<p>本文同时覆盖两类环境：</p>
+<ul>
+<li><code>macOS + Apple Silicon</code>：本次实战的真实运行环境，设备后端是 <code>MPS</code></li>
+<li><code>Ubuntu + NVIDIA GPU</code>：最常见的 Linux 微调环境，设备后端是 <code>CUDA</code></li>
+</ul>
+<p>如果你在 Ubuntu 上使用的是纯 CPU，也不是完全不能跑，但速度通常会很慢，更适合用来验证流程，不适合作为正式训练环境。</p>
+<span class="heading-anchor" id="1. 这次实战最后完成了什么"></span><h2 id="1">1. 这次实战最后完成了什么</h2>
+<p>这次实战最终跑通了下面这条完整链路：</p>
+<ol>
+<li>下载基座模型</li>
+<li>安装 LLaMA-Factory</li>
+<li>准备自定义数据集</li>
+<li>在 WebUI 中启动 LoRA 训练</li>
+<li>拿到 LoRA 适配器输出</li>
+<li>在 Chat 页面加载底模 + LoRA 适配器</li>
+<li>通过对话验证微调是否生效</li>
+</ol>
+<p>本次项目目录如下：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning
+├── LlamaFactory
+├── configs
+├── magic_conch.json
+├── models
+├── output
+└── 笔记文档.md
+</code></pre>
+<p>其中最关键的几个路径是：</p>
+<ul>
+<li>基座模型目录：<code>/Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li>LLaMA-Factory 仓库：<code>/Volumes/DevExpand/LLM/FineTuning/LlamaFactory</code></li>
+<li>训练数据目录：<code>/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/data</code></li>
+<li>LoRA 输出目录：<code>/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/saves/DeepSeek-R1-1.5B-Distill/lora</code></li>
+</ul>
+<span class="heading-anchor" id="2. 为什么这套方案适合本机和 Ubuntu"></span><h2 id="2-ubuntu">2. 为什么这套方案适合本机和 Ubuntu</h2>
+<p>对 <code>16GB</code> 内存的 Mac 来说，直接做全参数微调并不现实。对普通单卡 Ubuntu 机器来说，如果显存也比较有限，LoRA 仍然是更稳妥的路线。最合适的起步方案是：</p>
+<ul>
+<li>用较小的基座模型</li>
+<li>使用 LoRA 做参数高效微调</li>
+<li>先跑通一版小数据集训练</li>
+<li>再逐步提升数据量和训练参数</li>
+</ul>
+<p>本次选择：</p>
+<ul>
+<li>框架：<code>LLaMA-Factory</code></li>
+<li>微调方式：<code>LoRA</code></li>
+<li>基座模型：<code>DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+</ul>
+<p>这套组合的优点是：</p>
+<ul>
+<li>文档和 WebUI 都比较成熟</li>
+<li>对新手友好</li>
+<li>1.5B 模型对本机内存和普通单卡显存都更友好</li>
+<li>LoRA 只训练少量参数，显著降低资源压力</li>
+</ul>
+<span class="heading-anchor" id="3. 先区分两类系统环境"></span><h2 id="3">3. 先区分两类系统环境</h2>
+<p>在继续之前，先确认你属于哪一类：</p>
+<span class="heading-anchor" id="3.1 macOS 路线"></span><h3 id="31-macos">3.1 macOS 路线</h3>
+<p>适用于：</p>
+<ul>
+<li>Apple Silicon Mac</li>
+<li>使用 <code>MPS</code> 跑训练</li>
+<li>本次教程里的真实实践路径</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>环境搭建简单</li>
+<li>本地可直接跑通</li>
+<li>训练速度通常慢于 Ubuntu + NVIDIA GPU</li>
+</ul>
+<span class="heading-anchor" id="3.2 Ubuntu 路线"></span><h3 id="32-ubuntu">3.2 Ubuntu 路线</h3>
+<p>适用于：</p>
+<ul>
+<li>Ubuntu 22.04 或 24.04</li>
+<li>建议搭配 NVIDIA GPU</li>
+<li>使用 <code>CUDA</code> 跑训练</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>更适合正式训练</li>
+<li>训练速度通常更快</li>
+<li>后续做更大模型或更大数据集也更方便</li>
+</ul>
+<span class="heading-anchor" id="4. 前置准备"></span><h2 id="4">4. 前置准备</h2>
+<span class="heading-anchor" id="4.1 目录准备"></span><h3 id="41">4.1 目录准备</h3>
+<p>先确保根目录存在：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning
+mkdir -p models output configs
+</code></pre>
+<p>如果你在 Ubuntu 上，不必使用这个绝对路径。你只需要保证有一个统一的项目根目录即可，例如：</p>
+<pre><code class="language-bash">mkdir -p ~/FineTuning
+cd ~/FineTuning
+mkdir -p models output configs
+</code></pre>
+<p>后文所有出现的 <code>/Volumes/DevExpand/LLM/FineTuning</code>，在 Ubuntu 上都可以替换成你自己的项目根目录，例如 <code>~/FineTuning</code>。</p>
+<span class="heading-anchor" id="4.2 准备 LLaMA-Factory 仓库"></span><h3 id="42-llama-factory">4.2 准备 LLaMA-Factory 仓库</h3>
+<p>如果你还没克隆：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning
+git clone --depth 1 https://github.com/hiyouga/LLaMA-Factory.git LlamaFactory
+</code></pre>
+<p>如果仓库已经在本地，直接进入即可：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+</code></pre>
+<span class="heading-anchor" id="4.3 Ubuntu 额外依赖"></span><h3 id="43-ubuntu">4.3 Ubuntu 额外依赖</h3>
+<p>如果你在 Ubuntu 上，建议先准备一些基础系统依赖：</p>
+<pre><code class="language-bash">sudo apt update
+sudo apt install -y git curl build-essential ffmpeg
+</code></pre>
+<p>如果你是 NVIDIA GPU 环境，还应确保：</p>
+<ul>
+<li><code>nvidia-smi</code> 能正常执行</li>
+<li>对应 CUDA 驱动已安装</li>
+</ul>
+<p>你可以先用：</p>
+<pre><code class="language-bash">nvidia-smi
+</code></pre>
+<p>确认 GPU 和驱动可见。</p>
+<span class="heading-anchor" id="5. 使用 uv 创建 Python 3.11 环境"></span><h2 id="5-uv-python-311">5. 使用 uv 创建 Python 3.11 环境</h2>
+<p>本机默认系统 Python 不一定是 <code>3.11</code>，而 LLaMA-Factory 当前更适合单独建立一个 <code>3.11</code> 环境。</p>
+<p>在仓库目录下执行：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+
+uv python install 3.11
+uv venv --python 3.11
+source .venv/bin/activate
+</code></pre>
+<p>验证 Python 版本：</p>
+<pre><code class="language-bash">python -V
+</code></pre>
+<p>期望看到类似：</p>
+<pre><code class="language-text">Python 3.11.12
+</code></pre>
+<span class="heading-anchor" id="6. 安装 LLaMA-Factory 依赖"></span><h2 id="6-llama-factory">6. 安装 LLaMA-Factory 依赖</h2>
+<p>在虚拟环境中安装：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+uv pip install -e .
+</code></pre>
+<p>说明：</p>
+<ul>
+<li>本次实战里也用过 <code>uv pip install -e ".[torch,metrics]"</code>，可以装上，但会有 extras 警告</li>
+<li>对当前仓库版本来说，<code>uv pip install -e .</code> 更直接</li>
+</ul>
+<p>安装完成后验证：</p>
+<pre><code class="language-bash">llamafactory-cli version
+python -c "import torch; print(torch.__version__); print('mps:', torch.backends.mps.is_available())"
+</code></pre>
+<p>如果你是 macOS，上面这条命令能看到版本号，且 <code>mps: True</code>，环境就基本可用了。</p>
+<p>如果你是 Ubuntu，更建议这样验证：</p>
+<pre><code class="language-bash">llamafactory-cli version
+python -c "import torch; print(torch.__version__); print('cuda:', torch.cuda.is_available()); print('cuda_device_count:', torch.cuda.device_count())"
+</code></pre>
+<p>如果能看到版本号，且 <code>cuda: True</code>，环境就基本可用了。</p>
+<span class="heading-anchor" id="7. 设置常用环境变量"></span><h2 id="7">7. 设置常用环境变量</h2>
+<p>每次开始训练或打开 WebUI 前，都建议先激活环境并设置这几个变量：</p>
+<span class="heading-anchor" id="7.1 macOS"></span><h3 id="71-macos">7.1 macOS</h3>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+export TOKENIZERS_PARALLELISM=false
+export HF_HOME=/Volumes/DevExpand/LLM/FineTuning/models/hf-cache
+</code></pre>
+<p>说明：</p>
+<ul>
+<li><code>PYTORCH_ENABLE_MPS_FALLBACK=1</code> 可以让一些 MPS 不支持的算子回退，减少报错</li>
+<li><code>TOKENIZERS_PARALLELISM=false</code> 可以减少 tokenizer 相关警告</li>
+<li><code>HF_HOME</code> 用于统一管理 Hugging Face 下载缓存</li>
+</ul>
+<span class="heading-anchor" id="7.2 Ubuntu"></span><h3 id="72-ubuntu">7.2 Ubuntu</h3>
+<p>在 Ubuntu 上，一般不用设置 <code>PYTORCH_ENABLE_MPS_FALLBACK</code>，因为训练后端不是 <code>MPS</code>，而是 <code>CUDA</code>。</p>
+<pre><code class="language-bash">cd ~/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+export TOKENIZERS_PARALLELISM=false
+export HF_HOME=~/FineTuning/models/hf-cache
+</code></pre>
+<p>如果你要指定某张 GPU，还可以加：</p>
+<pre><code class="language-bash">export CUDA_VISIBLE_DEVICES=0
+</code></pre>
+<span class="heading-anchor" id="8. 下载基座模型"></span><h2 id="8">8. 下载基座模型</h2>
+<span class="heading-anchor" id="8.1 安装 Hugging Face 命令行工具"></span><h3 id="81-hugging-face">8.1 安装 Hugging Face 命令行工具</h3>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+uv pip install -U huggingface_hub
+hf --help
+</code></pre>
+<span class="heading-anchor" id="8.2 下载 DeepSeek-R1-Distill-Qwen-1.5B"></span><h3 id="82-deepseek-r1-distill-qwen-15b">8.2 下载 DeepSeek-R1-Distill-Qwen-1.5B</h3>
+<p>推荐直接用官方源。如果你使用代理，确保代理节点对 Hugging Face 大文件下载比较友好。</p>
+<pre><code class="language-bash">unset HF_ENDPOINT
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_HOME=/Volumes/DevExpand/LLM/FineTuning/models/hf-cache
+
+hf download deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+  --local-dir /Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B
+</code></pre>
+<span class="heading-anchor" id="8.3 如何判断模型是否下载完整"></span><h3 id="83">8.3 如何判断模型是否下载完整</h3>
+<p>执行：</p>
+<pre><code class="language-bash">ls -lh /Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B
+du -sh /Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B
+</code></pre>
+<p>目录里通常至少要有：</p>
+<ul>
+<li><code>config.json</code></li>
+<li><code>generation_config.json</code></li>
+<li><code>tokenizer_config.json</code></li>
+<li><code>tokenizer.json</code></li>
+<li><code>model.safetensors</code> 或若干 <code>model-*.safetensors</code></li>
+</ul>
+<span class="heading-anchor" id="9. 代理与下载速度的一个实战结论"></span><h2 id="9">9. 代理与下载速度的一个实战结论</h2>
+<p>这次实战中，模型下载一开始非常慢，最后确认不是命令错，也不是终端没走代理，而是：</p>
+<ul>
+<li>代理节点本身到 Hugging Face 大文件下载链路太差</li>
+<li>换了一个节点之后，下载速度明显改善</li>
+</ul>
+<p>一个很实用的判断方法是先测速小文件：</p>
+<pre><code class="language-bash">curl -L -o /dev/null -w '\nDNS:%{time_namelookup}\nConnect:%{time_connect}\nTLS:%{time_appconnect}\nTTFB:%{time_starttransfer}\nTotal:%{time_total}\nSpeed:%{speed_download}\n' \
+  https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/config.json
+</code></pre>
+<p>如果小文件测速都非常低，那么大文件下载大概率也会很慢。对本地微调来说，换一个更适合下载模型的代理节点，比改命令更有效。</p>
+<p>这一点对 macOS 和 Ubuntu 都成立。</p>
+<span class="heading-anchor" id="10. 准备训练数据集"></span><h2 id="10">10. 准备训练数据集</h2>
+<span class="heading-anchor" id="10.1 数据文件位置"></span><h3 id="101">10.1 数据文件位置</h3>
+<p>训练数据需要放到：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/data/magic_conch.json
+</code></pre>
+<p>注意不要只放在根目录。<br/>
+这次实战中实际遇到过一个报错：</p>
+<pre><code class="language-text">ValueError: File data/magic_conch.json not found.
+</code></pre>
+<p>原因就是文件不在 <code>LlamaFactory/data</code> 下。</p>
+<span class="heading-anchor" id="10.2 数据格式"></span><h3 id="102">10.2 数据格式</h3>
+<p>LLaMA-Factory 最简单可用的是 <code>instruction/input/output</code> 这种格式。示例：</p>
+<pre><code class="language-json">[
+  {
+    "instruction": "请问你是谁",
+    "input": "",
+    "output": "您好，我是蟹堡王的神奇海螺，很高兴为您服务。"
+  },
+  {
+    "instruction": "怎么修复这个报错",
+    "input": "报错信息：汉堡食谱为空",
+    "output": "请先检查食谱文件是否存在、路径是否正确，并尝试重新加载。"
+  }
+]
+</code></pre>
+<span class="heading-anchor" id="10.3 注册数据集"></span><h3 id="103">10.3 注册数据集</h3>
+<p>编辑：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/data/dataset_info.json
+</code></pre>
+<p>加入：</p>
+<pre><code class="language-json">"magic_conch": {
+  "file_name": "magic_conch.json"
+}
+</code></pre>
+<span class="heading-anchor" id="10.4 数据量建议"></span><h3 id="104">10.4 数据量建议</h3>
+<p>如果只是为了先跑通流程：</p>
+<ul>
+<li><code>20-50</code> 条就够了</li>
+</ul>
+<p>如果你希望看到更明显的风格变化：</p>
+<ul>
+<li>尽量准备 <code>100+</code> 条高质量样本</li>
+</ul>
+<p>本次实战中，第一次只有十几条样本，更多是为了验证流程，而不是追求最终效果。</p>
+<span class="heading-anchor" id="11. 启动 LLaMA-Factory WebUI"></span><h2 id="11-llama-factory-webui">11. 启动 LLaMA-Factory WebUI</h2>
+<span class="heading-anchor" id="11.1 macOS"></span><h3 id="111-macos">11.1 macOS</h3>
+<p>执行：</p>
+<pre><code class="language-bash">cd /Volumes/DevExpand/LLM/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+export TOKENIZERS_PARALLELISM=false
+export HF_HOME=/Volumes/DevExpand/LLM/FineTuning/models/hf-cache
+
+llamafactory-cli webui
+</code></pre>
+<p>启动后一般访问：</p>
+<pre><code class="language-text">http://127.0.0.1:7860
+</code></pre>
+<p>如果端口被占用，可以指定：</p>
+<pre><code class="language-bash">GRADIO_SERVER_PORT=7861 llamafactory-cli webui
+</code></pre>
+<span class="heading-anchor" id="11.2 Ubuntu"></span><h3 id="112-ubuntu">11.2 Ubuntu</h3>
+<p>如果你在 Ubuntu 上，启动命令基本相同，只是通常不需要 <code>PYTORCH_ENABLE_MPS_FALLBACK</code>：</p>
+<pre><code class="language-bash">cd ~/FineTuning/LlamaFactory
+source .venv/bin/activate
+
+export TOKENIZERS_PARALLELISM=false
+export HF_HOME=~/FineTuning/models/hf-cache
+export CUDA_VISIBLE_DEVICES=0
+
+llamafactory-cli webui
+</code></pre>
+<p>如果你是在本机桌面 Ubuntu 上运行，浏览器直接访问：</p>
+<pre><code class="language-text">http://127.0.0.1:7860
+</code></pre>
+<p>如果你是在远程 Ubuntu 服务器上运行，则要么：</p>
+<ul>
+<li>通过 SSH 隧道把 <code>7860</code> 端口转发到本地</li>
+<li>要么在内网或安全环境中直接开放对应端口</li>
+</ul>
+<span class="heading-anchor" id="12. 在 WebUI 训练页面如何填写"></span><h2 id="12-webui">12. 在 WebUI 训练页面如何填写</h2>
+<p>以下内容以本次实战为例。</p>
+<span class="heading-anchor" id="12.1 基础配置"></span><h3 id="121">12.1 基础配置</h3>
+<ul>
+<li><code>Model name</code>: <code>DeepSeek-R1-1.5B-Distill</code></li>
+<li><code>Model path</code>: <code>/Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li><code>Hub name</code>: <code>huggingface</code></li>
+<li><code>Finetuning method</code>: <code>lora</code></li>
+<li><code>Checkpoint path</code>: 训练时先留空</li>
+<li><code>Quantization bit</code>: <code>none</code></li>
+<li><code>Chat template</code>: <code>deepseekr1</code></li>
+<li><code>RoPE scaling</code>: <code>none</code></li>
+<li><code>Booster</code>: <code>auto</code></li>
+</ul>
+<p>这里有一个很重要的点：<br/>
+<code>Model path</code> 填的是基座模型目录，不是 <code>hf-cache</code>，也不是 <code>models</code> 上一级目录。</p>
+<span class="heading-anchor" id="12.2 训练参数建议"></span><h3 id="122">12.2 训练参数建议</h3>
+<p>针对本机配置，建议一开始用偏保守的参数：</p>
+<ul>
+<li><code>Stage</code>: <code>sft</code></li>
+<li><code>Dataset</code>: <code>magic_conch</code></li>
+<li><code>Cutoff length</code>: <code>512</code></li>
+<li><code>Learning rate</code>: <code>1e-4</code></li>
+<li><code>Epochs</code>: <code>10</code> 或 <code>20</code></li>
+<li><code>Per device train batch size</code>: <code>1</code> 或 <code>2</code></li>
+<li><code>Gradient accumulation steps</code>: <code>8</code></li>
+<li><code>Validation split</code>: <code>0.1</code></li>
+<li><code>Gradient checkpointing</code>: 开启</li>
+<li><code>Compute type</code>: 优先 <code>fp16</code> 或自动</li>
+</ul>
+<p>如果你是 Ubuntu + NVIDIA GPU，可以按显存情况适度放宽：</p>
+<ul>
+<li><code>Per device train batch size</code>: 如果显存够，可以从 <code>2</code> 提到 <code>4</code></li>
+<li><code>Cutoff length</code>: 如果显存够，可以尝试 <code>1024</code></li>
+<li><code>Compute type</code>: 优先 <code>bf16</code> 或 <code>fp16</code></li>
+</ul>
+<span class="heading-anchor" id="12.3 关于 epoch 的真实经验"></span><h3 id="123-epoch">12.3 关于 epoch 的真实经验</h3>
+<p>本次实战里曾经用过：</p>
+<ul>
+<li>样本数：<code>21</code></li>
+<li><code>Epochs = 100</code></li>
+</ul>
+<p>它能跑通，但对这样的小数据集明显偏大，容易过拟合。<br/>
+如果你只是想得到一版更合理的训练结果，建议优先：</p>
+<ul>
+<li><code>Epochs = 10</code></li>
+<li>或 <code>Epochs = 20</code></li>
+</ul>
+<span class="heading-anchor" id="13. 训练过程怎么看是否正常"></span><h2 id="13">13. 训练过程怎么看是否正常</h2>
+<p>训练开始后，终端里会看到类似：</p>
+<pre><code class="language-text">Num examples = 21
+Num Epochs = 100
+Total optimization steps = 200
+</code></pre>
+<p>同时会不断打印 <code>loss</code>，例如：</p>
+<pre><code class="language-text">{'loss': 4.9559, ...}
+{'loss': 4.4408, ...}
+{'loss': 3.6467, ...}
+{'loss': 2.9987, ...}
+{'loss': 2.5876, ...}
+</code></pre>
+<p>这说明：</p>
+<ul>
+<li>训练已经开始</li>
+<li>数据集被正确读取</li>
+<li>LoRA 正在生效</li>
+<li>模型在收敛</li>
+</ul>
+<p>下列日志可以先忽略，不代表训练失败：</p>
+<pre><code class="language-text">Could not locate the custom_generate/generate.py ...
+</code></pre>
+<pre><code class="language-text">The tokenizer has new PAD/BOS/EOS tokens ...
+</code></pre>
+<pre><code class="language-text">You are using reasoning template ...
+</code></pre>
+<p>对于 <code>DeepSeek-R1-Distill-Qwen-1.5B</code>，继续使用 <code>deepseekr1</code> 模板是合理的。</p>
+<span class="heading-anchor" id="14. 训练结果放在哪里"></span><h2 id="14">14. 训练结果放在哪里</h2>
+<p>LoRA 训练结果保存在：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/saves/DeepSeek-R1-1.5B-Distill/lora
+</code></pre>
+<p>每次训练会生成一个新的时间戳目录，例如：</p>
+<pre><code class="language-text">train_2026-03-29-18-39-33
+train_2026-03-29-19-34-05
+</code></pre>
+<p>查看目录：</p>
+<pre><code class="language-bash">ls -lt /Volumes/DevExpand/LLM/FineTuning/LlamaFactory/saves/DeepSeek-R1-1.5B-Distill/lora
+</code></pre>
+<p>训练输出目录中通常会有：</p>
+<ul>
+<li><code>adapter_model.safetensors</code></li>
+<li><code>adapter_config.json</code></li>
+<li><code>tokenizer_config.json</code></li>
+<li><code>chat_template.jinja</code></li>
+<li><code>checkpoint-*</code></li>
+</ul>
+<p>注意：这里保存的是 <strong>LoRA 适配器</strong>，不是完整合并后的模型。</p>
+<span class="heading-anchor" id="15. 如何在 WebUI 的 Chat 页面验证微调效果"></span><h2 id="15-webui-chat">15. 如何在 WebUI 的 Chat 页面验证微调效果</h2>
+<p>这一段是整个实战里最容易填错的地方。</p>
+<span class="heading-anchor" id="15.1 先理解一个关键点"></span><h3 id="151">15.1 先理解一个关键点</h3>
+<p>如果你在 Chat 页面中：</p>
+<ul>
+<li>只填了 <code>Model path</code></li>
+<li>没填 <code>Checkpoint path</code></li>
+</ul>
+<p>那么你加载的只是 <strong>原始底模</strong>，不是微调后的 LoRA 模型。</p>
+<p>这次实战中，正是因为 <code>Checkpoint path</code> 最开始留空，所以聊天时看到的其实是底模回答，而不是微调后的结果。</p>
+<span class="heading-anchor" id="15.2 Chat 页面正确填写方式"></span><h3 id="152-chat">15.2 Chat 页面正确填写方式</h3>
+<p>在 Chat 页面里：</p>
+<ul>
+<li><code>Model path</code>: <code>/Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li><code>Checkpoint path</code>: 填 LoRA 输出目录，例如：</li>
+</ul>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/saves/DeepSeek-R1-1.5B-Distill/lora/train_2026-03-29-19-34-05
+</code></pre>
+<ul>
+<li><code>Finetuning method</code>: <code>lora</code></li>
+<li><code>Chat template</code>: <code>deepseekr1</code></li>
+<li><code>Inference engine</code>: <code>huggingface</code></li>
+<li><code>Quantization bit</code>: <code>none</code></li>
+<li><code>Extra arguments</code>: 建议清空，或者填 <code>{}</code>，不要保留与 <code>vllm</code> 相关的参数</li>
+</ul>
+<span class="heading-anchor" id="15.3 正确的验证流程"></span><h3 id="153">15.3 正确的验证流程</h3>
+<ol>
+<li>先点击 <code>Unload model</code></li>
+<li>填好 <code>Checkpoint path</code></li>
+<li>再点击 <code>Load model</code></li>
+<li>等待页面提示模型加载成功</li>
+<li>使用训练集中出现过或非常接近的问题做测试</li>
+</ol>
+<p>推荐测试问题：</p>
+<ul>
+<li><code>请问你是谁</code></li>
+<li><code>怎么修复这个报错</code></li>
+<li>训练集中与你业务最接近的问题</li>
+</ul>
+<span class="heading-anchor" id="15.4 如何判断微调是否真的生效"></span><h3 id="154">15.4 如何判断微调是否真的生效</h3>
+<p>如果 LoRA 被正确加载，通常会看到：</p>
+<ul>
+<li>回答风格更接近训练数据</li>
+<li>对特定身份设定更稳定</li>
+<li>对训练集中高频问题的回答更一致</li>
+<li>与基座模型相比，更贴近你的业务场景</li>
+</ul>
+<p>如果你看不出明显变化，优先检查：</p>
+<ol>
+<li><code>Checkpoint path</code> 是否为空</li>
+<li>加载的是否是最新训练目录</li>
+<li>样本量是不是太少</li>
+<li>训练 epoch 是否太低</li>
+</ol>
+<span class="heading-anchor" id="16. 导出与合并模型"></span><h2 id="16">16. 导出与合并模型</h2>
+<p>如果你只是在 WebUI 里验证 LoRA 效果，那么底模 + 适配器的组合已经可以用了。<br/>
+但如果你后面希望把模型用于更简单的部署，通常会希望合并出一个完整模型。</p>
+<span class="heading-anchor" id="16.1 在 WebUI 的 Export 页面处理"></span><h3 id="161-webui-export">16.1 在 WebUI 的 Export 页面处理</h3>
+<p>导出页面一般这样填：</p>
+<ul>
+<li><code>Model path</code>: <code>/Volumes/DevExpand/LLM/FineTuning/models/DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li><code>Checkpoint path</code> / <code>Adapter path</code>: 最新训练出来的 LoRA 目录</li>
+<li><code>Template</code>: <code>deepseekr1</code></li>
+<li><code>Finetuning method</code>: <code>lora</code></li>
+<li><code>Export dir</code>: <code>/Volumes/DevExpand/LLM/FineTuning/output/deepseek-r1-1.5b-merged</code></li>
+<li><code>Export device</code>: <code>cpu</code></li>
+</ul>
+<span class="heading-anchor" id="16.2 合并后的结果放在哪里"></span><h3 id="162">16.2 合并后的结果放在哪里</h3>
+<p>建议放到：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/output/deepseek-r1-1.5b-merged
+</code></pre>
+<p>合并完成后，后续推理时就不再需要单独指定 LoRA 适配器路径。</p>
+<span class="heading-anchor" id="17. 常见问题与踩坑总结"></span><h2 id="17">17. 常见问题与踩坑总结</h2>
+<span class="heading-anchor" id="17.1 huggingface-cli: command not found"></span><h3 id="171-huggingface-cli-command-not-found">17.1 <code>huggingface-cli: command not found</code></h3>
+<p>原因：</p>
+<ul>
+<li>没装 <code>huggingface_hub</code></li>
+</ul>
+<p>解决：</p>
+<pre><code class="language-bash">uv pip install -U huggingface_hub
+hf --help
+</code></pre>
+<span class="heading-anchor" id='17.2 uv pip install -e ".[torch,metrics]" 报 extras 警告'></span><h3 id="172-uv-pip-install-e-torchmetrics-extras">17.2 <code>uv pip install -e ".[torch,metrics]"</code> 报 extras 警告</h3>
+<p>原因：</p>
+<ul>
+<li>当前版本并没有定义这两个 extras</li>
+</ul>
+<p>解决：</p>
+<pre><code class="language-bash">uv pip install -e .
+</code></pre>
+<span class="heading-anchor" id="17.3 File data/magic_conch.json not found"></span><h3 id="173-file-datamagic_conchjson-not-found">17.3 <code>File data/magic_conch.json not found</code></h3>
+<p>原因：</p>
+<ul>
+<li>数据文件没放在 <code>LlamaFactory/data</code> 目录下</li>
+</ul>
+<p>正确位置：</p>
+<pre><code class="language-text">/Volumes/DevExpand/LLM/FineTuning/LlamaFactory/data/magic_conch.json
+</code></pre>
+<span class="heading-anchor" id="17.4 模型下载非常慢"></span><h3 id="174">17.4 模型下载非常慢</h3>
+<p>原因通常不是命令错，而是：</p>
+<ul>
+<li>代理节点到 Hugging Face 大文件链路差</li>
+<li>当前节点只适合网页访问，不适合大文件下载</li>
+</ul>
+<p>解决思路：</p>
+<ul>
+<li>先测小文件下载速度</li>
+<li>换一个更适合下载的代理节点</li>
+<li>再重新执行 <code>hf download</code></li>
+</ul>
+<span class="heading-anchor" id="17.5 Ubuntu 上 cuda: False"></span><h3 id="175-ubuntu-cuda-false">17.5 Ubuntu 上 <code>cuda: False</code></h3>
+<p>原因通常是：</p>
+<ul>
+<li>NVIDIA 驱动没装好</li>
+<li>机器没有可用 GPU</li>
+<li>PyTorch 安装的版本与 CUDA 环境不匹配</li>
+</ul>
+<p>先检查：</p>
+<pre><code class="language-bash">nvidia-smi
+python -c "import torch; print(torch.cuda.is_available())"
+</code></pre>
+<p>如果 <code>nvidia-smi</code> 都不正常，优先修驱动和 CUDA 环境，而不是继续排查 LLaMA-Factory。</p>
+<span class="heading-anchor" id="17.6 Chat 页面看不到微调效果"></span><h3 id="176-chat">17.6 Chat 页面看不到微调效果</h3>
+<p>最常见原因：</p>
+<ul>
+<li><code>Checkpoint path</code> 没填</li>
+</ul>
+<p>结果：</p>
+<ul>
+<li>页面加载的是底模，不是 LoRA 微调结果</li>
+</ul>
+<span class="heading-anchor" id="17.7 小数据集把 epoch 设太大"></span><h3 id="177-epoch">17.7 小数据集把 epoch 设太大</h3>
+<p>本次实战中，<code>21</code> 条样本配 <code>100</code> 个 epoch 能跑，但过拟合风险很高。<br/>
+更合理的起步参数通常是：</p>
+<ul>
+<li><code>10</code> epoch</li>
+<li>或 <code>20</code> epoch</li>
+</ul>
+<span class="heading-anchor" id="18. 推荐的最小可复现参数"></span><h2 id="18">18. 推荐的最小可复现参数</h2>
+<p>如果你只是希望在这台 Mac 上稳定复现一遍流程，建议直接用下面这套：</p>
+<ul>
+<li>模型：<code>DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li>微调方式：<code>LoRA</code></li>
+<li>模板：<code>deepseekr1</code></li>
+<li>样本量：<code>20-100</code></li>
+<li><code>cutoff_len = 512</code></li>
+<li><code>train batch size = 1</code></li>
+<li><code>gradient accumulation = 8</code></li>
+<li><code>learning rate = 1e-4</code></li>
+<li><code>epoch = 10</code></li>
+<li><code>quantization bit = none</code></li>
+</ul>
+<p>如果你在 Ubuntu + NVIDIA GPU 上显存更充足，可以把这一套微调成：</p>
+<ul>
+<li><code>train batch size = 2</code> 或 <code>4</code></li>
+<li><code>cutoff_len = 1024</code></li>
+<li><code>compute type = bf16</code></li>
+</ul>
+<span class="heading-anchor" id="19. 一套最简执行顺序"></span><h2 id="19">19. 一套最简执行顺序</h2>
+<p>如果你只记流程，不记细节，可以按这个顺序做：</p>
+<ol>
+<li>进入仓库并激活 <code>.venv</code></li>
+<li>设置 <code>PYTORCH_ENABLE_MPS_FALLBACK=1</code></li>
+<li>下载基座模型到 <code>models/DeepSeek-R1-Distill-Qwen-1.5B</code></li>
+<li>把 <code>magic_conch.json</code> 放到 <code>LlamaFactory/data</code></li>
+<li>在 <code>dataset_info.json</code> 注册 <code>magic_conch</code></li>
+<li>启动 <code>llamafactory-cli webui</code></li>
+<li>Train 页面选择底模、模板、LoRA 和数据集</li>
+<li>跑训练</li>
+<li>记下 <code>saves/.../train_时间戳</code> 输出目录</li>
+<li>在 Chat 页面把 <code>Checkpoint path</code> 指向这个 LoRA 输出目录</li>
+<li>重新加载模型并测试</li>
+<li>需要时再去 Export 页面做合并</li>
+</ol>
+<span class="heading-anchor" id="20. macOS 和 Ubuntu 的最终建议"></span><h2 id="20-macos-ubuntu">20. macOS 和 Ubuntu 的最终建议</h2>
+<p>如果你是 <code>macOS + Apple Silicon</code>：</p>
+<ul>
+<li>这套流程完全能跑通</li>
+<li>更适合做本地验证、学习和小规模实验</li>
+<li>模型和数据量都不要一开始拉得太大</li>
+</ul>
+<p>如果你是 <code>Ubuntu + NVIDIA GPU</code>：</p>
+<ul>
+<li>优先推荐在 Ubuntu 上做正式训练</li>
+<li>同样的流程基本通用</li>
+<li>只是设备后端从 <code>MPS</code> 换成了 <code>CUDA</code></li>
+<li>可以根据显存适度提升 batch size、cutoff length 和数据量</li>
+</ul>
+<span class="heading-anchor" id="21. 这次实战的结论"></span><h2 id="21">21. 这次实战的结论</h2>
+<p>这套方案已经验证可在本机跑通，关键经验如下：</p>
+<ul>
+<li><code>macOS + Apple Silicon + uv + LLaMA-Factory</code> 是可行的</li>
+<li><code>Ubuntu + NVIDIA GPU + uv + LLaMA-Factory</code> 同样适用，而且更适合正式训练</li>
+<li>对 <code>16GB</code> 内存机器，LoRA 是最现实的起步方案</li>
+<li>先跑通流程，再谈效果优化</li>
+<li>对小数据集来说，<code>Checkpoint path</code> 和 <code>epoch</code> 设置比很多细枝末节更重要</li>
+<li>训练是否成功，不只看是否跑完，更要看你能否在 Chat 页面正确加载 LoRA 适配器并观察到风格变化</li>
+</ul>
+<span class="heading-anchor" id="22. 参考资料"></span><h2 id="22">22. 参考资料</h2>
+<ul>
+<li>你的笔记：<code>/Volumes/DevExpand/LLM/FineTuning/笔记文档.md</code></li>
+<li>LLaMA-Factory 仓库：<a href="https://github.com/hiyouga/LLaMA-Factory">https://github.com/hiyouga/LLaMA-Factory</a></li>
+<li>WebUI 文档：<a href="https://llamafactory.readthedocs.io/en/latest/getting_started/webui.html">https://llamafactory.readthedocs.io/en/latest/getting_started/webui.html</a></li>
+<li>合并文档：<a href="https://llamafactory.readthedocs.io/en/latest/getting_started/merge_lora.html">https://llamafactory.readthedocs.io/en/latest/getting_started/merge_lora.html</a></li>
+<li>推理文档：<a href="https://llamafactory.readthedocs.io/en/latest/getting_started/inference.html">https://llamafactory.readthedocs.io/en/latest/getting_started/inference.html</a></li>
+<li>PyTorch MPS 文档：<a href="https://docs.pytorch.org/docs/stable/notes/mps.html">https://docs.pytorch.org/docs/stable/notes/mps.html</a></li>
+<li>模型页：<a href="https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B">https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

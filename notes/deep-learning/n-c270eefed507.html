@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07 视觉任务与典型模型 · 李杨的学习笔记</title><meta name="description" content="CNN 使用局部卷积核和权重共享，天然有平移等变性，计算模式稳定，适合边缘、纹理、局部形状和工业部署。缺点是全局关系需要靠堆叠层、下采样或大卷积核间接建模。"><meta property="og:title" content="07 视觉任务与典型模型 · 李杨的学习笔记"><meta property="og:description" content="CNN 使用局部卷积核和权重共享，天然有平移等变性，计算模式稳定，适合边缘、纹理、局部形状和工业部署。缺点是全局关系需要靠堆叠层、下采样或大卷积核间接建模。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-c270eefed507.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-c270eefed507.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>07 视觉任务与典型模型</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/07_%E8%A7%86%E8%A7%89%E4%BB%BB%E5%8A%A1%E4%B8%8E%E5%85%B8%E5%9E%8B%E6%A8%A1%E5%9E%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">任务总览</a></li><li><a href="#cnnself-attentionvit">CNN、Self-Attention、ViT 与混合模型</a></li><li><a href="#_3">分类</a></li><li><a href="#_4">目标检测</a></li><li><a href="#u-net-skip">语义分割与 U-Net Skip 逻辑</a></li><li><a href="#mask-r-cnn">实例分割与 Mask R-CNN</a></li><li><a href="#_5">关键点与姿态</a></li><li><a href="#_6">跟踪</a></li><li><a href="#ocr">OCR</a></li><li><a href="#_7">深度估计与光流</a></li><li><a href="#_8">超分、复原与生成</a></li><li><a href="#_9">任务选择建议</a></li><li><a href="#_10">关联阅读</a></li><li><a href="#_11">检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>建立常见视觉任务的输入、输出、标注形式和典型模型图谱。</li>
+<li>理解 CNN、ViT/Self-Attention 与混合架构的差异和适用场景。</li>
+<li>掌握 U-Net skip connection、Mask R-CNN 两阶段实例分割逻辑。</li>
+<li>承接 <a href="n-cbc6fa0141f0.html">多尺度特征与 YOLO 检测链路</a>，把检测扩展到分割、关键点、跟踪、OCR、复原与生成任务。</li>
+<li>能把任务选择与后续训练、评估、部署串起来：见 <a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a>、<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a>、<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a>。</li>
+</ul>
+<span class="heading-anchor" id="任务总览"></span><h2 id="_2">任务总览</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>输出</th>
+<th>常见标注</th>
+<th>典型模型/方法</th>
+<th>关键难点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>图像分类</td>
+<td>类别或多标签概率</td>
+<td>image-level label</td>
+<td>ResNet、EfficientNet、ViT、ConvNeXt</td>
+<td>细粒度类别、类间相似、长尾</td>
+</tr>
+<tr>
+<td>目标检测</td>
+<td>box + class + score</td>
+<td>bounding box</td>
+<td>Faster R-CNN、RetinaNet、YOLO、DETR</td>
+<td>小目标、遮挡、密集目标、速度</td>
+</tr>
+<tr>
+<td>语义分割</td>
+<td>每像素类别</td>
+<td>mask</td>
+<td>FCN、U-Net、DeepLab、SegFormer</td>
+<td>边界、类别不平衡、尺度变化</td>
+</tr>
+<tr>
+<td>实例分割</td>
+<td>每个实例的 mask</td>
+<td>instance mask</td>
+<td>Mask R-CNN、YOLACT、SOLO、SAM 系列</td>
+<td>同类实例分离、遮挡</td>
+</tr>
+<tr>
+<td>关键点</td>
+<td>点坐标和可见性</td>
+<td>keypoints</td>
+<td>HRNet、OpenPose、ViTPose</td>
+<td>姿态遮挡、尺度、拓扑约束</td>
+</tr>
+<tr>
+<td>多目标跟踪</td>
+<td>track id + box/mask</td>
+<td>视频框、ID</td>
+<td>SORT、DeepSORT、ByteTrack、OC-SORT</td>
+<td>ID switch、遮挡、重入画面</td>
+</tr>
+<tr>
+<td>OCR</td>
+<td>文本框 + 字符序列</td>
+<td>text box、transcript</td>
+<td>CRNN、CTC、DBNet、SVTR、TrOCR</td>
+<td>弯曲文本、小字、复杂背景</td>
+</tr>
+<tr>
+<td>深度估计</td>
+<td>dense depth</td>
+<td>depth map 或相对深度</td>
+<td>Monodepth、DPT、MiDaS</td>
+<td>尺度不确定、反光透明物体</td>
+</tr>
+<tr>
+<td>光流</td>
+<td>像素运动向量</td>
+<td>flow field</td>
+<td>FlowNet、PWC-Net、RAFT</td>
+<td>大位移、遮挡、无纹理区域</td>
+</tr>
+<tr>
+<td>超分辨率</td>
+<td>高分图像</td>
+<td>LR/HR pair</td>
+<td>SRCNN、EDSR、ESRGAN、SwinIR</td>
+<td>真实退化、纹理幻觉</td>
+</tr>
+<tr>
+<td>图像复原</td>
+<td>去噪/去模糊/去雨/补全</td>
+<td>clean/degraded pair</td>
+<td>DnCNN、Restormer、NAFNet</td>
+<td>退化未知、保真与锐化平衡</td>
+</tr>
+<tr>
+<td>生成</td>
+<td>图像、视频、编辑结果</td>
+<td>text/image/condition</td>
+<td>GAN、VAE、Diffusion、ControlNet</td>
+<td>可控性、一致性、安全与评估</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="CNN、Self-Attention、ViT 与混合模型"></span><h2 id="cnnself-attentionvit">CNN、Self-Attention、ViT 与混合模型</h2>
+<p>CNN 使用局部卷积核和权重共享，天然有平移等变性，计算模式稳定，适合边缘、纹理、局部形状和工业部署。缺点是全局关系需要靠堆叠层、下采样或大卷积核间接建模。</p>
+<p>Self-Attention 直接计算 token 间关系，优势是全局上下文、长距离依赖和动态权重；代价是计算量通常随 token 数量二次增长，对数据量和正则化更敏感。</p>
+<p>ViT 把图像切成 patch token 后送入 Transformer。它减少了手工视觉先验，预训练充分时迁移能力强；数据少、目标很小或部署资源紧时，需要谨慎处理 patch 尺度、蒸馏和轻量化。</p>
+<p>混合模型常见做法：</p>
+<ul>
+<li>CNN stem + Transformer：用卷积提取低层纹理，降低 token 数，再交给注意力建模全局关系。</li>
+<li>Transformer encoder + CNN decoder：常见于分割，encoder 负责语义，decoder 恢复空间细节。</li>
+<li>Attention 插入 CNN：如 SE、CBAM、Non-local block，用较小改动增强通道或空间选择性。</li>
+<li>Window attention：如 Swin Transformer，在局部窗口内做注意力并跨窗口交互，兼顾效率和层级特征。</li>
+</ul>
+<span class="heading-anchor" id="分类"></span><h2 id="_3">分类</h2>
+<p>分类输出一个类别分布，多标签分类输出每类独立概率。经典 CNN 分类器通常由 backbone、global pooling、分类头组成。训练时要关注类不平衡、标签噪声、数据泄漏和置信度校准。</p>
+<p>常用模型：</p>
+<ul>
+<li>ResNet：残差连接缓解深层网络退化，工程基线稳定。</li>
+<li>EfficientNet：通过宽度、深度、分辨率复合缩放提升效率。</li>
+<li>ConvNeXt：吸收 Transformer 训练经验的现代 CNN。</li>
+<li>ViT/DeiT：依赖预训练和数据增强，适合大规模迁移。</li>
+</ul>
+<span class="heading-anchor" id="目标检测"></span><h2 id="_4">目标检测</h2>
+<p>检测模型要同时解决“在哪里”和“是什么”。两阶段模型先生成候选区域，再分类和回归；单阶段模型直接在密集位置上预测类别与框。</p>
+<p>典型路线：</p>
+<ul>
+<li>Faster R-CNN：RPN 生成 proposals，RoIAlign 后做分类和 box regression，精度强但延迟较高。</li>
+<li>RetinaNet：单阶段密集检测，用 Focal Loss 缓解前景/背景极度不平衡。</li>
+<li>YOLO 系列：单阶段实时检测的主流路线，通常还包含解码、阈值过滤和 NMS 等部署后处理。</li>
+<li>DETR 系列：把检测建模为集合预测，用 query 和 bipartite matching 减少 NMS 依赖。</li>
+</ul>
+<p>检测核心问题包括 anchor/anchor-free 设计、多尺度特征、小目标召回、NMS、置信度阈值和类别不平衡。</p>
+<span class="heading-anchor" id="语义分割与 U-Net Skip 逻辑"></span><h2 id="u-net-skip">语义分割与 U-Net Skip 逻辑</h2>
+<p>语义分割为每个像素分配类别，不区分同类不同实例。模型通常需要同时具备高层语义和低层空间细节。</p>
+<p>U-Net 是 encoder-decoder 结构：</p>
+<ul>
+<li>encoder 逐步下采样，扩大感受野，提取语义。</li>
+<li>decoder 逐步上采样，恢复分辨率。</li>
+<li>skip connection 把 encoder 同尺度特征拼接或相加到 decoder。</li>
+</ul>
+<p>skip 的核心逻辑不是“直接复制答案”，而是补回下采样丢失的边界、纹理和定位信息。没有 skip 时，decoder 只能从压缩后的语义特征中猜边界，容易产生粗糙轮廓；有 skip 后，高层语义决定“是什么”，低层细节帮助决定“边界在哪里”。</p>
+<p>DeepLab 使用空洞卷积和 ASPP 捕获多尺度上下文。SegFormer 等 Transformer 分割模型用层级特征和轻量 decoder 兼顾语义与效率。</p>
+<span class="heading-anchor" id="实例分割与 Mask R-CNN"></span><h2 id="mask-r-cnn">实例分割与 Mask R-CNN</h2>
+<p>实例分割需要同时完成检测和每个实例的像素级 mask。它比语义分割多了实例身份，比检测多了形状。</p>
+<p>Mask R-CNN 在 Faster R-CNN 上增加 mask 分支：</p>
+<ol>
+<li>backbone + FPN 提取多尺度特征。</li>
+<li>RPN 生成候选框。</li>
+<li>RoIAlign 从特征图裁剪固定尺寸 RoI 特征，避免 RoIPool 的量化误差。</li>
+<li>box head 输出类别和边框修正。</li>
+<li>mask head 对每个 RoI 预测类别相关或类别无关的二值 mask。</li>
+</ol>
+<p>训练损失通常由分类损失、框回归损失、mask BCE/Dice 等组成。实例分割评估看 mask AP，不能只看 box AP。</p>
+<span class="heading-anchor" id="关键点与姿态"></span><h2 id="_5">关键点与姿态</h2>
+<p>关键点任务输出人体、手、物体或工业零件的结构点。常见方法包括 heatmap 回归和直接坐标回归。Heatmap 方法更稳定，因为它把点定位转成空间概率图，能表达不确定性。</p>
+<p>工程注意点：</p>
+<ul>
+<li>标注需包含不可见点和截断点规则。</li>
+<li>后处理包括 argmax、soft-argmax、OKS-NMS、骨架约束。</li>
+<li>多人姿态可用 top-down：先检测人再关键点；也可用 bottom-up：先检测所有点再组装。</li>
+</ul>
+<span class="heading-anchor" id="跟踪"></span><h2 id="_6">跟踪</h2>
+<p>多目标跟踪常采用 tracking-by-detection：先逐帧检测，再通过运动模型和外观特征关联轨迹。</p>
+<ul>
+<li>SORT：Kalman filter + Hungarian matching，快但遮挡鲁棒性一般。</li>
+<li>DeepSORT：加入 ReID 外观特征，降低 ID switch。</li>
+<li>ByteTrack：利用低分检测框参与关联，提高遮挡和低置信目标的连续性。</li>
+</ul>
+<p>核心指标与误差分析见 <a href="n-01737d01274c.html">09_评价指标与误差分析.md</a>。</p>
+<span class="heading-anchor" id="OCR"></span><h2 id="ocr">OCR</h2>
+<p>OCR 通常分为文本检测、方向/版面分析、文字识别。检测模型输出文本区域，识别模型输出字符序列。</p>
+<ul>
+<li>CTC 路线：适合不需要逐字符对齐的序列识别。</li>
+<li>Attention decoder：能建模上下文，但可能受语言先验影响。</li>
+<li>Transformer OCR：适合复杂字体和长文本，但部署成本更高。</li>
+</ul>
+<p>工业 OCR 要特别关注字体、反光、运动模糊、压缩、印刷缺陷和业务词表。</p>
+<span class="heading-anchor" id="深度估计与光流"></span><h2 id="_7">深度估计与光流</h2>
+<p>单目深度估计输出相对或绝对深度。双目深度依赖视差，ToF/结构光依赖主动传感器。单目深度难点是尺度歧义：同一张图像可能对应多个真实尺度。</p>
+<p>光流估计输出相邻帧之间每个像素的运动向量。RAFT 通过迭代更新和相关体建模取得较强效果。光流可用于运动分割、视频插帧、稳定、跟踪辅助。</p>
+<span class="heading-anchor" id="超分、复原与生成"></span><h2 id="_8">超分、复原与生成</h2>
+<p>超分辨率从低分图像恢复高分图像。PSNR 导向模型偏平滑，GAN/Diffusion 导向模型纹理更锐但可能产生不真实细节。工业检测前的超分要谨慎，不能让模型“补出”不存在的缺陷。</p>
+<p>复原任务包括去噪、去模糊、去雨、去雾、补全。关键是退化建模：合成退化与真实退化差距越大，线上越容易失效。</p>
+<p>生成模型用于数据合成、缺陷模拟、图像编辑和少样本扩充。用于训练时要验证生成数据是否提升真实测试集，而不是只提升合成验证集。</p>
+<span class="heading-anchor" id="任务选择建议"></span><h2 id="_9">任务选择建议</h2>
+<ul>
+<li>只关心整图结果：分类。</li>
+<li>需要定位目标：检测。</li>
+<li>需要像素级区域且不区分实例：语义分割。</li>
+<li>需要每个目标独立 mask：实例分割。</li>
+<li>需要结构点：关键点。</li>
+<li>需要跨帧身份连续：跟踪。</li>
+<li>需要读取文字：OCR。</li>
+<li>需要几何或运动：深度、光流。</li>
+<li>需要提升画质或恢复信息：超分、复原。</li>
+<li>需要合成或编辑：生成。</li>
+</ul>
+<span class="heading-anchor" id="关联阅读"></span><h2 id="_10">关联阅读</h2>
+<ul>
+<li>训练损失与数据诊断：<a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a></li>
+<li>指标、阈值与误差分析：<a href="n-01737d01274c.html">09_评价指标与误差分析.md</a></li>
+<li>推理部署与工业视觉：<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a></li>
+<li>面试题框架：<a href="n-6c112411680d.html">11_视觉工程师面试题.md</a></li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_11">检查清单</h2>
+<ul>
+<li>[ ] 能说清分类、检测、分割、关键点、跟踪、OCR、深度、光流、超分、复原、生成的输出差异。</li>
+<li>[ ] 能解释 CNN、Self-Attention、ViT 和混合架构的优缺点。</li>
+<li>[ ] 能画出 U-Net encoder-decoder 与 skip connection 的信息流。</li>
+<li>[ ] 能说明 Mask R-CNN 相比 Faster R-CNN 新增了什么。</li>
+<li>[ ] 能根据业务目标选择合适视觉任务，而不是默认套检测模型。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

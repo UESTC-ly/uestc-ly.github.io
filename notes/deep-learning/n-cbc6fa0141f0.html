@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06 多尺度特征与 YOLO 检测链路 · 李杨的学习笔记</title><meta name="description" content="Backbone 是特征提取器，例如 ResNet、CSPDarknet、ConvNeXt、EfficientNet。它从图像中提取不同 stride 的特征："><meta property="og:title" content="06 多尺度特征与 YOLO 检测链路 · 李杨的学习笔记"><meta property="og:description" content="Backbone 是特征提取器，例如 ResNet、CSPDarknet、ConvNeXt、EfficientNet。它从图像中提取不同 stride 的特征："><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-cbc6fa0141f0.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-cbc6fa0141f0.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>06 多尺度特征与 YOLO 检测链路</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/06_%E5%A4%9A%E5%B0%BA%E5%BA%A6%E7%89%B9%E5%BE%81%E4%B8%8EYOLO%E6%A3%80%E6%B5%8B%E9%93%BE%E8%B7%AF.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#1">1. 检测任务比分类多了什么</a></li><li><a href="#2-backboneneckhead">2. Backbone、Neck、Head</a></li><li><a href="#3-fpn">3. FPN：自顶向下融合语义</a></li><li><a href="#4-pan">4. PAN：再把定位信息向上传</a></li><li><a href="#5">5. 两阶段与单阶段检测</a></li><li><a href="#6-anchor-based-anchor-free">6. Anchor-based 与 Anchor-free</a></li><li><a href="#7-yolo-head">7. YOLO Head：密集预测</a></li><li><a href="#8-decoupled-head">8. Decoupled Head：分类和定位分开学</a></li><li><a href="#9-iou">9. IoU 族：框质量如何度量</a></li><li><a href="#10-nms">10. NMS：从大量候选框到最终结果</a></li><li><a href="#11-yolo">11. YOLO 训练损失的组成</a></li><li><a href="#12-cnn-resnet-fpn-yolo">12. CNN -&gt; ResNet -&gt; FPN -&gt; YOLO 的完整逻辑</a></li><li><a href="#13">13. 面试问答与速记</a></li><li><a href="#_2">本章检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解目标检测为什么需要多尺度特征，以及 FPN/PAN 如何融合不同层级信息。</li>
+<li>掌握 Backbone、Neck、Head 在检测模型中的职责划分。</li>
+<li>能解释两阶段与单阶段检测、anchor-based 与 anchor-free、IoU 族损失、NMS、decoupled head。</li>
+<li>把 <a href="n-1b807f1149b0.html">深度学习视觉基础</a> 和 <a href="n-f8e94e3eeaca.html">CNN 到 ResNet 的架构演进</a> 串成 CNN -&gt; ResNet -&gt; FPN -&gt; YOLO 的完整检测逻辑。</li>
+<li>为下一章 <a href="n-c270eefed507.html">视觉任务与典型模型</a> 建立检测任务的结构基础。</li>
+</ul>
+<span class="heading-anchor" id="1. 检测任务比分类多了什么"></span><h2 id="1">1. 检测任务比分类多了什么</h2>
+<p>分类只回答“图中是什么”，检测要回答：</p>
+<pre><code class="language-text">有哪些目标？
+每个目标在哪里？
+每个目标属于哪一类？
+置信度是多少？
+</code></pre>
+<p>因此检测 Head 通常输出三类信息：</p>
+<ul>
+<li>分类分数：目标类别。</li>
+<li>边界框回归：位置和大小。</li>
+<li>置信度/objectness 或质量分数：该预测是否可靠。</li>
+</ul>
+<p>完整检测链路：</p>
+<pre><code class="language-text">输入图像
+-&gt; 预处理/归一化/letterbox
+-&gt; Backbone提取层级特征
+-&gt; Neck做多尺度融合
+-&gt; Head输出框、类别、置信度
+-&gt; 解码到原图坐标
+-&gt; 置信度阈值过滤
+-&gt; NMS/后处理
+-&gt; 最终检测结果
+</code></pre>
+<span class="heading-anchor" id="2. Backbone、Neck、Head"></span><h2 id="2-backboneneckhead">2. Backbone、Neck、Head</h2>
+<p>Backbone 是特征提取器，例如 ResNet、CSPDarknet、ConvNeXt、EfficientNet。它从图像中提取不同 stride 的特征：</p>
+<pre><code class="language-text">C3: stride 8,  高分辨率，适合小目标
+C4: stride 16, 中等尺度
+C5: stride 32, 低分辨率，语义强，适合大目标
+</code></pre>
+<p>Neck 负责融合不同层级特征，例如 FPN、PAN、BiFPN。它解决一个矛盾：</p>
+<ul>
+<li>浅层特征定位细，但语义弱。</li>
+<li>深层特征语义强，但空间粗。</li>
+</ul>
+<p>Head 负责最终预测。YOLO 系列通常在多个尺度的特征图上预测，典型输出步长是 <code>8/16/32</code>。如果输入是 <code>640 x 640</code>：</p>
+<pre><code class="language-text">stride 8:  80 x 80 特征图，偏小目标
+stride 16: 40 x 40 特征图，中目标
+stride 32: 20 x 20 特征图，偏大目标
+</code></pre>
+<span class="heading-anchor" id="3. FPN：自顶向下融合语义"></span><h2 id="3-fpn">3. FPN：自顶向下融合语义</h2>
+<p>FPN 使用深层语义特征逐级上采样，与浅层特征横向连接：</p>
+<pre><code class="language-text">C5 -&gt; 1x1 -&gt; P5
+P5 上采样 + C4的1x1投影 -&gt; P4
+P4 上采样 + C3的1x1投影 -&gt; P3
+</code></pre>
+<p><code>1x1</code> 卷积用于对齐通道数，上采样用于对齐空间尺寸，相加或 concat 用于融合信息。</p>
+<p>直觉：</p>
+<ul>
+<li>深层告诉浅层“这里像什么语义对象”。</li>
+<li>浅层提供“边缘和位置在哪里”。</li>
+<li>融合后的 <code>P3/P4/P5</code> 都具有较好的语义信息，只是分辨率不同。</li>
+</ul>
+<p>工程陷阱：</p>
+<ul>
+<li>相加要求通道和空间尺寸一致。</li>
+<li>concat 后通道数会增加，后面通常接卷积压回目标通道。</li>
+<li>上采样后的尺寸可能因奇偶数输入出现一像素误差，需要显式对齐。</li>
+</ul>
+<span class="heading-anchor" id="4. PAN：再把定位信息向上传"></span><h2 id="4-pan">4. PAN：再把定位信息向上传</h2>
+<p>FPN 是自顶向下；PAN 在此基础上增加自底向上的路径，让低层定位信息再传回高层：</p>
+<pre><code class="language-text">FPN: C5 -&gt; P5 -&gt; P4 -&gt; P3
+PAN: P3 -&gt; N3 -&gt; N4 -&gt; N5
+</code></pre>
+<p>YOLO 系列常用 FPN + PAN 思想。这样每个尺度都能同时获得：</p>
+<ul>
+<li>深层语义：有助于分类和大目标理解。</li>
+<li>浅层定位：有助于边界框精细定位和小目标检测。</li>
+</ul>
+<span class="heading-anchor" id="5. 两阶段与单阶段检测"></span><h2 id="5">5. 两阶段与单阶段检测</h2>
+<p>两阶段检测以 Faster R-CNN 为代表：</p>
+<pre><code class="language-text">Backbone -&gt; RPN产生候选框 -&gt; RoI Align -&gt; 分类/回归Head
+</code></pre>
+<p>优点是候选区域更精细，早期精度高；缺点是流程复杂、推理较慢。</p>
+<p>单阶段检测以 YOLO、SSD、RetinaNet 为代表：</p>
+<pre><code class="language-text">Backbone -&gt; Neck -&gt; Dense Head直接预测框和类别
+</code></pre>
+<p>优点是端到端、速度快、部署简单；难点是正负样本极不均衡、密集预测后处理复杂。现代 YOLO 通过更好的标签分配、损失、Head 设计和数据增强显著提升精度。</p>
+<span class="heading-anchor" id="6. Anchor-based 与 Anchor-free"></span><h2 id="6-anchor-based-anchor-free">6. Anchor-based 与 Anchor-free</h2>
+<p>Anchor-based 方法预先在每个特征图位置放若干默认框，模型预测相对 anchor 的偏移：</p>
+<pre><code class="language-text">预测框 = anchor + delta
+</code></pre>
+<p>优点：</p>
+<ul>
+<li>先验明确，对传统检测框架友好。</li>
+<li>若 anchor 尺寸匹配数据集，训练较稳定。</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>需要设计 anchor 尺寸和比例。</li>
+<li>数据集目标尺寸变化大时，anchor 匹配可能低效。</li>
+</ul>
+<p>Anchor-free 方法不依赖预设框，常直接预测中心点、边界距离或框坐标。优点是结构更简洁，减少超参数；缺点是标签分配和质量估计仍然关键。</p>
+<p>面试中可以这样概括：</p>
+<pre><code class="language-text">anchor-based: 先放模板框，再学偏移
+anchor-free: 直接从特征点预测目标框
+</code></pre>
+<span class="heading-anchor" id="7. YOLO Head：密集预测"></span><h2 id="7-yolo-head">7. YOLO Head：密集预测</h2>
+<p>以输入 <code>640 x 640</code>、3 个尺度为例，YOLO Head 在每个尺度上对大量位置做预测：</p>
+<pre><code class="language-text">80 x 80:  6400个位置
+40 x 40:  1600个位置
+20 x 20:   400个位置
+总计:      8400个位置（anchor-free常见形式）
+</code></pre>
+<p>每个位置可能输出：</p>
+<pre><code class="language-text">bbox: 4个数
+class logits: num_classes个数
+score/objectness: 1个数（视具体版本而定）
+</code></pre>
+<p>如果是 anchor-based，位置数还要乘以每个位置的 anchor 数。例如每个尺度每个格点 3 个 anchor：</p>
+<pre><code class="language-text">总预测数 = (80*80 + 40*40 + 20*20) * 3 = 25200
+</code></pre>
+<p>这就是为什么检测需要阈值过滤和 NMS，否则输出候选框太多。</p>
+<span class="heading-anchor" id="8. Decoupled Head：分类和定位分开学"></span><h2 id="8-decoupled-head">8. Decoupled Head：分类和定位分开学</h2>
+<p>早期检测 Head 常共享一组卷积后同时预测分类和回归。Decoupled Head 将分类分支和回归分支拆开：</p>
+<pre><code class="language-text">输入特征
+-&gt; cls branch -&gt; 类别分数
+-&gt; reg branch -&gt; bbox / objectness / quality
+</code></pre>
+<p>原因是分类和定位关注点不同：</p>
+<ul>
+<li>分类需要语义判别：这是什么。</li>
+<li>回归需要几何边界：框在哪里、多大。</li>
+</ul>
+<p>分支解耦通常能减少任务冲突，提高收敛和检测精度。现代 YOLO 和 anchor-free 检测器中很常见。</p>
+<span class="heading-anchor" id="9. IoU 族：框质量如何度量"></span><h2 id="9-iou">9. IoU 族：框质量如何度量</h2>
+<p>IoU 是两个框交并比：</p>
+<pre><code class="language-text">IoU = intersection_area / union_area
+</code></pre>
+<p>若两个框不相交，IoU 为 0，此时单纯 IoU 损失无法提供有效的靠近方向。因此出现 IoU 族改进：</p>
+<ul>
+<li>GIoU：加入最小外接框惩罚，解决不重叠时梯度弱的问题。</li>
+<li>DIoU：加入中心点距离，让预测框更快靠近目标框。</li>
+<li>CIoU：进一步考虑宽高比一致性。</li>
+</ul>
+<p>计算例子：</p>
+<p>框 A：<code>(0,0,100,100)</code>，框 B：<code>(50,50,150,150)</code>，坐标格式为 <code>xyxy</code>。</p>
+<pre><code class="language-text">交集宽高 = 50 x 50
+交集面积 = 2500
+A面积 = 10000
+B面积 = 10000
+并集 = 10000 + 10000 - 2500 = 17500
+IoU = 2500 / 17500 = 0.1429
+</code></pre>
+<p>工程陷阱：</p>
+<ul>
+<li><code>xyxy</code> 和 <code>xywh</code> 混用会直接破坏 IoU。</li>
+<li>坐标是否归一化不影响 IoU 数值本身，但同一批计算必须统一尺度。</li>
+<li>resize/letterbox 后要把预测框映射回原图坐标，否则可视化和评估都会错。</li>
+</ul>
+<span class="heading-anchor" id="10. NMS：从大量候选框到最终结果"></span><h2 id="10-nms">10. NMS：从大量候选框到最终结果</h2>
+<p>NMS 用于去掉同一目标的重复框：</p>
+<pre><code class="language-text">1. 按分数从高到低排序
+2. 取最高分框作为保留框
+3. 删除与该框 IoU 超过阈值的其他框
+4. 重复直到没有候选框
+</code></pre>
+<p>常见参数：</p>
+<ul>
+<li>confidence threshold：先过滤低分框。</li>
+<li>IoU threshold：控制重复框删除强度。</li>
+<li>class-aware/class-agnostic：是否按类别分别做 NMS。</li>
+</ul>
+<p>NMS 陷阱：</p>
+<ul>
+<li>阈值过低会误删相邻目标，尤其是密集场景。</li>
+<li>阈值过高会保留重复框。</li>
+<li>小目标密集检测中，Soft-NMS、DIoU-NMS 或后处理调参可能有帮助。</li>
+<li>评估和部署端的 NMS 实现不一致，会造成离线指标和线上结果差异。</li>
+</ul>
+<span class="heading-anchor" id="11. YOLO 训练损失的组成"></span><h2 id="11-yolo">11. YOLO 训练损失的组成</h2>
+<p>不同 YOLO 版本细节不同，但通常包括：</p>
+<pre><code class="language-text">总损失 = 框回归损失 + 分类损失 + 置信度/质量损失 + 可能的辅助项
+</code></pre>
+<p>具体分项依版本而异：有的实现保留独立 objectness，有的将目标质量融入分类分数；部分现代实现还使用 DFL（Distribution Focal Loss）等分布式框回归损失。因此分析训练日志时应以当前代码的真实 loss 定义为准。</p>
+<p>训练关键点：</p>
+<ul>
+<li>标签分配：决定哪个特征点或 anchor 负责哪个 GT。</li>
+<li>正负样本平衡：背景位置远多于目标位置。</li>
+<li>多尺度训练：随机改变输入尺寸，提高尺度鲁棒性。</li>
+<li>数据增强：Mosaic、MixUp、颜色扰动、随机仿射等。</li>
+</ul>
+<p>推理关键点：</p>
+<ul>
+<li>关闭增强或使用可控的 TTA。</li>
+<li>保持预处理与训练一致。</li>
+<li>解码坐标后再映射回原图。</li>
+<li>做阈值过滤和 NMS。</li>
+</ul>
+<span class="heading-anchor" id="12. CNN -&gt; ResNet -&gt; FPN -&gt; YOLO 的完整逻辑"></span><h2 id="12-cnn-resnet-fpn-yolo">12. CNN -&gt; ResNet -&gt; FPN -&gt; YOLO 的完整逻辑</h2>
+<p>可以把整条路线理解为逐步解决检测所需能力：</p>
+<pre><code class="language-text">CNN:
+  用卷积学习局部视觉模式，保留空间结构。
+
+ResNet:
+  用残差连接训练更深 Backbone，获得更强语义特征。
+
+FPN/PAN:
+  融合浅层定位和深层语义，解决不同尺寸目标的问题。
+
+YOLO:
+  在多尺度特征图上做密集预测，用单阶段方式直接输出框和类别。
+
+IoU/NMS:
+  用框质量损失训练定位，用后处理去除重复候选框。
+</code></pre>
+<p>一句话速记：</p>
+<pre><code class="language-text">CNN 负责看局部，ResNet 负责看得深，FPN/PAN 负责大小目标都看清，YOLO Head 负责一次性把框和类别预测出来。
+</code></pre>
+<span class="heading-anchor" id="13. 面试问答与速记"></span><h2 id="13">13. 面试问答与速记</h2>
+<p>Q：FPN 为什么适合检测？</p>
+<p>A：检测需要同时处理小目标和大目标。FPN 把深层语义传到高分辨率特征上，让不同尺度的特征图都具备更强语义。</p>
+<p>Q：PAN 比 FPN 多了什么？</p>
+<p>A：PAN 增加自底向上的融合路径，让低层定位信息也能向高层传递。</p>
+<p>Q：YOLO 为什么快？</p>
+<p>A：它是单阶段检测器，不先生成候选区域再逐个分类，而是在多尺度特征图上密集预测框和类别。</p>
+<p>Q：anchor-free 一定比 anchor-based 好吗？</p>
+<p>A：不绝对。anchor-free 减少 anchor 设计负担，结构更简洁；但最终效果还取决于标签分配、损失、Head、数据和训练策略。</p>
+<p>Q：为什么需要 NMS？</p>
+<p>A：密集预测会对同一目标产生多个高分候选框，NMS 根据分数和 IoU 删除重复框。</p>
+<p>速记：</p>
+<pre><code class="language-text">Backbone: 提特征
+Neck: 融合多尺度
+Head: 预测类别和框
+IoU Loss: 训练框质量
+NMS: 推理去重
+</code></pre>
+<span class="heading-anchor" id="本章检查清单"></span><h2 id="_2">本章检查清单</h2>
+<ul>
+<li>[ ] 能区分 Backbone、Neck、Head 的职责。</li>
+<li>[ ] 能解释 FPN 的自顶向下融合和 PAN 的自底向上融合。</li>
+<li>[ ] 能计算 <code>640x640</code> 输入下 <code>stride=8/16/32</code> 的特征图尺寸。</li>
+<li>[ ] 能比较两阶段和单阶段检测。</li>
+<li>[ ] 能说明 anchor-based 与 anchor-free 的核心区别。</li>
+<li>[ ] 能解释 decoupled head 为什么能减少分类和定位冲突。</li>
+<li>[ ] 能手算简单 IoU，并知道 GIoU/DIoU/CIoU 的改进方向。</li>
+<li>[ ] 能说明 NMS 的步骤和常见阈值陷阱。</li>
+<li>[ ] 能完整讲出 CNN -&gt; ResNet -&gt; FPN/PAN -&gt; YOLO -&gt; IoU/NMS 的检测链路。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

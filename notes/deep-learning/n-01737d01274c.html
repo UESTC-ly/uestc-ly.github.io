@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09 评价指标与误差分析 · 李杨的学习笔记</title><meta name="description" content="指标必须服务业务目标。一个模型“平均分高”不代表能上线，尤其在安全、质检、医疗、自动驾驶等场景中，漏检、误检、延迟和可解释性成本不同。"><meta property="og:title" content="09 评价指标与误差分析 · 李杨的学习笔记"><meta property="og:description" content="指标必须服务业务目标。一个模型“平均分高”不代表能上线，尤其在安全、质检、医疗、自动驾驶等场景中，漏检、误检、延迟和可解释性成本不同。"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-01737d01274c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-01737d01274c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数字图像处理</p><h1>09 评价指标与误差分析</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E5%AD%97%E5%9B%BE%E5%83%8F%E5%A4%84%E7%90%86/09_%E8%AF%84%E4%BB%B7%E6%8C%87%E6%A0%87%E4%B8%8E%E8%AF%AF%E5%B7%AE%E5%88%86%E6%9E%90.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">指标设计原则</a></li><li><a href="#_3">分类指标</a></li><li><a href="#pr">PR 曲线与阈值</a></li><li><a href="#_4">检测指标</a></li><li><a href="#_5">分割指标</a></li><li><a href="#ocr">跟踪、OCR、深度与光流指标</a></li><li><a href="#_6">超分、复原与生成指标</a></li><li><a href="#_7">切片评估</a></li><li><a href="#_8">错误分析流程</a></li><li><a href="#_9">指标报告模板</a></li><li><a href="#_10">关联阅读</a></li><li><a href="#_11">检查清单</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握分类、检测、分割、跟踪和 OCR 的常用指标。</li>
+<li>理解 PR 曲线、阈值选择、mAP@0.5 与 mAP@0.5:0.95 的差异。</li>
+<li>能使用混淆矩阵、切片评估和失败案例归因做工程诊断。</li>
+<li>与训练和部署联动：见 <a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a>、<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a>。</li>
+</ul>
+<span class="heading-anchor" id="指标设计原则"></span><h2 id="_2">指标设计原则</h2>
+<p>指标必须服务业务目标。一个模型“平均分高”不代表能上线，尤其在安全、质检、医疗、自动驾驶等场景中，漏检、误检、延迟和可解释性成本不同。</p>
+<p>评估时至少同时看：</p>
+<ul>
+<li>整体指标：便于横向比较。</li>
+<li>分类别指标：发现长尾和混淆。</li>
+<li>分场景指标：光照、设备、时间、材质、背景、尺寸、遮挡。</li>
+<li>阈值相关指标：不同置信度阈值下的 precision/recall。</li>
+<li>失败案例：用图像证据解释指标变化。</li>
+</ul>
+<span class="heading-anchor" id="分类指标"></span><h2 id="_3">分类指标</h2>
+<p>混淆矩阵记录真实类别与预测类别的对应关系，是分类误差分析的入口。</p>
+<p>常用指标：</p>
+<ul>
+<li>Accuracy：整体正确率，类别均衡时直观；类别极不平衡时可能误导。</li>
+<li>Precision：预测为正的样本中有多少是真的，关注误报成本。</li>
+<li>Recall：真实正样本中有多少被找回，关注漏报成本。</li>
+<li>F1：precision 与 recall 的调和平均，适合二者都重要的场景。</li>
+<li>Top-k accuracy：真实类别是否在前 k 个预测内，适合候选推荐或粗筛。</li>
+<li>ROC-AUC：不同阈值下 TPR/FPR 曲线面积，类别不平衡时要结合 PR-AUC。</li>
+<li>Calibration：预测概率是否可信，可用 reliability diagram、ECE 分析。</li>
+</ul>
+<p>二分类四类结果：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>结果</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TP</td>
+<td>正样本预测为正</td>
+</tr>
+<tr>
+<td>FP</td>
+<td>负样本预测为正，误报</td>
+</tr>
+<tr>
+<td>FN</td>
+<td>正样本预测为负，漏报</td>
+</tr>
+<tr>
+<td>TN</td>
+<td>负样本预测为负</td>
+</tr>
+</tbody>
+</table></div>
+<p>Precision = TP / (TP + FP)，Recall = TP / (TP + FN)。阈值升高通常 precision 上升、recall 下降；阈值降低通常 recall 上升、precision 下降。</p>
+<span class="heading-anchor" id="PR 曲线与阈值"></span><h2 id="pr">PR 曲线与阈值</h2>
+<p>PR 曲线比单点指标更能反映模型在不同阈值下的行为。阈值不是训练出来后随便取 0.5，而应按业务成本选择。</p>
+<p>阈值选择方法：</p>
+<ul>
+<li>漏检成本高：选择高 recall 工作点。</li>
+<li>误报成本高：选择高 precision 工作点。</li>
+<li>人工复核容量固定：选择每天可处理的告警量阈值。</li>
+<li>多类别检测：不同类别可使用不同阈值。</li>
+<li>线上分布变化：定期重估阈值和校准。</li>
+</ul>
+<p>报告指标时应写清阈值、测试集版本、样本量和类别分布。</p>
+<span class="heading-anchor" id="检测指标"></span><h2 id="_4">检测指标</h2>
+<p>检测预测需要同时匹配类别和位置。计算 AP 时，通常先按置信度排序，再在同类别内按 IoU 阈值把预测与尚未匹配的真实框进行一对一匹配；同一真实目标后续出现的重复框算 FP。类别正确且 IoU 达标只是成为 TP 的必要条件，还必须遵循评测协议的匹配顺序和忽略区域规则。</p>
+<p>IoU = 预测框与真实框交集面积 / 并集面积。</p>
+<p>常见指标：</p>
+<ul>
+<li>AP：某一类别按置信度排序得到的 precision-recall 曲线面积；VOC、COCO 和不同框架在插值、采样点、最大检测数、面积范围和 ignore 规则上可能不同。</li>
+<li>mAP：所有类别 AP 的平均。</li>
+<li>mAP@0.5：IoU 阈值为 0.5，定位要求较宽松。</li>
+<li>mAP@0.5:0.95：COCO 风格，在 IoU=0.50～0.95、步长 0.05 的多个阈值上平均，更强调定位质量。</li>
+<li>AP_small/medium/large：按目标尺寸分组。</li>
+<li>AR：平均召回，关注候选框召回能力。</li>
+</ul>
+<p>mAP@0.5 高而 mAP@0.5:0.95 低，通常说明模型能大致找到目标，但框不够准、边界不稳或 NMS/回归质量不足。</p>
+<p>检测误差类型：</p>
+<ul>
+<li>分类错：框位置对，但类别错。</li>
+<li>定位错：类别对，但 IoU 不够。</li>
+<li>漏检：真实目标没有匹配预测。</li>
+<li>误检：预测了不存在的目标。</li>
+<li>重复检测：同一目标多个框，NMS 问题。</li>
+<li>小目标失败：分辨率、anchor、stride、增强或标注粒度问题。</li>
+</ul>
+<span class="heading-anchor" id="分割指标"></span><h2 id="_5">分割指标</h2>
+<p>语义分割和实例分割都关注像素级区域，但评价方式不同。</p>
+<p>语义分割：</p>
+<ul>
+<li>Pixel Accuracy：像素正确率，背景占比大时容易虚高。</li>
+<li>IoU/Jaccard：每类交并比。</li>
+<li>mIoU：各类别 IoU 平均，是语义分割常用主指标。</li>
+<li>Dice/F1：2 * 交集 / (预测面积 + 真实面积)，医学和小目标常用。</li>
+<li>Boundary F-score：关注边界质量。</li>
+</ul>
+<p>实例分割：</p>
+<ul>
+<li>mask AP：用 mask IoU 计算 AP。</li>
+<li>box AP 与 mask AP 要分开看：框准不代表 mask 准。</li>
+<li>可按实例尺寸、遮挡程度、类别切片分析。</li>
+</ul>
+<p>分割误差类型：</p>
+<ul>
+<li>边界粗糙。</li>
+<li>小区域缺失。</li>
+<li>多个实例粘连。</li>
+<li>同一实例断裂。</li>
+<li>背景纹理被误分为前景。</li>
+<li>类别混淆。</li>
+</ul>
+<span class="heading-anchor" id="跟踪、OCR、深度与光流指标"></span><h2 id="ocr">跟踪、OCR、深度与光流指标</h2>
+<p>跟踪：</p>
+<ul>
+<li>MOTA：综合 FN、FP、ID switch。</li>
+<li>IDF1：关注身份一致性。</li>
+<li>HOTA：同时考虑检测、关联和定位质量。</li>
+<li>ID switches：轨迹身份切换次数，工业计数和行为分析中很关键。</li>
+</ul>
+<p>OCR：</p>
+<ul>
+<li>Character Error Rate：字符级编辑距离 / 字符数。</li>
+<li>Word Error Rate：词级编辑距离 / 词数。</li>
+<li>Exact Match：整串完全正确率。</li>
+<li>检测部分可看 text detection precision/recall/Hmean。</li>
+</ul>
+<p>深度估计：</p>
+<ul>
+<li>Abs Rel：平均相对误差。</li>
+<li>RMSE：均方根误差。</li>
+<li>delta accuracy：预测与真实深度比值是否在阈值内。</li>
+</ul>
+<p>光流：</p>
+<ul>
+<li>EPE：Endpoint Error，预测向量与真实向量的欧氏距离。</li>
+<li>Fl-all：错误像素比例，自动驾驶数据集中常见。</li>
+</ul>
+<span class="heading-anchor" id="超分、复原与生成指标"></span><h2 id="_6">超分、复原与生成指标</h2>
+<ul>
+<li>PSNR：由均方误差推导，越高通常表示像素级失真越小；对轻微位移敏感，也不完全符合人类感知。</li>
+<li>SSIM：比较亮度、对比度与结构，相比 PSNR 更关注局部结构，但仍不能保证语义或纹理真实。</li>
+<li>LPIPS：用深层特征距离近似感知差异，通常越低越相似；结果依赖所用特征网络和版本。</li>
+<li>FID：比较真实与生成样本在特征空间的分布统计，常用于生成模型；它需要足够样本，且不能证明单张图正确或不存在记忆复制。</li>
+<li>人工主观评价：可比较自然度、偏好或任务可用性，但必须控制盲测、随机顺序、评审一致性和样本规模。</li>
+<li>任务驱动评价：若复原/超分服务检测或测量，应同时比较下游召回、定位误差和误报警，防止“看起来更清晰”却生成不存在的缺陷纹理。</li>
+</ul>
+<p>没有单一指标能同时覆盖像素保真、感知质量、分布真实性和业务安全。工业场景应优先确保不凭空生成关键结构，并用真实退化数据和下游任务共同验收。</p>
+<span class="heading-anchor" id="切片评估"></span><h2 id="_7">切片评估</h2>
+<p>切片评估是把测试集按业务维度拆开看指标，目的是发现平均值掩盖的问题。</p>
+<p>常见切片：</p>
+<ul>
+<li>类别：头部类、尾部类、易混类。</li>
+<li>尺寸：小、中、大目标。</li>
+<li>场景：白天/夜晚、室内/室外、不同产线。</li>
+<li>设备：相机型号、镜头、安装点位。</li>
+<li>质量：模糊、反光、遮挡、低照度、压缩。</li>
+<li>时间：新旧批次、节假日、季节变化。</li>
+<li>标注来源：人工、半自动、不同标注员。</li>
+</ul>
+<p>切片样本太少时，指标波动很大。报告时要同时给样本量，必要时只做定性分析。</p>
+<span class="heading-anchor" id="错误分析流程"></span><h2 id="_8">错误分析流程</h2>
+<ol>
+<li>固定测试集和模型版本。</li>
+<li>导出预测结果、置信度、阈值、原图和标注。</li>
+<li>按 FP、FN、分类错、定位错、边界错分桶。</li>
+<li>每桶抽样可视化，标注主要原因。</li>
+<li>按类别、尺寸、场景、设备切片统计。</li>
+<li>判断应优先改数据、阈值、后处理、损失还是模型。</li>
+<li>建立 hard case 集，作为回归测试。</li>
+</ol>
+<p>优先级判断：</p>
+<ul>
+<li>如果训练和测试都差：先查数据、标签、loss、输入预处理。</li>
+<li>如果训练好测试差：查过拟合、泄漏、域偏移。</li>
+<li>如果只某些场景差：补数据和增强优先。</li>
+<li>如果 mAP@0.5 高但高 IoU AP 低：改框回归、分辨率、标注一致性。</li>
+<li>如果 precision 高 recall 低：阈值、召回能力、小目标和漏标。</li>
+<li>如果 recall 高 precision 低：误检类别、背景负样本、阈值和 NMS。</li>
+</ul>
+<span class="heading-anchor" id="指标报告模板"></span><h2 id="_9">指标报告模板</h2>
+<p>建议报告至少包含：</p>
+<ul>
+<li>数据集版本、划分方式、样本量。</li>
+<li>模型版本、输入尺寸、训练 checkpoint。</li>
+<li>主指标和关键业务指标。</li>
+<li>阈值和后处理参数。</li>
+<li>分类别、分尺寸、分场景指标。</li>
+<li>典型成功与失败案例截图。</li>
+<li>与上一版本对比及显著变化原因。</li>
+</ul>
+<span class="heading-anchor" id="关联阅读"></span><h2 id="_10">关联阅读</h2>
+<ul>
+<li>视觉任务与模型：<a href="n-c270eefed507.html">07_视觉任务与典型模型.md</a></li>
+<li>训练与诊断：<a href="n-255b75c70d40.html">08_训练_损失_数据与诊断.md</a></li>
+<li>推理部署：<a href="n-f1f7c3179e13.html">10_推理部署与工业视觉.md</a></li>
+<li>面试题：<a href="n-6c112411680d.html">11_视觉工程师面试题.md</a></li>
+</ul>
+<span class="heading-anchor" id="检查清单"></span><h2 id="_11">检查清单</h2>
+<ul>
+<li>[ ] 能解释 precision、recall、F1 与混淆矩阵。</li>
+<li>[ ] 能说明 PR 曲线如何影响阈值选择。</li>
+<li>[ ] 能区分 mAP@0.5 和 mAP@0.5:0.95。</li>
+<li>[ ] 能分别评价分类、检测、语义分割、实例分割、OCR 和跟踪。</li>
+<li>[ ] 能设计切片评估并从失败案例推导下一步改进。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

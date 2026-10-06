@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-01 为什么需要重排，以及双编码器与交叉编码器 · 李杨的学习笔记</title><meta name="description" content="第一阶段检索面对的常常是成千上万甚至更多文本块。它需要快速缩小范围，因此会采用可以
+预先建立索引、快速比较或高效匹配的方法。这个阶段更像从仓库里挑出一篮子“可能有关”
+的资料，而不是逐条做完整阅读理解。"><meta property="og:title" content="08-01 为什么需要重排，以及双编码器与交叉编码器 · 李杨的学习笔记"><meta property="og:description" content="第一阶段检索面对的常常是成千上万甚至更多文本块。它需要快速缩小范围，因此会采用可以
+预先建立索引、快速比较或高效匹配的方法。这个阶段更像从仓库里挑出一篮子“可能有关”
+的资料，而不是逐条做完整阅读理解。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-4649ddbc353b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-4649ddbc353b.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08-01 为什么需要重排，以及双编码器与交叉编码器</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/01-why-rerank-bi-encoder-and-cross-encoder.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">从“找一篮子候选”到“仔细排队”</a></li><li><a href="#_2">双编码器：分别表示，快速比较</a></li><li><a href="#_3">交叉编码器：把问题与候选一起阅读</a></li><li><a href="#_4">两种方法不是互相替代的敌人</a></li><li><a href="#_5">最重要的限制：未召回就无法重排</a></li><li><a href="#_6">一个纸面排序例子</a></li><li><a href="#_7">候选输入怎样影响结果</a></li><li><a href="#_8">候选文本边界</a></li><li><a href="#_9">输入长度与截断</a></li><li><a href="#_10">候选重复</a></li><li><a href="#_11">权限与不可信内容</a></li><li><a href="#_12">什么时候先不要加重排</a></li><li><a href="#_13">候选排序练习</a></li><li><a href="#_14">自测</a></li><li><a href="#_15">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>08-01</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>入门</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>40 分钟阅读，加 20 分钟候选排序练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>知道检索会返回 Top-K 候选；理解稀疏、稠密或混合检索只提供候选信号</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用本章的候选卡片完成纸面重排</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>解释为什么快速召回之后还可能需要重排；</li>
+<li>区分双编码器（Bi-Encoder）与交叉编码器（Cross-Encoder）的输入和复用方式；</li>
+<li>说明候选数量、排序质量和延迟之间的基本权衡；</li>
+<li>识别重排不能修复的漏召回、权限、版本与来源问题。</li>
+</ul>
+<span class="heading-anchor" id="从“找一篮子候选”到“仔细排队”"></span><h2 id="_1">从“找一篮子候选”到“仔细排队”</h2>
+<p>第一阶段检索面对的常常是成千上万甚至更多文本块。它需要快速缩小范围，因此会采用可以
+预先建立索引、快速比较或高效匹配的方法。这个阶段更像从仓库里挑出一篮子“可能有关”
+的资料，而不是逐条做完整阅读理解。</p>
+<p>问题在于，快速相似并不等于精确支持。问题“试用期员工能申请远程办公吗？”可能同时
+召回以下候选：</p>
+<ol>
+<li>现行制度中明确说明适用员工范围的条款；</li>
+<li>只出现“试用期”的考勤说明；</li>
+<li>已过期的远程办公通知；</li>
+<li>讨论正式员工远程办公设备的条款；</li>
+<li>其他部门的试行方案。</li>
+</ol>
+<p>重排器会接收问题和较小的候选集，再计算一组更适合细粒度排序的信号。它可以把同时覆盖
+问题关键条件的候选提前，但是否需要重排，应由实际错误、评估结果和运行预算决定。若第一
+阶段已经满足任务要求，增加重排只会增加复杂度。</p>
+<span class="heading-anchor" id="双编码器：分别表示，快速比较"></span><h2 id="_2">双编码器：分别表示，快速比较</h2>
+<p>双编码器分别处理查询和文档。概念流程是：</p>
+<p><code>查询 -&gt; 查询向量</code></p>
+<p><code>文档 -&gt; 文档向量</code></p>
+<p>然后系统比较两个向量的相似度。文档向量通常可以预先计算并建立索引，同一个文档表示也
+可以被许多查询复用。这使双编码器很适合大规模候选召回。</p>
+<p>“双”不一定表示必须有两个完全不同的模型实例，而是强调查询与文档先各自得到表示，
+两者在最后比较。由于文档表示在看见当前查询之前已经生成，它不能针对每个问题重新审视
+文档中的具体词序、否定、数字和条件组合。</p>
+<p>双编码器的优势通常来自可复用表示和高效比较；它的限制来自交互发生得较晚、较简单。
+不能据此断言所有双编码器都比所有交叉编码器差，实际结果还受训练数据、语言、领域、
+输入截断和任务定义影响。</p>
+<span class="heading-anchor" id="交叉编码器：把问题与候选一起阅读"></span><h2 id="_3">交叉编码器：把问题与候选一起阅读</h2>
+<p>交叉编码器把一个查询和一个候选组成联合输入，再输出这个查询—候选对的相关性分数。
+模型处理候选时已经知道当前问题，因此可以更直接地观察两者之间的细粒度关系。</p>
+<p>对于前面的例子，联合输入使模型有机会区分：</p>
+<ul>
+<li>候选是否同时讨论“试用期”和“远程办公”；</li>
+<li>条款是在允许、禁止还是仅描述申请流程；</li>
+<li>候选中的“试用”是在说员工身份还是某项工具试用；</li>
+<li>否定词、例外条件和适用范围是否与问题对应。</li>
+</ul>
+<p>代价是每个查询都要与每个候选组成新的输入。候选越多，计算次数和输入量通常越大；
+文档侧结果也难以像双编码器向量那样直接跨查询复用。因此交叉编码器常放在快速召回之后，
+而不是对整个语料逐条运行。</p>
+<span class="heading-anchor" id="两种方法不是互相替代的敌人"></span><h2 id="_4">两种方法不是互相替代的敌人</h2>
+<p>一个常见的两阶段管线是：</p>
+<ol>
+<li>稀疏、稠密或混合检索取得候选；</li>
+<li>执行权限、租户、时间和撤回状态过滤；</li>
+<li>用交叉编码器为允许返回的候选重新打分；</li>
+<li>选择少量候选进入上下文组织与回答阶段。</li>
+</ol>
+<p>第一阶段重视在预算内不要漏掉重要资料，第二阶段重视把已有的相关资料排到前面。双编码器
+可以承担第一阶段，交叉编码器可以承担第二阶段，但这只是常见组合，不是强制架构。
+关键词检索也可以产生第一阶段候选，规则排序也可以成为第二阶段的一部分。</p>
+<span class="heading-anchor" id="最重要的限制：未召回就无法重排"></span><h2 id="_5">最重要的限制：未召回就无法重排</h2>
+<p>设第一阶段返回候选集合 <code>C</code>。重排器只能为 <code>C</code> 中的项目重新评分和排序，不能自动访问
+集合外的资料。若正确条款不在 <code>C</code> 中，无论重排器多强，输出仍然缺少正确条款。</p>
+<p>这条限制对排障很重要。最终答案错误时，应先问：</p>
+<ol>
+<li>正确证据是否存在于知识库并且是当前版本？</li>
+<li>正确文本块是否进入第一阶段候选？</li>
+<li>是否被权限、时间或其他过滤错误移除？</li>
+<li>若仍在候选中，重排是否把它压低？</li>
+<li>若排在前面，后续上下文与回答是否正确使用？</li>
+</ol>
+<p>跳过前四步，只调整重排模型或阈值，可能把漏召回问题误诊为排序问题。</p>
+<span class="heading-anchor" id="一个纸面排序例子"></span><h2 id="_6">一个纸面排序例子</h2>
+<p>问题是：“试用期员工能申请远程办公吗？”候选如下：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>候选</th>
+<th>内容概述</th>
+<th>初排位置</th>
+<th>需要进一步检查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>现行制度：适用范围含试用期员工，但需主管批准</td>
+<td>4</td>
+<td>生效时间、适用地区、权限</td>
+</tr>
+<tr>
+<td>B</td>
+<td>考勤制度：试用期每日打卡要求</td>
+<td>1</td>
+<td>与远程办公关系很弱</td>
+</tr>
+<tr>
+<td>C</td>
+<td>两年前通知：试用期不参加远程办公试点</td>
+<td>2</td>
+<td>是否已失效或被替代</td>
+</tr>
+<tr>
+<td>D</td>
+<td>设备制度：正式员工借用远程办公设备</td>
+<td>3</td>
+<td>员工范围不匹配</td>
+</tr>
+</tbody>
+</table></div>
+<p>仅看词语重合，B 和 C 可能靠前。细粒度重排可能把 A 提到第一，但系统仍需要用版本字段
+确认 C 的状态，并在回答时保留 A 的批准条件。相关性排序不能替代这些检查。</p>
+<span class="heading-anchor" id="候选输入怎样影响结果"></span><h2 id="_7">候选输入怎样影响结果</h2>
+<span class="heading-anchor" id="候选文本边界"></span><h3 id="_8">候选文本边界</h3>
+<p>若文本块只保留“可以申请”，却把前一句“仅限转正员工”切到另一个块，重排器看到的内容
+已经不完整。改进重排模型不能恢复被切断的限定条件，需要回到切分或父文档回取设计。</p>
+<span class="heading-anchor" id="输入长度与截断"></span><h3 id="_9">输入长度与截断</h3>
+<p>联合输入有长度限制时，系统需要记录查询、标题、正文和元数据怎样组合及截断。静默删除
+候选末尾的例外条款，可能让排序分数看似正常却含义错误。</p>
+<span class="heading-anchor" id="候选重复"></span><h3 id="_10">候选重复</h3>
+<p>相同内容的多个版本或重叠文本块会占用候选预算，也可能挤掉其他证据。去重应考虑来源、
+版本和位置，不能只按相似度随意删除法律或制度上不同的条款。</p>
+<span class="heading-anchor" id="权限与不可信内容"></span><h3 id="_11">权限与不可信内容</h3>
+<p>受限候选不应为了“先算分再说”而发送到外部重排服务。候选文本中的“忽略系统规则”
+之类句子只是数据，不应成为重排流程的指令。</p>
+<span class="heading-anchor" id="什么时候先不要加重排"></span><h2 id="_12">什么时候先不要加重排</h2>
+<ul>
+<li>还不知道错误来自召回、过滤、排序还是回答；</li>
+<li>没有带相关性标注或至少可人工复核的代表性查询；</li>
+<li>第一阶段候选中经常没有正确证据；</li>
+<li>权限、版本和删除链路尚未可靠；</li>
+<li>延迟或费用预算无法容纳额外阶段；</li>
+<li>没有超时、失败和回退策略。</li>
+</ul>
+<p>先建立简单基线，保存每个阶段的候选与原因，再判断重排是否解决了真实问题。</p>
+<span class="heading-anchor" id="候选排序练习"></span><h2 id="_13">候选排序练习</h2>
+<p>为纸面例子中的 A、B、C、D 写出你的目标顺序。对每次位置调整注明理由，理由必须来自
+问题与候选内容，不能只写“模型分数更高”。然后回答：如果 A 不在候选表里，你会检查
+哪一个上游阶段？如果 C 没有版本字段，重排器缺少了什么判断依据？</p>
+<p>最后写一个两阶段方案，明确第一阶段候选数、过滤位置、重排后保留数和失败时回退行为。
+数字只是实验起点，不要把纸面练习中的数量当作生产默认值。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_14">自测</h2>
+<ol>
+<li>双编码器为什么适合大规模候选召回？</li>
+<li>交叉编码器为什么通常只处理较小候选集？</li>
+<li>为什么相关候选未进入第一阶段时，重排无法补救？</li>
+<li>权限过滤为什么必须在候选发送给重排服务之前完成？</li>
+<li>文本切分错误怎样被误判成重排器错误？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_15">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文草稿，已覆盖双编码器、交叉编码器与两阶段边界；未验证具体模型效果。</li>
+<li>代码与图表：重排接口、确定性 Mock 和 D09 流程图为后续计划，尚未实现或渲染。</li>
+<li>
+<p>摘要：<a href="n-df900ae2d07b.html">08-01 章节摘要</a></p>
+</li>
+<li>
+<p>下一章：<a href="n-a92d237babf6.html">08-02 使用大语言模型重排</a></p>
+</li>
+<li>返回：<a href="n-5d4f0a9a34fa.html">08 重排索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

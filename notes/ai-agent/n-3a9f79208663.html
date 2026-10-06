@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>增量更新、删除与索引一致性 · 李杨的学习笔记</title><meta name="description" content="上一节： 检索与生成评测 ｜导航： RAG 学习路线 ｜下一节： 向量存储选型"><meta property="og:title" content="增量更新、删除与索引一致性 · 李杨的学习笔记"><meta property="og:description" content="上一节： 检索与生成评测 ｜导航： RAG 学习路线 ｜下一节： 向量存储选型"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-3a9f79208663.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-3a9f79208663.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">06-Python-AI应用开发 / 03-RAG</p><h1>增量更新、删除与索引一致性</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/06-Python-AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91/03-RAG/09-%E5%A2%9E%E9%87%8F%E6%9B%B4%E6%96%B0%E3%80%81%E5%88%A0%E9%99%A4%E4%B8%8E%E7%B4%A2%E5%BC%95%E4%B8%80%E8%87%B4%E6%80%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 本节定位</a></li><li><a href="#2">2. 学习目标</a></li><li><a href="#3">3. 先建立正确的数据模型</a></li><li><a href="#31">3.1 源数据与派生数据</a></li><li><a href="#32">3.2 推荐的标识体系</a></li><li><a href="#33">3.3 版本元数据</a></li><li><a href="#4">4. 文档生命周期与状态机</a></li><li><a href="#41">4.1 常见生命周期</a></li><li><a href="#42">4.2 更新操作的推荐顺序</a></li><li><a href="#5">5. 事件驱动的增量更新</a></li><li><a href="#51">5.1 事件应携带什么</a></li><li><a href="#52-outbox">5.2 Outbox 与消息投递</a></li><li><a href="#53">5.3 乱序事件</a></li><li><a href="#6">6. 增量管道中的一致性边界</a></li><li><a href="#61">6.1 业务状态一致</a></li><li><a href="#62">6.2 索引内容一致</a></li><li><a href="#63">6.3 可见性与缓存一致</a></li><li><a href="#7">7. 删除：软删除与物理删除</a></li><li><a href="#71">7.1 软删除</a></li><li><a href="#72">7.2 物理删除</a></li><li><a href="#73">7.3 删除任务的幂等性</a></li><li><a href="#8">8. 缓存失效策略</a></li><li><a href="#81">8.1 查询缓存</a></li><li><a href="#82">8.2 答案缓存</a></li><li><a href="#9">9. 一个可落地的最小实现</a></li><li><a href="#10">10. 部分失败与重试设计</a></li><li><a href="#101">10.1 常见失败点</a></li><li><a href="#102">10.2 重试原则</a></li><li><a href="#11">11. 索引写入的两种策略</a></li><li><a href="#111">11.1 原地更新</a></li><li><a href="#112">11.2 新版本写入后切换</a></li><li><a href="#12">12. 对账与修复</a></li><li><a href="#121">12.1 文档级对账</a></li><li><a href="#122">12.2 索引级对账</a></li><li><a href="#123">12.3 修复任务</a></li><li><a href="#13">13. 监控、日志与审计</a></li><li><a href="#131">13.1 建议监控的指标</a></li><li><a href="#132">13.2 日志与审计字段</a></li><li><a href="#14">14. 测试清单</a></li><li><a href="#141">14.1 幂等与顺序</a></li><li><a href="#142">14.2 部分失败</a></li><li><a href="#143">14.3 安全与租户隔离</a></li><li><a href="#15">15. 常见错误</a></li><li><a href="#_2">错误一：只监听文件上传，不监听更新和删除</a></li><li><a href="#id">错误二：用文件名作为唯一 ID</a></li><li><a href="#_3">错误三：收到删除事件后只删向量</a></li><li><a href="#api">错误四：把索引 API 成功当成全链路成功</a></li><li><a href="#_4">错误五：处理失败时先删除旧版本</a></li><li><a href="#_5">错误六：缓存键只有用户问题</a></li><li><a href="#_6">错误七：没有周期性对账</a></li><li><a href="#16">16. 一条最小可行落地路径</a></li><li><a href="#17">17. 小结</a></li><li><a href="#_7">相关笔记</a></li><li><a href="#_8">来源与资料说明</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>上一节：<a href="n-d9bb48b929e7.html">检索与生成评测</a>｜导航：<a href="n-1984c9335328.html">RAG 学习路线</a>｜下一节：<a href="n-6e7610736812.html">向量存储选型</a></p>
+</blockquote>
+<span class="heading-anchor" id="1. 本节定位"></span><h2 id="1">1. 本节定位</h2>
+<p>RAG 知识库不是一次导入后就不再变化的静态数据。业务文档会新增、修改、移动、失效、删除，用户权限也会发生变化。源数据库已经更新，并不代表解析结果、Chunk、关键词索引、向量索引和缓存同时更新。</p>
+<p>如果只更新源数据而不更新派生数据，系统可能出现：</p>
+<ul>
+<li>用户检索不到刚发布的内容；</li>
+<li>已修改的文档仍以旧版本参与召回；</li>
+<li>已删除或已失权的文档仍出现在答案中；</li>
+<li>向量索引、BM25 索引和元数据索引看到的版本不一致；</li>
+<li>查询缓存或答案缓存继续返回旧答案；</li>
+<li>更新任务重复执行时产生重复 Chunk、重复向量或脏数据；</li>
+<li>某个中间步骤失败后，系统无法判断应该重试、回滚还是修复。</li>
+</ul>
+<p>本节关注的重点不是某一种数据库的 API，而是如何设计一条<strong>可重试、可观测、可恢复、最终一致且不会暴露旧数据</strong>的知识库更新链路。</p>
+<span class="heading-anchor" id="2. 学习目标"></span><h2 id="2">2. 学习目标</h2>
+<p>完成本节后，应能够：</p>
+<ol>
+<li>区分源数据、规范化数据和各种派生索引的职责；</li>
+<li>为文档、版本和 Chunk 设计稳定且可追踪的标识；</li>
+<li>设计新增、更新、删除、恢复和失效的处理流程；</li>
+<li>理解软删除、物理删除、墓碑记录和延迟回收的区别；</li>
+<li>使用幂等键、版本号、事件顺序和 Outbox 降低重复执行与乱序更新的风险；</li>
+<li>在向量索引、关键词索引、缓存和权限数据之间建立一致性检查；</li>
+<li>为增量管道配置重试、死信、监控、审计和对账任务；</li>
+<li>通过故障注入测试验证“旧内容不可见”和“删除最终完成”。</li>
+</ol>
+<span class="heading-anchor" id="3. 先建立正确的数据模型"></span><h2 id="3">3. 先建立正确的数据模型</h2>
+<span class="heading-anchor" id="3.1 源数据与派生数据"></span><h3 id="31">3.1 源数据与派生数据</h3>
+<p>一个实用的分层方式如下：</p>
+<pre><code class="language-text">业务源数据 / 文档管理系统
+        ↓
+规范化文档与版本元数据
+        ↓
+解析结果、段落、表格、图片、Chunk
+        ↓
+关键词索引、向量索引、过滤索引
+        ↓
+查询缓存、答案缓存、统计与审计记录
+</code></pre>
+<p>建议明确一个<strong>事实来源</strong>（source of truth）。例如，文档管理系统中的当前版本和权限状态是事实来源；解析结果、Chunk、Embedding、BM25 倒排索引和缓存都是可以重建的派生数据。</p>
+<p>这一区分带来两个重要结论：</p>
+<ul>
+<li>派生索引损坏时，应能够从事实来源重新构建，而不是人工修改索引；</li>
+<li>查询时必须验证文档的当前状态和权限，不能因为某条旧向量仍存在就认为它可以被使用。</li>
+</ul>
+<span class="heading-anchor" id="3.2 推荐的标识体系"></span><h3 id="32">3.2 推荐的标识体系</h3>
+<p>不要只用文件名或 URL 作为索引主键。文件可能被重命名、移动或重新上传，名称并不等于身份。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>标识</th>
+<th>作用</th>
+<th>是否应稳定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td>租户隔离边界</td>
+<td>稳定</td>
+</tr>
+<tr>
+<td><code>document_id</code></td>
+<td>逻辑文档身份</td>
+<td>跨版本稳定</td>
+</tr>
+<tr>
+<td><code>version_id</code></td>
+<td>某次内容版本</td>
+<td>每次内容变更生成新值</td>
+</tr>
+<tr>
+<td><code>chunk_id</code></td>
+<td>某个版本中的 Chunk</td>
+<td>至少在版本内稳定</td>
+</tr>
+<tr>
+<td><code>content_hash</code></td>
+<td>内容去重与变更检测</td>
+<td>内容相同则相同</td>
+</tr>
+<tr>
+<td><code>event_id</code></td>
+<td>变更事件幂等键</td>
+<td>事件生命周期内稳定</td>
+</tr>
+<tr>
+<td><code>operation_id</code></td>
+<td>一次处理任务的追踪键</td>
+<td>任务生命周期内稳定</td>
+</tr>
+</tbody>
+</table></div>
+<p>一种常见的 Chunk 主键形式是：</p>
+<pre><code class="language-text">{tenant_id}:{document_id}:{version_id}:{chunk_no}
+</code></pre>
+<p>如果 Chunk 的位置会频繁变化，也可以把规范化文本片段的哈希纳入标识。但无论采用哪种方案，都应同时保存 <code>document_id</code> 和 <code>version_id</code>，这样才能回答“这段文本属于哪份文档的哪个版本”。</p>
+<span class="heading-anchor" id="3.3 版本元数据"></span><h3 id="33">3.3 版本元数据</h3>
+<p>每个文档版本至少应保留以下信息：</p>
+<pre><code class="language-text">DocumentVersion
+├── tenant_id
+├── document_id
+├── version_id
+├── source_updated_at
+├── ingested_at
+├── content_hash
+├── parser_version
+├── chunker_version
+├── embedding_model
+├── status
+├── visibility
+├── acl_version
+└── created_by / source_uri
+</code></pre>
+<p><code>parser_version</code>、<code>chunker_version</code> 和 <code>embedding_model</code> 很重要。处理逻辑或模型变化后，即使原文没有变化，也可能需要重建派生数据。只记录文档更新时间，无法判断某条向量是由什么规则生成的。</p>
+<span class="heading-anchor" id="4. 文档生命周期与状态机"></span><h2 id="4">4. 文档生命周期与状态机</h2>
+<span class="heading-anchor" id="4.1 常见生命周期"></span><h3 id="41">4.1 常见生命周期</h3>
+<pre><code class="language-text">发现变更
+  ↓
+接收事件
+  ↓
+读取并确认源版本
+  ↓
+解析与切分
+  ↓
+生成 Embedding / 关键词字段
+  ↓
+写入新版本索引
+  ↓
+校验完整性
+  ↓
+发布为当前版本
+  ↓
+失效旧缓存
+  ↓
+异步清理旧版本
+</code></pre>
+<p>可以为文档版本设计类似下面的状态：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RECEIVED</code></td>
+<td>已接收变更事件，尚未开始处理</td>
+</tr>
+<tr>
+<td><code>PROCESSING</code></td>
+<td>正在读取源数据、解析或切分</td>
+</tr>
+<tr>
+<td><code>INDEXING</code></td>
+<td>正在写入一个或多个派生索引</td>
+</tr>
+<tr>
+<td><code>VERIFYING</code></td>
+<td>正在检查索引数量、版本和元数据</td>
+</tr>
+<tr>
+<td><code>PUBLISHED</code></td>
+<td>已通过校验，可参与检索</td>
+</tr>
+<tr>
+<td><code>TOMBSTONED</code></td>
+<td>已不可见，等待物理清理</td>
+</tr>
+<tr>
+<td><code>FAILED</code></td>
+<td>本次处理失败，等待重试或人工介入</td>
+</tr>
+<tr>
+<td><code>PURGED</code></td>
+<td>所有要求清理的副本均已处理并验证</td>
+</tr>
+</tbody>
+</table></div>
+<p>状态机不是为了让流程看起来复杂，而是为了让系统在进程崩溃、网络超时和重复事件之后仍然知道下一步该做什么。</p>
+<span class="heading-anchor" id="4.2 更新操作的推荐顺序"></span><h3 id="42">4.2 更新操作的推荐顺序</h3>
+<p>更新文档时，优先采用“新版本先构建、校验后切换”的方式：</p>
+<ol>
+<li>读取源系统的最新内容和版本号；</li>
+<li>计算 <code>content_hash</code>，如果内容和处理配置都没有变化，则可以直接结束；</li>
+<li>创建新的 <code>version_id</code>；</li>
+<li>重新解析、切分并生成派生字段；</li>
+<li>将新版本写入向量索引、关键词索引和元数据索引；</li>
+<li>检查新版本的 Chunk 数量、版本字段、租户字段和权限字段；</li>
+<li>通过条件更新或版本指针，把新版本发布为当前版本；</li>
+<li>让查询缓存和答案缓存失效；</li>
+<li>异步清理旧版本，并记录清理结果。</li>
+</ol>
+<p>不要在新版本还没有完整写入时，先删除唯一的旧版本。否则处理过程中的短暂失败会把文档变成“既没有旧版本，也没有新版本”。</p>
+<span class="heading-anchor" id="5. 事件驱动的增量更新"></span><h2 id="5">5. 事件驱动的增量更新</h2>
+<span class="heading-anchor" id="5.1 事件应携带什么"></span><h3 id="51">5.1 事件应携带什么</h3>
+<p>一个更新事件不应只携带“文档发生变化”这一句模糊信息。建议包含：</p>
+<pre><code class="language-json">{
+  "event_id": "evt-...",
+  "operation_id": "op-...",
+  "tenant_id": "tenant-1",
+  "document_id": "doc-1",
+  "source_version": 42,
+  "source_updated_at": "2025-01-01T12:00:00Z",
+  "operation": "upsert",
+  "occurred_at": "2025-01-01T12:00:01Z"
+}
+</code></pre>
+<p>事件中的内容不一定要携带完整文档，但应能定位到源数据，并携带可比较的版本信息。消费者读取源数据时仍要再次确认版本，避免事件产生后源数据又发生了变化。</p>
+<span class="heading-anchor" id="5.2 Outbox 与消息投递"></span><h3 id="52-outbox">5.2 Outbox 与消息投递</h3>
+<p>如果业务事务已经提交，但“发送索引更新消息”失败，就会出现源数据已变更、索引永远不更新的问题。常见解决方案是 Transactional Outbox：</p>
+<ol>
+<li>在同一个数据库事务中更新业务数据并写入 Outbox 记录；</li>
+<li>独立投递器读取未发送的 Outbox 记录；</li>
+<li>成功投递后标记记录；</li>
+<li>投递超时可以安全重试；</li>
+<li>消费者使用 <code>event_id</code> 或业务版本保证幂等。</li>
+</ol>
+<p>Outbox 不能让所有外部索引获得真正的分布式事务，但可以避免业务提交与变更事件之间出现不可追踪的空洞。</p>
+<span class="heading-anchor" id="5.3 乱序事件"></span><h3 id="53">5.3 乱序事件</h3>
+<p>同一文档可能先后产生版本 42 和版本 43，但消息系统不一定按顺序交付。消费者应：</p>
+<ul>
+<li>比较事件中的 <code>source_version</code> 与当前已处理版本；</li>
+<li>对更旧的事件直接标记为已处理或跳过；</li>
+<li>对无法确认源版本的事件重新读取源数据；</li>
+<li>不允许旧事件覆盖已经发布的新版本；</li>
+<li>必要时按 <code>tenant_id + document_id</code> 分区，降低同一文档的并发冲突。</li>
+</ul>
+<p>“消息到达得更早”不等于“内容版本更新得更晚”。排序依据应是源系统的单调版本或更新时间，而不是消费者收到消息的时间。</p>
+<span class="heading-anchor" id="6. 增量管道中的一致性边界"></span><h2 id="6">6. 增量管道中的一致性边界</h2>
+<p>向量索引、BM25 索引、缓存和源数据库通常不在同一个事务中。因此工程目标通常不是瞬间强一致，而是明确以下边界：</p>
+<ul>
+<li><strong>可见性安全</strong>：旧版本或已删除版本不能继续被查询使用；</li>
+<li><strong>最终完整</strong>：新版本经过重试后最终出现在所有要求的索引中；</li>
+<li><strong>状态可解释</strong>：能够知道当前处于处理中、失败、待清理还是已完成；</li>
+<li><strong>可恢复</strong>：可从源数据重新构建，不依赖一次成功写入；</li>
+<li><strong>可验证</strong>：可以通过对账任务发现漏写、重复写和残留数据。</li>
+</ul>
+<p>可以把一致性拆成三个层面：</p>
+<span class="heading-anchor" id="6.1 业务状态一致"></span><h3 id="61">6.1 业务状态一致</h3>
+<p>源系统中的文档是否存在、是否有效、当前版本是多少、用户是否有权限访问，这些信息决定文档是否有资格进入检索结果。</p>
+<span class="heading-anchor" id="6.2 索引内容一致"></span><h3 id="62">6.2 索引内容一致</h3>
+<p>向量索引和关键词索引中的文本、版本号、租户号、权限标签是否与规范化文档一致，Chunk 数量是否完整。</p>
+<span class="heading-anchor" id="6.3 可见性与缓存一致"></span><h3 id="63">6.3 可见性与缓存一致</h3>
+<p>即使旧向量暂时还没有物理删除，也必须通过过滤条件、墓碑记录或当前版本指针使它不可见；同时还要使会返回旧答案的缓存失效。</p>
+<span class="heading-anchor" id="7. 删除：软删除与物理删除"></span><h2 id="7">7. 删除：软删除与物理删除</h2>
+<span class="heading-anchor" id="7.1 软删除"></span><h3 id="71">7.1 软删除</h3>
+<p>软删除是先把文档标记为不可见，而不是马上从所有存储中抹除。例如：</p>
+<pre><code class="language-text">visibility = hidden
+status = TOMBSTONED
+deleted_at = 当前时间
+</code></pre>
+<p>检索时必须过滤：</p>
+<pre><code class="language-text">tenant_id = 当前租户
+AND visibility = visible
+AND status = PUBLISHED
+</code></pre>
+<p>软删除的优点是速度快、可恢复、适合处理异步索引；缺点是数据仍然占用存储，如果过滤条件遗漏，就可能造成已删除内容泄漏。因此软删除不能代替权限过滤和最终清理。</p>
+<span class="heading-anchor" id="7.2 物理删除"></span><h3 id="72">7.2 物理删除</h3>
+<p>物理删除需要覆盖所有副本和路径：</p>
+<pre><code class="language-text">源索引元数据
+向量索引
+关键词索引
+查询缓存
+答案缓存
+临时文件
+导出文件
+备份或快照
+</code></pre>
+<p>不同存储的删除接口可能具有不同语义：有的只是标记删除，有的会延迟回收，有的还需要手动触发段合并。因此系统应记录删除请求、实际完成时间和验证结果，而不是把“删除 API 返回成功”直接等同于“数据已经完全消失”。</p>
+<span class="heading-anchor" id="7.3 删除任务的幂等性"></span><h3 id="73">7.3 删除任务的幂等性</h3>
+<p>删除任务也必须可以安全重试：</p>
+<ul>
+<li>删除不存在的 Chunk 应视为成功或可接受状态；</li>
+<li>同一个 <code>document_id</code> 的删除任务重复执行不能产生错误状态；</li>
+<li>不能因为一个副本已经删除，就跳过其他副本；</li>
+<li>删除条件必须包含租户和文档范围，避免误删其他租户；</li>
+<li>物理删除失败时保留待清理记录，而不是伪装成完成；</li>
+<li>恢复文档时应生成新的可发布版本，不要盲目复活未知状态的旧索引。</li>
+</ul>
+<span class="heading-anchor" id="8. 缓存失效策略"></span><h2 id="8">8. 缓存失效策略</h2>
+<span class="heading-anchor" id="8.1 查询缓存"></span><h3 id="81">8.1 查询缓存</h3>
+<p>查询缓存的键至少要考虑：</p>
+<pre><code class="language-text">tenant_id
+用户或权限上下文的稳定摘要
+规范化查询
+过滤条件
+知识库版本或文档版本摘要
+检索配置版本
+</code></pre>
+<p>不能只使用原始问题作为键。相同问题在不同租户、不同权限或不同知识库状态下，结果可能完全不同。</p>
+<p>文档更新时，可以采用以下策略：</p>
+<ul>
+<li>精确删除受影响文档相关的查询缓存；</li>
+<li>按租户或知识库版本提升缓存命名空间；</li>
+<li>读取缓存后再次验证其中的文档版本和可见性；</li>
+<li>对无法精确定位的缓存使用短 TTL 作为兜底，而不是永久保留。</li>
+</ul>
+<span class="heading-anchor" id="8.2 答案缓存"></span><h3 id="82">8.2 答案缓存</h3>
+<p>答案缓存比查询缓存更危险，因为它可能直接绕过检索。如果答案引用了文档版本 41，那么文档更新到版本 42 后，旧答案不应继续直接返回。</p>
+<p>答案缓存应保存：</p>
+<pre><code class="language-text">答案文本
+引用的 document_id / version_id / chunk_id
+生成时的权限上下文摘要
+检索配置版本
+创建时间与过期时间
+</code></pre>
+<p>返回答案前应验证引用仍然存在、仍然可见、仍然对当前用户授权。涉及删除、权限收紧或敏感内容的场景，缓存失效应优先于普通 TTL。</p>
+<span class="heading-anchor" id="9. 一个可落地的最小实现"></span><h2 id="9">9. 一个可落地的最小实现</h2>
+<p>下面是与具体消息系统和向量数据库无关的伪代码，重点是处理顺序和幂等边界：</p>
+<pre><code class="language-python">def handle_change(event):
+    if already_processed(event.event_id):
+        return "duplicate"
+
+    source = load_source(event.tenant_id, event.document_id)
+
+    # 事件可能早于源数据库事务提交，不能把“暂时读不到”直接当成删除。
+    if source is None and not source_is_confirmed_deleted(event):
+        retry_later("source_not_caught_up")
+        return "retry"
+
+    if source is None or source.deleted:
+        mark_invisible(event.tenant_id, event.document_id)
+        delete_all_index_versions(event.tenant_id, event.document_id)
+        invalidate_caches(event.tenant_id, event.document_id)
+        record_tombstone(event)
+        mark_processed(event.event_id)
+        return "deleted"
+
+    if is_older_than_current(event, source):
+        mark_processed(event.event_id)
+        return "stale_event"
+
+    if content_and_pipeline_unchanged(source):
+        publish_current_version_if_needed(source)
+        mark_processed(event.event_id)
+        return "unchanged"
+
+    version = build_new_version(source)
+    chunks = parse_and_chunk(source, version)
+    write_keyword_index(chunks)
+    write_vector_index(chunks)
+    verify_version(version, chunks)
+    publish_with_compare_and_set(version)
+    invalidate_caches(event.tenant_id, event.document_id)
+    schedule_old_versions_cleanup(event.tenant_id, event.document_id, version.version_id)
+    mark_processed(event.event_id)
+    return "published"
+</code></pre>
+<p>这个实现仍然需要补充：任务租约、超时、指数退避、死信队列、索引写入超时、部分成功记录、指标和对账任务。伪代码中的 <code>publish_with_compare_and_set</code> 也不能简单覆盖当前指针，而应确保新版本不会把更高版本降级。</p>
+<span class="heading-anchor" id="10. 部分失败与重试设计"></span><h2 id="10">10. 部分失败与重试设计</h2>
+<span class="heading-anchor" id="10.1 常见失败点"></span><h3 id="101">10.1 常见失败点</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失败点</th>
+<th>可能结果</th>
+<th>建议处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>源文件暂时不可读</td>
+<td>错误地判断为删除</td>
+<td>延迟重试，区分“未同步”和“已确认删除”</td>
+</tr>
+<tr>
+<td>解析器失败</td>
+<td>没有新 Chunk</td>
+<td>保留旧版本可见，任务进入失败状态</td>
+</tr>
+<tr>
+<td>Embedding 服务超时</td>
+<td>只有部分向量写入</td>
+<td>使用版本批次或写入清单，重试缺失部分</td>
+</tr>
+<tr>
+<td>BM25 写入成功、向量写入失败</td>
+<td>两路召回看到不同版本</td>
+<td>未完成前不发布，或查询端使用统一版本门槛</td>
+</tr>
+<tr>
+<td>发布成功、缓存失效失败</td>
+<td>返回旧答案</td>
+<td>记录失效任务，读取缓存时再做版本校验</td>
+</tr>
+<tr>
+<td>物理删除超时</td>
+<td>索引中残留旧数据</td>
+<td>保持墓碑与过滤，加入清理队列</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10.2 重试原则"></span><h3 id="102">10.2 重试原则</h3>
+<ol>
+<li>任务必须幂等，重试不能重复产生不可区分的数据；</li>
+<li>可恢复错误使用指数退避和最大重试次数；</li>
+<li>不可恢复错误进入死信队列，并保留原始事件和错误原因；</li>
+<li>重试时重新读取源版本，不能盲目重复使用过期快照；</li>
+<li>重试次数、最后错误和下次重试时间必须可查询；</li>
+<li>对同一文档设置并发控制，避免多个任务互相覆盖状态。</li>
+</ol>
+<p>一个简单的幂等键可以是：</p>
+<pre><code class="language-text">{tenant_id}:{document_id}:{source_version}:{parser_version}:{chunker_version}:{embedding_model}
+</code></pre>
+<p>如果同一输入和同一处理配置已经成功，重复收到事件时可以复用结果或直接跳过；如果处理配置改变，则应视为新的构建任务。</p>
+<span class="heading-anchor" id="11. 索引写入的两种策略"></span><h2 id="11">11. 索引写入的两种策略</h2>
+<span class="heading-anchor" id="11.1 原地更新"></span><h3 id="111">11.1 原地更新</h3>
+<p>直接根据 <code>document_id</code> 覆盖旧 Chunk 或向量。</p>
+<p>优点：实现简单、临时存储较少。<br/>
+缺点：批量写入过程中容易出现部分新、部分旧；更新失败时回滚困难；难以审计具体版本。</p>
+<span class="heading-anchor" id="11.2 新版本写入后切换"></span><h3 id="112">11.2 新版本写入后切换</h3>
+<p>先将所有新 Chunk 写入带有 <code>version_id</code> 的索引，再更新一个当前版本指针。</p>
+<p>优点：容易校验、失败时可以继续使用旧版本、适合重试和灰度发布。<br/>
+缺点：短时间内会保留多个版本，需要额外清理和存储空间。</p>
+<p>对于需要较高可用性和可追溯性的 RAG 系统，通常更推荐第二种策略。关键是查询端必须同时执行版本和可见性过滤，不能只依赖“当前指针”在所有查询路径上都被正确使用。</p>
+<span class="heading-anchor" id="12. 对账与修复"></span><h2 id="12">12. 对账与修复</h2>
+<p>增量事件链路即使设计得很好，也需要周期性对账，因为消息丢失、索引接口异常和人工操作都可能造成偏差。</p>
+<span class="heading-anchor" id="12.1 文档级对账"></span><h3 id="121">12.1 文档级对账</h3>
+<p>从事实来源抽样或全量扫描，比较：</p>
+<ul>
+<li>当前版本是否已发布；</li>
+<li>文档是否应该可见；</li>
+<li>每个版本的 Chunk 数量是否合理；</li>
+<li><code>tenant_id</code>、<code>document_id</code> 和 <code>version_id</code> 是否一致；</li>
+<li>解析器、切分器和 Embedding 配置是否符合当前要求；</li>
+<li>是否存在源中已删除、索引中仍可见的文档。</li>
+</ul>
+<span class="heading-anchor" id="12.2 索引级对账"></span><h3 id="122">12.2 索引级对账</h3>
+<p>从索引侧反向扫描，寻找：</p>
+<ul>
+<li>不存在于源系统的文档；</li>
+<li>已过期或已删除但未进入墓碑状态的版本；</li>
+<li>没有对应元数据的孤立向量；</li>
+<li>有向量但没有关键词记录，或反之；</li>
+<li>跨租户的错误字段；</li>
+<li>同一 Chunk ID 对应多个不应并存的内容版本。</li>
+</ul>
+<span class="heading-anchor" id="12.3 修复任务"></span><h3 id="123">12.3 修复任务</h3>
+<p>修复不要直接修改单条索引记录，而应重新生成标准事件或构建任务：</p>
+<pre><code class="language-text">发现不一致
+  ↓
+记录 discrepancy
+  ↓
+生成 repair operation_id
+  ↓
+从事实来源重新读取
+  ↓
+按正常增量流程构建
+  ↓
+校验并发布
+  ↓
+记录修复前后状态
+</code></pre>
+<p>这样修复逻辑与正常更新逻辑保持一致，减少“线上补丁”和“正常管道”行为不一致的问题。</p>
+<span class="heading-anchor" id="13. 监控、日志与审计"></span><h2 id="13">13. 监控、日志与审计</h2>
+<span class="heading-anchor" id="13.1 建议监控的指标"></span><h3 id="131">13.1 建议监控的指标</h3>
+<ul>
+<li>事件消费延迟与源数据到索引的延迟；</li>
+<li>各状态任务数量和最老任务年龄；</li>
+<li>成功率、重试率和死信数量；</li>
+<li>解析失败、Embedding 失败、索引写入失败数量；</li>
+<li>新版本发布耗时；</li>
+<li>删除请求到不可见、到物理清理的耗时；</li>
+<li>对账发现的不一致数量；</li>
+<li>缓存命中率与旧版本命中次数；</li>
+<li>向量索引和关键词索引的版本覆盖率。</li>
+</ul>
+<span class="heading-anchor" id="13.2 日志与审计字段"></span><h3 id="132">13.2 日志与审计字段</h3>
+<p>每次处理至少应能通过 <code>operation_id</code> 串起：</p>
+<pre><code class="language-text">event_id
+operation_id
+tenant_id
+document_id
+source_version
+version_id
+old_version_id
+pipeline_config_version
+attempt
+state_before
+state_after
+error_type
+started_at
+finished_at
+</code></pre>
+<p>删除和权限变更尤其需要审计。审计记录不应包含不必要的正文或敏感信息，但要足以回答“谁在什么时候让哪份文档变得不可见，以及所有副本何时完成清理”。</p>
+<span class="heading-anchor" id="14. 测试清单"></span><h2 id="14">14. 测试清单</h2>
+<span class="heading-anchor" id="14.1 幂等与顺序"></span><h3 id="141">14.1 幂等与顺序</h3>
+<ul>
+<li>同一个事件投递两次；</li>
+<li>同一个文档的版本 43 先于版本 42 到达；</li>
+<li>两个相同内容但不同事件 ID 的事件到达；</li>
+<li>任务在发布前、发布后和缓存失效前崩溃；</li>
+<li>删除任务重复执行；</li>
+<li>删除不存在的文档或 Chunk。</li>
+</ul>
+<span class="heading-anchor" id="14.2 部分失败"></span><h3 id="142">14.2 部分失败</h3>
+<ul>
+<li>解析成功但 Embedding 服务超时；</li>
+<li>向量写入成功但关键词索引写入失败；</li>
+<li>新版本部分写入后进程退出；</li>
+<li>发布成功但缓存系统不可用；</li>
+<li>物理删除接口返回超时但实际已经完成；</li>
+<li>源数据暂时不可读，不能被误判为删除。</li>
+</ul>
+<span class="heading-anchor" id="14.3 安全与租户隔离"></span><h3 id="143">14.3 安全与租户隔离</h3>
+<ul>
+<li>租户 A 的删除不能影响租户 B 的同名文档；</li>
+<li>失权后不能通过旧查询缓存获取答案；</li>
+<li>已删除文档不能通过向量近邻结果绕过元数据过滤；</li>
+<li>答案缓存中的旧引用在权限收紧后不能继续返回；</li>
+<li>对账和修复任务也必须带租户边界。</li>
+</ul>
+<span class="heading-anchor" id="15. 常见错误"></span><h2 id="15">15. 常见错误</h2>
+<span class="heading-anchor" id="错误一：只监听文件上传，不监听更新和删除"></span><h3 id="_2">错误一：只监听文件上传，不监听更新和删除</h3>
+<p>文件上传只是生命周期的一部分。应同时处理内容更新、移动、失效、权限变化和删除事件。</p>
+<span class="heading-anchor" id="错误二：用文件名作为唯一 ID"></span><h3 id="id">错误二：用文件名作为唯一 ID</h3>
+<p>重命名或同名文件会造成覆盖和误删。应使用稳定的 <code>document_id</code>，并把路径作为可变元数据。</p>
+<span class="heading-anchor" id="错误三：收到删除事件后只删向量"></span><h3 id="_3">错误三：收到删除事件后只删向量</h3>
+<p>关键词索引、元数据、查询缓存、答案缓存和备份也可能保留内容。删除范围必须根据数据生命周期明确列出。</p>
+<span class="heading-anchor" id="错误四：把索引 API 成功当成全链路成功"></span><h3 id="api">错误四：把索引 API 成功当成全链路成功</h3>
+<p>一次写入成功只说明一个副本完成。系统仍需校验其它索引、当前版本指针、缓存和可见性。</p>
+<span class="heading-anchor" id="错误五：处理失败时先删除旧版本"></span><h3 id="_4">错误五：处理失败时先删除旧版本</h3>
+<p>这会把可用文档变成空白。更稳妥的方式是保留旧版本可见，直到新版本完整、校验通过并发布。</p>
+<span class="heading-anchor" id="错误六：缓存键只有用户问题"></span><h3 id="_5">错误六：缓存键只有用户问题</h3>
+<p>不同租户、不同权限和不同版本不应共享同一个答案缓存。缓存键或缓存返回前的校验必须包含这些上下文。</p>
+<span class="heading-anchor" id="错误七：没有周期性对账"></span><h3 id="_6">错误七：没有周期性对账</h3>
+<p>事件驱动保证及时性，对账任务保证最终可发现性。两者缺一不可。</p>
+<span class="heading-anchor" id="16. 一条最小可行落地路径"></span><h2 id="16">16. 一条最小可行落地路径</h2>
+<p>如果系统还处于早期阶段，可以按以下顺序实现：</p>
+<ol>
+<li>为文档引入稳定的 <code>tenant_id</code>、<code>document_id</code> 和 <code>version_id</code>；</li>
+<li>把源数据当前版本作为唯一事实来源；</li>
+<li>先实现新增和更新，采用新版本写入后切换；</li>
+<li>查询端强制过滤租户、可见性和当前版本；</li>
+<li>增加幂等事件表和失败重试；</li>
+<li>实现删除墓碑和缓存失效；</li>
+<li>增加物理清理队列及清理验证；</li>
+<li>增加每日或定期对账；</li>
+<li>最后再优化批量处理、并行度、索引合并和成本。</li>
+</ol>
+<p>不要一开始就追求复杂的分布式事务。先把“旧数据不可见、任务可重试、失败可定位、结果可修复”做扎实，再根据规模选择消息系统、任务编排器和索引存储。</p>
+<span class="heading-anchor" id="17. 小结"></span><h2 id="17">17. 小结</h2>
+<p>增量更新的核心不是“监听一个事件，然后调用一次写索引接口”，而是建立一条完整的生命周期管理链路：</p>
+<pre><code class="language-text">稳定身份
+→ 可比较版本
+→ 幂等事件
+→ 新版本构建
+→ 多索引校验
+→ 条件发布
+→ 缓存失效
+→ 旧版本清理
+→ 对账修复
+</code></pre>
+<p>需要特别记住：</p>
+<ul>
+<li>源数据是事实来源，索引和缓存是可重建的派生数据；</li>
+<li>新版本应尽量先构建、校验，再切换为当前版本；</li>
+<li>删除首先要保证不可见，然后再完成物理清理；</li>
+<li>事件、更新和删除都必须支持幂等和安全重试；</li>
+<li>版本、权限、租户和缓存必须作为同一条一致性链路考虑；</li>
+<li>增量处理负责及时性，对账修复负责发现和纠正遗漏。</li>
+</ul>
+<span class="heading-anchor" id="相关笔记"></span><h2 id="_7">相关笔记</h2>
+<ul>
+<li><a href="n-d9bb48b929e7.html">上一节：检索与生成评测</a></li>
+<li><a href="n-6e7610736812.html">下一节：向量存储选型</a></li>
+<li><a href="n-758dc45c7b99.html">相关：文档权限与多租户隔离</a></li>
+<li><a href="n-eb5cc2caf849.html">相关：Query Rewrite、意图识别与 Rerank</a></li>
+<li><a href="n-4ae54a3fe83c.html">相关：上下文压缩、去重与引用溯源</a></li>
+<li><a href="n-1984c9335328.html">课程导航：RAG 学习路线</a></li>
+</ul>
+<span class="heading-anchor" id="来源与资料说明"></span><h2 id="_8">来源与资料说明</h2>
+<ul>
+<li>本笔记的标题、课程位置、前后导航，以及“新增、修改、失效、删除会影响源数据、关键词索引、向量索引和缓存”等主题，依据项目中已有的 RAG 学习路线和本节原始笔记整理。</li>
+<li>“物理删除需要覆盖源索引元数据、向量索引、关键词索引、查询缓存、答案缓存、临时文件、导出文件和备份或快照”，以及删除任务幂等性的要求，依据项目中本节原始笔记已有内容保留并展开。</li>
+<li>版本模型、事件驱动管道、Outbox、状态机、缓存版本校验、对账任务、监控指标、测试清单和伪代码属于基于上述主题补充的通用工程方法，不代表项目中已有的某个具体数据库或消息系统实现。</li>
+</ul>
+</article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

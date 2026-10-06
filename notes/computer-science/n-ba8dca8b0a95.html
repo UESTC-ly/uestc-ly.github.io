@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07. 并查集 Union-Find · 李杨的学习笔记</title><meta name="description" content="并查集用于动态维护“不相交集合”，支持快速判断两个元素是否属于同一集合，以及合并两个集合。"><meta property="og:title" content="07. 并查集 Union-Find · 李杨的学习笔记"><meta property="og:description" content="并查集用于动态维护“不相交集合”，支持快速判断两个元素是否属于同一集合，以及合并两个集合。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-ba8dca8b0a95.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-ba8dca8b0a95.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据结构</p><h1>07. 并查集 Union-Find</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/07-%E5%B9%B6%E6%9F%A5%E9%9B%86.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 并查集的核心模型</a></li><li><a href="#2">2. 基础实现</a></li><li><a href="#3">3. 路径压缩</a></li><li><a href="#4">4. 按大小合并</a></li><li><a href="#5">5. 连通分量个数</a></li><li><a href="#6">6. 冗余连接</a></li><li><a href="#7-kruskal">7. Kruskal 最小生成树</a></li><li><a href="#8">8. 并查集不适合什么？</a></li><li><a href="#9">9. 常见坑</a></li><li><a href="#10">10. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>并查集解决什么问题？</li>
+<li><code>find</code> 和 <code>union</code> 分别做什么？</li>
+<li>路径压缩和按秩合并为什么能接近 O(1)？</li>
+<li>并查集适合哪些连通性题目？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>并查集用于动态维护“不相交集合”，支持快速判断两个元素是否属于同一集合，以及合并两个集合。</p>
+<blockquote>
+<p>记忆口诀：<strong>找代表，合集合；路径压缩让树变矮。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((并查集))
+    操作
+      find
+      unite
+      connected
+    优化
+      路径压缩
+      按秩合并
+      按大小合并
+    应用
+      连通分量
+      冗余连接
+      朋友圈
+      最小生成树
+      动态连通
+    注意
+      只能合并
+      不擅长删除
+</pre>
+<span class="heading-anchor" id="1. 并查集的核心模型"></span><h2 id="1">1. 并查集的核心模型</h2>
+<p>每个集合用一个代表元 root 表示。</p>
+<pre class="mermaid">flowchart TD
+  A["1"] --&gt; B["1"]
+  C["2"] --&gt; B
+  D["3"] --&gt; B
+  E["4"] --&gt; F["4"]
+  G["5"] --&gt; F
+</pre>
+<p>如果两个元素的 root 相同，它们就在同一集合。</p>
+<span class="heading-anchor" id="2. 基础实现"></span><h2 id="2">2. 基础实现</h2>
+<pre><code class="language-cpp">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+
+class DSU {
+private:
+    vector&lt;int&gt; parent;
+    vector&lt;int&gt; sz;
+
+public:
+    DSU(int n) : parent(n), sz(n, 1) {
+        iota(parent.begin(), parent.end(), 0);
+    }
+
+    int find(int x) {
+        if (parent[x] != x) {
+            parent[x] = find(parent[x]); // 路径压缩
+        }
+        return parent[x];
+    }
+
+    bool unite(int a, int b) {
+        int ra = find(a), rb = find(b);
+        if (ra == rb) return false;
+        if (sz[ra] &lt; sz[rb]) swap(ra, rb);
+        parent[rb] = ra;
+        sz[ra] += sz[rb];
+        return true;
+    }
+
+    bool connected(int a, int b) {
+        return find(a) == find(b);
+    }
+};
+</code></pre>
+<span class="heading-anchor" id="3. 路径压缩"></span><h2 id="3">3. 路径压缩</h2>
+<p>路径压缩让查找过程中经过的节点直接指向根。</p>
+<pre class="mermaid">flowchart TD
+  A["1"] --&gt; B["2"]
+  B --&gt; C["3"]
+  C --&gt; D["4 root"]
+  E["find后"] --&gt; F["1直接指向4"]
+  G["2直接指向4"] --&gt; F
+  H["3直接指向4"] --&gt; F
+</pre>
+<p>这样后续查找会更快。</p>
+<span class="heading-anchor" id="4. 按大小合并"></span><h2 id="4">4. 按大小合并</h2>
+<p>把小树接到大树下面，避免树太高。</p>
+<pre class="mermaid">flowchart LR
+  A["小集合"] --&gt; C["挂到大集合root"]
+  B["大集合"] --&gt; C
+</pre>
+<p>路径压缩 + 按大小合并后，单次操作的摊还复杂度接近 O(1)，严格说是反阿克曼函数级别，实际可视为常数。</p>
+<span class="heading-anchor" id="5. 连通分量个数"></span><h2 id="5">5. 连通分量个数</h2>
+<pre><code class="language-cpp">int countComponents(int n, vector&lt;pair&lt;int,int&gt;&gt; edges) {
+    DSU dsu(n);
+    int cnt = n;
+    for (auto [u, v] : edges) {
+        if (dsu.unite(u, v)) cnt--;
+    }
+    return cnt;
+}
+</code></pre>
+<p>每成功合并两个不同集合，连通分量数减一。</p>
+<span class="heading-anchor" id="6. 冗余连接"></span><h2 id="6">6. 冗余连接</h2>
+<p>在无向图中，如果一条边连接的两个点已经连通，那么这条边会形成环。</p>
+<pre class="mermaid">flowchart TD
+  A["遍历边u-v"] --&gt; B{u和v已连通}
+  B -- 是 --&gt; C["这条边冗余"]
+  B -- 否 --&gt; D["合并u和v"]
+</pre>
+<pre><code class="language-cpp">pair&lt;int,int&gt; findRedundantConnection(vector&lt;pair&lt;int,int&gt;&gt;&amp; edges, int n) {
+    DSU dsu(n + 1);
+    for (auto [u, v] : edges) {
+        if (!dsu.unite(u, v)) return {u, v};
+    }
+    return {-1, -1};
+}
+</code></pre>
+<span class="heading-anchor" id="7. Kruskal 最小生成树"></span><h2 id="7-kruskal">7. Kruskal 最小生成树</h2>
+<p>并查集常用于 Kruskal 算法判断加边是否成环。</p>
+<pre class="mermaid">flowchart LR
+  A["边按权重排序"] --&gt; B["从小到大枚举"]
+  B --&gt; C{两端是否连通}
+  C -- 否 --&gt; D["加入MST并合并"]
+  C -- 是 --&gt; E["跳过"]
+  D --&gt; B
+  E --&gt; B
+</pre>
+<span class="heading-anchor" id="8. 并查集不适合什么？"></span><h2 id="8">8. 并查集不适合什么？</h2>
+<p>并查集擅长合并，不擅长删除。</p>
+<p>如果题目需要频繁删除边并查询连通性，普通并查集不够，需要更复杂的数据结构或离线逆序处理。</p>
+<span class="heading-anchor" id="9. 常见坑"></span><h2 id="9">9. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>忘记路径压缩</td>
+<td>可能退化</td>
+</tr>
+<tr>
+<td>合并前不找根</td>
+<td>会破坏结构</td>
+</tr>
+<tr>
+<td>下标从 0 还是 1</td>
+<td>初始化大小要对应</td>
+</tr>
+<tr>
+<td>误用在删除场景</td>
+<td>普通并查集不支持高效拆分</td>
+</tr>
+<tr>
+<td>集合大小未更新</td>
+<td>按大小合并会出错</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10. 学习自检"></span><h2 id="10">10. 学习自检</h2>
+<ol>
+<li>并查集的 <code>find</code> 返回什么？</li>
+<li><code>unite</code> 返回 false 通常意味着什么？</li>
+<li>路径压缩如何优化树高？</li>
+<li>并查集为什么适合判断无向图成环？</li>
+<li>为什么普通并查集不擅长删除边？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

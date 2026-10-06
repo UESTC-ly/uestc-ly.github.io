@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04. CPU 数据通路与控制器 · 李杨的学习笔记</title><meta name="description" content="CPU 由数据通路和控制器组成：数据通路负责数据从哪里流向哪里、经过什么运算；控制器负责在正确时刻发出控制信号。"><meta property="og:title" content="04. CPU 数据通路与控制器 · 李杨的学习笔记"><meta property="og:description" content="CPU 由数据通路和控制器组成：数据通路负责数据从哪里流向哪里、经过什么运算；控制器负责在正确时刻发出控制信号。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-17d9b2b56033.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-17d9b2b56033.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>04. CPU 数据通路与控制器</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/04-CPU%E6%95%B0%E6%8D%AE%E9%80%9A%E8%B7%AF%E4%B8%8E%E6%8E%A7%E5%88%B6%E5%99%A8.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-cpu">1. CPU 基本组成</a></li><li><a href="#2">2. 常见寄存器</a></li><li><a href="#3">3. 取指过程</a></li><li><a href="#4-add-r1r2r3">4. 执行 ADD R1,R2,R3</a></li><li><a href="#5-load">5. 执行 Load 指令</a></li><li><a href="#6">6. 数据通路组件</a></li><li><a href="#_4">寄存器堆</a></li><li><a href="#alu">ALU</a></li><li><a href="#mux">多路选择器 MUX</a></li><li><a href="#7">7. 控制信号</a></li><li><a href="#8">8. 硬布线控制与微程序控制</a></li><li><a href="#9">9. 时钟周期、机器周期、指令周期</a></li><li><a href="#10">10. 常见坑</a></li><li><a href="#11">11. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>CPU 内部主要由哪些部件组成？</li>
+<li>PC、IR、MAR、MDR、通用寄存器分别有什么作用？</li>
+<li>数据通路和控制器的区别是什么？</li>
+<li>一条指令在 CPU 内部如何流动？</li>
+<li>硬布线控制和微程序控制有什么区别？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>CPU 由数据通路和控制器组成：数据通路负责数据从哪里流向哪里、经过什么运算；控制器负责在正确时刻发出控制信号。</p>
+<blockquote>
+<p>记忆口诀：<strong>数据通路搬数据，控制器发命令；寄存器暂存，ALU 运算。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((CPU))
+    数据通路
+      寄存器堆
+      ALU
+      多路选择器
+      内部总线
+    控制器
+      取指
+      译码
+      控制信号
+      时序控制
+    特殊寄存器
+      PC
+      IR
+      MAR
+      MDR
+      Flags
+    控制方式
+      硬布线
+      微程序
+</pre>
+<span class="heading-anchor" id="1. CPU 基本组成"></span><h2 id="1-cpu">1. CPU 基本组成</h2>
+<pre class="mermaid">flowchart TD
+  A["CPU"] --&gt; B["数据通路"]
+  A --&gt; C["控制器"]
+  B --&gt; D["寄存器"]
+  B --&gt; E["ALU"]
+  B --&gt; F["内部总线"]
+  C --&gt; G["指令译码"]
+  C --&gt; H["控制信号"]
+  C --&gt; I["时序控制"]
+</pre>
+<span class="heading-anchor" id="2. 常见寄存器"></span><h2 id="2">2. 常见寄存器</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>寄存器</th>
+<th>名称</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PC</td>
+<td>Program Counter</td>
+<td>保存下一条指令地址</td>
+</tr>
+<tr>
+<td>IR</td>
+<td>Instruction Register</td>
+<td>保存当前指令</td>
+</tr>
+<tr>
+<td>MAR</td>
+<td>Memory Address Register</td>
+<td>保存要访问的内存地址</td>
+</tr>
+<tr>
+<td>MDR</td>
+<td>Memory Data Register</td>
+<td>保存内存读写数据</td>
+</tr>
+<tr>
+<td>GPR</td>
+<td>General Purpose Register</td>
+<td>通用数据暂存</td>
+</tr>
+<tr>
+<td>FLAGS</td>
+<td>状态寄存器</td>
+<td>保存 ALU 标志位</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3. 取指过程"></span><h2 id="3">3. 取指过程</h2>
+<pre class="mermaid">flowchart LR
+  A["PC中的地址"] --&gt; B["送入MAR"]
+  B --&gt; C["访问内存"]
+  C --&gt; D["指令进入MDR"]
+  D --&gt; E["送入IR"]
+  E --&gt; F["PC更新"]
+</pre>
+<p>取指完成后，IR 中保存当前指令，控制器开始译码。</p>
+<span class="heading-anchor" id="4. 执行 ADD R1,R2,R3"></span><h2 id="4-add-r1r2r3">4. 执行 <code>ADD R1,R2,R3</code></h2>
+<pre><code class="language-text">R1 = R2 + R3
+</code></pre>
+<p>数据流：</p>
+<pre class="mermaid">flowchart LR
+  A["R2"] --&gt; C["ALU"]
+  B["R3"] --&gt; C
+  C --&gt; D["ALU结果"]
+  D --&gt; E["R1"]
+  F["控制器"] --&gt; C
+  F --&gt; E
+</pre>
+<p>控制器需要发出：</p>
+<ul>
+<li>选择 R2、R3 作为 ALU 输入。</li>
+<li>设置 ALU 操作为加法。</li>
+<li>允许结果写入 R1。</li>
+</ul>
+<span class="heading-anchor" id="5. 执行 Load 指令"></span><h2 id="5-load">5. 执行 Load 指令</h2>
+<pre><code class="language-text">LOAD R1, [addr]
+</code></pre>
+<pre class="mermaid">flowchart LR
+  A["地址addr"] --&gt; B["MAR"]
+  B --&gt; C["内存读"]
+  C --&gt; D["MDR"]
+  D --&gt; E["R1"]
+</pre>
+<p>Load 指令通常比寄存器加法慢，因为需要访问内存。</p>
+<span class="heading-anchor" id="6. 数据通路组件"></span><h2 id="6">6. 数据通路组件</h2>
+<span class="heading-anchor" id="寄存器堆"></span><h3 id="_4">寄存器堆</h3>
+<p>保存多个通用寄存器，支持读出源操作数和写入目的寄存器。</p>
+<span class="heading-anchor" id="ALU"></span><h3 id="alu">ALU</h3>
+<p>执行算术逻辑运算。</p>
+<span class="heading-anchor" id="多路选择器 MUX"></span><h3 id="mux">多路选择器 MUX</h3>
+<p>根据控制信号从多个输入中选择一个。</p>
+<pre class="mermaid">flowchart LR
+  A["输入0"] --&gt; C["MUX"]
+  B["输入1"] --&gt; C
+  D["选择信号"] --&gt; C
+  C --&gt; E["输出"]
+</pre>
+<span class="heading-anchor" id="7. 控制信号"></span><h2 id="7">7. 控制信号</h2>
+<p>控制信号决定：</p>
+<ul>
+<li>哪个寄存器输出。</li>
+<li>哪个寄存器写入。</li>
+<li>ALU 执行什么操作。</li>
+<li>是否读写内存。</li>
+<li>PC 如何更新。</li>
+<li>MUX 选择哪一路输入。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["指令译码"] --&gt; B["生成控制信号"]
+  B --&gt; C["寄存器读写"]
+  B --&gt; D["ALU操作"]
+  B --&gt; E["内存读写"]
+  B --&gt; F["PC更新"]
+</pre>
+<span class="heading-anchor" id="8. 硬布线控制与微程序控制"></span><h2 id="8">8. 硬布线控制与微程序控制</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>控制方式</th>
+<th>思想</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>硬布线控制</td>
+<td>用组合逻辑直接产生控制信号</td>
+<td>快</td>
+<td>设计修改困难</td>
+</tr>
+<tr>
+<td>微程序控制</td>
+<td>用微指令序列产生控制信号</td>
+<td>灵活</td>
+<td>可能较慢</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["控制器"] --&gt; B["硬布线控制"]
+  A --&gt; C["微程序控制"]
+  B --&gt; B1["逻辑电路直接生成"]
+  C --&gt; C1["读取微指令生成"]
+</pre>
+<span class="heading-anchor" id="9. 时钟周期、机器周期、指令周期"></span><h2 id="9">9. 时钟周期、机器周期、指令周期</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>时钟周期</td>
+<td>CPU 最基本节拍</td>
+</tr>
+<tr>
+<td>机器周期</td>
+<td>完成一个基本操作所需时间</td>
+</tr>
+<tr>
+<td>指令周期</td>
+<td>完成一条指令所需时间</td>
+</tr>
+</tbody>
+</table></div>
+<p>一条指令通常包含多个阶段，每个阶段可能包含多个时钟周期。</p>
+<span class="heading-anchor" id="10. 常见坑"></span><h2 id="10">10. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PC 指向当前还是下一条</td>
+<td>通常取指后会更新到下一条</td>
+</tr>
+<tr>
+<td>MAR/MDR 混淆</td>
+<td>MAR 放地址，MDR 放数据</td>
+</tr>
+<tr>
+<td>数据通路和控制器混淆</td>
+<td>前者搬和算，后者发控制信号</td>
+</tr>
+<tr>
+<td>所有指令耗时相同</td>
+<td>不同指令阶段和访存次数不同</td>
+</tr>
+<tr>
+<td>微程序等于软件程序</td>
+<td>微程序是控制器内部控制序列</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>PC、IR、MAR、MDR 分别保存什么？</li>
+<li>数据通路和控制器分别负责什么？</li>
+<li>执行 ADD 指令需要哪些控制信号？</li>
+<li>Load 指令为什么通常比寄存器运算慢？</li>
+<li>硬布线控制和微程序控制如何取舍？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

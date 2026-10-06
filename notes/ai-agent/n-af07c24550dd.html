@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>01. Agent 基础与架构模式 · 李杨的学习笔记</title><meta name="description" content="Agent 架构的核心是 决策循环 ：模型根据目标和状态选择下一步动作，工具执行动作，系统观察结果，再决定继续、修正、请求人类帮助或结束。"><meta property="og:title" content="01. Agent 基础与架构模式 · 李杨的学习笔记"><meta property="og:description" content="Agent 架构的核心是 决策循环 ：模型根据目标和状态选择下一步动作，工具执行动作，系统观察结果，再决定继续、修正、请求人类帮助或结束。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-af07c24550dd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-af07c24550dd.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>01. Agent 基础与架构模式</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/01-Agent%E5%9F%BA%E7%A1%80%E4%B8%8E%E6%9E%B6%E6%9E%84%E6%A8%A1%E5%BC%8F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-agent">1. Agent 的基本循环</a></li><li><a href="#2-react">2. ReAct：推理和行动交替</a></li><li><a href="#_4">适合场景</a></li><li><a href="#_5">优点</a></li><li><a href="#_6">风险</a></li><li><a href="#3-plan-and-execute">3. Plan and Execute：先计划，再执行</a></li><li><a href="#_7">适合场景</a></li><li><a href="#_8">优点</a></li><li><a href="#_9">风险</a></li><li><a href="#4-reflection">4. Reflection：反思和自我修正</a></li><li><a href="#_10">适合场景</a></li><li><a href="#_11">风险</a></li><li><a href="#5-router">5. Router：路由到专家</a></li><li><a href="#_12">适合场景</a></li><li><a href="#6-supervisor">6. Supervisor：主管调度</a></li><li><a href="#_13">适合场景</a></li><li><a href="#_14">风险</a></li><li><a href="#7-critic-verifier">7. Critic / Verifier：审查者模式</a></li><li><a href="#8">8. 停止条件与预算</a></li><li><a href="#9">9. 架构选择表</a></li><li><a href="#10">10. 学习自检</a></li><li><a href="#_15">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>AI Agent 的基本循环是什么？</li>
+<li>ReAct、Plan-Execute、Reflection、Router、Supervisor 分别适合什么场景？</li>
+<li>为什么 Agent 不能无限自主循环，必须有停止条件和验证节点？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>Agent 架构的核心是 <strong>决策循环</strong>：模型根据目标和状态选择下一步动作，工具执行动作，系统观察结果，再决定继续、修正、请求人类帮助或结束。</p>
+<blockquote>
+<p>记忆口诀：<strong>想一步、做一步、看结果、再决定。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((Agent架构))
+    基本循环
+      Goal
+      Plan
+      Act
+      Observe
+      Verify
+    常见模式
+      ReAct
+      Plan Execute
+      Reflection
+      Router
+      Supervisor
+    关键控制
+      Stop Condition
+      Budget
+      Retry
+      Human Approval
+      Trace
+    风险
+      循环失控
+      工具误用
+      状态污染
+      幻觉计划
+</pre>
+<span class="heading-anchor" id="1. Agent 的基本循环"></span><h2 id="1-agent">1. Agent 的基本循环</h2>
+<pre class="mermaid">flowchart TD
+  A["Goal目标"] --&gt; B["Reason判断"]
+  B --&gt; C["Action行动"]
+  C --&gt; D["Observation观察"]
+  D --&gt; E["State状态更新"]
+  E --&gt; F{是否完成}
+  F -- 否 --&gt; B
+  F -- 是 --&gt; G["Verify验证"]
+  G --&gt; H["Final输出"]
+</pre>
+<p>这条循环里，LLM 不直接“完成一切”，而是扮演决策器：</p>
+<ul>
+<li>根据当前状态决定下一步。</li>
+<li>给工具生成结构化参数。</li>
+<li>解释工具结果。</li>
+<li>修正计划。</li>
+<li>判断何时停止。</li>
+</ul>
+<span class="heading-anchor" id="2. ReAct：推理和行动交替"></span><h2 id="2-react">2. ReAct：推理和行动交替</h2>
+<p>ReAct 来自论文 <em>ReAct: Synergizing Reasoning and Acting in Language Models</em>。它的核心思想是让模型交替产生 reasoning traces 和 actions，让推理帮助选择行动，让行动从外部环境获得新信息。</p>
+<pre class="mermaid">flowchart LR
+  A["Question"] --&gt; B["Reason"]
+  B --&gt; C["Action"]
+  C --&gt; D["Observation"]
+  D --&gt; B
+  B --&gt; E["Answer"]
+</pre>
+<span class="heading-anchor" id="适合场景"></span><h3 id="_4">适合场景</h3>
+<ul>
+<li>开放式问答需要查资料。</li>
+<li>工具调用步骤不确定。</li>
+<li>需要根据观察结果动态调整。</li>
+<li>交互环境任务，例如网页、代码、数据库查询。</li>
+</ul>
+<span class="heading-anchor" id="优点"></span><h3 id="_5">优点</h3>
+<ul>
+<li>可解释性较好。</li>
+<li>能处理工具返回的异常。</li>
+<li>不要求一次性计划完全正确。</li>
+</ul>
+<span class="heading-anchor" id="风险"></span><h3 id="_6">风险</h3>
+<ul>
+<li>容易循环过长。</li>
+<li>reasoning 暴露可能带来安全或隐私问题。</li>
+<li>如果工具结果不可靠，后续步骤会被带偏。</li>
+</ul>
+<span class="heading-anchor" id="3. Plan and Execute：先计划，再执行"></span><h2 id="3-plan-and-execute">3. Plan and Execute：先计划，再执行</h2>
+<p>Plan-Execute 先生成整体计划，再逐步执行。</p>
+<pre class="mermaid">flowchart TD
+  A["用户目标"] --&gt; B["生成计划"]
+  B --&gt; C["拆成步骤"]
+  C --&gt; D["执行第1步"]
+  D --&gt; E["执行第2步"]
+  E --&gt; F["执行第n步"]
+  F --&gt; G["汇总验证"]
+</pre>
+<span class="heading-anchor" id="适合场景"></span><h3 id="_7">适合场景</h3>
+<ul>
+<li>多步骤任务较明确。</li>
+<li>需要先估算成本或风险。</li>
+<li>需要人类审批计划。</li>
+<li>任务可以拆成有序子任务。</li>
+</ul>
+<span class="heading-anchor" id="优点"></span><h3 id="_8">优点</h3>
+<ul>
+<li>用户可理解整体路径。</li>
+<li>便于插入审批节点。</li>
+<li>便于并行化部分子任务。</li>
+</ul>
+<span class="heading-anchor" id="风险"></span><h3 id="_9">风险</h3>
+<ul>
+<li>初始计划可能错误。</li>
+<li>环境变化后计划需要重规划。</li>
+<li>计划过细会浪费 token，过粗会执行不稳。</li>
+</ul>
+<span class="heading-anchor" id="4. Reflection：反思和自我修正"></span><h2 id="4-reflection">4. Reflection：反思和自我修正</h2>
+<p>Reflection 的思想是让 Agent 在失败后生成文字化反思，并把反思放入后续尝试的上下文或记忆中。Reflexion 论文强调不更新模型权重，而是用语言反馈和情景记忆改善后续决策。</p>
+<pre class="mermaid">flowchart TD
+  A["执行任务"] --&gt; B["得到反馈"]
+  B --&gt; C{是否成功}
+  C -- 是 --&gt; D["结束"]
+  C -- 否 --&gt; E["生成反思"]
+  E --&gt; F["写入情景记忆"]
+  F --&gt; A
+</pre>
+<span class="heading-anchor" id="适合场景"></span><h3 id="_10">适合场景</h3>
+<ul>
+<li>编程任务。</li>
+<li>需要多次尝试的推理任务。</li>
+<li>工具调用容易失败但可从错误中学习的任务。</li>
+</ul>
+<span class="heading-anchor" id="风险"></span><h3 id="_11">风险</h3>
+<p>反思不是事实。错误反思会污染后续上下文，所以最好基于明确反馈，例如测试失败、工具错误、用户纠正，而不是模型凭空自评。</p>
+<span class="heading-anchor" id="5. Router：路由到专家"></span><h2 id="5-router">5. Router：路由到专家</h2>
+<p>Router 根据任务类型选择不同工具、提示词或子 Agent。</p>
+<pre class="mermaid">flowchart TD
+  A["用户请求"] --&gt; B["分类器或路由器"]
+  B --&gt; C["检索专家"]
+  B --&gt; D["代码专家"]
+  B --&gt; E["数据分析专家"]
+  B --&gt; F["写作专家"]
+  C --&gt; G["统一输出"]
+  D --&gt; G
+  E --&gt; G
+  F --&gt; G
+</pre>
+<span class="heading-anchor" id="适合场景"></span><h3 id="_12">适合场景</h3>
+<ul>
+<li>任务类型差异大。</li>
+<li>不同任务需要不同工具权限。</li>
+<li>想降低成本，简单任务用小模型，复杂任务用强模型。</li>
+</ul>
+<span class="heading-anchor" id="6. Supervisor：主管调度"></span><h2 id="6-supervisor">6. Supervisor：主管调度</h2>
+<p>Supervisor 由一个主管 Agent 分配任务给多个专家 Agent，收集结果并整合。</p>
+<pre class="mermaid">flowchart TD
+  A["目标"] --&gt; B["Supervisor"]
+  B --&gt; C["Researcher"]
+  B --&gt; D["Executor"]
+  B --&gt; E["Reviewer"]
+  C --&gt; F["报告"]
+  D --&gt; F
+  E --&gt; F
+  F --&gt; B
+  B --&gt; G["最终结果"]
+</pre>
+<span class="heading-anchor" id="适合场景"></span><h3 id="_13">适合场景</h3>
+<ul>
+<li>任务复杂，需要多个角色。</li>
+<li>需要分工、审查和整合。</li>
+<li>子任务之间可以并行。</li>
+</ul>
+<span class="heading-anchor" id="风险"></span><h3 id="_14">风险</h3>
+<ul>
+<li>成本高。</li>
+<li>上下文同步复杂。</li>
+<li>多个 Agent 可能互相重复或冲突。</li>
+<li>需要明确所有权和停止条件。</li>
+</ul>
+<span class="heading-anchor" id="7. Critic / Verifier：审查者模式"></span><h2 id="7-critic-verifier">7. Critic / Verifier：审查者模式</h2>
+<p>不要让同一个 Agent 同时负责生成和最终判定。可以引入 Critic 或 Verifier 对结果进行检查。</p>
+<pre class="mermaid">flowchart LR
+  A["Generator"] --&gt; B["Draft"]
+  B --&gt; C["Critic"]
+  C --&gt; D{通过}
+  D -- 否 --&gt; E["修正"]
+  E --&gt; A
+  D -- 是 --&gt; F["输出"]
+</pre>
+<p>适合：</p>
+<ul>
+<li>代码生成。</li>
+<li>数据分析。</li>
+<li>法务或合规文本。</li>
+<li>高风险工具调用前审批。</li>
+</ul>
+<span class="heading-anchor" id="8. 停止条件与预算"></span><h2 id="8">8. 停止条件与预算</h2>
+<p>Agent 必须有明确停止条件，否则会无限循环或过度调用工具。</p>
+<p>常见停止条件：</p>
+<ul>
+<li>达成任务目标。</li>
+<li>验证通过。</li>
+<li>达到最大迭代次数。</li>
+<li>达到成本或时间预算。</li>
+<li>连续失败次数超限。</li>
+<li>需要人类输入或审批。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["每轮结束"] --&gt; B{目标完成}
+  B -- 是 --&gt; G["停止"]
+  B -- 否 --&gt; C{预算超限}
+  C -- 是 --&gt; G
+  C -- 否 --&gt; D{连续失败}
+  D -- 是 --&gt; E["请求人类或降级"]
+  D -- 否 --&gt; F["继续下一轮"]
+</pre>
+<span class="heading-anchor" id="9. 架构选择表"></span><h2 id="9">9. 架构选择表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>适合</th>
+<th>不适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ReAct</td>
+<td>动态检索、工具交互</td>
+<td>高风险无审批操作</td>
+</tr>
+<tr>
+<td>Plan-Execute</td>
+<td>明确多步骤任务</td>
+<td>环境高度不确定任务</td>
+</tr>
+<tr>
+<td>Reflection</td>
+<td>可从失败反馈中改进</td>
+<td>没有可靠反馈的任务</td>
+</tr>
+<tr>
+<td>Router</td>
+<td>多任务分类</td>
+<td>任务边界不清时</td>
+</tr>
+<tr>
+<td>Supervisor</td>
+<td>多角色复杂任务</td>
+<td>简单低成本任务</td>
+</tr>
+<tr>
+<td>Critic</td>
+<td>高正确性要求</td>
+<td>极低延迟场景</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10. 学习自检"></span><h2 id="10">10. 学习自检</h2>
+<ol>
+<li>ReAct 为什么比一次性回答更适合工具任务？</li>
+<li>Plan-Execute 的主要风险是什么？</li>
+<li>Reflection 为什么不能只依赖模型自我感觉？</li>
+<li>Router 和 Supervisor 有什么区别？</li>
+<li>Agent 的停止条件应该包括哪些？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_15">参考</h2>
+<ul>
+<li>ReAct: https://arxiv.org/abs/2210.03629</li>
+<li>Reflexion: https://arxiv.org/abs/2303.11366</li>
+<li>OpenAI Agents SDK: https://platform.openai.com/docs/guides/agents-sdk/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>第 4 章：特征检测、匹配与图像拼接 · 李杨的学习笔记</title><meta name="description" content="本章讨论从“找稳定点”到“估计图像几何关系”的完整链路。OpenCV 5 将 features2d 整理为 features ，C++ 头文件从 opencv2/features2d.hpp 迁到 opencv2/features.hpp ， SIFT 、 ORB 、 BFMatcher 等类名保持不变；几何估计在 5"><meta property="og:title" content="第 4 章：特征检测、匹配与图像拼接 · 李杨的学习笔记"><meta property="og:description" content="本章讨论从“找稳定点”到“估计图像几何关系”的完整链路。OpenCV 5 将 features2d 整理为 features ，C++ 头文件从 opencv2/features2d.hpp 迁到 opencv2/features.hpp ， SIFT 、 ORB 、 BFMatcher 等类名保持不变；几何估计在 5"><meta property="og:url" content="https://uestc-ly.github.io/notes/deep-learning/n-a0f8b46b9681.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/deep-learning/n-a0f8b46b9681.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">深度学习</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / openCV</p><h1>第 4 章：特征检测、匹配与图像拼接</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/openCV/04-%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%8C%B9%E9%85%8D%E4%B8%8E%E5%9B%BE%E5%83%8F%E6%8B%BC%E6%8E%A5.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 从角点到局部特征</a></li><li><a href="#2">2. 关键点、描述子与不变性</a></li><li><a href="#3-siftorbakaze">3. SIFT、ORB、AKAZE 如何选</a></li><li><a href="#4_1">4. 匹配器、距离与过滤</a></li><li><a href="#5-ransacusac">5. 几何验证：RANSAC、USAC 与单应矩阵</a></li><li><a href="#6">6. 图像配准与拼接流程</a></li><li><a href="#7-stitcher-api">7. Stitcher 高层 API 与手工管线</a></li><li><a href="#8">8. 调参方法与失败诊断</a></li><li><a href="#9">9. 练习</a></li><li><a href="#_1">官方资料</a></li></ul></details><article class="note-content">
+<p>本章讨论从“找稳定点”到“估计图像几何关系”的完整链路。OpenCV 5 将 <code>features2d</code> 整理为 <code>features</code>，C++ 头文件从 <code>opencv2/features2d.hpp</code> 迁到 <code>opencv2/features.hpp</code>，<code>SIFT</code>、<code>ORB</code>、<code>BFMatcher</code> 等类名保持不变；几何估计在 5.x 文档中归入 <code>geometry</code>。Python 调用基本不变。若使用 OpenCV 4.12，常见头文件仍是 <code>opencv2/features2d.hpp</code> 和 <code>opencv2/calib3d.hpp</code>。</p>
+<span class="heading-anchor" id="1. 从角点到局部特征"></span><h2 id="1">1. 从角点到局部特征</h2>
+<p>特征是图像中可重复定位、可区分、可跨图匹配的局部结构。边缘只在法线方向变化明显；平坦区域两个方向都不明显；角点在两个方向都有强梯度变化，因此更适合跟踪、配准和估计运动。</p>
+<p>Harris 角点把窗口平移 <code>(u, v)</code> 后的灰度变化写成局部二次型：统计窗口内 x/y 方向梯度的结构张量，再看两个特征值 <code>lambda1</code>、<code>lambda2</code>。若二者都大，窗口向任意方向移动都会导致灰度明显变化，就是角点。Harris 响应常写为：</p>
+<pre><code class="language-text">R = det(M) - k * trace(M)^2
+</code></pre>
+<p><code>k</code> 常取 <code>0.04~0.06</code>。<code>R</code> 大且为正通常是角点，<code>R</code> 为负多是边，接近 0 多是平坦区。OpenCV 用 <code>cv.cornerHarris(gray, blockSize, ksize, k)</code> 得到响应图。Harris 快而清晰，但阈值和尺度敏感。</p>
+<p>Shi-Tomasi 是对 Harris 判据的实用改造，直接使用：</p>
+<pre><code class="language-text">R = min(lambda1, lambda2)
+</code></pre>
+<p>只要较小的特征值也足够大，就说明两个方向都稳定。<code>cv.goodFeaturesToTrack()</code> 会按质量分数排序，过滤低于 <code>qualityLevel * max(response)</code> 的点，并用 <code>minDistance</code> 抑制过近角点，适合稀疏光流。</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+img = cv.imread("box.png")
+gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+harris = cv.cornerHarris(np.float32(gray), blockSize=2, ksize=3, k=0.04)
+img_h = img.copy()
+img_h[harris &gt; 0.01 * harris.max()] = (0, 0, 255)
+
+corners = cv.goodFeaturesToTrack(gray, maxCorners=80, qualityLevel=0.01,
+                                 minDistance=10, blockSize=3,
+                                 useHarrisDetector=False)
+img_s = img.copy()
+if corners is not None:
+    for x, y in np.int32(corners).reshape(-1, 2):
+        cv.circle(img_s, (x, y), 3, (0, 255, 0), -1)
+
+cv.imwrite("harris.jpg", img_h)
+cv.imwrite("shi_tomasi.jpg", img_s)
+</code></pre>
+<p>C++ 对照在 OpenCV 5 中建议：</p>
+<pre><code class="language-cpp">#include &lt;opencv2/imgcodecs.hpp&gt;
+#include &lt;opencv2/imgproc.hpp&gt;
+#include &lt;opencv2/features.hpp&gt;
+
+cv::Mat img = cv::imread("box.png"), gray;
+cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+std::vector&lt;cv::Point2f&gt; corners;
+cv::goodFeaturesToTrack(gray, corners, 80, 0.01, 10);
+</code></pre>
+<span class="heading-anchor" id="2. 关键点、描述子与不变性"></span><h2 id="2">2. 关键点、描述子与不变性</h2>
+<p>角点只回答“点在哪里”。完整局部特征还包括关键点和描述子。关键点通常包含位置 <code>pt</code>、尺度 <code>size</code>、方向 <code>angle</code>、响应 <code>response</code>、金字塔层 <code>octave</code>；描述子是围绕关键点提取的向量，用来比较两个关键点是否来自同一物理位置。</p>
+<p>尺度不变性通常来自图像金字塔：在多层缩放图像上检测结构，并记录合适尺度。旋转不变性通常来自主方向估计：根据梯度或灰度质心确定方向，再把邻域旋转到规范方向后计算描述子。光照鲁棒性常通过梯度方向、归一化或二值比较获得，但强曝光、反光、运动模糊仍会破坏描述子。</p>
+<p>描述子分两大类。SIFT 这类浮点描述子表达局部梯度方向直方图，常用 <code>NORM_L2</code>；ORB、AKAZE 默认 MLDB 这类二进制描述子表达亮度比较结果，常用 <code>NORM_HAMMING</code>。不要混用距离。</p>
+<span class="heading-anchor" id="3. SIFT、ORB、AKAZE 如何选"></span><h2 id="3-siftorbakaze">3. SIFT、ORB、AKAZE 如何选</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>描述子</th>
+<th>距离</th>
+<th>优点</th>
+<th>代价/限制</th>
+<th>推荐场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SIFT</td>
+<td>浮点，通常 128 维</td>
+<td><code>NORM_L2</code></td>
+<td>尺度、旋转稳定，宽基线表现好</td>
+<td>较慢，描述子大</td>
+<td>配准质量优先、纹理复杂、视角和尺度变化明显</td>
+</tr>
+<tr>
+<td>ORB</td>
+<td>二进制</td>
+<td><code>NORM_HAMMING</code></td>
+<td>快、轻量、适合实时</td>
+<td>尺度和视角变化大时更容易掉点</td>
+<td>移动端、实时跟踪、拼接初筛</td>
+</tr>
+<tr>
+<td>AKAZE</td>
+<td>默认二进制 MLDB</td>
+<td><code>NORM_HAMMING</code></td>
+<td>非线性尺度空间，边缘保留较好</td>
+<td>通常慢于 ORB，参数更多</td>
+<td>自然图像配准、平面跟踪、ORB 不稳但又想用二进制匹配</td>
+</tr>
+</tbody>
+</table></div>
+<p>SIFT 在尺度空间中寻找 Difference-of-Gaussian 极值，过滤低对比度点和边缘响应点，再用梯度方向直方图生成主方向与描述子。图像有缩放、旋转、复杂纹理时通常比 ORB 更稳。</p>
+<p>ORB 组合 FAST 角点、方向估计和旋转 BRIEF 描述子。它在金字塔上检测点，具备一定尺度鲁棒性；通过灰度质心估计方向，具备旋转鲁棒性；二进制描述子匹配很快。调参重点是 <code>nfeatures</code>、<code>scaleFactor</code>、<code>nlevels</code>、<code>fastThreshold</code>。降低 <code>fastThreshold</code> 会增加弱纹理点，也增加噪声。</p>
+<p>AKAZE 使用非线性尺度空间，默认产生 MLDB 二进制描述子。在边缘、模糊、自然纹理场景中有时比 ORB 稳，但实时性要评估。Python 常见写法是 <code>cv.AKAZE_create()</code>；若旧代码出现 <code>cv.xfeatures2d.AKAZE_create()</code>，应按当前安装版本核对。</p>
+<span class="heading-anchor" id="4. 匹配器、距离与过滤"></span><h2 id="4_1">4. 匹配器、距离与过滤</h2>
+<p><code>BFMatcher</code> 是暴力匹配：每个描述子和候选集合逐一比较，简单可靠。<code>FlannBasedMatcher</code> 是近似最近邻，适合大量浮点描述子；二进制描述子不能直接套 KD-tree，通常要用 LSH 参数，或直接用 Hamming BFMatcher。OpenCV 5 还引入了新的 Features 模块能力和 Annoy-based ANN 方向，但经典 SIFT/ORB/BF/FLANN 仍是工程基线。</p>
+<p>第一层过滤通常是 KNN + Lowe ratio：对每个查询描述子找最近和次近候选，若 <code>d1 &lt; ratio * d2</code>，说明最近邻明显优于备选。<code>ratio</code> 常从 <code>0.70~0.80</code> 起调；SIFT 可试 <code>0.75</code>，ORB/AKAZE 可试 <code>0.75~0.85</code>。重复纹理越多越要严格，纹理稀少或视角变化大时过严会导致内点不足。</p>
+<p>交叉验证 <code>crossCheck=True</code> 要求 A 的最佳匹配是 B，且 B 的最佳匹配也是 A。它简单、精度较高，但不能与 <code>knnMatch(k=2)</code> 的 ratio test 直接同时启用。图像拼接常用 KNN + ratio，再交给 RANSAC，因为 RANSAC 需要足够候选。</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+img1 = cv.imread("box.png", cv.IMREAD_GRAYSCALE)
+img2 = cv.imread("box_in_scene.png", cv.IMREAD_GRAYSCALE)
+if img1 is None or img2 is None:
+    raise FileNotFoundError("failed to read input image")
+
+detector = cv.SIFT_create(nfeatures=2000)
+kp1, des1 = detector.detectAndCompute(img1, None)
+kp2, des2 = detector.detectAndCompute(img2, None)
+if des1 is None or des2 is None:
+    raise RuntimeError("not enough features to compute descriptors")
+
+matcher = cv.BFMatcher(cv.NORM_L2)
+knn = matcher.knnMatch(des1, des2, k=2)
+good = []
+for pair in knn:
+    if len(pair) != 2:
+        continue
+    m, n = pair
+    if m.distance &lt; 0.75 * n.distance:
+        good.append(m)
+
+print(len(kp1), len(kp2), len(good))
+vis = cv.drawMatches(img1, kp1, img2, kp2, good[:80], None,
+                     flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+cv.imwrite("matches.jpg", vis)
+</code></pre>
+<p>ORB 只需要把检测器改为 <code>cv.ORB_create(...)</code>，距离改为 <code>cv.NORM_HAMMING</code>，ratio 可先试 <code>0.80</code>。</p>
+<p>C++ 对照：</p>
+<pre><code class="language-cpp">auto sift = cv::SIFT::create(2000);
+sift-&gt;detectAndCompute(img1, cv::noArray(), k1, d1);
+cv::BFMatcher matcher(cv::NORM_L2); // ORB/AKAZE binary descriptors use NORM_HAMMING
+matcher.knnMatch(d1, d2, knn, 2);
+std::vector&lt;cv::DMatch&gt; good;
+for (const auto&amp; pair : knn) {
+    if (pair.size() == 2 &amp;&amp; pair[0].distance &lt; 0.75f * pair[1].distance)
+        good.push_back(pair[0]);
+}
+</code></pre>
+<span class="heading-anchor" id="5. 几何验证：RANSAC、USAC 与单应矩阵"></span><h2 id="5-ransacusac">5. 几何验证：RANSAC、USAC 与单应矩阵</h2>
+<p>描述子相似只说明局部纹理像，不保证几何一致。重复窗格、砖墙、键盘、文字行都可能给出大量错误匹配。几何验证把匹配点放进变换模型中，保留内点，剔除外点。</p>
+<p>单应矩阵 <code>H</code> 是 3x3 投影变换，适用于同一平面从不同视角观察，或相机只绕光心旋转拍摄远景全景。它至少需要 4 对不共线匹配点：</p>
+<pre><code class="language-python">src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+
+H, mask = cv.findHomography(src, dst, cv.RANSAC,
+                            ransacReprojThreshold=3.0,
+                            maxIters=2000,
+                            confidence=0.995)
+inliers = int(mask.sum()) if mask is not None else 0
+print("matches:", len(good), "inliers:", inliers)
+</code></pre>
+<p><code>ransacReprojThreshold</code> 是重投影误差阈值，单位像素。图像清晰时可取 <code>2~3</code>；分辨率高、运动模糊明显时可取 <code>4~8</code>，但过大会吞下误匹配。<code>confidence</code> 越高迭代可能越多；<code>maxIters</code> 限制最坏时间。</p>
+<p>OpenCV 5 官方说明强调 USAC 已成为鲁棒估计的默认后端方向，组合采样、评分、局部优化和提前终止。RANSAC 是“随机抽最小样本、拟合、数内点”的基本框架；USAC 是更完整的鲁棒估计框架。4.12 Python 中常见 <code>cv.RANSAC</code>、<code>cv.LMEDS</code>、<code>cv.RHO</code>；若 5.x/当前构建暴露 <code>USAC_*</code> 常量，可用 <code>hasattr(cv, "USAC_MAGSAC")</code> 做兼容。</p>
+<p>退化条件必须重视：匹配少于 4 对不能估计单应；点几乎共线会病态；非平面近景且视差强时单应只能解释局部；动态物体会拉偏模型；重复纹理会让 ratio test 和 RANSAC 都被错误一致性欺骗；广角畸变未校正会让边缘重投影误差系统变大。诊断时看内点比例、空间分布、<code>det(H)</code>、投影四边形是否翻折或跑出合理范围。</p>
+<pre><code class="language-python">if H is not None and inliers &gt;= 10:
+    h, w = img1.shape[:2]
+    box = np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2)
+    projected = cv.perspectiveTransform(box, H)
+    out = cv.cvtColor(img2, cv.COLOR_GRAY2BGR)
+    cv.polylines(out, [np.int32(projected)], True, (0, 255, 0), 3)
+    cv.imwrite("homography_projection.jpg", out)
+</code></pre>
+<span class="heading-anchor" id="6. 图像配准与拼接流程"></span><h2 id="6">6. 图像配准与拼接流程</h2>
+<p>配准是估计两张图的空间关系；拼接是在配准基础上融合多图。手工管线：</p>
+<ol>
+<li>读图，必要时缩放、转灰度、去畸变。</li>
+<li>检测关键点并计算描述子。</li>
+<li>用正确距离匹配，执行 ratio test 或 cross-check。</li>
+<li>用 <code>findHomography()</code> 加 RANSAC/USAC 得到内点。</li>
+<li>检查内点数量、比例、空间分布和投影。</li>
+<li>用 <code>warpPerspective()</code> 投影，计算画布和平移。</li>
+<li>做曝光补偿、接缝选择和融合。</li>
+</ol>
+<p>最小可运行手工拼接示例：</p>
+<pre><code class="language-python">import cv2 as cv
+import numpy as np
+
+left, right = cv.imread("left.jpg"), cv.imread("right.jpg")
+if left is None or right is None:
+    raise FileNotFoundError("failed to read input image")
+g1, g2 = cv.cvtColor(left, cv.COLOR_BGR2GRAY), cv.cvtColor(right, cv.COLOR_BGR2GRAY)
+
+orb = cv.ORB_create(nfeatures=3000)
+kp1, des1 = orb.detectAndCompute(g1, None)
+kp2, des2 = orb.detectAndCompute(g2, None)
+if des1 is None or des2 is None:
+    raise RuntimeError("not enough features to compute descriptors")
+knn = cv.BFMatcher(cv.NORM_HAMMING).knnMatch(des1, des2, 2)
+good = []
+for pair in knn:
+    if len(pair) != 2:
+        continue
+    m, n = pair
+    if m.distance &lt; 0.80 * n.distance:
+        good.append(m)
+
+if len(good) &lt; 8:
+    raise RuntimeError("not enough reliable matches")
+
+p1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+p2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+method = cv.USAC_MAGSAC if hasattr(cv, "USAC_MAGSAC") else cv.RANSAC
+H, mask = cv.findHomography(p2, p1, method, 4.0)
+if H is None or int(mask.sum()) &lt; 12:
+    raise RuntimeError("homography estimation failed")
+
+h1, w1 = left.shape[:2]
+h2, w2 = right.shape[:2]
+corners2 = np.float32([[0,0], [w2,0], [w2,h2], [0,h2]]).reshape(-1,1,2)
+warped_corners2 = cv.perspectiveTransform(corners2, H)
+corners1 = np.float32([[0,0], [w1,0], [w1,h1], [0,h1]]).reshape(-1,1,2)
+all_corners = np.vstack((corners1, warped_corners2))
+xmin, ymin = np.floor(all_corners.min(axis=0).ravel()).astype(int)
+xmax, ymax = np.ceil(all_corners.max(axis=0).ravel()).astype(int)
+T = np.array([[1, 0, -xmin], [0, 1, -ymin], [0, 0, 1]], dtype=np.float64)
+
+pano = cv.warpPerspective(right, T @ H, (xmax - xmin, ymax - ymin))
+pano[-ymin:h1-ymin, -xmin:w1-xmin] = left
+cv.imwrite("manual_panorama.jpg", pano)
+</code></pre>
+<p>这个示例没有接缝和多频段融合，重叠区可能有硬边、鬼影，适合理解几何。</p>
+<span class="heading-anchor" id="7. Stitcher 高层 API 与手工管线"></span><h2 id="7-stitcher-api">7. Stitcher 高层 API 与手工管线</h2>
+<p><code>cv.Stitcher</code> 是 OpenCV 的高层拼接入口，隐藏特征提取、匹配、相机参数估计、波形校正、曝光补偿、接缝、变形和融合。<code>PANORAMA</code> 面向普通相机旋转全景；<code>SCANS</code> 面向扫描件或近似仿射运动。返回状态包括 <code>OK</code>、<code>ERR_NEED_MORE_IMGS</code>、<code>ERR_HOMOGRAPHY_EST_FAIL</code>、<code>ERR_CAMERA_PARAMS_ADJUST_FAIL</code>。</p>
+<pre><code class="language-python">import cv2 as cv
+
+imgs = [cv.imread(p) for p in ["pano1.jpg", "pano2.jpg", "pano3.jpg"]]
+stitcher = cv.Stitcher_create(cv.Stitcher_PANORAMA)
+status, pano = stitcher.stitch(imgs)
+if status != cv.Stitcher_OK:
+    raise RuntimeError(f"stitch failed: {status}")
+cv.imwrite("stitcher_panorama.jpg", pano)
+</code></pre>
+<p>C++ 对照：</p>
+<pre><code class="language-cpp">#include &lt;opencv2/stitching.hpp&gt;
+
+std::vector&lt;cv::Mat&gt; imgs = {cv::imread("pano1.jpg"), cv::imread("pano2.jpg")};
+cv::Mat pano;
+auto stitcher = cv::Stitcher::create(cv::Stitcher::PANORAMA);
+cv::Stitcher::Status status = stitcher-&gt;stitch(imgs, pano);
+if (status != cv::Stitcher::OK) return -1;
+cv::imwrite("pano.jpg", pano);
+</code></pre>
+<p>高层 API 适合快速处理多图全景；手工管线适合教学、调试和可控输出。若 <code>Stitcher</code> 失败，先诊断：相邻图是否有足够重叠，特征是否足够，内点是否集中，模式是否错误，是否有强前景运动，是否应先去畸变或裁黑边。</p>
+<span class="heading-anchor" id="8. 调参方法与失败诊断"></span><h2 id="8">8. 调参方法与失败诊断</h2>
+<p>调参按链路排查。第一看关键点：点太少就增大 <code>nfeatures</code>、降低 <code>fastThreshold</code>、提高输入清晰度或换 SIFT/AKAZE；点集中在重复区域就用 mask 或提高质量阈值。第二看匹配：线杂乱则收紧 ratio、检查距离和描述子类型；匹配太少则放宽 ratio 或换特征。第三看几何：内点比例低于约 <code>0.2</code>、内点少于 <code>10~20</code>、内点集中在角落都不稳。第四看拼接：弯曲异常多是模型不对；双影多是视差或动态物体；亮度断层需要曝光补偿和融合。</p>
+<p>常见失败与处理：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>des is None</code></td>
+<td>图像太暗、太糊、纹理太少</td>
+<td>换特征、提高对比度、降低阈值、增加光照</td>
+</tr>
+<tr>
+<td>好匹配很多但 H 错</td>
+<td>重复纹理或错误几何模型</td>
+<td>看内点分布，收紧 ratio，使用 mask，改估计模型</td>
+</tr>
+<tr>
+<td>RANSAC 内点很少</td>
+<td>重叠不足、尺度变化大、距离类型错</td>
+<td>增加重叠，换 SIFT，检查 L2/Hamming</td>
+</tr>
+<tr>
+<td>投影四边形翻折</td>
+<td>点顺序/方向错或 H 病态</td>
+<td>检查 query/train 对应，过滤共线和局部集中点</td>
+</tr>
+<tr>
+<td>拼接有鬼影</td>
+<td>非平面近景、动态物体、手持平移</td>
+<td>避免近景，使用多带融合，改拍摄方式</td>
+</tr>
+<tr>
+<td>Stitcher 报估计失败</td>
+<td>图像顺序、重叠、特征或模型问题</td>
+<td>先做 pairwise 手工匹配诊断</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9. 练习"></span><h2 id="9">9. 练习</h2>
+<ol>
+<li>用同一组图片分别运行 SIFT、ORB、AKAZE，记录关键点数量、ratio 后匹配数、RANSAC 内点数和耗时，解释差异。</li>
+<li>固定 ORB，把 <code>nfeatures</code> 从 <code>500</code> 调到 <code>5000</code>，观察速度、内点数和误匹配变化。</li>
+<li>把 Lowe ratio 从 <code>0.65</code> 调到 <code>0.90</code>，画出匹配数和内点比例曲线。</li>
+<li>对一组纯旋转远景图使用手工单应拼接，再对含明显近景视差的图重复实验，比较鬼影。</li>
+<li>分别用 <code>cv.Stitcher_PANORAMA</code> 和 <code>cv.Stitcher_SCANS</code> 拼接扫描件，解释哪一个更符合运动模型。</li>
+<li>故意把 <code>NORM_L2</code> 用在 ORB 上，再改回 <code>NORM_HAMMING</code>，比较匹配质量。</li>
+</ol>
+<span class="heading-anchor" id="官方资料"></span><h2 id="_1">官方资料</h2>
+<ul>
+<li>OpenCV 5：<code>https://github.com/opencv/opencv/wiki/OpenCV-5</code></li>
+<li>4 到 5 迁移：<code>https://github.com/opencv/opencv/wiki/OpenCV-4-to-5-migration</code></li>
+<li>Harris：<code>https://docs.opencv.org/5.0/tutorials/features/trackingmotion/harris_detector/harris_detector.html</code></li>
+<li>Shi-Tomasi：<code>https://docs.opencv.org/5.0/tutorials/features/trackingmotion/good_features_to_track/good_features_to_track.html</code></li>
+<li>Features API：<code>https://docs.opencv.org/5.0/main_modules/features_main.html</code></li>
+<li>FLANN：<code>https://docs.opencv.org/5.0/tutorials/features/feature_flann_matcher/feature_flann_matcher.html</code></li>
+<li>AKAZE：<code>https://docs.opencv.org/5.0/tutorials/features/akaze_matching/akaze_matching.html</code></li>
+<li>Homography：<code>https://docs.opencv.org/5.0/tutorials/features/feature_homography/feature_homography.html</code></li>
+<li>Stitcher：<code>https://docs.opencv.org/5.0/main_modules/classcv_1_1Stitcher.html</code></li>
+<li>4.x 源：<code>https://github.com/opencv/opencv/blob/4.x/doc/tutorials/others/stitcher.markdown</code></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回深度学习 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

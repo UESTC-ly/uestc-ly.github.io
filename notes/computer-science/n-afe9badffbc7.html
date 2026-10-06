@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07. 总线、I/O、中断与 DMA · 李杨的学习笔记</title><meta name="description" content="I/O 系统负责让 CPU、内存和外设协同工作。由于外设慢且种类多，计算机通过总线、控制器、中断和 DMA 在性能与复杂度之间折中。"><meta property="og:title" content="07. 总线、I/O、中断与 DMA · 李杨的学习笔记"><meta property="og:description" content="I/O 系统负责让 CPU、内存和外设协同工作。由于外设慢且种类多，计算机通过总线、控制器、中断和 DMA 在性能与复杂度之间折中。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-afe9badffbc7.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-afe9badffbc7.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>07. 总线、I/O、中断与 DMA</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/07-%E6%80%BB%E7%BA%BFIO%E4%B8%8E%E4%B8%AD%E6%96%ADDMA.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 总线是什么？</a></li><li><a href="#2">2. 总线性能指标</a></li><li><a href="#3-io">3. I/O 接口为什么需要？</a></li><li><a href="#4-io">4. I/O 编址方式</a></li><li><a href="#5">5. 程序查询方式</a></li><li><a href="#6">6. 中断方式</a></li><li><a href="#7">7. 中断处理流程</a></li><li><a href="#8-dma">8. DMA</a></li><li><a href="#9-io">9. 三种 I/O 方式对比</a></li><li><a href="#10">10. 常见坑</a></li><li><a href="#11">11. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>总线是什么？地址总线、数据总线、控制总线分别传什么？</li>
+<li>CPU 和外设为什么需要 I/O 接口？</li>
+<li>程序查询、中断、DMA 三种 I/O 方式有什么区别？</li>
+<li>中断处理的大致流程是什么？</li>
+<li>DMA 为什么能减少 CPU 负担？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>I/O 系统负责让 CPU、内存和外设协同工作。由于外设慢且种类多，计算机通过总线、控制器、中断和 DMA 在性能与复杂度之间折中。</p>
+<blockquote>
+<p>记忆口诀：<strong>总线连部件，中断叫 CPU，DMA 搬大块。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((IO系统))
+    总线
+      地址总线
+      数据总线
+      控制总线
+    IO接口
+      数据寄存器
+      状态寄存器
+      控制寄存器
+    IO方式
+      程序查询
+      中断
+      DMA
+    中断
+      请求
+      响应
+      保存现场
+      ISR
+      恢复现场
+</pre>
+<span class="heading-anchor" id="1. 总线是什么？"></span><h2 id="1">1. 总线是什么？</h2>
+<p>总线是一组共享通信线路，用来连接 CPU、内存和 I/O 设备。</p>
+<pre class="mermaid">flowchart LR
+  A["CPU"] --- B["系统总线"]
+  C["主存"] --- B
+  D["IO控制器"] --- B
+  E["外设"] --- D
+</pre>
+<p>总线类型：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>总线</th>
+<th>传递内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地址总线</td>
+<td>要访问的地址</td>
+</tr>
+<tr>
+<td>数据总线</td>
+<td>读写的数据</td>
+</tr>
+<tr>
+<td>控制总线</td>
+<td>读写控制、时钟、中断等信号</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. 总线性能指标"></span><h2 id="2">2. 总线性能指标</h2>
+<ul>
+<li>总线宽度：一次能传多少位。</li>
+<li>总线频率：每秒传输多少次。</li>
+<li>带宽：单位时间传输数据量。</li>
+<li>仲裁方式：多个设备争用总线时如何决定谁使用。</li>
+</ul>
+<pre><code class="language-text">理论带宽 ≈ 总线宽度 × 频率
+</code></pre>
+<p>实际带宽还受协议开销和等待周期影响。</p>
+<span class="heading-anchor" id="3. I/O 接口为什么需要？"></span><h2 id="3-io">3. I/O 接口为什么需要？</h2>
+<p>外设速度、数据格式、控制方式差异很大，CPU 不能直接管理所有细节，因此需要 I/O 控制器或接口。</p>
+<p>I/O 接口常包含：</p>
+<ul>
+<li>数据寄存器。</li>
+<li>状态寄存器。</li>
+<li>控制寄存器。</li>
+<li>缓冲区。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["CPU"] --&gt; B["IO接口"]
+  B --&gt; C["数据寄存器"]
+  B --&gt; D["状态寄存器"]
+  B --&gt; E["控制寄存器"]
+  B --&gt; F["外设"]
+</pre>
+<span class="heading-anchor" id="4. I/O 编址方式"></span><h2 id="4-io">4. I/O 编址方式</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>独立编址 I/O</td>
+<td>I/O 端口有独立地址空间，使用专门指令</td>
+</tr>
+<tr>
+<td>内存映射 I/O</td>
+<td>把设备寄存器映射到内存地址空间</td>
+</tr>
+</tbody>
+</table></div>
+<p>内存映射 I/O 的优点是可用普通 load/store 指令访问设备寄存器。</p>
+<span class="heading-anchor" id="5. 程序查询方式"></span><h2 id="5">5. 程序查询方式</h2>
+<p>CPU 不断轮询设备状态，直到设备准备好。</p>
+<pre class="mermaid">flowchart TD
+  A["CPU读状态寄存器"] --&gt; B{设备就绪}
+  B -- 否 --&gt; A
+  B -- 是 --&gt; C["读写数据"]
+</pre>
+<p>优点：简单。<br/>
+缺点：浪费 CPU 时间。</p>
+<span class="heading-anchor" id="6. 中断方式"></span><h2 id="6">6. 中断方式</h2>
+<p>设备准备好后主动发出中断请求，CPU 暂停当前程序去处理中断。</p>
+<pre class="mermaid">flowchart LR
+  A["设备完成"] --&gt; B["发中断请求"]
+  B --&gt; C["CPU响应"]
+  C --&gt; D["保存现场"]
+  D --&gt; E["执行中断服务程序"]
+  E --&gt; F["恢复现场"]
+  F --&gt; G["继续原程序"]
+</pre>
+<p>中断提高 CPU 利用率，因为 CPU 不必一直轮询等待。</p>
+<span class="heading-anchor" id="7. 中断处理流程"></span><h2 id="7">7. 中断处理流程</h2>
+<ol>
+<li>设备发出中断请求。</li>
+<li>CPU 在合适时机响应。</li>
+<li>保存现场，例如 PC、状态寄存器。</li>
+<li>根据中断向量找到中断服务程序 ISR。</li>
+<li>执行 ISR。</li>
+<li>恢复现场。</li>
+<li>返回原程序。</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  A["中断请求"] --&gt; B["中断响应"]
+  B --&gt; C["保存现场"]
+  C --&gt; D["查中断向量"]
+  D --&gt; E["执行ISR"]
+  E --&gt; F["恢复现场"]
+  F --&gt; G["中断返回"]
+</pre>
+<span class="heading-anchor" id="8. DMA"></span><h2 id="8-dma">8. DMA</h2>
+<p>DMA，Direct Memory Access，直接内存访问。DMA 控制器可以在外设和内存之间搬运数据，CPU 只需初始化参数和处理完成中断。</p>
+<pre class="mermaid">flowchart LR
+  A["CPU设置DMA参数"] --&gt; B["DMA控制器"]
+  B --&gt; C["外设和内存之间传输"]
+  C --&gt; D["传输完成中断CPU"]
+</pre>
+<p>适合大块数据传输，例如磁盘、网卡、声卡。</p>
+<span class="heading-anchor" id="9. 三种 I/O 方式对比"></span><h2 id="9-io">9. 三种 I/O 方式对比</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>CPU 参与</th>
+<th>适合场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>程序查询</td>
+<td>CPU 一直等待</td>
+<td>简单低速设备</td>
+</tr>
+<tr>
+<td>中断</td>
+<td>就绪时通知 CPU</td>
+<td>零散事件和低中速 I/O</td>
+</tr>
+<tr>
+<td>DMA</td>
+<td>CPU 初始化和收尾</td>
+<td>大块高速数据传输</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["IO方式"] --&gt; B["查询 CPU忙等"]
+  A --&gt; C["中断 设备通知"]
+  A --&gt; D["DMA 控制器搬运"]
+</pre>
+<span class="heading-anchor" id="10. 常见坑"></span><h2 id="10">10. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>中断等于异常</td>
+<td>中断常来自外部，异常常来自指令执行内部</td>
+</tr>
+<tr>
+<td>DMA 不需要 CPU</td>
+<td>CPU 仍需初始化和处理完成</td>
+</tr>
+<tr>
+<td>总线带宽等于实际吞吐</td>
+<td>协议开销会降低实际吞吐</td>
+</tr>
+<tr>
+<td>内存映射 I/O 是普通内存</td>
+<td>访问设备寄存器有副作用</td>
+</tr>
+<tr>
+<td>轮询一定不好</td>
+<td>简单短等待场景轮询可能更低开销</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>地址总线和数据总线分别传什么？</li>
+<li>为什么需要 I/O 控制器？</li>
+<li>程序查询方式为什么浪费 CPU？</li>
+<li>中断处理为什么要保存现场？</li>
+<li>DMA 适合什么类型的数据传输？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

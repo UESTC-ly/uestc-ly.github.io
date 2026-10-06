@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>MLOps与LLMOps：模型服务监控与漂移 · 李杨的学习笔记</title><meta name="description" content="模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。"><meta property="og:title" content="MLOps与LLMOps：模型服务监控与漂移 · 李杨的学习笔记"><meta property="og:description" content="模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-c2c568397205.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-c2c568397205.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">补充 / MLOps与LLMOps</p><h1>MLOps与LLMOps：模型服务监控与漂移</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/MLOps%E4%B8%8ELLMOps/03-%E6%A8%A1%E5%9E%8B%E6%9C%8D%E5%8A%A1%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%BC%82%E7%A7%BB.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">记忆口诀</a></li><li><a href="#_4">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_5">分章节讲解</a></li><li><a href="#1">1. 在线推理</a></li><li><a href="#2">2. 模型监控</a></li><li><a href="#3">3. 数据漂移</a></li><li><a href="#4">4. 回滚与灰度</a></li><li><a href="#_6">关键对比表</a></li><li><a href="#_7">常见误区总结</a></li><li><a href="#_8">自检题</a></li><li><a href="#_9">速记卡片</a></li><li><a href="#_10">深度扩展：底层原理与应用边界</a></li><li><a href="#1-mlopsllmops">1. 本章在「MLOps与LLMOps」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4_1">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_11">专题深化：具体机制、案例与追问</a></li><li><a href="#1_1">1. 具体案例：把「模型服务监控与漂移」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_2">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li><li><a href="#_12">本轮扩写：模型服务指标、漂移诊断与灰度回滚</a></li><li><a href="#1_2">1. 模型服务监控要同时看系统指标和模型指标</a></li><li><a href="#2_3">2. 漂移诊断流程</a></li><li><a href="#3_3">3. 模型灰度与回滚</a></li><li><a href="#4_3">4. 面试追问路径</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>理解模型部署、在线推理、A/B、监控、漂移和回滚。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出适用场景、边界条件和常见误区。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_3">记忆口诀</h2>
+<blockquote>
+<p>上线不是终点，漂移要监控</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_4">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((模型服务监控与漂移))
+    核心概念
+      在线推理
+      模型监控
+      数据漂移
+      回滚与灰度
+    学习动作
+      先定义
+      再画流程
+      比较适用
+      复述误区
+    输出能力
+      能解释
+      能判断
+      能应用
+      能排错
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  A["部署"]
+  B["推理"]
+  C["监控"]
+  D["漂移"]
+  E["回滚"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_5">分章节讲解</h2>
+<span class="heading-anchor" id="1. 在线推理"></span><h3 id="1">1. 在线推理</h3>
+<p><strong>核心定义：</strong> 在线推理要求模型以受控延迟和可用性响应请求，需考虑批处理、缓存和资源隔离。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 离线吞吐高不代表在线延迟达标。</p>
+<span class="heading-anchor" id="2. 模型监控"></span><h3 id="2">2. 模型监控</h3>
+<p><strong>核心定义：</strong> 模型监控包括服务指标、输入分布、输出分布、业务指标和人工反馈。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 没有真实标签时也可先监控数据漂移和置信度变化。</p>
+<span class="heading-anchor" id="3. 数据漂移"></span><h3 id="3">3. 数据漂移</h3>
+<p><strong>核心定义：</strong> 数据漂移是线上输入分布相对训练数据变化，可能导致模型效果下降。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 漂移不必然意味着模型坏了；要结合任务指标和标签验证。</p>
+<span class="heading-anchor" id="4. 回滚与灰度"></span><h3 id="4">4. 回滚与灰度</h3>
+<p><strong>核心定义：</strong> 模型发布应支持灰度、影子流量、A/B 测试和快速回滚。</p>
+<p><strong>理解路径：</strong>
+- 先明确它解决的具体问题，再判断它依赖的前提条件。
+- 把它放回“模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。”这条主线中理解，不要孤立记忆。
+- 学习时至少能说出：输入是什么、输出是什么、代价是什么、失败边界是什么。</p>
+<p><strong>常见误区：</strong> 一次性全量替换模型会放大风险。</p>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_6">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>正确理解</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>在线推理</td>
+<td>在线推理要求模型以受控延迟和可用性响应请求，需考虑批处理、缓存和资源隔离。</td>
+<td>离线吞吐高不代表在线延迟达标。</td>
+</tr>
+<tr>
+<td>模型监控</td>
+<td>模型监控包括服务指标、输入分布、输出分布、业务指标和人工反馈。</td>
+<td>没有真实标签时也可先监控数据漂移和置信度变化。</td>
+</tr>
+<tr>
+<td>数据漂移</td>
+<td>数据漂移是线上输入分布相对训练数据变化，可能导致模型效果下降。</td>
+<td>漂移不必然意味着模型坏了；要结合任务指标和标签验证。</td>
+</tr>
+<tr>
+<td>回滚与灰度</td>
+<td>模型发布应支持灰度、影子流量、A/B 测试和快速回滚。</td>
+<td>一次性全量替换模型会放大风险。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_7">常见误区总结</h2>
+<ul>
+<li><strong>在线推理：</strong> 离线吞吐高不代表在线延迟达标。</li>
+<li><strong>模型监控：</strong> 没有真实标签时也可先监控数据漂移和置信度变化。</li>
+<li><strong>数据漂移：</strong> 漂移不必然意味着模型坏了；要结合任务指标和标签验证。</li>
+<li><strong>回滚与灰度：</strong> 一次性全量替换模型会放大风险。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_8">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：模型上线后会遇到数据分布变化，必须持续监控输入、输出和业务指标。</li>
+<li>本章每个概念的适用前提分别是什么？</li>
+<li>哪个误区最容易在面试或工程实践中出现？为什么？</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_9">速记卡片</h2>
+<ul>
+<li>章节口诀：上线不是终点，漂移要监控</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区。</li>
+<li>复习动作：遮住正文，只根据思维导图复述一遍。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_10">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「MLOps与LLMOps」中的位置"></span><h3 id="1-mlopsllmops">1. 本章在「MLOps与LLMOps」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 把数据、实验、模型、Prompt、RAG、Agent、评测、安全和成本纳入可复现、可观测、可治理的生命周期。</li>
+<li><strong>本章作用：</strong> 「MLOps与LLMOps：模型服务监控与漂移」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是只关注模型效果，不管理数据版本、评测集、上线漂移、Prompt 变更和成本安全。</li>
+<li><strong>实践抓手：</strong> 上线前必须回答：数据从哪来、指标如何评、失败如何回滚、日志如何追、成本如何控。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 在线推理"></span><h4 id="31">3.1 在线推理</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 在线推理 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 在线推理，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 模型监控"></span><h4 id="32">3.2 模型监控</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 模型监控 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 模型监控，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 数据漂移"></span><h4 id="33">3.3 数据漂移</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 数据漂移 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 数据漂移，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 回滚与灰度"></span><h4 id="34">3.4 回滚与灰度</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 回滚与灰度 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 回滚与灰度，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4_1">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 上线前必须回答：数据从哪来、指标如何评、失败如何回滚、日志如何追、成本如何控。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 把数据、实验、模型、Prompt、RAG、Agent、评测、安全和成本纳入可复现、可观测、可治理的生命周期。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_11">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「模型服务监控与漂移」放进真实问题"></span><h3 id="1_1">1. 具体案例：把「模型服务监控与漂移」放进真实问题</h3>
+<p>例如 RAG 问答上线要管理文档版本、切块方案、Embedding 模型、召回重排、Prompt 版本、回答引用、评测集和成本。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>线上推理关注延迟、吞吐、可用性和资源成本。</li>
+<li>漂移不一定代表模型失效，但必须触发分析。</li>
+<li>灰度和影子流量降低模型替换风险。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>在线推理</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>模型监控</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>数据漂移</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>回滚与灰度</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「MLOps与LLMOps」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_2">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>数据和 Prompt 是否可追溯？</li>
+<li>评测能否定位检索错还是生成错？</li>
+<li>线上漂移、注入和成本如何监控？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用固定评测集、轨迹日志、人工抽检、线上监控和回滚演练验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul>
+<span class="heading-anchor" id="本轮扩写：模型服务指标、漂移诊断与灰度回滚"></span><h2 id="_12">本轮扩写：模型服务指标、漂移诊断与灰度回滚</h2>
+<span class="heading-anchor" id="1. 模型服务监控要同时看系统指标和模型指标"></span><h3 id="1_2">1. 模型服务监控要同时看系统指标和模型指标</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>指标</th>
+<th>能回答的问题</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>系统层</td>
+<td>QPS、延迟、错误率、GPU/CPU 利用率</td>
+<td>服务是否健康</td>
+<td>只看平均延迟</td>
+</tr>
+<tr>
+<td>数据层</td>
+<td>缺失率、分布、枚举值、特征延迟</td>
+<td>输入是否变了</td>
+<td>只监控训练集质量</td>
+</tr>
+<tr>
+<td>模型层</td>
+<td>置信度、校准、拒答率、命中率</td>
+<td>预测是否可靠</td>
+<td>没有线上反馈闭环</td>
+</tr>
+<tr>
+<td>业务层</td>
+<td>转化、留存、投诉、人工审核通过率</td>
+<td>是否创造价值</td>
+<td>离线指标好就直接全量</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. 漂移诊断流程"></span><h3 id="2_3">2. 漂移诊断流程</h3>
+<pre class="mermaid">flowchart LR
+  A["发现指标异常"] --&gt; B["检查输入分布"]
+  B --&gt; C["检查特征/Prompt版本"]
+  C --&gt; D["检查模型版本"]
+  D --&gt; E["对比线上反馈"]
+  E --&gt; F["回滚或再训练"]
+</pre>
+<ul>
+<li><strong>数据漂移：</strong> 输入分布变化，但标签关系未必变化。</li>
+<li><strong>概念漂移：</strong> 输入到标签的关系变化，例如用户偏好变化。</li>
+<li><strong>反馈延迟：</strong> 标签晚到导致评估滞后，需要代理指标和人工抽检。</li>
+<li><strong>采样偏差：</strong> 线上收集的数据被策略本身影响，不能直接当真实分布。</li>
+</ul>
+<span class="heading-anchor" id="3. 模型灰度与回滚"></span><h3 id="3_3">3. 模型灰度与回滚</h3>
+<ul>
+<li>Shadow 模式只旁路打分，不影响用户，用于比较延迟、资源和预测分布。</li>
+<li>Canary 模式让小流量真实使用新模型，必须设置停止条件。</li>
+<li>回滚不仅回模型权重，还要回特征处理、Prompt、检索索引和阈值。</li>
+<li>回滚后要保留失败样本，用于再训练或评测集补充。</li>
+</ul>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_3">4. 面试追问路径</h3>
+<ul>
+<li>“模型线上效果下降怎么排查？”——按数据、特征、模型、服务、业务反馈逐层定位。</li>
+<li>“没有实时标签怎么办？”——使用代理指标、延迟标签回填、人工抽检和分群分析。</li>
+<li>“为什么不能只看 AUC？”——AUC 不等于业务收益，也不反映校准、延迟、成本和公平性。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

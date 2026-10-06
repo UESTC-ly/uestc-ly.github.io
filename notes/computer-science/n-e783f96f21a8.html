@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04. 事务、并发与隔离级别 · 李杨的学习笔记</title><meta name="description" content="本章回答“多人同时改数据时，数据库如何保证正确”的问题。读完后你应该能："><meta property="og:title" content="04. 事务、并发与隔离级别 · 李杨的学习笔记"><meta property="og:description" content="本章回答“多人同时改数据时，数据库如何保证正确”的问题。读完后你应该能："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-e783f96f21a8.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-e783f96f21a8.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>04. 事务、并发与隔离级别</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/04-%E4%BA%8B%E5%8A%A1%E5%B9%B6%E5%8F%91%E4%B8%8E%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">事务是什么</a></li><li><a href="#acid">ACID</a></li><li><a href="#_3">并发异常</a></li><li><a href="#_4">脏读</a></li><li><a href="#_5">不可重复读</a></li><li><a href="#_6">幻读</a></li><li><a href="#_7">丢失更新</a></li><li><a href="#_8">写偏斜</a></li><li><a href="#_9">隔离级别</a></li><li><a href="#mvcc">MVCC</a></li><li><a href="#_10">锁</a></li><li><a href="#_11">行锁</a></li><li><a href="#_12">条件更新比先查后改更安全</a></li><li><a href="#_13">乐观锁</a></li><li><a href="#_14">悲观锁</a></li><li><a href="#_15">死锁</a></li><li><a href="#_16">事务边界设计</a></li><li><a href="#_17">幂等性</a></li><li><a href="#_18">本章练习</a></li><li><a href="#_19">深入展开：事务真正解决的是“中间状态不可见”和“失败可恢复”</a></li><li><a href="#1">1. 事务边界怎么划</a></li><li><a href="#2">2. 条件更新比“先查后改”更安全</a></li><li><a href="#3">3. 隔离级别不是越高越好</a></li><li><a href="#4">4. 死锁处理要设计重试</a></li><li><a href="#5">5. 写偏斜比丢失更新更隐蔽</a></li><li><a href="#6">6. 事务设计清单</a></li><li><a href="#_20">思维导图</a></li><li><a href="#1-acid">1. ACID 与事务边界</a></li><li><a href="#2_1">2. 并发异常与隔离</a></li><li><a href="#3_1">3. 并发控制选择</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章回答“多人同时改数据时，数据库如何保证正确”的问题。读完后你应该能：</p>
+<ul>
+<li>解释 ACID。</li>
+<li>识别脏读、不可重复读、幻读、丢失更新、写偏斜。</li>
+<li>理解隔离级别的取舍。</li>
+<li>知道 MVCC、行锁、死锁、乐观锁、悲观锁的基本用法。</li>
+<li>为业务操作划定事务边界。</li>
+</ul>
+<span class="heading-anchor" id="事务是什么"></span><h2 id="_2">事务是什么</h2>
+<p>事务是一组操作的可靠边界：要么全部成功，要么全部失败。</p>
+<p>下单示例：</p>
+<pre><code class="language-sql">BEGIN;
+
+INSERT INTO orders (customer_id, status, total_amount)
+VALUES (1, 'pending', 100.00)
+RETURNING id;
+
+INSERT INTO order_items (order_id, product_id, quantity, unit_price)
+VALUES (10, 3, 2, 50.00);
+
+UPDATE inventory
+SET available_quantity = available_quantity - 2
+WHERE product_id = 3
+  AND available_quantity &gt;= 2;
+
+COMMIT;
+</code></pre>
+<p>如果扣库存失败，订单和明细也不应该留下半成品。</p>
+<span class="heading-anchor" id="ACID"></span><h2 id="acid">ACID</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>属性</th>
+<th>含义</th>
+<th>工程问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Atomicity</td>
+<td>原子性</td>
+<td>失败时能否整体撤销？</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>一致性</td>
+<td>事务前后是否满足约束？</td>
+</tr>
+<tr>
+<td>Isolation</td>
+<td>隔离性</td>
+<td>并发事务是否互相干扰？</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>持久性</td>
+<td>提交后宕机是否仍能恢复？</td>
+</tr>
+</tbody>
+</table></div>
+<p>一致性不是数据库凭空保证业务永远正确。数据库提供约束和事务机制，业务仍要定义正确规则。</p>
+<span class="heading-anchor" id="并发异常"></span><h2 id="_3">并发异常</h2>
+<span class="heading-anchor" id="脏读"></span><h3 id="_4">脏读</h3>
+<p>事务 A 读到了事务 B 尚未提交的数据。如果 B 回滚，A 读到的就是不存在的事实。</p>
+<span class="heading-anchor" id="不可重复读"></span><h3 id="_5">不可重复读</h3>
+<p>同一事务内两次读取同一行，结果不同，因为其他事务提交了更新。</p>
+<span class="heading-anchor" id="幻读"></span><h3 id="_6">幻读</h3>
+<p>同一事务内两次按条件查询，第二次多出或少了符合条件的行。</p>
+<span class="heading-anchor" id="丢失更新"></span><h3 id="_7">丢失更新</h3>
+<p>两个事务同时读取同一值，各自计算后写回，后写覆盖先写。</p>
+<p>示例：库存从 10 开始。</p>
+<ul>
+<li>事务 A 读到 10，准备减 2，写回 8。</li>
+<li>事务 B 也读到 10，准备减 3，写回 7。</li>
+<li>最终库存是 7，但正确结果应是 5。</li>
+</ul>
+<span class="heading-anchor" id="写偏斜"></span><h3 id="_8">写偏斜</h3>
+<p>两个事务分别更新不同的行，但共同破坏了跨行约束。</p>
+<p>例：值班系统要求至少一名医生值班。两个医生同时看到“还有另一个人在值班”，于是都把自己改成休息，最终没人值班。</p>
+<span class="heading-anchor" id="隔离级别"></span><h2 id="_9">隔离级别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>大致保证</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read Uncommitted</td>
+<td>可能读未提交数据</td>
+<td>很少用于核心业务</td>
+</tr>
+<tr>
+<td>Read Committed</td>
+<td>每条语句只读已提交数据</td>
+<td>常见默认，仍可能不可重复读</td>
+</tr>
+<tr>
+<td>Repeatable Read</td>
+<td>同一事务中读到一致快照</td>
+<td>可能需要处理写冲突或幻读差异</td>
+</tr>
+<tr>
+<td>Serializable</td>
+<td>效果等同串行执行</td>
+<td>并发性能较低，可能重试</td>
+</tr>
+</tbody>
+</table></div>
+<p>不同数据库对隔离级别的具体实现不同。不要只看名称，要看产品文档和实际行为。</p>
+<span class="heading-anchor" id="MVCC"></span><h2 id="mvcc">MVCC</h2>
+<p>MVCC（Multi-Version Concurrency Control，多版本并发控制）通过保留数据的多个版本，让读写尽量不互相阻塞。</p>
+<p>直观理解：</p>
+<ul>
+<li>读事务看到某个时间点的数据快照。</li>
+<li>写事务创建新版本。</li>
+<li>旧版本在不再被需要后清理。</li>
+</ul>
+<p>优点：提升读写并发。</p>
+<p>成本：需要版本清理机制，例如 PostgreSQL 的 vacuum。</p>
+<span class="heading-anchor" id="锁"></span><h2 id="_10">锁</h2>
+<span class="heading-anchor" id="行锁"></span><h3 id="_11">行锁</h3>
+<pre><code class="language-sql">BEGIN;
+
+SELECT *
+FROM inventory
+WHERE product_id = 3
+FOR UPDATE;
+
+UPDATE inventory
+SET available_quantity = available_quantity - 2
+WHERE product_id = 3;
+
+COMMIT;
+</code></pre>
+<p><code>FOR UPDATE</code> 会锁住选中的行，适合库存扣减、账户余额等强一致场景。</p>
+<span class="heading-anchor" id="条件更新比先查后改更安全"></span><h3 id="_12">条件更新比先查后改更安全</h3>
+<pre><code class="language-sql">UPDATE inventory
+SET available_quantity = available_quantity - 2
+WHERE product_id = 3
+  AND available_quantity &gt;= 2
+RETURNING available_quantity;
+</code></pre>
+<p>如果返回 0 行，说明库存不足。这种写法把检查和更新合成一个原子操作。</p>
+<span class="heading-anchor" id="乐观锁"></span><h2 id="_13">乐观锁</h2>
+<p>适合冲突概率较低的场景。</p>
+<p>表中增加版本号：</p>
+<pre><code class="language-sql">version INTEGER NOT NULL DEFAULT 0
+</code></pre>
+<p>更新时带上旧版本：</p>
+<pre><code class="language-sql">UPDATE articles
+SET title = 'new title', version = version + 1
+WHERE id = 1
+  AND version = 7;
+</code></pre>
+<p>如果影响行数为 0，说明期间有人更新过，需要重新读取并让用户处理冲突。</p>
+<span class="heading-anchor" id="悲观锁"></span><h2 id="_14">悲观锁</h2>
+<p>适合冲突概率高、错误代价大的场景，例如扣库存、余额转账。</p>
+<pre><code class="language-sql">SELECT * FROM accounts WHERE id = 1 FOR UPDATE;
+</code></pre>
+<p>悲观锁会降低并发，但能明确保护关键区。</p>
+<span class="heading-anchor" id="死锁"></span><h2 id="_15">死锁</h2>
+<p>死锁常见于两个事务以不同顺序获取锁。</p>
+<ul>
+<li>事务 A 锁订单 1，再锁订单 2。</li>
+<li>事务 B 锁订单 2，再锁订单 1。</li>
+</ul>
+<p>避免策略：</p>
+<ol>
+<li>所有事务按相同顺序访问资源。</li>
+<li>事务尽量短，不在事务中等待用户输入或远程 API。</li>
+<li>合理设置锁等待超时。</li>
+<li>捕获死锁错误并重试幂等事务。</li>
+</ol>
+<span class="heading-anchor" id="事务边界设计"></span><h2 id="_16">事务边界设计</h2>
+<p>事务中应该包含：</p>
+<ul>
+<li>同一个一致性规则必须一起成功的数据库操作。</li>
+<li>需要原子提交的状态变化。</li>
+</ul>
+<p>事务中不应该包含：</p>
+<ul>
+<li>用户交互等待。</li>
+<li>慢速外部 HTTP 调用。</li>
+<li>大批量无界处理。</li>
+<li>可以异步完成的通知、邮件、搜索索引更新。</li>
+</ul>
+<p>对外部副作用使用 outbox 模式：</p>
+<ol>
+<li>在业务事务中写业务表和 <code>outbox_events</code>。</li>
+<li>后台 worker 读取 outbox 并发送消息。</li>
+<li>发送成功后标记事件已处理。</li>
+</ol>
+<p>这样可以避免“数据库提交成功但消息发送失败”或相反的问题。</p>
+<span class="heading-anchor" id="幂等性"></span><h2 id="_17">幂等性</h2>
+<p>任何可能重试的操作都应该设计幂等键。</p>
+<p>支付回调示例：</p>
+<pre><code class="language-sql">CREATE TABLE payment_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_event_id TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_event_id)
+);
+</code></pre>
+<p>重复回调时唯一约束会阻止重复处理。</p>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_18">本章练习</h2>
+<ol>
+<li>设计一个扣库存事务，要求库存不能扣成负数。</li>
+<li>解释为什么事务里不应该调用支付网关再等待返回。</li>
+<li>写一个乐观锁更新文章标题的 SQL。</li>
+<li>找出一个可能死锁的双表更新流程，并重排锁顺序。</li>
+</ol>
+<p>下一章：<a href="n-05dc5d6e0a73.html">05-索引原理与查询优化</a>。</p>
+<span class="heading-anchor" id="深入展开：事务真正解决的是“中间状态不可见”和“失败可恢复”"></span><h2 id="_19">深入展开：事务真正解决的是“中间状态不可见”和“失败可恢复”</h2>
+<p>事务不是为了把几条 SQL 包起来显得规范，而是为了处理现实世界中的失败：代码可能报错，网络可能超时，用户可能重复点击，数据库可能宕机，多个请求可能同时修改同一份数据。</p>
+<span class="heading-anchor" id="1. 事务边界怎么划"></span><h3 id="1">1. 事务边界怎么划</h3>
+<p>事务应该包住同一个业务不变量需要同时成立的操作。例如创建订单：</p>
+<ul>
+<li>插入订单。</li>
+<li>插入订单明细。</li>
+<li>扣库存。</li>
+<li>写库存流水。</li>
+</ul>
+<p>这几步如果只成功一部分，系统就进入错误状态。因此它们属于同一个事务。</p>
+<p>但发短信、调用支付网关、同步搜索索引不应该放进事务。它们是外部副作用，应该通过 outbox、消息队列、幂等重试处理。</p>
+<span class="heading-anchor" id="2. 条件更新比“先查后改”更安全"></span><h3 id="2">2. 条件更新比“先查后改”更安全</h3>
+<p>错误直觉：</p>
+<pre><code class="language-text">1. SELECT 库存
+2. 如果库存足够
+3. UPDATE 库存
+</code></pre>
+<p>并发下两个事务可能都看到库存足够，然后都扣减。</p>
+<p>更安全写法：</p>
+<pre><code class="language-sql">UPDATE inventory
+SET available_quantity = available_quantity - 1
+WHERE product_id = 10
+  AND available_quantity &gt;= 1
+RETURNING available_quantity;
+</code></pre>
+<p>检查和修改在一条 SQL 中完成。返回 0 行就是库存不足。</p>
+<span class="heading-anchor" id="3. 隔离级别不是越高越好"></span><h3 id="3">3. 隔离级别不是越高越好</h3>
+<p>Serializable 最强，但可能带来更多冲突和重试。很多业务在 Read Committed 下，只要关键写入使用条件更新、唯一约束和幂等键，就足够可靠。</p>
+<p>例如支付回调：</p>
+<pre><code class="language-sql">INSERT INTO payment_events(provider, provider_event_id, order_id, payload)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (provider, provider_event_id) DO NOTHING;
+
+UPDATE orders
+SET status = 'paid', paid_at = now()
+WHERE id = $3 AND status = 'pending';
+</code></pre>
+<p>这里靠唯一约束防重复事件，靠状态条件防重复状态流转，不一定要用最高隔离级别。</p>
+<span class="heading-anchor" id="4. 死锁处理要设计重试"></span><h3 id="4">4. 死锁处理要设计重试</h3>
+<p>死锁不是“数据库坏了”，而是并发系统中正常可能出现的冲突。应用应该能识别死锁错误，并重试整个事务。</p>
+<p>重试前提：</p>
+<ul>
+<li>事务内部没有不可重复外部副作用。</li>
+<li>有幂等键防止重复创建订单或重复处理消息。</li>
+<li>重试次数有限，并有退避。</li>
+</ul>
+<p>如果一个事务里已经发了短信或调用支付，再重试就可能产生重复副作用。所以外部动作要放到事务提交后。</p>
+<span class="heading-anchor" id="5. 写偏斜比丢失更新更隐蔽"></span><h3 id="5">5. 写偏斜比丢失更新更隐蔽</h3>
+<p>丢失更新是两个事务改同一行，比较容易想到。写偏斜是两个事务改不同的行，却共同破坏跨行约束。</p>
+<p>例：值班系统要求至少一名医生值班。两个医生同时查询“还有别人值班”，然后都把自己改成休息。每个事务单独看都合理，合起来却没人值班。</p>
+<p>解决方式可能包括：</p>
+<ul>
+<li>更高隔离级别。</li>
+<li>显式锁住代表约束的行。</li>
+<li>用约束表表达全局不变量。</li>
+<li>把跨行规则收敛到单行计数或状态机。</li>
+</ul>
+<span class="heading-anchor" id="6. 事务设计清单"></span><h3 id="6">6. 事务设计清单</h3>
+<ul>
+<li>[ ] 事务内是否只包含数据库内必须原子完成的操作？</li>
+<li>[ ] 是否有外部 HTTP、文件、用户等待？如果有，移出去。</li>
+<li>[ ] 写入是否有幂等键？</li>
+<li>[ ] 并发扣减是否使用条件更新或锁？</li>
+<li>[ ] 多资源加锁是否按固定顺序？</li>
+<li>[ ] 死锁和序列化失败是否能重试？</li>
+<li>[ ] 事务是否足够短？</li>
+</ul>
+<p>把这份清单用于订单、支付、库存、余额、任务队列，能避免大量生产事故。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_20">思维导图</h2>
+<blockquote>
+<p>记忆建议：事务解决“中间状态不可见、失败可恢复、并发不写坏”的问题。</p>
+</blockquote>
+<span class="heading-anchor" id="1. ACID 与事务边界"></span><h3 id="1-acid">1. ACID 与事务边界</h3>
+<pre class="mermaid">mindmap
+  root((事务ACID))
+    原子性
+      要么全成要么全回滚
+    一致性
+      约束和不变量成立
+    隔离性
+      并发事务互不破坏
+    持久性
+      提交后可恢复
+    边界设计
+      不把外部HTTP放进长事务
+</pre>
+<span class="heading-anchor" id="2. 并发异常与隔离"></span><h3 id="2_1">2. 并发异常与隔离</h3>
+<pre class="mermaid">flowchart TD
+  A["并发读写"] --&gt; B["脏读\n读到未提交"]
+  A --&gt; C["不可重复读\n同一行两次读不同"]
+  A --&gt; D["幻读\n范围内新增或消失"]
+  A --&gt; E["丢失更新\n后写覆盖前写"]
+  A --&gt; F["写偏斜\n各自合法合起来破坏约束"]
+  B --&gt; G["隔离级别和锁MVCC共同控制风险"]
+</pre>
+<span class="heading-anchor" id="3. 并发控制选择"></span><h3 id="3_1">3. 并发控制选择</h3>
+<pre class="mermaid">flowchart LR
+  A["并发修改同一业务对象"] --&gt; B{"冲突概率高吗"}
+  B --&gt;|高| C["悲观锁\nSELECT FOR UPDATE"]
+  B --&gt;|低| D["乐观锁\nversion或条件更新"]
+  C --&gt; E["注意死锁和事务长度"]
+  D --&gt; F["冲突后重试或提示合并"]
+  E --&gt; G["幂等保证重试安全"]
+  F --&gt; G
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

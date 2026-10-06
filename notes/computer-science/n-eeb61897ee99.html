@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>后端工程：可靠性限流熔断降级 · 李杨的学习笔记</title><meta name="description" content="可靠性不是永不失败，而是失败时可控、可恢复、可观测。"><meta property="og:title" content="后端工程：可靠性限流熔断降级 · 李杨的学习笔记"><meta property="og:description" content="可靠性不是永不失败，而是失败时可控、可恢复、可观测。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-eeb61897ee99.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-eeb61897ee99.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 后端工程</p><h1>后端工程：可靠性限流熔断降级</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E5%90%8E%E7%AB%AF%E5%B7%A5%E7%A8%8B/04-%E5%8F%AF%E9%9D%A0%E6%80%A7%E9%99%90%E6%B5%81%E7%86%94%E6%96%AD%E9%99%8D%E7%BA%A7.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">分章节讲解</a></li><li><a href="#1">1. 幂等性</a></li><li><a href="#2">2. 限流</a></li><li><a href="#3">3. 熔断</a></li><li><a href="#4">4. 降级</a></li><li><a href="#_7">工程视角：可靠性治理顺序</a></li><li><a href="#_8">关键对比表</a></li><li><a href="#_9">常见误区总结</a></li><li><a href="#_10">自检题</a></li><li><a href="#_11">速记卡片</a></li><li><a href="#_12">深度扩展：底层原理与应用边界</a></li><li><a href="#1_1">1. 本章在「后端工程」中的位置</a></li><li><a href="#2_1">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4_1">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_13">专题深化：具体机制、案例与追问</a></li><li><a href="#1_2">1. 具体案例：把「可靠性限流熔断降级」放进真实问题</a></li><li><a href="#2_2">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_2">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li><li><a href="#_14">本轮扩写：可靠性策略的组合顺序</a></li><li><a href="#1_3">1. 可靠性不是单个组件，而是一组控制回路</a></li><li><a href="#2_3">2. 限流算法对比</a></li><li><a href="#3_3">3. 降级要提前定义业务语义</a></li><li><a href="#4_3">4. 面试追问路径</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握幂等、重试、限流、熔断、降级和容灾设计。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出适用场景、边界条件和常见误区。</li>
+<li>能把“防止故障发生”和“故障发生后如何收口”分清楚。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>可靠性不是永不失败，而是失败时可控、可恢复、可观测。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>幂等防重复，限流防过载，熔断防扩散</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((可靠性限流熔断降级))
+    核心概念
+      幂等性
+      限流
+      熔断
+      降级
+    学习动作
+      先定义
+      再画流程
+      比较适用
+      复述误区
+    输出能力
+      能解释
+      能判断
+      能应用
+      能排错
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  A["幂等"] --&gt; B["重试"]
+  B --&gt; C["限流"]
+  C --&gt; D["熔断"]
+  D --&gt; E["降级"]
+</pre>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_6">分章节讲解</h2>
+<span class="heading-anchor" id="1. 幂等性"></span><h3 id="1">1. 幂等性</h3>
+<p><strong>核心定义：</strong> 幂等操作重复执行多次结果与执行一次一致，常用唯一请求号或状态机实现。</p>
+<p><strong>底层原理：</strong>
+- 幂等是为了把“网络重试”和“业务副作用”解耦。
+- 本质上是让请求具备可重复判断的唯一性。
+- 常见实现包括请求去重表、业务状态机、版本号和唯一约束。</p>
+<p><strong>工程理解：</strong>
+- 支付、下单、扣库存、发券等操作优先考虑幂等。
+- 幂等不等于“永远重复都一样”，而是“对于同一请求语义，结果可重复确认”。
+- 设计时要连同重试、超时和回调一起考虑。</p>
+<p><strong>适用场景：</strong>
+- 外部调用可能超时、网络不稳定、消息可能重复投递的场景。
+- 所有不能承受重复副作用的写操作。</p>
+<p><strong>常见误区：</strong> 支付、下单等操作没有幂等会在重试时产生严重副作用。</p>
+<span class="heading-anchor" id="2. 限流"></span><h3 id="2">2. 限流</h3>
+<p><strong>核心定义：</strong> 限流控制单位时间请求量，可按用户、IP、接口或全局维度实施。</p>
+<p><strong>底层原理：</strong>
+- 限流的核心是把流量控制在系统可承受范围内。
+- 常见算法有固定窗口、滑动窗口、令牌桶和漏桶。
+- 限流不是拒绝服务，而是保护关键路径和整体稳定性。</p>
+<p><strong>工程理解：</strong>
+- 网关限流是第一道门，核心服务内部也要有二次保护。
+- 限流方案应该和监控联动，避免把错误流量全部放过去。
+- 需要区分“入口过载”和“下游瓶颈”，对应不同限流点。</p>
+<p><strong>适用场景：</strong>
+- 大促、秒杀、突发流量、公共接口保护、第三方调用保护。</p>
+<p><strong>常见误区：</strong> 只在网关限流不够；关键资源也需要内部保护。</p>
+<span class="heading-anchor" id="3. 熔断"></span><h3 id="3">3. 熔断</h3>
+<p><strong>核心定义：</strong> 熔断在下游失败率高时快速失败并周期性探测恢复，避免资源耗尽。</p>
+<p><strong>底层原理：</strong>
+- 熔断器通常有关闭、打开、半开三种状态。
+- 失败率、慢请求和超时都可以作为触发信号。
+- 熔断的目标是阻止故障级联，把问题限制在局部范围。</p>
+<p><strong>工程理解：</strong>
+- 关键是给系统一个“停下来观察”的机会。
+- 不能把所有错误都熔断，否则恢复会过慢。
+- 探测窗口和恢复阈值需要根据真实流量调优。</p>
+<p><strong>适用场景：</strong>
+- 对外部依赖敏感、超时会连锁放大的服务。
+- 下游不稳定、请求堆积严重的系统。</p>
+<p><strong>常见误区：</strong> 熔断阈值和恢复窗口要基于真实流量调优。</p>
+<span class="heading-anchor" id="4. 降级"></span><h3 id="4">4. 降级</h3>
+<p><strong>核心定义：</strong> 降级在依赖不可用时返回缓存、默认值或缩减功能，保核心链路。</p>
+<p><strong>底层原理：</strong>
+- 降级本质是“用有限功能换可用性”。
+- 降级可以是静态默认值、缓存兜底、关非核心功能、减少计算量。
+- 降级必须明确语义，否则业务侧会误判结果的可信度。</p>
+<p><strong>工程理解：</strong>
+- 先保核心链路，例如下单、登录、支付。
+- 非核心功能可以关闭、延迟或用历史数据代替。
+- 降级不等于掩盖错误，必须可观测、可告警、可恢复。</p>
+<p><strong>适用场景：</strong>
+- 依赖不可用但主流程不能停。
+- 允许部分功能缺失但不能全站崩溃的场景。</p>
+<p><strong>常见误区：</strong> 降级结果要明确语义；不能悄悄返回错误数据。</p>
+<span class="heading-anchor" id="工程视角：可靠性治理顺序"></span><h2 id="_7">工程视角：可靠性治理顺序</h2>
+<ol>
+<li>先做幂等，避免重试放大副作用。</li>
+<li>再做限流，避免流量打穿系统。</li>
+<li>再做熔断，避免故障扩散到更多依赖。</li>
+<li>最后做降级和容灾，保证核心链路不断。</li>
+</ol>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_8">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>正确理解</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>幂等性</td>
+<td>幂等操作重复执行多次结果与执行一次一致，常用唯一请求号或状态机实现。</td>
+<td>支付、下单等操作没有幂等会在重试时产生严重副作用。</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>限流控制单位时间请求量，可按用户、IP、接口或全局维度实施。</td>
+<td>只在网关限流不够；关键资源也需要内部保护。</td>
+</tr>
+<tr>
+<td>熔断</td>
+<td>熔断在下游失败率高时快速失败并周期性探测恢复，避免资源耗尽。</td>
+<td>熔断阈值和恢复窗口要基于真实流量调优。</td>
+</tr>
+<tr>
+<td>降级</td>
+<td>降级在依赖不可用时返回缓存、默认值或缩减功能，保核心链路。</td>
+<td>降级结果要明确语义；不能悄悄返回错误数据。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_9">常见误区总结</h2>
+<ul>
+<li><strong>幂等性：</strong> 支付、下单等操作没有幂等会在重试时产生严重副作用。</li>
+<li><strong>限流：</strong> 只在网关限流不够；关键资源也需要内部保护。</li>
+<li><strong>熔断：</strong> 熔断阈值和恢复窗口要基于真实流量调优。</li>
+<li><strong>降级：</strong> 降级结果要明确语义；不能悄悄返回错误数据。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_10">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：可靠性不是永不失败，而是失败时可控、可恢复、可观测。</li>
+<li>本章每个概念的适用前提分别是什么？</li>
+<li>哪个误区最容易在面试或工程实践中出现？为什么？</li>
+<li>如果下游抖动，你会按什么顺序处理？</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_11">速记卡片</h2>
+<ul>
+<li>章节口诀：幂等防重复，限流防过载，熔断防扩散</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区。</li>
+<li>复习动作：遮住正文，只根据思维导图复述一遍。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_12">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「后端工程」中的位置"></span><h3 id="1_1">1. 本章在「后端工程」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 把业务能力封装成稳定的 API、数据访问、并发处理、可靠性和可观测运行体系。</li>
+<li><strong>本章作用：</strong> 「后端工程：可靠性限流熔断降级」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是接口能跑但缺少契约、幂等、限流、监控、回滚和容量边界。</li>
+<li><strong>实践抓手：</strong> 后端设计应从接口契约、数据一致性、性能瓶颈、故障模式和运维证据五条线展开。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2_1">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 幂等性"></span><h4 id="31">3.1 幂等性</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 幂等性 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 幂等性，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 限流"></span><h4 id="32">3.2 限流</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 限流 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 限流，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 熔断"></span><h4 id="33">3.3 熔断</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 熔断 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 熔断，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 降级"></span><h4 id="34">3.4 降级</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 降级 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 降级，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4_1">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 后端设计应从接口契约、数据一致性、性能瓶颈、故障模式和运维证据五条线展开。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 把业务能力封装成稳定的 API、数据访问、并发处理、可靠性和可观测运行体系。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_13">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「可靠性限流熔断降级」放进真实问题"></span><h3 id="1_2">1. 具体案例：把「可靠性限流熔断降级」放进真实问题</h3>
+<p>例如订单 API 要明确资源模型、请求校验、事务边界、缓存失效、限流、监控指标、错误码和回滚路径。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_2">2. 本章关键机制细化</h3>
+<ul>
+<li>幂等是重试安全的前提。</li>
+<li>限流保护入口和关键资源。</li>
+<li>熔断、降级、隔离共同防止雪崩。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>幂等性</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>熔断</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>降级</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「后端工程」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_2">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>接口契约是否清晰且兼容？</li>
+<li>数据一致性和缓存新鲜度如何保证？</li>
+<li>容量达到上限时如何保护系统？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用契约测试、压测、慢查询分析、链路追踪和灰度监控验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul>
+<span class="heading-anchor" id="本轮扩写：可靠性策略的组合顺序"></span><h2 id="_14">本轮扩写：可靠性策略的组合顺序</h2>
+<span class="heading-anchor" id="1. 可靠性不是单个组件，而是一组控制回路"></span><h3 id="1_3">1. 可靠性不是单个组件，而是一组控制回路</h3>
+<pre class="mermaid">flowchart LR
+  A["识别入口"] --&gt; B["限流"]
+  B --&gt; C["超时"]
+  C --&gt; D["重试"]
+  D --&gt; E["熔断"]
+  E --&gt; F["降级"]
+  F --&gt; G["告警与复盘"]
+</pre>
+<ul>
+<li>限流控制进入系统的流量。</li>
+<li>超时控制单个请求占用资源的时间。</li>
+<li>重试只处理瞬时失败，且必须受预算约束。</li>
+<li>熔断阻止坏依赖继续拖垮调用方。</li>
+<li>降级保核心链路，牺牲非核心体验。</li>
+</ul>
+<span class="heading-anchor" id="2. 限流算法对比"></span><h3 id="2_3">2. 限流算法对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>特点</th>
+<th>适用</th>
+<th>不适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定窗口</td>
+<td>实现简单</td>
+<td>粗粒度保护</td>
+<td>窗口边界突刺明显</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>更平滑</td>
+<td>API 网关、租户配额</td>
+<td>状态维护成本较高</td>
+</tr>
+<tr>
+<td>令牌桶</td>
+<td>允许短暂突发</td>
+<td>用户请求、网关入口</td>
+<td>不能直接反映下游健康</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>平滑输出</td>
+<td>下游容量稳定</td>
+<td>突发体验差</td>
+</tr>
+<tr>
+<td>自适应限流</td>
+<td>根据延迟/错误动态调整</td>
+<td>下游容量波动</td>
+<td>参数不当会震荡</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3. 降级要提前定义业务语义"></span><h3 id="3_3">3. 降级要提前定义业务语义</h3>
+<ul>
+<li>推荐列表失败：返回热门兜底或缓存结果。</li>
+<li>优惠计算失败：可以隐藏非关键优惠，但不能错误扣款。</li>
+<li>风控不可用：高风险操作应保守拒绝，而不是默认放行。</li>
+<li>库存服务异常：可以暂停下单，不能盲目承诺可售。</li>
+</ul>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_3">4. 面试追问路径</h3>
+<ul>
+<li>“限流和熔断有什么区别？”——限流控制入口流量，熔断控制对异常依赖的调用。</li>
+<li>“降级会不会伤害用户？”——会，所以要区分核心与非核心功能，并设计可解释兜底。</li>
+<li>“如何验证可靠性策略？”——压测、故障注入、重试放大检查、降级演练和告警回放。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

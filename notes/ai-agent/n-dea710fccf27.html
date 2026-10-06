@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05. Agent 记忆系统 · 李杨的学习笔记</title><meta name="description" content="Agent 记忆是跨轮次、跨任务保存和检索有用信息的机制；它不是把所有对话永久保存，而是有选择地保存用户偏好、任务状态、经验教训和可复用知识。"><meta property="og:title" content="05. Agent 记忆系统 · 李杨的学习笔记"><meta property="og:description" content="Agent 记忆是跨轮次、跨任务保存和检索有用信息的机制；它不是把所有对话永久保存，而是有选择地保存用户偏好、任务状态、经验教训和可复用知识。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-dea710fccf27.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-dea710fccf27.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>05. Agent 记忆系统</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/05-Agent%E8%AE%B0%E5%BF%86%E7%B3%BB%E7%BB%9F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1">1. 记忆和上下文的区别</a></li><li><a href="#2">2. 短期记忆</a></li><li><a href="#3">3. 长期记忆</a></li><li><a href="#4">4. 语义记忆</a></li><li><a href="#5">5. 情景记忆</a></li><li><a href="#6-skill-library">6. 程序性记忆与 Skill Library</a></li><li><a href="#7">7. 什么时候写入记忆？</a></li><li><a href="#8">8. 记忆结构设计</a></li><li><a href="#9">9. 记忆检索和注入</a></li><li><a href="#10">10. 记忆风险</a></li><li><a href="#11">11. 学习自检</a></li><li><a href="#_4">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>Agent 为什么需要记忆？它和上下文、RAG 有什么区别？</li>
+<li>短期记忆、长期记忆、语义记忆、情景记忆、程序性记忆分别是什么？</li>
+<li>什么时候应该写入记忆，什么时候不应该？</li>
+<li>如何避免错误记忆、过期记忆和隐私泄露？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>Agent 记忆是跨轮次、跨任务保存和检索有用信息的机制；它不是把所有对话永久保存，而是有选择地保存用户偏好、任务状态、经验教训和可复用知识。</p>
+<blockquote>
+<p>记忆口诀：<strong>上下文管当前，RAG 管外部知识，Memory 管持续经验。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((Agent记忆))
+    短期记忆
+      当前任务状态
+      最近对话
+      工具结果
+    长期记忆
+      用户偏好
+      项目事实
+      历史决策
+    语义记忆
+      概念知识
+      文档摘要
+      可检索事实
+    情景记忆
+      过去任务
+      成败反馈
+      反思记录
+    程序性记忆
+      工具用法
+      工作流
+      Skill Library
+</pre>
+<span class="heading-anchor" id="1. 记忆和上下文的区别"></span><h2 id="1">1. 记忆和上下文的区别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>作用</th>
+<th>生命周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上下文</td>
+<td>当前模型调用输入</td>
+<td>一次调用或短会话</td>
+</tr>
+<tr>
+<td>RAG</td>
+<td>外部知识检索</td>
+<td>随知识库更新</td>
+</tr>
+<tr>
+<td>记忆</td>
+<td>跨任务保留经验和偏好</td>
+<td>长期但需治理</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart LR
+  A["当前任务"] --&gt; B["上下文"]
+  C["外部文档"] --&gt; D["RAG"]
+  E["历史经验"] --&gt; F["Memory"]
+  B --&gt; G["模型决策"]
+  D --&gt; G
+  F --&gt; G
+</pre>
+<span class="heading-anchor" id="2. 短期记忆"></span><h2 id="2">2. 短期记忆</h2>
+<p>短期记忆保存当前任务运行中必要状态，例如：</p>
+<ul>
+<li>用户当前目标。</li>
+<li>已完成步骤。</li>
+<li>待办事项。</li>
+<li>最近工具结果。</li>
+<li>临时变量。</li>
+<li>失败原因。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["任务开始"] --&gt; B["初始化状态"]
+  B --&gt; C["工具调用"]
+  C --&gt; D["更新短期记忆"]
+  D --&gt; E{任务完成}
+  E -- 否 --&gt; C
+  E -- 是 --&gt; F["总结或清理"]
+</pre>
+<p>短期记忆通常适合存放在：</p>
+<ul>
+<li>会话状态。</li>
+<li>工作流状态机。</li>
+<li>Redis 或数据库。</li>
+<li>Agent scratchpad。</li>
+</ul>
+<span class="heading-anchor" id="3. 长期记忆"></span><h2 id="3">3. 长期记忆</h2>
+<p>长期记忆跨会话保存，常见内容：</p>
+<ul>
+<li>用户偏好：喜欢中文回答、偏好表格。</li>
+<li>项目事实：项目使用 PostgreSQL。</li>
+<li>决策记录：某方案因成本被拒绝。</li>
+<li>常用联系人、术语和业务规则。</li>
+</ul>
+<p>长期记忆写入要谨慎，因为错误记忆会长期影响模型。</p>
+<span class="heading-anchor" id="4. 语义记忆"></span><h2 id="4">4. 语义记忆</h2>
+<p>语义记忆保存可检索事实和知识，常用向量数据库实现。</p>
+<pre class="mermaid">flowchart LR
+  A["文本事实"] --&gt; B["Embedding"]
+  B --&gt; C["向量索引"]
+  D["当前问题"] --&gt; E["检索相关记忆"]
+  E --&gt; F["注入上下文"]
+  C --&gt; E
+</pre>
+<p>适合：</p>
+<ul>
+<li>用户历史偏好检索。</li>
+<li>项目知识片段。</li>
+<li>历史问题和解决方案。</li>
+<li>文档摘要。</li>
+</ul>
+<span class="heading-anchor" id="5. 情景记忆"></span><h2 id="5">5. 情景记忆</h2>
+<p>情景记忆记录具体事件和任务轨迹：</p>
+<pre><code class="language-text">在任务 X 中，Agent 尝试了方案 A，测试失败；后来改用方案 B 成功。
+</code></pre>
+<p>它适合 Reflection 模式：失败后总结经验，下次遇到类似任务时检索使用。</p>
+<pre class="mermaid">flowchart TD
+  A["任务失败或成功"] --&gt; B["生成经验总结"]
+  B --&gt; C["写入情景记忆"]
+  C --&gt; D["未来相似任务检索"]
+  D --&gt; E["避免重复错误"]
+</pre>
+<span class="heading-anchor" id="6. 程序性记忆与 Skill Library"></span><h2 id="6-skill-library">6. 程序性记忆与 Skill Library</h2>
+<p>程序性记忆记录“怎么做”：</p>
+<ul>
+<li>某 API 的调用流程。</li>
+<li>某项目的测试命令。</li>
+<li>某类任务的 checklist。</li>
+<li>可复用脚本或技能。</li>
+</ul>
+<p>这类记忆最好结构化成文档、脚本或 skill，而不是只作为自由文本放进向量库。</p>
+<span class="heading-anchor" id="7. 什么时候写入记忆？"></span><h2 id="7">7. 什么时候写入记忆？</h2>
+<pre class="mermaid">flowchart TD
+  A["候选信息"] --&gt; B{未来会复用吗}
+  B -- 否 --&gt; C["不写"]
+  B -- 是 --&gt; D{是否确定正确}
+  D -- 否 --&gt; E["标记低置信或等待确认"]
+  D -- 是 --&gt; F{是否敏感}
+  F -- 是 --&gt; G["脱敏或不写"]
+  F -- 否 --&gt; H["写入记忆"]
+</pre>
+<p>适合写入：</p>
+<ul>
+<li>用户明确表达的长期偏好。</li>
+<li>经过验证的项目事实。</li>
+<li>任务中确认有效的解决方案。</li>
+<li>可复用流程和工具经验。</li>
+</ul>
+<p>不适合写入：</p>
+<ul>
+<li>一次性临时信息。</li>
+<li>未验证猜测。</li>
+<li>敏感凭证。</li>
+<li>用户不希望保存的信息。</li>
+<li>可能很快过期的信息。</li>
+</ul>
+<span class="heading-anchor" id="8. 记忆结构设计"></span><h2 id="8">8. 记忆结构设计</h2>
+<p>一条好记忆应该包含：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>content</td>
+<td>记忆正文</td>
+</tr>
+<tr>
+<td>type</td>
+<td>preference、fact、episode、skill</td>
+</tr>
+<tr>
+<td>source</td>
+<td>来源对话、工具、文档</td>
+</tr>
+<tr>
+<td>confidence</td>
+<td>置信度</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>写入时间</td>
+</tr>
+<tr>
+<td>expiry</td>
+<td>过期时间，可选</td>
+</tr>
+<tr>
+<td>scope</td>
+<td>用户、项目、组织、全局</td>
+</tr>
+<tr>
+<td>sensitivity</td>
+<td>敏感等级</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9. 记忆检索和注入"></span><h2 id="9">9. 记忆检索和注入</h2>
+<p>不是所有记忆都应该注入上下文。</p>
+<p>注入流程：</p>
+<pre class="mermaid">flowchart LR
+  A["当前任务"] --&gt; B["检索候选记忆"]
+  B --&gt; C["相关性过滤"]
+  C --&gt; D["过期过滤"]
+  D --&gt; E["权限过滤"]
+  E --&gt; F["压缩排序"]
+  F --&gt; G["注入上下文"]
+</pre>
+<span class="heading-anchor" id="10. 记忆风险"></span><h2 id="10">10. 记忆风险</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>风险</th>
+<th>说明</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>错误记忆</td>
+<td>模型把猜测当事实</td>
+<td>置信度、来源、人工确认</td>
+</tr>
+<tr>
+<td>过期记忆</td>
+<td>旧规则影响新任务</td>
+<td>expiry、版本、更新时间</td>
+</tr>
+<tr>
+<td>隐私泄露</td>
+<td>保存敏感数据</td>
+<td>脱敏、权限、删除机制</td>
+</tr>
+<tr>
+<td>记忆污染</td>
+<td>恶意输入被保存</td>
+<td>写入前过滤和确认</td>
+</tr>
+<tr>
+<td>上下文干扰</td>
+<td>注入无关记忆</td>
+<td>相关性过滤</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>记忆和 RAG 的区别是什么？</li>
+<li>用户偏好应该如何保存？</li>
+<li>为什么未验证猜测不应写入长期记忆？</li>
+<li>情景记忆适合解决什么问题？</li>
+<li>记忆注入前应该经过哪些过滤？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_4">参考</h2>
+<ul>
+<li>Reflexion: https://arxiv.org/abs/2303.11366</li>
+<li>Voyager: https://arxiv.org/abs/2305.16291</li>
+<li>LangGraph Memory Docs: https://docs.langchain.com/oss/python/langgraph/memory</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

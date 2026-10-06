@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>07 检索 · 李杨的学习笔记</title><meta name="description" content="索引解决“怎样快速找到候选”，检索策略则决定“用什么信号找、怎样约束候选、失败时从哪里查”。
+本部分把稀疏检索、稠密检索、混合检索、过滤、查询变换、多表示检索和路由组织成一条
+可以观察、可以关闭策略、可以逐步诊断的候选生成流程。"><meta property="og:title" content="07 检索 · 李杨的学习笔记"><meta property="og:description" content="索引解决“怎样快速找到候选”，检索策略则决定“用什么信号找、怎样约束候选、失败时从哪里查”。
+本部分把稀疏检索、稠密检索、混合检索、过滤、查询变换、多表示检索和路由组织成一条
+可以观察、可以关闭策略、可以逐步诊断的候选生成流程。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-3b5435427cd1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-3b5435427cd1.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 07-retrieval</p><h1>07 检索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/07-retrieval/README.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">阅读顺序</a></li><li><a href="#_2">学完这一部分后</a></li><li><a href="#_3">始终保留的边界</a></li></ul></details><article class="note-content">
+<p>索引解决“怎样快速找到候选”，检索策略则决定“用什么信号找、怎样约束候选、失败时从哪里查”。
+本部分把稀疏检索、稠密检索、混合检索、过滤、查询变换、多表示检索和路由组织成一条
+可以观察、可以关闭策略、可以逐步诊断的候选生成流程。</p>
+<p>检索不是答案生成。它的输出应当是带有文档、文本块、来源、权限、版本和分数信息的候选，
+而不是一段看似完整的最终回答。候选相关也不代表事实正确、版本最新或当前用户有权访问。
+后续重排和生成只能在这些候选上继续工作，不能补回从未召回的关键资料。</p>
+<span class="heading-anchor" id="阅读顺序"></span><h2 id="_1">阅读顺序</h2>
+<ol>
+<li><a href="n-a52c08583e4d.html">07-01 关键词、TF-IDF、BM25 与稀疏检索</a>：从词项匹配建立可解释基线。</li>
+<li><a href="n-72f9e321d153.html">07-02 稠密检索与混合检索</a>：理解语义召回与词项召回为什么互补。</li>
+<li><a href="n-f09001ab6631.html">07-03 元数据、时间与权限过滤</a>：把可见范围和业务约束放进候选返回边界。</li>
+<li><a href="n-b6194aa30f01.html">07-04 查询改写、扩展与多查询</a>：把查询变换作为可关闭、会失败的召回策略。</li>
+<li><a href="n-47fb6f6dfa56.html">07-05 查询分解与 HyDE</a>：处理复合问题，并认识假设文档带来的偏差。</li>
+<li><a href="n-63e8e8a83e0a.html">07-06 父文档、多向量与上下文化检索</a>：区分用于匹配的表示和最终返回的内容。</li>
+<li><a href="n-2eb88328931f.html">07-07 自查询与路由</a>：把自然语言约束转成结构化条件，并选择合适知识源。</li>
+<li><a href="n-ae43830e908f.html">07-08 检索失败诊断</a>：沿无召回、漏召回、误过滤和域偏移定位根因。</li>
+</ol>
+<p>建议先完成 07-01 至 07-03。它们建立候选、分数和过滤的共同语言。07-04 至 07-07
+属于按问题启用的策略，不应默认全部叠加。07-08 把前面各章变成一套排障顺序。</p>
+<span class="heading-anchor" id="学完这一部分后"></span><h2 id="_2">学完这一部分后</h2>
+<p>你应该能够为一个小型知识库建立稀疏检索基线，说明稀疏与稠密信号各自容易命中和漏掉
+什么；能够设计带来源、时间和权限的过滤顺序；能够把查询改写、分解、HyDE、自查询和路由
+放在明确的适用条件下；还能够根据查询、候选、过滤日志和版本信息判断失败发生在哪一层。</p>
+<p>本批次只完成教学正文。计划中的检索代码、指标单测、混合检索项目、权限测试和诊断脚本
+尚未实现，不能据此声称任何具体方法已经获得更高召回率或通过生产验证。</p>
+<span class="heading-anchor" id="始终保留的边界"></span><h2 id="_3">始终保留的边界</h2>
+<ul>
+<li>不存在对所有语料和查询都最好的单一检索方法，选择必须由任务数据验证。</li>
+<li>权限、租户、有效时间和撤回状态是返回边界，不是生成答案前的装饰性检查。</li>
+<li>查询变换会丢失条件、引入新假设或放大错误，因此必须保留原查询并允许关闭。</li>
+<li>检索到的文本是数据，不是系统指令；其中的命令不能改变应用规则。</li>
+<li>每个候选都应能回到来源、版本和用于召回它的检索路径。</li>
+</ul>
+<p>返回：<a href="n-cf7d5431540b.html">文档总索引</a>｜上一部分：<a href="n-7e0707727de9.html">06 索引与向量数据库</a>｜下一部分：<a href="n-5d4f0a9a34fa.html">08 重排</a></p></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

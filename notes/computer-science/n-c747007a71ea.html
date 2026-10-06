@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>C++ 并发与内存模型 · 李杨的学习笔记</title><meta name="description" content="并发正确性来自共享状态不变量，而不是来自“多加几把锁”。本篇先定义数据竞争和业务竞态，再展开互斥量、条件变量、原子内存序、线程生命周期、线程池关闭和常见并发架构。"><meta property="og:title" content="C++ 并发与内存模型 · 李杨的学习笔记"><meta property="og:description" content="并发正确性来自共享状态不变量，而不是来自“多加几把锁”。本篇先定义数据竞争和业务竞态，再展开互斥量、条件变量、原子内存序、线程生命周期、线程池关闭和常见并发架构。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-c747007a71ea.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-c747007a71ea.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 01-C++与Linux基础</p><h1>C++ 并发与内存模型</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/01-C%2B%2B%E4%B8%8ELinux%E5%9F%BA%E7%A1%80/02-C%2B%2B%E5%B9%B6%E5%8F%91%E4%B8%8E%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#1">1. 先定义不变量</a></li><li><a href="#_3">数据竞争与竞态条件</a></li><li><a href="#_4">状态变化要成组发生</a></li><li><a href="#2">2. 互斥量和条件变量</a></li><li><a href="#_5">条件变量错误路径</a></li><li><a href="#3">3. 原子与内存顺序</a></li><li><a href="#memory-order">memory order 的最小推导</a></li><li><a href="#4">4. 线程生命周期与停止</a></li><li><a href="#5">5. 线程池的工程边界</a></li><li><a href="#shutdown">shutdown 语义</a></li><li><a href="#6">6. 常见并发架构</a></li><li><a href="#_6">工程实践/示例</a></li><li><a href="#_7">故障排查/观测</a></li><li><a href="#_8">死锁、活锁和饥饿</a></li><li><a href="#_9">数据竞争验证</a></li><li><a href="#_10">面试与工程复盘</a></li><li><a href="#_11">如何解释一把锁</a></li><li><a href="#_12">如何解释一个原子</a></li><li><a href="#_13">最小验收清单</a></li><li><a href="#_14">常见误区</a></li><li><a href="#_15">自测题</a></li><li><a href="#_16">实践任务</a></li><li><a href="#_17">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>区分并发安全、线程安全、无数据竞争和业务原子性。</li>
+<li>正确使用互斥量、条件变量、原子变量和停止机制。</li>
+<li>能为线程池、队列和异步任务定义清晰的关闭语义。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<p>并发正确性来自共享状态不变量，而不是来自“多加几把锁”。本篇先定义数据竞争和业务竞态，再展开互斥量、条件变量、原子内存序、线程生命周期、线程池关闭和常见并发架构。</p>
+<span class="heading-anchor" id="1. 先定义不变量"></span><h2 id="1">1. 先定义不变量</h2>
+<p>并发设计不是“哪里冲突就加锁”。先写出共享状态的不变量，例如：</p>
+<blockquote>
+<p>队列元素数始终在 <code>[0, capacity]</code>；关闭后不再接受新任务；已接受任务要么执行完，要么以取消结果结束。</p>
+</blockquote>
+<p>然后决定由哪把锁保护哪些字段、条件变量等待哪个谓词、状态在哪些操作中必须一起改变。</p>
+<span class="heading-anchor" id="数据竞争与竞态条件"></span><h3 id="_3">数据竞争与竞态条件</h3>
+<ul>
+<li><strong>数据竞争</strong>：多个线程并发访问同一内存位置，至少一个写，且缺少规定的同步；C++ 中通常导致未定义行为。</li>
+<li><strong>竞态条件</strong>：结果取决于时序，可能有同步但业务仍错误。例如“先查询余额再扣款”分两步加锁，整体仍非原子。</li>
+</ul>
+<span class="heading-anchor" id="状态变化要成组发生"></span><h3 id="_4">状态变化要成组发生</h3>
+<p>并发队列里 <code>closed_</code>、<code>queue_</code> 和等待者通知是同一组状态。<code>push()</code> 不能只检查队列未满，还要检查关闭状态；<code>close()</code> 不能只改标志，还要唤醒所有可能卡在 <code>not_empty_</code> 或 <code>not_full_</code> 上的线程。</p>
+<pre><code class="language-text">producer: lock -&gt; check !closed &amp;&amp; !full -&gt; push -&gt; unlock -&gt; notify not_empty
+consumer: lock -&gt; wait closed || !empty -&gt; pop/drain -&gt; unlock -&gt; notify not_full
+shutdown: lock -&gt; closed = true -&gt; unlock -&gt; notify_all both sides
+</code></pre>
+<p>如果这些状态分散在多把锁或多个原子里，必须证明观察顺序不会让线程永久睡眠、关闭后继续提交，或任务既被取消又被执行。</p>
+<span class="heading-anchor" id="2. 互斥量和条件变量"></span><h2 id="2">2. 互斥量和条件变量</h2>
+<p>条件变量总要配合谓词循环，以处理虚假唤醒和状态已变化：</p>
+<pre><code class="language-cpp">std::unique_lock lock(mu_);
+not_empty_.wait(lock, [&amp;] { return closed_ || !queue_.empty(); });
+if (queue_.empty()) return std::nullopt;  // closed and drained
+auto item = std::move(queue_.front());
+queue_.pop();
+lock.unlock();
+not_full_.notify_one();
+return item;
+</code></pre>
+<p>关键规则：</p>
+<ul>
+<li>等待的是状态谓词，不是某次通知。</li>
+<li>不要持锁执行未知回调、网络 I/O 或长时间计算。</li>
+<li>多字段共同构成不变量时，通常由同一同步策略保护。</li>
+<li>建立固定锁顺序，或使用 <code>std::scoped_lock</code> 一次获取多把锁，避免死锁。</li>
+</ul>
+<span class="heading-anchor" id="条件变量错误路径"></span><h3 id="_5">条件变量错误路径</h3>
+<p><code>wait</code> 返回不代表一定收到了想要的业务事件；可能是虚假唤醒，也可能是其他线程先消费了状态。因此等待代码必须用谓词重新读取共享状态。通知通常放在释放锁之后，减少被唤醒线程马上阻塞在同一把锁上的概率；但状态修改本身必须在锁内完成。</p>
+<p>关闭队列时用 <code>notify_all()</code> 而不是只通知一个线程，因为生产者和消费者都可能在不同条件上等待。若只唤醒一个消费者，其他生产者可能永远卡在满队列等待中。</p>
+<span class="heading-anchor" id="3. 原子与内存顺序"></span><h2 id="3">3. 原子与内存顺序</h2>
+<p>原子变量适合简单计数、标志或经过证明的数据结构。它解决单个原子对象的竞争，不自动让多个操作组成业务事务。</p>
+<ul>
+<li><code>memory_order_seq_cst</code> 提供最直观的全序语义，先保证正确再考虑放宽。</li>
+<li>release/acquire 常用于“发布数据—观察标志”：写方先写数据再 release 存储标志，读方 acquire 读到标志后可见此前写入。</li>
+<li>relaxed 只保证该原子操作不可分割，通常用于不承担同步职责的统计计数。</li>
+</ul>
+<p>无锁代码还需面对 ABA、内存回收和硬件内存模型。除非性能证据证明锁是瓶颈，并且团队能验证算法，否则优先使用锁和清晰分区。</p>
+<span class="heading-anchor" id="memory order 的最小推导"></span><h3 id="memory-order">memory order 的最小推导</h3>
+<p>release/acquire 的典型意图是发布一段普通内存状态：</p>
+<pre><code class="language-cpp">Payload payload;
+std::atomic&lt;bool&gt; ready{false};
+
+void writer() {
+    payload.value = 42;
+    ready.store(true, std::memory_order_release);
+}
+
+void reader() {
+    if (ready.load(std::memory_order_acquire)) {
+        use(payload.value);
+    }
+}
+</code></pre>
+<p>如果读线程 acquire 读到了 <code>true</code>，它能看到写线程在 release 之前对 <code>payload</code> 的写入。这个例子只适合单写、对象生命周期已被外部保证的教学场景；如果 <code>payload</code> 可能被多个线程修改，或者 <code>ready</code> 从 true 再变 false，还需要额外协议。<code>relaxed</code> 计数适合“最后打印统计值”这类不承担发布数据职责的场景，不适合用作任务队列的可见性开关。</p>
+<span class="heading-anchor" id="4. 线程生命周期与停止"></span><h2 id="4">4. 线程生命周期与停止</h2>
+<p>线程对象析构时仍 joinable 会导致进程终止。后台线程应有明确协议：</p>
+<ol>
+<li>发布停止请求；</li>
+<li>唤醒等待者；</li>
+<li>停止接受新任务；</li>
+<li>排空或取消已接受任务；</li>
+<li><code>join</code> 所有线程；</li>
+<li>再销毁队列、连接和日志等依赖。</li>
+</ol>
+<p>C++20 的 <code>std::jthread</code> 与 <code>stop_token</code> 能表达协作式停止，但阻塞系统调用或不支持取消的第三方调用仍需超时、关闭 fd 等额外手段。</p>
+<span class="heading-anchor" id="5. 线程池的工程边界"></span><h2 id="5">5. 线程池的工程边界</h2>
+<p>线程池至少要定义：</p>
+<ul>
+<li>队列是否有界，满时阻塞、拒绝、降级还是调用方执行；</li>
+<li>任务是否允许抛异常，结果如何回传；</li>
+<li>不同优先级是否会饥饿；</li>
+<li>关闭时排空还是取消，最大等待时间是多少；</li>
+<li>任务内部阻塞下游时，是否耗尽全部工作线程。</li>
+</ul>
+<p>CPU 密集任务通常按可用核数附近配置；阻塞 I/O 任务需要结合等待比例和下游容量，但增加线程不能扩大数据库或外部服务的真实容量。</p>
+<span class="heading-anchor" id="shutdown 语义"></span><h3 id="shutdown">shutdown 语义</h3>
+<p>线程池关闭必须先写成产品语义，再写代码。常见两种模式：</p>
+<ul>
+<li>drain：停止接收新任务，已入队任务继续执行，适合日志 flush、已承诺处理的请求；</li>
+<li>cancel：停止接收新任务，未开始任务返回取消，适合后台预取、可丢弃计算。</li>
+</ul>
+<p>任务函数抛异常时，工作线程不能直接退出导致池容量下降；应捕获异常并写入 <code>future</code>、回调错误或统一日志。析构线程池时如果仍有任务持有外部对象引用，必须保证外部对象晚于线程池销毁，或先取消任务并等待工作线程退出。</p>
+<span class="heading-anchor" id="6. 常见并发架构"></span><h2 id="6">6. 常见并发架构</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>架构</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每连接一线程</td>
+<td>直观</td>
+<td>大量线程、栈内存和调度开销</td>
+</tr>
+<tr>
+<td>I/O 线程 + 工作池</td>
+<td>网络与业务分离</td>
+<td>跨线程队列、响应顺序和背压</td>
+</tr>
+<tr>
+<td>one loop per thread</td>
+<td>连接状态局部化</td>
+<td>连接分配、跨 loop 协调</td>
+</tr>
+<tr>
+<td>actor/消息传递</td>
+<td>所有权清晰</td>
+<td>邮箱积压、消息语义和调试复杂</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="工程实践/示例"></span><h2 id="_6">工程实践/示例</h2>
+<p>本篇示例重点放在有界队列、release/acquire 发布、线程池 shutdown 和诊断命令。真正落地时建议先把队列和线程池写成独立库，用单元测试覆盖关闭、满队列、虚假唤醒和异常任务，再接入网络服务，避免在连接回调里同时调试协议和并发问题。</p>
+<span class="heading-anchor" id="故障排查/观测"></span><h2 id="_7">故障排查/观测</h2>
+<span class="heading-anchor" id="死锁、活锁和饥饿"></span><h3 id="_8">死锁、活锁和饥饿</h3>
+<p>死锁通常表现为线程都在等待锁或条件变量；活锁表现为 CPU 活跃但业务不前进；饥饿表现为部分任务长期得不到执行。定位时记录锁保护的字段、等待谓词、通知位置和队列长度变化，比只看某个线程栈更有效。</p>
+<p>常用命令：</p>
+<pre><code class="language-bash">top -H -p &lt;pid&gt;
+pstack &lt;pid&gt;              # 部分发行版提供
+gdb -p &lt;pid&gt;              # thread apply all bt
+perf sched record ./server
+</code></pre>
+<p>如果不能在线附加调试器，至少在日志中打出队列深度、提交成功/拒绝次数、工作线程 busy/idle 数、关闭状态和最长任务耗时。</p>
+<span class="heading-anchor" id="数据竞争验证"></span><h3 id="_9">数据竞争验证</h3>
+<p>ThreadSanitizer 能发现很多未同步读写，但不能证明业务原子性正确。建议把纯状态机拆出来做确定性单元测试，再用压力测试覆盖多生产者、多消费者、关闭同时提交、任务抛异常、队列满和超时等待。</p>
+<span class="heading-anchor" id="面试与工程复盘"></span><h2 id="_10">面试与工程复盘</h2>
+<span class="heading-anchor" id="如何解释一把锁"></span><h3 id="_11">如何解释一把锁</h3>
+<p>回答“为什么这里加锁”时，应说明这把锁保护哪些字段、维护什么不变量、在哪些函数里获取、是否允许回调持锁执行、和其他锁的顺序是什么。只说“防止并发问题”没有工程信息。</p>
+<span class="heading-anchor" id="如何解释一个原子"></span><h3 id="_12">如何解释一个原子</h3>
+<p>说明原子变量时要讲它承担的是计数、标志还是同步发布。如果使用非 <code>seq_cst</code> 内存序，要能画出写线程和读线程的 happens-before 关系；如果画不出，先用更保守的同步方式。</p>
+<span class="heading-anchor" id="最小验收清单"></span><h3 id="_13">最小验收清单</h3>
+<ul>
+<li>每个共享字段能说出保护者。</li>
+<li>条件变量等待都有谓词。</li>
+<li>线程池关闭后不能继续提交。</li>
+<li>压测覆盖关闭、队列满和任务异常。</li>
+</ul>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_14">常见误区</h2>
+<ul>
+<li><code>volatile</code> 能做线程同步：C++ <code>volatile</code> 主要不是并发同步工具。</li>
+<li>原子计数器让整个对象线程安全：复合不变量仍可能破坏。</li>
+<li>队列无限大更不容易丢任务：它会把过载变成延迟和内存崩溃。</li>
+<li>线程越多吞吐越高：可能增加上下文切换、缓存失效和下游竞争。</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_15">自测题</h2>
+<ol>
+<li>为什么条件变量必须检查谓词？</li>
+<li>数据竞争与竞态条件有何区别？</li>
+<li>release/acquire 建立了什么可见性关系？</li>
+<li>线程池队列满时有哪些策略，各有什么代价？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_16">实践任务</h2>
+<ol>
+<li>实现有界阻塞队列，测试多生产者/消费者、关闭和排空。</li>
+<li>实现固定线程池，禁止关闭后提交，并让任务异常可通过 future 获取。</li>
+<li>用 ThreadSanitizer 定位一个故意制造的竞争，再用锁或所有权分区修复。</li>
+</ol>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_17">延伸阅读</h2>
+<ul>
+<li><a href="https://en.cppreference.com/w/cpp/thread">cppreference：并发支持库</a></li>
+<li><a href="https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-concurrency">C++ Core Guidelines：Concurrency</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05-06 迁移、重建索引与常见错误 · 李杨的学习笔记</title><meta name="description" content="嵌入向量只在兼容空间中有可比较含义。若旧文档向量由模型 E1 生成，新查询向量改用
+模型 E2 ，两组数值即使维度相同，也通常不能直接比较。更危险的情况是系统把新文档
+向量逐条写入旧索引：查询结果会混合两个空间，却没有明显报错。"><meta property="og:title" content="05-06 迁移、重建索引与常见错误 · 李杨的学习笔记"><meta property="og:description" content="嵌入向量只在兼容空间中有可比较含义。若旧文档向量由模型 E1 生成，新查询向量改用
+模型 E2 ，两组数值即使维度相同，也通常不能直接比较。更危险的情况是系统把新文档
+向量逐条写入旧索引：查询结果会混合两个空间，却没有明显报错。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-13d215c1b1dc.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-13d215c1b1dc.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-06 迁移、重建索引与常见错误</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/06-migration-reindexing-and-common-errors.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">为什么不能原地混换模型</a></li><li><a href="#_2">哪些变化可能触发重建</a></li><li><a href="#_3">通常需要完整重建或独立验证的新空间</a></li><li><a href="#_4">可能需要重建受影响对象</a></li><li><a href="#_5">蓝绿索引迁移直觉</a></li><li><a href="#_6">迁移完成条件</a></li><li><a href="#e1-e2">一个具体例子：从 E1 迁移到 E2</a></li><li><a href="#_7">常见错误与定位</a></li><li><a href="#1">1. 维度不匹配</a></li><li><a href="#2">2. 同维度但版本混用</a></li><li><a href="#3">3. 归一化不一致</a></li><li><a href="#4">4. 空文本或静默截断</a></li><li><a href="#5">5. 返回顺序写错</a></li><li><a href="#6">6. 缓存错误命中</a></li><li><a href="#7">7. 删除或更新未传播</a></li><li><a href="#8">8. 权限元数据丢失</a></li><li><a href="#9">9. 沿用旧阈值</a></li><li><a href="#10">10. 只看最终回答</a></li><li><a href="#_8">回滚不是“把配置改回去”</a></li><li><a href="#_9">安全与运营边界</a></li><li><a href="#_10">迁移清单练习</a></li><li><a href="#_11">自测</a></li><li><a href="#_12">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>05-06</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>55 分钟阅读，加 30 分钟迁移清单练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>已读 05-01 至 05-05；知道索引与查询阶段、表示版本、批处理、缓存和相似度</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>正文不联网；真实重建可能消耗计算、存储、网络和服务费用</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用本章的蓝绿索引例子完成迁移计划</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>判断哪些模型、预处理和索引变化需要重建向量；</li>
+<li>设计新旧版本并存、验证、切换与回滚的迁移流程；</li>
+<li>沿维度、版本、缓存、删除和权限定位常见错误；</li>
+<li>为一次迁移定义完成条件，而不是把“批任务结束”当作成功。</li>
+</ul>
+<span class="heading-anchor" id="为什么不能原地混换模型"></span><h2 id="_1">为什么不能原地混换模型</h2>
+<p>嵌入向量只在兼容空间中有可比较含义。若旧文档向量由模型 <code>E1</code> 生成，新查询向量改用
+模型 <code>E2</code>，两组数值即使维度相同，也通常不能直接比较。更危险的情况是系统把新文档
+向量逐条写入旧索引：查询结果会混合两个空间，却没有明显报错。</p>
+<p>因此，更换模型不只是修改一行配置，而是数据迁移。迁移需要回答：哪些对象受影响、怎样
+生成新版本、怎样验证、何时切换、失败后如何回滚，以及旧版本何时才能删除。</p>
+<span class="heading-anchor" id="哪些变化可能触发重建"></span><h2 id="_2">哪些变化可能触发重建</h2>
+<span class="heading-anchor" id="通常需要完整重建或独立验证的新空间"></span><h3 id="_3">通常需要完整重建或独立验证的新空间</h3>
+<ul>
+<li>更换嵌入模型或不兼容模型版本；</li>
+<li>改变查询/文档输入模式或必要前缀；</li>
+<li>改变输出维度、降维方法或关键后处理；</li>
+<li>改变归一化约定或相似度度量，且现有索引不能兼容迁移；</li>
+<li>改变图片裁剪、OCR 或多模态输入方式，使对象表示含义变化。</li>
+</ul>
+<span class="heading-anchor" id="可能需要重建受影响对象"></span><h3 id="_4">可能需要重建受影响对象</h3>
+<ul>
+<li>文本清理、编码规范化或截断规则变化；</li>
+<li>切分边界、父子关系或去重规则变化；</li>
+<li>原始文档新增、修改、删除或权限范围变化；</li>
+<li>修复了之前产生错误向量的批次。</li>
+</ul>
+<p>是否全量重建取决于能否准确识别受影响对象。若旧记录没有保存内容版本、表示版本和来源
+关系，团队可能只能选择更昂贵的全量重建。这正是前几章要求保留可追溯元数据的原因。</p>
+<span class="heading-anchor" id="蓝绿索引迁移直觉"></span><h2 id="_5">蓝绿索引迁移直觉</h2>
+<p>蓝绿迁移让旧索引“蓝”继续服务，同时在隔离位置构建新索引“绿”。完成验证后，查询路由
+一次性或分阶段切到绿索引；若发现问题，可以切回蓝索引。</p>
+<p>一个完整流程可以是：</p>
+<ol>
+<li><strong>冻结契约：</strong> 记录旧、新表示版本，语料快照和预期度量。</li>
+<li><strong>建立新目标：</strong> 创建隔离索引或命名空间，阻止新旧向量混写。</li>
+<li><strong>生成新向量：</strong> 使用可恢复批处理，记录每个对象状态和失败原因。</li>
+<li><strong>核对完整性：</strong> 比较预期对象数、成功数、删除数、维度和版本分布。</li>
+<li><strong>离线评估：</strong> 在固定查询集上比较正确候选、困难案例和无答案行为。</li>
+<li><strong>影子或小流量观察：</strong> 在不影响或有限影响用户的条件下比较新旧结果；具体方式受隐私和系统能力限制。</li>
+<li><strong>切换路由：</strong> 明确查询表示和目标索引一起切换，避免一侧先变。</li>
+<li><strong>观察与回滚窗口：</strong> 监控检索质量、失败、延迟和资源，保留可用旧版本。</li>
+<li><strong>退休旧版本：</strong> 达到完成条件后，按保留与删除策略清理旧索引和缓存。</li>
+</ol>
+<p>这里的“蓝”“绿”只是帮助区分版本，不要求使用某种产品功能。小型系统也可以用两个独立
+目录或两张表实现同样责任边界。</p>
+<span class="heading-anchor" id="迁移完成条件"></span><h2 id="_6">迁移完成条件</h2>
+<p>“新向量生成进程退出码为零”不足以证明迁移成功。完成条件可以包括：</p>
+<ul>
+<li>所有预期对象都有明确成功、排除或已批准失败状态；</li>
+<li>新索引中不存在旧表示版本，旧索引未被新版本污染；</li>
+<li>随机抽样能从向量记录回到正确原文、版本和权限；</li>
+<li>代表性查询评估达到预先约定的接受条件；</li>
+<li>无答案、旧版本和跨权限测试没有出现不可接受回归；</li>
+<li>查询端生成的向量与目标索引使用同一表示契约；</li>
+<li>切换和回滚步骤经过演练或至少完成可执行检查；</li>
+<li>监控能够区分新旧版本并观察异常。</li>
+</ul>
+<p>接受条件应在看到结果前确定，避免为了让迁移“通过”而临时降低标准。</p>
+<span class="heading-anchor" id="一个具体例子：从 E1 迁移到 E2"></span><h2 id="e1-e2">一个具体例子：从 E1 迁移到 E2</h2>
+<p>某内部制度库使用 <code>E1</code>。团队希望采用 <code>E2</code> 改善中英混合查询。旧记录有内容哈希、来源
+版本、权限引用和 <code>embedding_version=E1</code>。</p>
+<p>团队创建 <code>policy-green-E2</code>，从同一语料快照生成新向量。评估发现普通问题改善，但带年份
+的查询更容易召回旧制度。原因不是模型必然更差，而是新索引的时间过滤字段在导入时丢失。</p>
+<p>如果团队直接覆盖旧索引，可能只能继续调相似度阈值并掩盖问题。因为蓝索引仍在，团队可以
+保持线上查询不变，修复元数据导入，重新构建受影响记录，再复跑带年份和旧版本测试。</p>
+<p>这个例子强调：嵌入迁移不仅是向量生成，也包括文本、元数据、过滤、查询路由和回滚。</p>
+<span class="heading-anchor" id="常见错误与定位"></span><h2 id="_7">常见错误与定位</h2>
+<span class="heading-anchor" id="1. 维度不匹配"></span><h3 id="1">1. 维度不匹配</h3>
+<p><strong>现象：</strong> 写入或查询时报形状错误。</p>
+<p><strong>先查：</strong> 模型版本、输出维度、降维配置和索引字段定义。不要只把数组补零或截断来绕过
+错误，除非所选模型明确支持且已经验证这种变换。</p>
+<span class="heading-anchor" id="2. 同维度但版本混用"></span><h3 id="2">2. 同维度但版本混用</h3>
+<p><strong>现象：</strong> 系统不报错，结果却突然混乱或分数分布漂移。</p>
+<p><strong>先查：</strong> 索引内表示版本分布、缓存键和查询端配置。相同维度不证明空间兼容。</p>
+<span class="heading-anchor" id="3. 归一化不一致"></span><h3 id="3">3. 归一化不一致</h3>
+<p><strong>现象：</strong> 某些向量长度显著不同，切换检索端后排名变化。</p>
+<p><strong>先查：</strong> 文档与查询是否都按契约处理，存储层是否再次归一化，缓存保存的是原始还是
+处理后向量。</p>
+<span class="heading-anchor" id="4. 空文本或静默截断"></span><h3 id="4">4. 空文本或静默截断</h3>
+<p><strong>现象：</strong> 大量近似重复向量、无意义候选，或关键限定条件消失。</p>
+<p><strong>先查：</strong> 清理后长度、截断标记、失败策略和源文本。不要让空白块以“成功”状态进入索引。</p>
+<span class="heading-anchor" id="5. 返回顺序写错"></span><h3 id="5">5. 返回顺序写错</h3>
+<p><strong>现象：</strong> 向量能检索，却指向完全无关原文。</p>
+<p><strong>先查：</strong> 批内对象标识、服务返回映射、并发重排和写入事务。不能只依赖数组位置而没有
+对象身份校验。</p>
+<span class="heading-anchor" id="6. 缓存错误命中"></span><h3 id="6">6. 缓存错误命中</h3>
+<p><strong>现象：</strong> 配置已更新，部分对象仍显示旧分数或旧维度。</p>
+<p><strong>先查：</strong> 缓存键是否包含模型、输入模式、预处理和后处理版本，失败重试是否覆盖了新结果。</p>
+<span class="heading-anchor" id="7. 删除或更新未传播"></span><h3 id="7">7. 删除或更新未传播</h3>
+<p><strong>现象：</strong> 用户仍检索到已撤回文档或旧政策。</p>
+<p><strong>先查：</strong> 源版本、增量队列、索引删除、缓存、备份恢复和别名切换。新增成功不能证明删除成功。</p>
+<span class="heading-anchor" id="8. 权限元数据丢失"></span><h3 id="8">8. 权限元数据丢失</h3>
+<p><strong>现象：</strong> 语义候选正确，却来自其他租户或受限资料。</p>
+<p><strong>先查：</strong> 摄取、迁移、索引字段和查询过滤的权限链路。相似度阈值不能修复授权缺失。</p>
+<span class="heading-anchor" id="9. 沿用旧阈值"></span><h3 id="9">9. 沿用旧阈值</h3>
+<p><strong>现象：</strong> 新模型下无答案查询大量通过，或正确候选大量被拒绝。</p>
+<p><strong>先查：</strong> 新模型和新数据的分数分布。阈值是特定表示与评估集的决策，不是跨模型常量。</p>
+<span class="heading-anchor" id="10. 只看最终回答"></span><h3 id="10">10. 只看最终回答</h3>
+<p><strong>现象：</strong> 回答变差，却不知道是嵌入、过滤、上下文还是生成问题。</p>
+<p><strong>先查：</strong> 新旧查询向量版本、候选列表、分数、过滤原因和最终上下文。迁移评估必须保存
+中间结果。</p>
+<span class="heading-anchor" id="回滚不是“把配置改回去”"></span><h2 id="_8">回滚不是“把配置改回去”</h2>
+<p>可回滚需要旧查询模型、旧索引、旧路由配置和必要运行依赖仍然可用。如果外部服务已经
+停用旧版本，或旧索引在切换后立刻被删除，配置名称即使能改回也无法恢复。</p>
+<p>回滚还要考虑切换期间写入的新资料。可以在迁移窗口把增量同时投递到两个版本，或记录
+可重放变更日志。选择哪种方式取决于更新频率和系统复杂度，但必须在切换前决定。</p>
+<span class="heading-anchor" id="安全与运营边界"></span><h2 id="_9">安全与运营边界</h2>
+<ul>
+<li>迁移副本会扩大敏感数据暴露面，需要限制临时索引、快照和日志的访问与保留期。</li>
+<li>影子查询可能重复处理用户输入，必须纳入隐私说明和访问控制。</li>
+<li>新索引验证不能使用未授权的生产查询随意导出到个人环境。</li>
+<li>重建期间的资源上限应防止影响在线服务或产生失控费用。</li>
+<li>检索改善不能证明高风险业务判断已经安全；仍需领域审核和完整系统验证。</li>
+</ul>
+<span class="heading-anchor" id="迁移清单练习"></span><h2 id="_10">迁移清单练习</h2>
+<p>假设你需要同时更换文本嵌入模型和切分规则。写出：</p>
+<ol>
+<li>新旧表示版本和语料快照怎样命名；</li>
+<li>哪些缓存不能复用；</li>
+<li>如何确保查询向量与索引同时切换；</li>
+<li>至少五类评估查询，包括旧版本和无答案；</li>
+<li>完成条件、回滚触发条件和旧索引删除条件；</li>
+<li>迁移中新增、修改和删除文档怎样同步。</li>
+</ol>
+<p>如果任何一项只能回答“到时候看”，就说明迁移契约尚未完整。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_11">自测</h2>
+<ol>
+<li>为什么同维度的新旧模型仍不能混用？</li>
+<li>蓝绿索引怎样降低原地覆盖的风险？</li>
+<li>为什么批任务成功不等于迁移完成？</li>
+<li>新模型沿用旧相似度阈值有什么风险？</li>
+<li>可回滚需要保留哪些数据与依赖？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_12">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文，已覆盖通用迁移责任；未在具体向量库上执行迁移演练。</li>
+<li>代码与图表：双索引脚本、回放工具和迁移流程图为后续计划，尚未实现或验证。</li>
+<li>
+<p>摘要：<a href="n-4d1acfac82ed.html">05-06 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-742817d3b965.html">05-05 批处理、缓存与成本</a></p>
+</li>
+<li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a>｜下一部分：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

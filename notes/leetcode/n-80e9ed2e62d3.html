@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>数组三等分切分：等和与每段含正数 · 李杨的学习笔记</title><meta name="description" content="来源：本次会话提供的题目图片、C++ 代码片段与数组下标讨论。题目编号和原题名未在材料中给出。"><meta property="og:title" content="数组三等分切分：等和与每段含正数 · 李杨的学习笔记"><meta property="og:description" content="来源：本次会话提供的题目图片、C++ 代码片段与数组下标讨论。题目编号和原题名未在材料中给出。"><meta property="og:url" content="https://uestc-ly.github.io/notes/leetcode/n-80e9ed2e62d3.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/leetcode/n-80e9ed2e62d3.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">力扣刷题</a></nav><header class="article-header"><p class="eyebrow">前缀和</p><h1>数组三等分切分：等和与每段含正数</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E5%8A%9B%E6%89%A3%E5%88%B7%E9%A2%98%E7%AC%94%E8%AE%B0/%E5%89%8D%E7%BC%80%E5%92%8C/%E6%95%B0%E7%BB%84%E4%B8%89%E7%AD%89%E5%88%86%E5%88%87%E5%88%86%EF%BC%88%E7%AD%89%E5%92%8C%E4%B8%8E%E6%AD%A3%E6%95%B0%E7%BA%A6%E6%9D%9F%EF%BC%89.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">一、题意</a></li><li><a href="#_3">二、切分位置与前缀和</a></li><li><a href="#_4">三、如何处理“每段至少有一个正数”</a></li><li><a href="#1-1-i">1. 第一段 [1, i]</a></li><li><a href="#2-i-1-j">2. 第二段 [i + 1, j]</a></li><li><a href="#3-j-1-n">3. 第三段 [j + 1, n]</a></li><li><a href="#on2-on">四、从 O(n²) 优化到 O(n)</a></li><li><a href="#1">1. 预处理合法的第一刀</a></li><li><a href="#2">2. 固定第二刀，寻找第一刀数量</a></li><li><a href="#j-2">五、为什么 j &lt; 2 要跳过？</a></li><li><a href="#0">与 0 下标的对照</a></li><li><a href="#c">六、完整 C++ 代码</a></li><li><a href="#_5">七、代码中的常见错误</a></li><li><a href="#1-vector">1. 空 vector 不能直接用下标写入</a></li><li><a href="#2_1">2. 变量未初始化</a></li><li><a href="#3-int">3. 总和和答案不能使用 int</a></li><li><a href="#4-sum-3">4. 不要只用 sum / 3 判断可行性</a></li><li><a href="#_6">八、正确性与复杂度</a></li><li><a href="#_7">方法归纳</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>来源：本次会话提供的题目图片、C++ 代码片段与数组下标讨论。题目编号和原题名未在材料中给出。</p>
+<p>本笔记只整理本次新增会话中与该题相关的长期知识：前缀和建模、正数约束优化、C++ 实现细节，以及 0 下标与 1 下标的对应关系。</p>
+</blockquote>
+<span class="heading-anchor" id="一、题意"></span><h2 id="_2">一、题意</h2>
+<p>给定长度为 <code>n</code> 的整数数组，需要在数组中切两刀，分成三个<strong>连续且非空</strong>的子数组，满足：</p>
+<ol>
+<li>三个子数组的元素和相等；</li>
+<li>每个子数组中至少存在一个严格大于 <code>0</code> 的整数；</li>
+<li>统计不同切分位置的数量。</li>
+</ol>
+<p>约束：</p>
+<ul>
+<li><code>3 ≤ n ≤ 2 × 10^5</code>；</li>
+<li><code>-10^9 ≤ a[i] ≤ 10^9</code>。</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-text">[3, 3, 3]
+</code></pre>
+<p>只能切成：</p>
+<pre><code class="language-text">[3] | [3] | [3]
+</code></pre>
+<p>答案为 <code>1</code>。</p>
+<pre><code class="language-text">[1, 1, 4, 5, 1, 4]
+</code></pre>
+<p>总和为 <code>16</code>，不能被 <code>3</code> 整除，答案为 <code>0</code>。</p>
+<blockquote>
+<p>“子数组中至少有一个正数”不等于“子数组的和必须为正数”。例如 <code>[1, -1]</code> 的和为 <code>0</code>，但其中有正数，仍满足正数条件。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="二、切分位置与前缀和"></span><h2 id="_3">二、切分位置与前缀和</h2>
+<p>为了方便，本题实现采用 <strong>1 下标</strong>保存数组：</p>
+<pre><code class="language-text">nums[1], nums[2], ..., nums[n]
+</code></pre>
+<p>设第一刀切在 <code>nums[i]</code> 后面，第二刀切在 <code>nums[j]</code> 后面，则三个子数组为：</p>
+<pre><code class="language-text">[1 ... i]
+[i + 1 ... j]
+[j + 1 ... n]
+</code></pre>
+<p>为了保证三段都非空，必须满足：</p>
+<pre><code class="language-text">1 ≤ i &lt; j ≤ n - 1
+</code></pre>
+<p>定义前缀和：</p>
+<pre><code class="language-text">prefix[k] = nums[1] + nums[2] + ... + nums[k]
+</code></pre>
+<p>如果数组总和为 <code>total</code>，那么三段和分别为：</p>
+<pre><code class="language-text">第一段：prefix[i]
+第二段：prefix[j] - prefix[i]
+第三段：total - prefix[j]
+</code></pre>
+<p>设每段目标和为 <code>target</code>。三段和相等时：</p>
+<pre><code class="language-text">target = total / 3
+</code></pre>
+<p>因此两个切分位置必须满足：</p>
+<pre><code class="language-text">prefix[i] = target
+prefix[j] = 2 * target
+</code></pre>
+<p>如果：</p>
+<pre><code class="language-cpp">total % 3 != 0
+</code></pre>
+<p>则总和不能平均分成三份，答案直接为 <code>0</code>。</p>
+<hr/>
+<span class="heading-anchor" id="三、如何处理“每段至少有一个正数”"></span><h2 id="_4">三、如何处理“每段至少有一个正数”</h2>
+<p>定义：</p>
+<pre><code class="language-text">positiveCount[k]
+</code></pre>
+<p>表示前 <code>k</code> 个元素中正数的数量。</p>
+<p>切分位置为 <code>i</code>、<code>j</code> 时：</p>
+<span class="heading-anchor" id="1. 第一段 [1, i]"></span><h3 id="1-1-i">1. 第一段 <code>[1, i]</code></h3>
+<p>至少有一个正数的条件是：</p>
+<pre><code class="language-text">positiveCount[i] &gt; 0
+</code></pre>
+<span class="heading-anchor" id="2. 第二段 [i + 1, j]"></span><h3 id="2-i-1-j">2. 第二段 <code>[i + 1, j]</code></h3>
+<p>正数数量为：</p>
+<pre><code class="language-text">positiveCount[j] - positiveCount[i]
+</code></pre>
+<p>因此需要：</p>
+<pre><code class="language-text">positiveCount[j] - positiveCount[i] &gt; 0
+</code></pre>
+<span class="heading-anchor" id="3. 第三段 [j + 1, n]"></span><h3 id="3-j-1-n">3. 第三段 <code>[j + 1, n]</code></h3>
+<p>正数数量为：</p>
+<pre><code class="language-text">positiveCount[n] - positiveCount[j]
+</code></pre>
+<p>因此需要：</p>
+<pre><code class="language-text">positiveCount[n] - positiveCount[j] &gt; 0
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="四、从 O(n²) 优化到 O(n)"></span><h2 id="on2-on">四、从 <code>O(n²)</code> 优化到 <code>O(n)</code></h2>
+<p>如果枚举所有第一刀 <code>i</code> 和第二刀 <code>j</code>，时间复杂度是 <code>O(n²)</code>，无法处理 <code>n = 2 × 10^5</code>。</p>
+<span class="heading-anchor" id="1. 预处理合法的第一刀"></span><h3 id="1">1. 预处理合法的第一刀</h3>
+<p>定义：</p>
+<pre><code class="language-text">firstCount[k]
+</code></pre>
+<p>表示在位置 <code>1...k</code> 中，有多少个位置可以作为第一刀。</p>
+<p>位置 <code>i</code> 可以作为第一刀，需要满足：</p>
+<pre><code class="language-text">prefix[i] == target
+positiveCount[i] &gt; 0
+</code></pre>
+<p>所以：</p>
+<pre><code class="language-cpp">firstCount[i] = firstCount[i - 1];
+if (prefix[i] == target &amp;&amp; positiveCount[i] &gt; 0) {
+    firstCount[i]++;
+}
+</code></pre>
+<span class="heading-anchor" id="2. 固定第二刀，寻找第一刀数量"></span><h3 id="2">2. 固定第二刀，寻找第一刀数量</h3>
+<p>固定第二刀位置 <code>j</code>，第二段 <code>[i + 1, j]</code> 必须包含正数。</p>
+<p>维护：</p>
+<pre><code class="language-text">lastPositive
+</code></pre>
+<p>表示区间 <code>[1, j]</code> 中最后一个正数的位置。</p>
+<p>要让第二段包含这个最后的正数，需要：</p>
+<pre><code class="language-text">i &lt; lastPositive
+</code></pre>
+<p>也就是：</p>
+<pre><code class="language-text">i ≤ lastPositive - 1
+</code></pre>
+<p>因此，当前 <code>j</code> 对应的合法第一刀数量为：</p>
+<pre><code class="language-cpp">firstCount[lastPositive - 1]
+</code></pre>
+<p>当前第二刀 <code>j</code> 还必须满足：</p>
+<pre><code class="language-text">prefix[j] == 2 * target
+</code></pre>
+<p>以及第三段包含正数：</p>
+<pre><code class="language-text">positiveCount[n] - positiveCount[j] &gt; 0
+</code></pre>
+<p>满足这些条件后，把对应的第一刀数量加入答案。</p>
+<hr/>
+<span class="heading-anchor" id="五、为什么 j &lt; 2 要跳过？"></span><h2 id="j-2">五、为什么 <code>j &lt; 2</code> 要跳过？</h2>
+<p>当前代码使用 1 下标：</p>
+<pre><code class="language-text">nums[1], nums[2], ..., nums[n]
+</code></pre>
+<p>并且：</p>
+<pre><code class="language-cpp">j
+</code></pre>
+<p>表示第二刀切在 <code>nums[j]</code> 后面。</p>
+<p>当 <code>j = 1</code> 时，切分形式是：</p>
+<pre><code class="language-text">nums[1] | nums[2] ... nums[n]
+</code></pre>
+<p>如果还要放置第一刀，就必须有：</p>
+<pre><code class="language-text">1 ≤ i &lt; 1
+</code></pre>
+<p>这是不可能的。因此第二刀至少要在 <code>nums[2]</code> 后面，即 <code>j ≥ 2</code>。</p>
+<p>所以代码中可以写：</p>
+<pre><code class="language-cpp">if (j &lt; 2) {
+    continue;
+}
+</code></pre>
+<p>这里的 <code>nums[0]</code> 不是第一个真实元素，而是 1 下标实现中为前缀和保留的辅助位置：</p>
+<pre><code class="language-text">nums[0]：辅助位置，不属于题目数组
+nums[1]：第一个真实元素
+</code></pre>
+<span class="heading-anchor" id="与 0 下标的对照"></span><h3 id="0">与 0 下标的对照</h3>
+<p>如果改用 0 下标：</p>
+<pre><code class="language-text">nums[0], nums[1], ..., nums[n - 1]
+</code></pre>
+<p>那么：</p>
+<pre><code class="language-text">nums[0] | nums[1] | nums[2] ...
+</code></pre>
+<p>确实是合法的三段切分形式。此时第二刀的下标 <code>j</code> 可以从 <code>1</code> 开始，循环范围通常写成：</p>
+<pre><code class="language-cpp">for (int j = 1; j &lt;= n - 2; j++) {
+    // j 表示切在 nums[j] 后面
+}
+</code></pre>
+<p>因此要始终先确认：</p>
+<blockquote>
+<p>当前代码是 0 下标还是 1 下标。不能把 0 下标的 <code>nums[0]</code> 和 1 下标实现中的辅助位置混为一谈。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="六、完整 C++ 代码"></span><h2 id="c">六、完整 C++ 代码</h2>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;vector&gt;
+
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n;
+    cin &gt;&gt; n;
+
+    // 使用 1 下标，nums[0] 作为辅助位置，不存放真实数组元素。
+    vector&lt;long long&gt; nums(n + 1);
+
+    // prefix[i]：nums[1] 到 nums[i] 的元素和。
+    vector&lt;long long&gt; prefix(n + 1, 0);
+
+    // positiveCount[i]：前 i 个元素中正数的数量。
+    vector&lt;int&gt; positiveCount(n + 1, 0);
+
+    for (int i = 1; i &lt;= n; i++) {
+        cin &gt;&gt; nums[i];
+
+        prefix[i] = prefix[i - 1] + nums[i];
+
+        positiveCount[i] = positiveCount[i - 1];
+        if (nums[i] &gt; 0) {
+            positiveCount[i]++;
+        }
+    }
+
+    long long total = prefix[n];
+
+    // 总和不能被 3 整除，不可能分成三个和相等的子数组。
+    if (total % 3 != 0) {
+        cout &lt;&lt; 0 &lt;&lt; '\n';
+        return 0;
+    }
+
+    long long target = total / 3;
+
+    /*
+     * firstCount[k]：位置 1...k 中合法第一刀的数量。
+     * 合法第一刀 i 需要满足：
+     * 1. prefix[i] == target；
+     * 2. 第一段 [1, i] 中至少有一个正数。
+     */
+    vector&lt;long long&gt; firstCount(n + 1, 0);
+
+    for (int i = 1; i &lt;= n; i++) {
+        firstCount[i] = firstCount[i - 1];
+
+        if (prefix[i] == target &amp;&amp; positiveCount[i] &gt; 0) {
+            firstCount[i]++;
+        }
+    }
+
+    long long answer = 0;
+
+    // 当前第二刀左侧最后一个正数的位置。
+    int lastPositive = 0;
+
+    // 第二刀必须不晚于 n - 1，否则第三段为空。
+    for (int j = 1; j &lt;= n - 1; j++) {
+        if (nums[j] &gt; 0) {
+            lastPositive = j;
+        }
+
+        // 1 下标下，j = 1 时没有合法的第一刀 i &lt; j。
+        if (j &lt; 2) {
+            continue;
+        }
+
+        // prefix[j] 是前两段的总和，应等于 2 * target。
+        if (prefix[j] != 2 * target) {
+            continue;
+        }
+
+        // 第三段 [j + 1, n] 至少要有一个正数。
+        if (positiveCount[n] - positiveCount[j] == 0) {
+            continue;
+        }
+
+        /*
+         * 第二段 [i + 1, j] 要包含正数，必须有 i &lt; lastPositive。
+         * firstCount[lastPositive - 1] 统计了所有符合条件的第一刀 i。
+         */
+        if (lastPositive &gt; 0) {
+            answer += firstCount[lastPositive - 1];
+        }
+    }
+
+    cout &lt;&lt; answer &lt;&lt; '\n';
+    return 0;
+}
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="七、代码中的常见错误"></span><h2 id="_5">七、代码中的常见错误</h2>
+<span class="heading-anchor" id="1. 空 vector 不能直接用下标写入"></span><h3 id="1-vector">1. 空 <code>vector</code> 不能直接用下标写入</h3>
+<p>错误：</p>
+<pre><code class="language-cpp">vector&lt;int&gt; nums;
+for (int i = 0; i &lt; n; i++) {
+    cin &gt;&gt; nums[i];
+}
+</code></pre>
+<p><code>nums</code> 初始长度为 <code>0</code>，访问 <code>nums[i]</code> 会越界。</p>
+<p>可以提前分配空间：</p>
+<pre><code class="language-cpp">vector&lt;long long&gt; nums(n + 1);
+</code></pre>
+<p>或者使用 <code>push_back</code>：</p>
+<pre><code class="language-cpp">vector&lt;long long&gt; nums;
+for (int i = 0; i &lt; n; i++) {
+    long long x;
+    cin &gt;&gt; x;
+    nums.push_back(x);
+}
+</code></pre>
+<span class="heading-anchor" id="2. 变量未初始化"></span><h3 id="2_1">2. 变量未初始化</h3>
+<p>错误：</p>
+<pre><code class="language-cpp">int sum;
+sum += nums[i];
+</code></pre>
+<p>应当初始化：</p>
+<pre><code class="language-cpp">long long sum = 0;
+</code></pre>
+<span class="heading-anchor" id="3. 总和和答案不能使用 int"></span><h3 id="3-int">3. 总和和答案不能使用 <code>int</code></h3>
+<p>总和的绝对值可能达到约 <code>2 × 10^14</code>，切分方案数也可能达到约 <code>O(n²)</code>，所以至少以下变量应使用 <code>long long</code>：</p>
+<pre><code class="language-cpp">sum
+prefix
+target
+answer
+</code></pre>
+<span class="heading-anchor" id="4. 不要只用 sum / 3 判断可行性"></span><h3 id="4-sum-3">4. 不要只用 <code>sum / 3</code> 判断可行性</h3>
+<p>必须先检查：</p>
+<pre><code class="language-cpp">if (sum % 3 != 0)
+</code></pre>
+<p>否则不能平均分成三个整数和相等的部分。</p>
+<hr/>
+<span class="heading-anchor" id="八、正确性与复杂度"></span><h2 id="_6">八、正确性与复杂度</h2>
+<p>对于每个第二刀位置 <code>j</code>：</p>
+<ol>
+<li><code>prefix[j] == 2 * target</code> 保证第一段和第二段合计为两个目标和；</li>
+<li><code>firstCount</code> 中的第一刀满足 <code>prefix[i] == target</code>，因此第一段和为 <code>target</code>，第二段和也为 <code>target</code>；</li>
+<li>第一刀自身满足第一段含正数；</li>
+<li><code>i &lt; lastPositive</code> 保证最后一个正数位于第二段中；</li>
+<li><code>positiveCount[n] - positiveCount[j] &gt; 0</code> 保证第三段含正数；</li>
+<li><code>j ≤ n - 1</code> 保证第三段非空。</li>
+</ol>
+<p>因此统计到的每一组切分都合法，所有合法切分也都会被统计。</p>
+<p>复杂度：</p>
+<ul>
+<li>时间复杂度：<code>O(n)</code>；</li>
+<li>空间复杂度：<code>O(n)</code>。</li>
+</ul>
+<span class="heading-anchor" id="方法归纳"></span><h3 id="_7">方法归纳</h3>
+<blockquote>
+<p><strong>三等分先用前缀和确定切刀位置：第一刀找 <code>target</code>，第二刀找 <code>2 × target</code>；正数条件用正数前缀计数和“当前位置左侧最后一个正数”处理。</strong></p>
+</blockquote>
+<p>相关笔记：</p>
+<ul>
+<li><a href="n-38f7f0b3f915.html">前缀和与哈希计数（560）</a></li>
+<li><a href="n-970b524d8853.html">贪心算法专题</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回力扣刷题 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

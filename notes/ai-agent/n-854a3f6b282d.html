@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>08-03 分数融合与 RRF · 李杨的学习笔记</title><meta name="description" content="稀疏检索擅长捕捉明确词语、编号和专有名词，稠密检索可能更容易找到不同表达下的语义
+近邻。系统也可能同时查询多个字段、多个索引或多个知识源。每一路都会产生候选列表，
+下一步需要决定怎样合并重复候选并形成统一顺序。"><meta property="og:title" content="08-03 分数融合与 RRF · 李杨的学习笔记"><meta property="og:description" content="稀疏检索擅长捕捉明确词语、编号和专有名词，稠密检索可能更容易找到不同表达下的语义
+近邻。系统也可能同时查询多个字段、多个索引或多个知识源。每一路都会产生候选列表，
+下一步需要决定怎样合并重复候选并形成统一顺序。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-854a3f6b282d.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-854a3f6b282d.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 08-reranking</p><h1>08-03 分数融合与 RRF</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/08-reranking/03-score-fusion-and-rrf.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">多路候选为什么需要合并</a></li><li><a href="#_2">先统一候选身份</a></li><li><a href="#_3">分数归一化：先把尺度问题说清楚</a></li><li><a href="#_4">加权分数融合</a></li><li><a href="#_5">名次融合：不直接相信原始分数尺度</a></li><li><a href="#rrf">手算一个 RRF 例子</a></li><li><a href="#rrf_1">RRF 参数和列表深度</a></li><li><a href="#rrf_2">分数融合、RRF 与重排怎样组合</a></li><li><a href="#_6">常见错误</a></li><li><a href="#_7">手算融合练习</a></li><li><a href="#_8">自测</a></li><li><a href="#_9">本章状态与导航</a></li></ul></details><article class="note-content">
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>chapter-id</td>
+<td><code>08-03</code></td>
+</tr>
+<tr>
+<td>难度</td>
+<td>中级</td>
+</tr>
+<tr>
+<td>预计用时</td>
+<td>45 分钟阅读，加 25 分钟手算融合练习</td>
+</tr>
+<tr>
+<td>必须已会</td>
+<td>理解稀疏、稠密与混合检索；知道重排器会为已有候选产生新顺序或分数</td>
+</tr>
+<tr>
+<td>联网与费用</td>
+<td>不联网、无 API Key、无付费服务</td>
+</tr>
+<tr>
+<td>离线替代</td>
+<td>使用本章的小表格手算加权融合和 RRF</td>
+</tr>
+</tbody>
+</table></div>
+<p>完成本章后，你应该能够：</p>
+<ul>
+<li>说明为什么不同检索器的原始分数通常不能直接相加；</li>
+<li>区分分数归一化、加权分数融合与名次融合；</li>
+<li>用纸笔计算 Reciprocal Rank Fusion（RRF）；</li>
+<li>识别去重、缺失候选、并列名次、权限和版本对融合的影响。</li>
+</ul>
+<span class="heading-anchor" id="多路候选为什么需要合并"></span><h2 id="_1">多路候选为什么需要合并</h2>
+<p>稀疏检索擅长捕捉明确词语、编号和专有名词，稠密检索可能更容易找到不同表达下的语义
+近邻。系统也可能同时查询多个字段、多个索引或多个知识源。每一路都会产生候选列表，
+下一步需要决定怎样合并重复候选并形成统一顺序。</p>
+<p>最直观的做法是把分数相加，但这往往没有明确含义。某一路分数可能是无上界的匹配值，
+另一路可能落在一个较小区间；有的分数越大越好，有的距离越小越好；同一种方法换了查询，
+分数分布也可能改变。数值看起来都是小数，并不代表共享同一把尺子。</p>
+<span class="heading-anchor" id="先统一候选身份"></span><h2 id="_2">先统一候选身份</h2>
+<p>融合之前必须知道不同列表中的项目是否指向同一个对象。稳定身份可以来自文本块标识、
+内容版本和来源位置的组合。只用标题或正文字符串去重容易出错：相同标题可能来自不同版本，
+重叠文本也可能内容近似却承担不同引用位置。</p>
+<p>融合表至少应保存：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>候选稳定标识</td>
+<td>跨列表合并同一对象</td>
+</tr>
+<tr>
+<td>来源与内容版本</td>
+<td>区分现行、历史和不同知识源</td>
+</tr>
+<tr>
+<td>各路原始分数与名次</td>
+<td>保留诊断证据</td>
+</tr>
+<tr>
+<td>过滤状态与原因</td>
+<td>防止被拒候选重新进入</td>
+</tr>
+<tr>
+<td>融合配置版本</td>
+<td>复现权重、归一化和 RRF 参数</td>
+</tr>
+</tbody>
+</table></div>
+<p>权限、租户和撤回过滤应在候选暴露或返回前得到保证。融合算法不能因为某个受限候选在两路
+都排名靠前，就覆盖授权决定。</p>
+<span class="heading-anchor" id="分数归一化：先把尺度问题说清楚"></span><h2 id="_3">分数归一化：先把尺度问题说清楚</h2>
+<p>归一化尝试把不同分数变换到可组合尺度。常见概念包括：</p>
+<ul>
+<li><strong>最小—最大缩放：</strong> 在当前列表内把最小值映射到 0、最大值映射到 1；</li>
+<li><strong>标准化：</strong> 根据某个分布的均值和离散程度变换分数；</li>
+<li><strong>基于校准集的映射：</strong> 用历史标注数据把原始分数映射为较可比较的量；</li>
+<li><strong>分段或阈值映射：</strong> 按任务规则把分数划分为若干等级。</li>
+</ul>
+<p>每种方式都有边界。列表内最小—最大缩放会受当前候选极值影响，只有一个候选或所有分数
+相同时还需要特殊处理。标准化依赖所用分布，域变化后可能漂移。校准映射依赖数据代表性，
+不能把变换后的数字自动称为正确概率。</p>
+<p>归一化配置应和模型、索引、查询类型一起版本化。换模型后沿用旧分布或旧阈值，可能在
+没有报错的情况下改变融合结果。</p>
+<span class="heading-anchor" id="加权分数融合"></span><h2 id="_4">加权分数融合</h2>
+<p>若两路分数已经按明确方法变换到可比较尺度，可以定义加权和：</p>
+<p><code>融合分数 = w_sparse × 稀疏分数 + w_dense × 稠密分数</code></p>
+<p>权重表达任务偏好，不是自然定律。若产品编号的精确命中非常重要，稀疏路可能需要更大
+影响；若用户经常使用同义改写，稠密路可能更有帮助。权重应在冻结的评估集上比较，并保存
+逐查询变化，而不是凭一个成功案例决定。</p>
+<p>缺失候选的处理也必须写清。某候选只出现在一路时，可以给另一路缺失值、最低值或单独
+规则，但不同选择会改变排名。不能让实现语言默认的空值行为决定业务结果。</p>
+<span class="heading-anchor" id="名次融合：不直接相信原始分数尺度"></span><h2 id="_5">名次融合：不直接相信原始分数尺度</h2>
+<p>名次融合只使用候选在各列表中的位置。它避开了原始分数单位不一致的问题，但也丢失了
+列表内部的分数间隔。例如，第一名只比第二名高一点，和第一名远高于第二名，在纯名次
+方法中可能被同样处理。</p>
+<p>Reciprocal Rank Fusion（倒数名次融合，RRF）是一种常见方法。对于候选 <code>d</code>，概念公式是：</p>
+<p><code>RRF(d) = Σ 1 / (k + rank_i(d))</code></p>
+<p>其中 <code>rank_i(d)</code> 是候选在第 <code>i</code> 个列表中的名次，<code>k</code> 是控制高名次之间差距的正参数。
+候选若未出现在某个列表中，该列表通常不贡献这一项。具体名次从 0 还是 1 开始、并列怎样
+处理、列表截断多长，都必须在实现契约中固定。</p>
+<span class="heading-anchor" id="手算一个 RRF 例子"></span><h2 id="rrf">手算一个 RRF 例子</h2>
+<p>两路检索给出以下名次：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>候选</th>
+<th>关键词路</th>
+<th>稠密路</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A：现行远程办公制度</td>
+<td>3</td>
+<td>1</td>
+</tr>
+<tr>
+<td>B：试用期考勤说明</td>
+<td>1</td>
+<td>未出现</td>
+</tr>
+<tr>
+<td>C：历史试点通知</td>
+<td>2</td>
+<td>3</td>
+</tr>
+<tr>
+<td>D：远程设备说明</td>
+<td>未出现</td>
+<td>2</td>
+</tr>
+</tbody>
+</table></div>
+<p>为了方便纸算，练习暂取 <code>k = 2</code>，名次从 1 开始。于是：</p>
+<ul>
+<li>A 的分数是 <code>1/(2+3) + 1/(2+1)</code>；</li>
+<li>B 的分数是 <code>1/(2+1)</code>；</li>
+<li>C 的分数是 <code>1/(2+2) + 1/(2+3)</code>；</li>
+<li>D 的分数是 <code>1/(2+2)</code>。</li>
+</ul>
+<p>这个例子只用于理解公式，不是推荐生产参数。你会看到，在两路都靠前的候选可以累积
+证据，但 RRF 仍不知道 C 是历史版本，也不知道 A 是否真正回答问题。融合后仍可能需要
+过滤、重排和版本判断。</p>
+<span class="heading-anchor" id="RRF 参数和列表深度"></span><h2 id="rrf_1">RRF 参数和列表深度</h2>
+<p><code>k</code> 较小时，最前面几个名次的差距影响更明显；<code>k</code> 较大时，相邻名次的贡献更接近。
+它不应直接从其他项目复制。每一路提供多少候选也会影响结果：若列表在很浅的位置截断，
+一个候选“未出现”可能只是预算不足，而不是检索器认为它完全无关。</p>
+<p>列表权重还可以扩展 RRF，让某一路贡献乘以一个系数。但加入权重后同样需要评估、版本化
+和逐查询诊断，不能因为方法叫“融合”就假设它比单路稳定。</p>
+<span class="heading-anchor" id="分数融合、RRF 与重排怎样组合"></span><h2 id="rrf_2">分数融合、RRF 与重排怎样组合</h2>
+<p>一个可能的顺序是：</p>
+<ol>
+<li>各检索器在权限允许的空间中产生候选及原始证据；</li>
+<li>按稳定身份合并重复候选；</li>
+<li>使用分数融合或 RRF 得到统一候选队列；</li>
+<li>对队列前部运行较昂贵的交叉编码器或其他重排器；</li>
+<li>保留每阶段的名次、分数、过滤和版本信息供诊断。</li>
+</ol>
+<p>也可以先在每一路内部重排再融合。哪一种更合适取决于候选多样性、预算和标注结果。
+重要的是一次实验只改变清楚的变量，并与简单基线比较。</p>
+<span class="heading-anchor" id="常见错误"></span><h2 id="_6">常见错误</h2>
+<ul>
+<li>直接相加不同方向或不同范围的原始分数；</li>
+<li>归一化时把已经截断的列表当作完整分布；</li>
+<li>未定义所有分数相等、空列表和只有一个候选的行为；</li>
+<li>按正文去重，错误合并了不同版本或不同权限对象；</li>
+<li>合并后丢失每一路原始名次，导致无法诊断；</li>
+<li>把 RRF 分数解释成答案正确概率；</li>
+<li>只在少数热门查询上调权重，造成其他查询回归；</li>
+<li>过滤后的受限候选通过另一条列表重新进入。</li>
+</ul>
+<span class="heading-anchor" id="手算融合练习"></span><h2 id="_7">手算融合练习</h2>
+<p>完成上面的四个 RRF 分数并排序。然后把 <code>k</code> 改为另一个正数，观察顺序或差距是否变化。
+再为同一张表设计一套加权分数融合，但要先写出两路分数怎样归一化、缺失值怎样处理。</p>
+<p>最后为“产品型号查询”和“自然语言政策查询”各写一种可能的权重假设，并说明用哪些标注
+查询验证。不能用“关键词更准”或“语义更智能”作为未经测量的结论。</p>
+<span class="heading-anchor" id="自测"></span><h2 id="_8">自测</h2>
+<ol>
+<li>为什么两个分数都在 0 到 1 之间仍未必可直接比较？</li>
+<li>RRF 使用了哪些信息，又丢失了哪些信息？</li>
+<li>列表截断会怎样影响“候选未出现”的解释？</li>
+<li>为什么去重身份必须包含版本和来源边界？</li>
+<li>融合后为什么仍可能需要细粒度重排？</li>
+</ol>
+<span class="heading-anchor" id="本章状态与导航"></span><h2 id="_9">本章状态与导航</h2>
+<ul>
+<li>章节状态：教学正文草稿，公式与纸面例子用于建立直觉；未运行真实检索器或参数实验。</li>
+<li>代码与图表：RRF 实现、边界单测和 D09 图为后续计划，尚未实现或渲染。</li>
+<li>
+<p>摘要：<a href="n-b6ba0dff1a38.html">08-03 章节摘要</a></p>
+</li>
+<li>
+<p>上一章：<a href="n-a92d237babf6.html">08-02 使用大语言模型重排</a></p>
+</li>
+<li>下一章：<a href="n-2267a610577c.html">08-04 多阶段、Top-K、召回率与精确率</a></li>
+<li>返回：<a href="n-5d4f0a9a34fa.html">08 重排索引</a></li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

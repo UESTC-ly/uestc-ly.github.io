@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09-系统设计方法与案例 · 李杨的学习笔记</title><meta name="description" content="理论保证：系统设计没有唯一答案，只有在约束下更合适的取舍。"><meta property="og:title" content="09-系统设计方法与案例 · 李杨的学习笔记"><meta property="og:description" content="理论保证：系统设计没有唯一答案，只有在约束下更合适的取舍。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-eec6388c09d7.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-eec6388c09d7.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">05-C++后端开发 / 06-分布式系统</p><h1>09-系统设计方法与案例</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/05-C%2B%2B%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/06-%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/09-%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%B3%95%E4%B8%8E%E6%A1%88%E4%BE%8B.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心原理</a></li><li><a href="#_3">系统设计题拆解</a></li><li><a href="#_4">常用问题清单</a></li><li><a href="#_5">容量估算模板</a></li><li><a href="#_6">一致性决策</a></li><li><a href="#_7">面试表达中的失败路径模板</a></li><li><a href="#_8">工程实践/案例</a></li><li><a href="#_9">案例：短链系统</a></li><li><a href="#_10">案例：秒杀库存</a></li><li><a href="#_11">案例：网盘大文件上传</a></li><li><a href="#_12">常见误区</a></li><li><a href="#_13">自测题</a></li><li><a href="#_14">实践任务</a></li><li><a href="#_15">延伸阅读</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<ul>
+<li>掌握系统设计题的拆解顺序和表达框架。</li>
+<li>能把容量估算、数据模型、接口、缓存、异步、一致性、容灾串起来。</li>
+<li>能用前面章节的知识解释关键取舍。</li>
+<li>能输出既能面试表达、又接近工程落地的设计。</li>
+</ul>
+<span class="heading-anchor" id="核心原理"></span><h2 id="_2">核心原理</h2>
+<span class="heading-anchor" id="系统设计题拆解"></span><h3 id="_3">系统设计题拆解</h3>
+<p>建议按以下顺序推进：</p>
+<pre class="mermaid">flowchart TD
+  A["澄清需求"] --&gt; B["定义核心指标"]
+  B --&gt; C["估算规模"]
+  C --&gt; D["设计接口和数据模型"]
+  D --&gt; E["画核心链路"]
+  E --&gt; F["拆服务和存储"]
+  F --&gt; G["讨论一致性和故障"]
+  G --&gt; H["扩展性与可观测性"]
+  H --&gt; I["权衡和演进"]
+</pre>
+<p>理论保证：系统设计没有唯一答案，只有在约束下更合适的取舍。</p>
+<p>工程假设：所有估算都要说明假设，例如 DAU、QPS、读写比例、峰值倍数、数据保留周期。</p>
+<p>实现取舍：面试中不追求覆盖所有细节，优先讲清主链路、瓶颈、风险和解决方案。</p>
+<span class="heading-anchor" id="常用问题清单"></span><h3 id="_4">常用问题清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th>要问的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>功能</td>
+<td>用户能做什么？核心路径是什么？</td>
+</tr>
+<tr>
+<td>非功能</td>
+<td>延迟、可用性、一致性、成本目标是什么？</td>
+</tr>
+<tr>
+<td>规模</td>
+<td>DAU、QPS、峰值、数据量、增长率？</td>
+</tr>
+<tr>
+<td>数据</td>
+<td>主实体、索引、分片键、冷热数据？</td>
+</tr>
+<tr>
+<td>接口</td>
+<td>写接口是否幂等？读接口是否分页？</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>哪些必须强一致，哪些可最终一致？</td>
+</tr>
+<tr>
+<td>故障</td>
+<td>超时、重试、降级、容灾怎么做？</td>
+</tr>
+<tr>
+<td>观测</td>
+<td>SLO、日志、指标、Trace 怎么设计？</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="容量估算模板"></span><h3 id="_5">容量估算模板</h3>
+<ol>
+<li>估 DAU 和请求频次。</li>
+<li>估平均 QPS：<code>日请求量 / 86400</code>。</li>
+<li>估峰值 QPS：平均 QPS 乘以峰值系数。</li>
+<li>估存储：单条大小乘以条数和副本数。</li>
+<li>估带宽：QPS 乘以平均响应大小。</li>
+<li>根据读写比例决定缓存、分库分表、异步队列。</li>
+</ol>
+<p>估算要明确峰值和冗余。平均 QPS 只用于量级判断，容量规划要看峰值、热点、故障切换和重试放大。例如平时 2k QPS、峰值系数 5、单 AZ 故障后剩余容量承接全部流量，则有效容量不能只按 10k QPS 准备，还要给缓存失效和下游抖动留预算。</p>
+<span class="heading-anchor" id="一致性决策"></span><h3 id="_6">一致性决策</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据</th>
+<th>推荐一致性</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>账户余额</td>
+<td>强业务一致</td>
+<td>错账不可接受</td>
+</tr>
+<tr>
+<td>订单状态</td>
+<td>状态机约束</td>
+<td>防乱序、防重复</td>
+</tr>
+<tr>
+<td>库存扣减</td>
+<td>预占或强约束</td>
+<td>防超卖</td>
+</tr>
+<tr>
+<td>搜索索引</td>
+<td>最终一致</td>
+<td>可延迟更新</td>
+</tr>
+<tr>
+<td>推荐结果</td>
+<td>弱一致</td>
+<td>可缓存和降级</td>
+</tr>
+<tr>
+<td>通知消息</td>
+<td>最终送达</td>
+<td>允许延迟和重复处理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="面试表达中的失败路径模板"></span><h3 id="_7">面试表达中的失败路径模板</h3>
+<p>很多系统设计答案只覆盖正常链路，真正拉开差距的是失败路径。可以按“调用失败、状态未知、消息重复、数据不一致、容量不足、发布回滚”逐项检查。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>风险</th>
+<th>必答机制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>写请求超时</td>
+<td>幂等键、状态查询、未知状态处理</td>
+</tr>
+<tr>
+<td>消息重复</td>
+<td>消费幂等、唯一约束、事件 ID</td>
+</tr>
+<tr>
+<td>消息丢失</td>
+<td>Outbox/CDC、投递重试、死信</td>
+</tr>
+<tr>
+<td>缓存不一致</td>
+<td>TTL、主动失效、回源、版本</td>
+</tr>
+<tr>
+<td>分片热点</td>
+<td>routing key、虚拟节点、限流、拆分</td>
+</tr>
+<tr>
+<td>发布不兼容</td>
+<td>expand/migrate/contract、灰度和回滚</td>
+</tr>
+</tbody>
+</table></div>
+<p>容量估算也要服务于失败路径：峰值 QPS 决定限流和队列，数据量决定分片和备份恢复时间，带宽决定大文件直传和 CDN，写入冲突概率决定是否需要预占、乐观锁或串行化。</p>
+<span class="heading-anchor" id="工程实践/案例"></span><h2 id="_8">工程实践/案例</h2>
+<span class="heading-anchor" id="案例：短链系统"></span><h3 id="_9">案例：短链系统</h3>
+<p>需求：用户提交长 URL，系统生成短码；访问短码时跳转到长 URL；要求读多写少、高可用、低延迟。</p>
+<p>容量估算假设：DAU 1000 万，每人每天平均访问短链 5 次，创建短链 0.05 次。读请求约 5000 万/天，平均 579 QPS；按峰值 10 倍估算约 5800 QPS。写请求约 50 万/天，平均 6 QPS，峰值约 60 QPS。若每条映射含短码、长 URL、用户、过期时间和索引开销约 1KB，年新增约 1.8 亿条，单副本约 180GB，三副本约 540GB，仍要为访问日志另算存储。</p>
+<p>设计要点：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>短码生成</td>
+<td>发号器或哈希 + 冲突检测</td>
+</tr>
+<tr>
+<td>存储</td>
+<td><code>short_code -&gt; long_url</code> KV/关系库</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>热门短链缓存，TTL + 主动失效</td>
+</tr>
+<tr>
+<td>读路径</td>
+<td>网关解析短码，查缓存，回源数据库</td>
+</tr>
+<tr>
+<td>写路径</td>
+<td>幂等创建，唯一索引保证短码不冲突</td>
+</tr>
+<tr>
+<td>分片</td>
+<td>按 short_code 哈希分片</td>
+</tr>
+<tr>
+<td>可用性</td>
+<td>多副本、缓存降级、限流</td>
+</tr>
+<tr>
+<td>观测</td>
+<td>跳转成功率、P99、缓存命中率、404 比例</td>
+</tr>
+</tbody>
+</table></div>
+<p>一致性取舍：创建后立即访问应尽量读到新值，可以写库后同步写缓存，或读缓存 miss 后回源。访问统计可以异步写入 MQ，最终一致。</p>
+<p>失败路径：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失败</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>短码冲突</td>
+<td>唯一索引拒绝后重新生成，记录冲突率</td>
+</tr>
+<tr>
+<td>缓存穿透</td>
+<td>空值缓存、布隆过滤器、限流</td>
+</tr>
+<tr>
+<td>DB 慢</td>
+<td>热点短链缓存、只读副本、降级到错误页</td>
+</tr>
+<tr>
+<td>创建超时</td>
+<td>幂等键查询已有结果，避免重复创建</td>
+</tr>
+<tr>
+<td>统计 MQ 积压</td>
+<td>不影响跳转主链路，延迟消费和采样降级</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="案例：秒杀库存"></span><h3 id="_10">案例：秒杀库存</h3>
+<p>需求：高并发抢购，库存不能超卖，用户体验可降级。</p>
+<p>容量估算假设：活动商品库存 1 万件，开抢前 30 秒有 200 万用户进入页面，峰值点击 20 万 QPS。真正能成功的写入最多 1 万单，系统目标是把无效流量尽早拦在网关、CDN、排队层和用户限流处，而不是让 20 万 QPS 全部打到库存数据库。</p>
+<p>设计要点：</p>
+<ul>
+<li>活动开始前预热商品、库存和限流配置。</li>
+<li>网关按用户和商品限流，拦截异常流量。</li>
+<li>库存使用预扣模型，扣减写入库存流水。</li>
+<li>用户维度用唯一约束防重复购买。</li>
+<li>下单结果可以先返回排队中，异步确认。</li>
+<li>支付超时后取消订单并释放库存。</li>
+<li>对账任务检查订单、库存流水、支付流水。</li>
+</ul>
+<p>关键取舍：库存不能超卖属于强业务约束；页面库存数字可以最终一致；推荐和评价模块可降级。</p>
+<p>失败路径：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失败</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户重复点击</td>
+<td>用户+活动唯一约束，返回已有排队/成功状态</td>
+</tr>
+<tr>
+<td>库存服务超时</td>
+<td>不盲目重试扣减，按请求 ID 查询流水</td>
+</tr>
+<tr>
+<td>MQ 积压</td>
+<td>页面显示排队中，监控最大消息年龄</td>
+</tr>
+<tr>
+<td>支付超时</td>
+<td>订单过期取消，释放预占库存</td>
+</tr>
+<tr>
+<td>缓存库存不准</td>
+<td>只作展示，最终以库存流水和数据库条件更新为准</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="案例：网盘大文件上传"></span><h3 id="_11">案例：网盘大文件上传</h3>
+<p>需求：用户上传大文件，支持断点续传、秒传、权限隔离和下载分享。假设 DAU 100 万，日活上传用户 5%，人均上传 2 个文件，平均文件 50MB，则日上传 10 万个文件、约 5TB 原始数据。三副本或纠删码后的实际成本按存储方案另算；公网带宽要按峰值上传窗口估算。</p>
+<p>核心设计：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>元数据</td>
+<td>文件表、对象表、版本、owner、checksum、引用计数</td>
+</tr>
+<tr>
+<td>上传</td>
+<td>multipart + 预签名 URL + part checksum</td>
+</tr>
+<tr>
+<td>秒传</td>
+<td>用户提交完整 checksum，命中已有对象则增加引用</td>
+</tr>
+<tr>
+<td>下载</td>
+<td>短期下载 URL，权限校验后签发</td>
+</tr>
+<tr>
+<td>搜索</td>
+<td>文件名 keyword/text，内容异步抽取后入搜索索引</td>
+</tr>
+<tr>
+<td>清理</td>
+<td>未完成上传生命周期、删除回收站、引用计数对账</td>
+</tr>
+</tbody>
+</table></div>
+<p>失败路径：part 上传失败只重传 part；complete 成功但 DB 更新失败时通过 upload_id 对账补状态；用户删除文件先标记回收站，延迟清理对象；分享链接泄漏靠过期时间、权限版本和撤销列表控制。</p>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_12">常见误区</h2>
+<ul>
+<li>
+<p>误区：一上来画很多服务。<br/>
+  修正：先讲需求、规模、核心链路，再拆服务。</p>
+</li>
+<li>
+<p>误区：只说 Redis、MQ、分库分表。<br/>
+  修正：必须解释为什么需要、解决什么瓶颈、引入什么风险。</p>
+</li>
+<li>
+<p>误区：所有数据都要求强一致。<br/>
+  修正：强一致成本高，应按业务后果分类。</p>
+</li>
+<li>
+<p>误区：忽略失败路径。<br/>
+  修正：面试区分度往往来自超时、重试、幂等、补偿、容灾和观测。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="自测题"></span><h2 id="_13">自测题</h2>
+<ol>
+<li>系统设计题为什么要先澄清读写比例和一致性目标？</li>
+<li>短链系统如何处理短码冲突？</li>
+<li>秒杀系统如何防止重复购买和库存超卖？</li>
+<li>什么时候应该引入 MQ？引入后必须补哪些机制？</li>
+</ol>
+<span class="heading-anchor" id="实践任务"></span><h2 id="_14">实践任务</h2>
+<p>任选一个题目：评论系统、网盘上传、IM 已读回执、排行榜、优惠券系统。按“需求、规模、接口、数据模型、核心链路、一致性、故障处理、观测、扩展”写出完整设计。</p>
+<span class="heading-anchor" id="延伸阅读"></span><h2 id="_15">延伸阅读</h2>
+<ul>
+<li>Alex Xu, <em>System Design Interview</em>。</li>
+<li>Martin Kleppmann, <em>Designing Data-Intensive Applications</em>。</li>
+<li><a href="https://sre.google/sre-book/table-of-contents/">Google SRE Book</a>：可靠性、监控、发布和容量规划章节。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

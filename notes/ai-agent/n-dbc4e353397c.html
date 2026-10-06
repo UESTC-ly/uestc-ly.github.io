@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09. 多 Agent 协作模式 · 李杨的学习笔记</title><meta name="description" content="多 Agent 的目的不是“让更多模型聊天”，而是通过角色分工、权限隔离、并行执行和互相审查，提高复杂任务的完成率和可控性。"><meta property="og:title" content="09. 多 Agent 协作模式 · 李杨的学习笔记"><meta property="og:description" content="多 Agent 的目的不是“让更多模型聊天”，而是通过角色分工、权限隔离、并行执行和互相审查，提高复杂任务的完成率和可控性。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-dbc4e353397c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-dbc4e353397c.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>09. 多 Agent 协作模式</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/09-%E5%A4%9AAgent%E5%8D%8F%E4%BD%9C%E6%A8%A1%E5%BC%8F.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-agent">1. 什么时候需要多 Agent？</a></li><li><a href="#2-router">2. Router 模式</a></li><li><a href="#3-supervisor">3. Supervisor 模式</a></li><li><a href="#4-planner-executor">4. Planner-Executor 分离</a></li><li><a href="#5-critic-reviewer">5. Critic / Reviewer 模式</a></li><li><a href="#6-debate">6. Debate 模式</a></li><li><a href="#7">7. 上下文共享策略</a></li><li><a href="#8">8. 权限隔离</a></li><li><a href="#9">9. 冲突处理</a></li><li><a href="#10-agent">10. 多 Agent 评估</a></li><li><a href="#11">11. 学习自检</a></li><li><a href="#_4">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>多 Agent 什么时候有必要，什么时候只是增加复杂度？</li>
+<li>Router、Supervisor、Planner-Executor、Critic、Debate 分别是什么？</li>
+<li>多 Agent 协作如何管理上下文、权限、所有权和冲突？</li>
+<li>如何评估多 Agent 系统是否真的提升了效果？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>多 Agent 的目的不是“让更多模型聊天”，而是通过角色分工、权限隔离、并行执行和互相审查，提高复杂任务的完成率和可控性。</p>
+<blockquote>
+<p>记忆口诀：<strong>能单 Agent 做好就别拆；拆了就要有角色、边界、交付物和验证。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((多Agent))
+    协作模式
+      Router
+      Supervisor
+      Planner Executor
+      Critic
+      Debate
+    价值
+      分工
+      并行
+      审查
+      权限隔离
+    风险
+      成本增加
+      上下文冲突
+      重复工作
+      责任不清
+    控制
+      明确交付物
+      状态共享
+      冲突解决
+      最终验证
+</pre>
+<span class="heading-anchor" id="1. 什么时候需要多 Agent？"></span><h2 id="1-agent">1. 什么时候需要多 Agent？</h2>
+<p>适合：</p>
+<ul>
+<li>任务天然多角色：研究、实现、审查、测试。</li>
+<li>子任务可以并行。</li>
+<li>不同角色需要不同工具权限。</li>
+<li>需要独立批判或验证。</li>
+<li>任务复杂到单一上下文难以承载。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>简单问答。</li>
+<li>单步工具调用。</li>
+<li>低延迟强约束场景。</li>
+<li>没有清晰分工的任务。</li>
+<li>只是为了“看起来更智能”。</li>
+</ul>
+<span class="heading-anchor" id="2. Router 模式"></span><h2 id="2-router">2. Router 模式</h2>
+<p>Router 根据请求类型选择专家。</p>
+<pre class="mermaid">flowchart TD
+  A["用户请求"] --&gt; B["Router"]
+  B --&gt; C["Research Agent"]
+  B --&gt; D["Code Agent"]
+  B --&gt; E["Data Agent"]
+  B --&gt; F["Writing Agent"]
+  C --&gt; G["输出"]
+  D --&gt; G
+  E --&gt; G
+  F --&gt; G
+</pre>
+<p>优点：成本可控，简单任务不用强模型。<br/>
+风险：路由错误会导致后续全错。</p>
+<span class="heading-anchor" id="3. Supervisor 模式"></span><h2 id="3-supervisor">3. Supervisor 模式</h2>
+<p>Supervisor 负责拆解任务、分派、收集和整合。</p>
+<pre class="mermaid">flowchart TD
+  A["复杂目标"] --&gt; B["Supervisor"]
+  B --&gt; C["Agent A"]
+  B --&gt; D["Agent B"]
+  B --&gt; E["Agent C"]
+  C --&gt; F["结果A"]
+  D --&gt; G["结果B"]
+  E --&gt; H["结果C"]
+  F --&gt; I["Supervisor整合"]
+  G --&gt; I
+  H --&gt; I
+  I --&gt; J["最终答案"]
+</pre>
+<p>关键要求：</p>
+<ul>
+<li>Supervisor 拥有最终决策权。</li>
+<li>子 Agent 有明确任务和交付物。</li>
+<li>子 Agent 不应擅自扩大范围。</li>
+<li>需要统一验证。</li>
+</ul>
+<span class="heading-anchor" id="4. Planner-Executor 分离"></span><h2 id="4-planner-executor">4. Planner-Executor 分离</h2>
+<p>Planner 只规划，Executor 只执行。</p>
+<pre class="mermaid">flowchart LR
+  A["目标"] --&gt; B["Planner生成计划"]
+  B --&gt; C["Executor执行"]
+  C --&gt; D["结果"]
+  D --&gt; E["Verifier检查"]
+  E --&gt; B
+</pre>
+<p>优点：减少执行 Agent 自我编造计划的风险。<br/>
+适合：代码修改、数据迁移、长任务自动化。</p>
+<span class="heading-anchor" id="5. Critic / Reviewer 模式"></span><h2 id="5-critic-reviewer">5. Critic / Reviewer 模式</h2>
+<p>一个 Agent 生成，另一个 Agent 审查。</p>
+<pre class="mermaid">flowchart TD
+  A["Generator"] --&gt; B["草稿或方案"]
+  B --&gt; C["Critic"]
+  C --&gt; D{是否通过}
+  D -- 否 --&gt; E["反馈修改"]
+  E --&gt; A
+  D -- 是 --&gt; F["交付"]
+</pre>
+<p>适合：</p>
+<ul>
+<li>代码审查。</li>
+<li>安全审查。</li>
+<li>法务文本。</li>
+<li>高风险操作计划。</li>
+</ul>
+<span class="heading-anchor" id="6. Debate 模式"></span><h2 id="6-debate">6. Debate 模式</h2>
+<p>多个 Agent 从不同角度提出观点，再由 Judge 或用户决策。</p>
+<pre class="mermaid">flowchart TD
+  A["问题"] --&gt; B["Agent正方"]
+  A --&gt; C["Agent反方"]
+  B --&gt; D["观点和证据"]
+  C --&gt; E["观点和证据"]
+  D --&gt; F["Judge"]
+  E --&gt; F
+  F --&gt; G["综合结论"]
+</pre>
+<p>适合：架构决策、方案权衡。<br/>
+不适合：事实检索问题或低延迟任务。</p>
+<span class="heading-anchor" id="7. 上下文共享策略"></span><h2 id="7">7. 上下文共享策略</h2>
+<p>多 Agent 不能无脑共享全部上下文。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shared State</td>
+<td>共享任务状态和关键事实</td>
+</tr>
+<tr>
+<td>Private Scratchpad</td>
+<td>每个 Agent 有私有思考空间</td>
+</tr>
+<tr>
+<td>Artifact Handoff</td>
+<td>只传递交付物，不传全部轨迹</td>
+</tr>
+<tr>
+<td>Event Log</td>
+<td>记录所有动作供审计</td>
+</tr>
+<tr>
+<td>Memory Store</td>
+<td>可检索历史经验</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart LR
+  A["Agent A"] --&gt; B["交付物"]
+  C["Agent B"] --&gt; D["交付物"]
+  B --&gt; E["Shared State"]
+  D --&gt; E
+  E --&gt; F["Supervisor"]
+</pre>
+<span class="heading-anchor" id="8. 权限隔离"></span><h2 id="8">8. 权限隔离</h2>
+<p>不同 Agent 应该拥有不同权限。</p>
+<p>例子：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>权限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Researcher</td>
+<td>只读搜索和浏览</td>
+</tr>
+<tr>
+<td>Executor</td>
+<td>修改工作区文件</td>
+</tr>
+<tr>
+<td>Reviewer</td>
+<td>只读审查</td>
+</tr>
+<tr>
+<td>Deployer</td>
+<td>需要审批后部署</td>
+</tr>
+<tr>
+<td>Finance Agent</td>
+<td>严格审批和审计</td>
+</tr>
+</tbody>
+</table></div>
+<p>权限隔离可以降低某个 Agent 被 prompt injection 带偏后的损害范围。</p>
+<span class="heading-anchor" id="9. 冲突处理"></span><h2 id="9">9. 冲突处理</h2>
+<p>多 Agent 可能给出冲突结论。</p>
+<p>处理方式：</p>
+<ul>
+<li>要求每个结论附证据。</li>
+<li>Supervisor 按证据和优先级判断。</li>
+<li>不确定时请求人类决策。</li>
+<li>把冲突写入风险清单。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  A["多个结果"] --&gt; B{是否冲突}
+  B -- 否 --&gt; C["整合"]
+  B -- 是 --&gt; D["要求证据"]
+  D --&gt; E{证据是否足够}
+  E -- 是 --&gt; F["Supervisor裁决"]
+  E -- 否 --&gt; G["请求人类"]
+</pre>
+<span class="heading-anchor" id="10. 多 Agent 评估"></span><h2 id="10-agent">10. 多 Agent 评估</h2>
+<p>要证明多 Agent 有价值，不能只看“过程更热闹”。应比较：</p>
+<ul>
+<li>任务成功率是否提升。</li>
+<li>错误率是否下降。</li>
+<li>成本是否可接受。</li>
+<li>延迟是否可接受。</li>
+<li>安全事故是否减少。</li>
+<li>人类干预是否减少。</li>
+</ul>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>多 Agent 的核心价值是什么？</li>
+<li>Router 和 Supervisor 有什么区别？</li>
+<li>Planner-Executor 分离解决什么问题？</li>
+<li>多 Agent 为什么需要权限隔离？</li>
+<li>如何判断多 Agent 是否值得？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_4">参考</h2>
+<ul>
+<li>OpenAI Agents SDK Handoffs: https://platform.openai.com/docs/guides/agents-sdk/</li>
+<li>LangGraph Multi-agent: https://langchain-ai.github.io/langgraph/concepts/multi_agent/</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

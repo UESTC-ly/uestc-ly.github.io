@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>09-网络性能与排障：ping、traceroute、抓包 · 李杨的学习笔记</title><meta name="description" content="返回： 00-MOC ｜ 上一章： 08-无线网络、移动网络与现代接入 ｜ 下一章： 10-常见面试题与核心问答"><meta property="og:title" content="09-网络性能与排障：ping、traceroute、抓包 · 李杨的学习笔记"><meta property="og:description" content="返回： 00-MOC ｜ 上一章： 08-无线网络、移动网络与现代接入 ｜ 下一章： 10-常见面试题与核心问答"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-d4edf963df66.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-d4edf963df66.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机网络</p><h1>09-网络性能与排障：ping、traceroute、抓包</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/09-%E7%BD%91%E7%BB%9C%E6%80%A7%E8%83%BD%E4%B8%8E%E6%8E%92%E9%9A%9C%EF%BC%9Aping%E3%80%81traceroute%E3%80%81%E6%8A%93%E5%8C%85.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 常见性能指标</a></li><li><a href="#2">2. 分层排障总流程</a></li><li><a href="#3-ping">3. ping</a></li><li><a href="#4-traceroute-tracepath-mtr">4. traceroute / tracepath / mtr</a></li><li><a href="#5-dns">5. DNS 工具</a></li><li><a href="#6">6. 端口连通性</a></li><li><a href="#7-curl-v">7. curl -v</a></li><li><a href="#8-tcpdump">8. tcpdump</a></li><li><a href="#9-wireshark">9. Wireshark 观察点</a></li><li><a href="#10">10. 常见故障定位案例</a></li><li><a href="#101-ping-ip">10.1 能 ping IP，不能访问域名</a></li><li><a href="#102-ping-https">10.2 能 ping 域名，打不开 HTTPS</a></li><li><a href="#103-http-502">10.3 端口通，但 HTTP 502</a></li><li><a href="#104">10.4 访问很慢</a></li><li><a href="#11">11. 本章小结</a></li><li><a href="#_1">深入展开：排障不是“跑命令”，而是构造证据链</a></li><li><a href="#1_1">1. 每个工具能证明什么，不能证明什么</a></li><li><a href="#2_1">2. 访问慢要拆时间</a></li><li><a href="#3-timeoutrefusedreset">3. timeout、refused、reset 要分清</a></li><li><a href="#4">4. 抓包时先写假设</a></li><li><a href="#5">5. 典型分层排障剧本</a></li><li><a href="#_2">思维导图</a></li><li><a href="#1_2">1. 分层排障总流程</a></li><li><a href="#2_2">2. 工具能证明什么</a></li><li><a href="#3">3. 三种连接失败</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>返回：<a href="n-be215f4e382a.html">00-MOC</a> ｜ 上一章：<a href="n-dc46e0267980.html">08-无线网络、移动网络与现代接入</a> ｜ 下一章：<a href="n-4d30358afbce.html">10-常见面试题与核心问答</a></p>
+</blockquote>
+<p>排障的关键不是工具多，而是顺序正确。</p>
+<blockquote>
+<p>先判断哪一层失败，再选择对应工具。</p>
+</blockquote>
+<hr/>
+<span class="heading-anchor" id="1. 常见性能指标"></span><h2 id="1">1. 常见性能指标</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>常见影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>延迟 RTT</td>
+<td>往返时间</td>
+<td>页面响应、交互体验</td>
+</tr>
+<tr>
+<td>带宽</td>
+<td>理论传输能力</td>
+<td>大文件下载上限</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>实际传输速度</td>
+<td>受协议、拥塞、窗口影响</td>
+</tr>
+<tr>
+<td>丢包率</td>
+<td>包丢失比例</td>
+<td>重传、卡顿、音视频破碎</td>
+</tr>
+<tr>
+<td>抖动</td>
+<td>延迟波动</td>
+<td>实时音视频、游戏</td>
+</tr>
+<tr>
+<td>连接建立时间</td>
+<td>DNS/TCP/TLS 时间</td>
+<td>首屏速度</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="2. 分层排障总流程"></span><h2 id="2">2. 分层排障总流程</h2>
+<pre><code class="language-text">物理/链路：网卡、Wi-Fi、ARP、VLAN
+  ↓
+网络层：IP、路由、ICMP
+  ↓
+传输层：端口、TCP 握手、重传、RST
+  ↓
+安全层：TLS、证书、防火墙、代理
+  ↓
+应用层：HTTP 状态码、业务日志、上游依赖
+</code></pre>
+<p>不要跳过底层直接看应用日志，也不要在 DNS 错误时反复调代码。</p>
+<hr/>
+<span class="heading-anchor" id="3. ping"></span><h2 id="3-ping">3. ping</h2>
+<p><code>ping</code> 基于 ICMP Echo，用于验证基本连通性和 RTT。</p>
+<pre><code class="language-bash">ping 8.8.8.8
+ping example.com
+</code></pre>
+<p>可以判断：</p>
+<ul>
+<li>是否有基本 IP 连通性</li>
+<li>延迟是否异常</li>
+<li>是否有明显丢包</li>
+<li>域名是否能解析</li>
+</ul>
+<p>不能判断：</p>
+<ul>
+<li>TCP 端口是否开放</li>
+<li>HTTP 服务是否正常</li>
+<li>TLS 证书是否正确</li>
+<li>业务逻辑是否可用</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. traceroute / tracepath / mtr"></span><h2 id="4-traceroute-tracepath-mtr">4. traceroute / tracepath / mtr</h2>
+<p><code>traceroute</code> 利用 TTL 逐跳探测路径。</p>
+<pre><code class="language-bash">traceroute example.com
+mtr example.com
+</code></pre>
+<p>注意：</p>
+<ul>
+<li>中间某跳不回 ICMP，不代表后续不可达。</li>
+<li>某跳延迟高，但后续恢复正常，可能只是该路由器限速响应 ICMP。</li>
+<li>真正要关注的是从某一跳开始持续丢包或延迟升高。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="5. DNS 工具"></span><h2 id="5-dns">5. DNS 工具</h2>
+<pre><code class="language-bash">dig example.com
+dig A example.com
+dig AAAA example.com
+nslookup example.com
+</code></pre>
+<p>关注：</p>
+<ul>
+<li>解析到哪个 IP</li>
+<li>是否返回 CNAME</li>
+<li>TTL 是多少</li>
+<li>使用了哪个 DNS 服务器</li>
+<li>内网和外网解析结果是否不同</li>
+</ul>
+<p>DNS 问题常见表现：</p>
+<ul>
+<li>只有域名不通，IP 可通</li>
+<li>某些地区解析到错误 IP</li>
+<li>切换网络后缓存未过期</li>
+<li>公司内网域名只在公司 DNS 可解析</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. 端口连通性"></span><h2 id="6">6. 端口连通性</h2>
+<pre><code class="language-bash">nc -vz example.com 443
+telnet example.com 80
+</code></pre>
+<p>结果解释：</p>
+<ul>
+<li>connected：TCP 能建立</li>
+<li>timeout：包可能被丢弃、路由不通、防火墙静默拦截</li>
+<li>refused：目标可达，但端口未监听或主动拒绝</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. curl -v"></span><h2 id="7-curl-v">7. curl -v</h2>
+<p><code>curl -v</code> 是应用层排障利器：</p>
+<pre><code class="language-bash">curl -v https://example.com
+</code></pre>
+<p>可以看到：</p>
+<ul>
+<li>DNS 解析</li>
+<li>连接目标 IP</li>
+<li>TCP 连接</li>
+<li>TLS 握手</li>
+<li>ALPN 协商</li>
+<li>HTTP 请求头</li>
+<li>HTTP 响应头</li>
+<li>状态码</li>
+</ul>
+<p>常用：</p>
+<pre><code class="language-bash">curl -I https://example.com
+curl --resolve example.com:443:1.2.3.4 https://example.com
+curl --connect-timeout 3 -v https://example.com
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="8. tcpdump"></span><h2 id="8-tcpdump">8. tcpdump</h2>
+<p>抓包示例：</p>
+<pre><code class="language-bash">sudo tcpdump -n host example.com
+sudo tcpdump -n 'tcp port 443'
+sudo tcpdump -i any -nn 'icmp or arp'
+sudo tcpdump -w capture.pcap 'host 1.2.3.4'
+</code></pre>
+<p>参数：</p>
+<ul>
+<li><code>-n</code>：不做 DNS 反查</li>
+<li><code>-nn</code>：端口也不转服务名</li>
+<li><code>-i</code>：指定网卡</li>
+<li><code>-w</code>：写入 pcap 文件</li>
+</ul>
+<p>抓包时先缩小过滤条件，否则很快淹没在噪声里。</p>
+<hr/>
+<span class="heading-anchor" id="9. Wireshark 观察点"></span><h2 id="9-wireshark">9. Wireshark 观察点</h2>
+<p>常看过滤器：</p>
+<pre><code class="language-text">arp
+icmp
+dns
+tcp
+tcp.port == 443
+http
+tls
+ip.addr == 1.2.3.4
+</code></pre>
+<p>TCP 问题关注：</p>
+<ul>
+<li>SYN 是否发出</li>
+<li>SYN+ACK 是否返回</li>
+<li>是否出现 RST</li>
+<li>是否大量 Retransmission</li>
+<li>是否 Zero Window</li>
+<li>RTT 是否异常</li>
+</ul>
+<p>HTTP/TLS 关注：</p>
+<ul>
+<li>SNI</li>
+<li>ALPN</li>
+<li>证书链</li>
+<li>HTTP 状态码</li>
+<li>重定向 Location</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="10. 常见故障定位案例"></span><h2 id="10">10. 常见故障定位案例</h2>
+<span class="heading-anchor" id="10.1 能 ping IP，不能访问域名"></span><h3 id="101-ping-ip">10.1 能 ping IP，不能访问域名</h3>
+<p>优先查 DNS：</p>
+<pre><code class="language-bash">dig example.com
+cat /etc/resolv.conf
+</code></pre>
+<span class="heading-anchor" id="10.2 能 ping 域名，打不开 HTTPS"></span><h3 id="102-ping-https">10.2 能 ping 域名，打不开 HTTPS</h3>
+<p>查端口与 TLS：</p>
+<pre><code class="language-bash">nc -vz example.com 443
+curl -v https://example.com
+</code></pre>
+<span class="heading-anchor" id="10.3 端口通，但 HTTP 502"></span><h3 id="103-http-502">10.3 端口通，但 HTTP 502</h3>
+<p>说明网络和端口基本可达，问题可能在：</p>
+<ul>
+<li>反向代理到上游失败</li>
+<li>上游服务挂了</li>
+<li>负载均衡健康检查失败</li>
+<li>应用异常返回</li>
+</ul>
+<span class="heading-anchor" id="10.4 访问很慢"></span><h3 id="104">10.4 访问很慢</h3>
+<p>拆分耗时：</p>
+<ul>
+<li>DNS 解析慢</li>
+<li>TCP 连接慢</li>
+<li>TLS 握手慢</li>
+<li>首字节时间慢</li>
+<li>下载慢</li>
+</ul>
+<p>可以用：</p>
+<pre><code class="language-bash">curl -w '
+namelookup:%{time_namelookup}
+connect:%{time_connect}
+appconnect:%{time_appconnect}
+starttransfer:%{time_starttransfer}
+total:%{time_total}
+' -o /dev/null -s https://example.com
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="11. 本章小结"></span><h2 id="11">11. 本章小结</h2>
+<ul>
+<li>排障要先分层，再选工具。</li>
+<li>ping 只能证明 ICMP 层面的基本连通性。</li>
+<li>traceroute 用于看路径，但要谨慎解读中间跳。</li>
+<li>curl -v 能串起 DNS、TCP、TLS、HTTP。</li>
+<li>tcpdump/Wireshark 是最终证据来源。</li>
+</ul>
+<span class="heading-anchor" id="深入展开：排障不是“跑命令”，而是构造证据链"></span><h2 id="_1">深入展开：排障不是“跑命令”，而是构造证据链</h2>
+<p>很多人会用 <code>ping</code>、<code>curl</code>，但排障还是乱，是因为没有把命令结果放进分层模型里。每个命令只能证明一小段事实。</p>
+<span class="heading-anchor" id="1. 每个工具能证明什么，不能证明什么"></span><h3 id="1_1">1. 每个工具能证明什么，不能证明什么</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>能证明</th>
+<th>不能证明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ping</td>
+<td>ICMP 层面可达、RTT、粗略丢包</td>
+<td>TCP 端口、TLS、HTTP、业务成功</td>
+</tr>
+<tr>
+<td>traceroute</td>
+<td>路径大致经过哪些跳</td>
+<td>每跳真实转发性能、应用可用性</td>
+</tr>
+<tr>
+<td>dig</td>
+<td>DNS 解析结果</td>
+<td>目标端口是否可用</td>
+</tr>
+<tr>
+<td>nc</td>
+<td>TCP 端口能否建立连接</td>
+<td>TLS/HTTP 是否正常</td>
+</tr>
+<tr>
+<td>curl -v</td>
+<td>DNS、TCP、TLS、HTTP 细节</td>
+<td>服务端内部依赖是否健康</td>
+</tr>
+<tr>
+<td>tcpdump</td>
+<td>包级证据</td>
+<td>加密后的 HTTP 明文内容</td>
+</tr>
+</tbody>
+</table></div>
+<p>所以排障时要说：“这个命令证明了什么”，而不是“我试过了”。</p>
+<span class="heading-anchor" id="2. 访问慢要拆时间"></span><h3 id="2_1">2. 访问慢要拆时间</h3>
+<p>“慢”是模糊描述，必须拆成阶段：</p>
+<pre><code class="language-text">DNS 慢：域名解析耗时高
+TCP 慢：三次握手耗时高
+TLS 慢：证书/握手耗时高
+TTFB 慢：服务器或上游处理慢
+下载慢：带宽、丢包、响应体太大
+渲染慢：前端 JS/CSS/图片问题
+</code></pre>
+<p>用 curl 拆：</p>
+<pre><code class="language-bash">curl -w '\nDNS:%{time_namelookup}\nTCP:%{time_connect}\nTLS:%{time_appconnect}\nTTFB:%{time_starttransfer}\nTotal:%{time_total}\n' -o /dev/null -s https://example.com
+</code></pre>
+<span class="heading-anchor" id="3. timeout、refused、reset 要分清"></span><h3 id="3-timeoutrefusedreset">3. timeout、refused、reset 要分清</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>抓包表现</th>
+<th>常见原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>timeout</td>
+<td>SYN 重传，无回应</td>
+<td>防火墙丢包、路由不通、主机不可达</td>
+</tr>
+<tr>
+<td>refused</td>
+<td>SYN 后收到 RST</td>
+<td>端口未监听、服务主动拒绝</td>
+</tr>
+<tr>
+<td>reset</td>
+<td>连接中收到 RST</td>
+<td>应用异常关闭、中间设备阻断</td>
+</tr>
+<tr>
+<td>TLS error</td>
+<td>TCP 成功，TLS 失败</td>
+<td>证书、SNI、协议版本</td>
+</tr>
+</tbody>
+</table></div>
+<p>这几个词是线上排障高频关键词。</p>
+<span class="heading-anchor" id="4. 抓包时先写假设"></span><h3 id="4">4. 抓包时先写假设</h3>
+<p>不要一上来抓全量包。先写：</p>
+<pre><code class="language-text">假设：客户端 SYN 发出后没有收到 SYN+ACK。
+过滤：tcp and host 1.2.3.4 and port 443
+预期：能看到 SYN 重传。
+</code></pre>
+<p>然后抓：</p>
+<pre><code class="language-bash">sudo tcpdump -n 'tcp and host 1.2.3.4 and port 443'
+</code></pre>
+<p>如果看到 RST，假设就错了，要转向端口未监听或主动拒绝。</p>
+<span class="heading-anchor" id="5. 典型分层排障剧本"></span><h3 id="5">5. 典型分层排障剧本</h3>
+<pre><code class="language-text">用户：打不开网站
+你：先确认范围，是所有网站还是某个网站？
+  ↓
+所有网站都不行：查本机网络、网关、DNS
+某个网站不行：查 DNS、端口、TLS、HTTP
+  ↓
+DNS 失败：换 DNS / 查内外网解析
+端口 timeout：查路由、防火墙、安全组
+端口 refused：查服务监听
+TLS 失败：查证书/SNI
+HTTP 5xx：查网关/应用/上游
+</code></pre>
+<p>把这个剧本背熟，比背 100 个命令更有用。</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_2">思维导图</h2>
+<blockquote>
+<p>记忆建议：每个工具只能证明一部分事实；排障要构造证据链，而不是堆命令。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 分层排障总流程"></span><h3 id="1_2">1. 分层排障总流程</h3>
+<pre class="mermaid">flowchart TD
+  A["网络故障"] --&gt; B["确认现象\n慢 断 超时 拒绝 错码"]
+  B --&gt; C["DNS证据\ndig nslookup"]
+  C --&gt; D["连通证据\nping traceroute mtr"]
+  D --&gt; E["端口证据\nnc telnet ss"]
+  E --&gt; F["协议证据\ncurl -v openssl"]
+  F --&gt; G["抓包证据\ntcpdump Wireshark"]
+</pre>
+<span class="heading-anchor" id="2. 工具能证明什么"></span><h3 id="2_2">2. 工具能证明什么</h3>
+<pre class="mermaid">mindmap
+  root((排障工具))
+    ping
+      ICMP可达和RTT
+      不证明端口可用
+    traceroute
+      路径和中断点线索
+      受防火墙影响
+    curl_v
+      DNS连接TLS HTTP阶段
+    tcpdump
+      真实报文
+      三次握手和重传
+    Wireshark
+      可视化协议分析
+</pre>
+<span class="heading-anchor" id="3. 三种连接失败"></span><h3 id="3">3. 三种连接失败</h3>
+<pre class="mermaid">flowchart LR
+  A["connection refused"] --&gt; B["目标可达但端口无监听或主动拒绝"]
+  C["timeout"] --&gt; D["包无响应或被丢弃"]
+  E["reset"] --&gt; F["连接被对端或中间设备强制关闭"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

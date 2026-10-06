@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>02. 运算器与算术逻辑运算 · 李杨的学习笔记</title><meta name="description" content="运算器的核心是 ALU，它通过组合逻辑完成加减、逻辑、移位和比较等操作；复杂运算可以分解为更基本的数据通路操作。"><meta property="og:title" content="02. 运算器与算术逻辑运算 · 李杨的学习笔记"><meta property="og:description" content="运算器的核心是 ALU，它通过组合逻辑完成加减、逻辑、移位和比较等操作；复杂运算可以分解为更基本的数据通路操作。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-ecb77e26972a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-ecb77e26972a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 计算机组成原理</p><h1>02. 运算器与算术逻辑运算</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E5%8E%9F%E7%90%86/02-%E8%BF%90%E7%AE%97%E5%99%A8%E4%B8%8E%E7%AE%97%E6%9C%AF%E9%80%BB%E8%BE%91%E8%BF%90%E7%AE%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-alu">1. ALU 的作用</a></li><li><a href="#2">2. 半加器和全加器</a></li><li><a href="#3">3. 串行进位与先行进位</a></li><li><a href="#4">4. 补码加减法</a></li><li><a href="#5">5. 标志位</a></li><li><a href="#6">6. 移位运算</a></li><li><a href="#7">7. 乘法硬件直觉</a></li><li><a href="#8">8. 除法硬件直觉</a></li><li><a href="#9">9. 浮点运算流程</a></li><li><a href="#10">10. 常见坑</a></li><li><a href="#11">11. 学习自检</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>ALU 是什么？能执行哪些操作？</li>
+<li>加法器如何由逻辑门构成？</li>
+<li>补码减法为什么可以转化为加法？</li>
+<li>移位运算、乘法、除法在硬件中如何理解？</li>
+<li>标志位 Zero、Carry、Overflow、Sign 分别表示什么？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>运算器的核心是 ALU，它通过组合逻辑完成加减、逻辑、移位和比较等操作；复杂运算可以分解为更基本的数据通路操作。</p>
+<blockquote>
+<p>记忆口诀：<strong>ALU 做运算，寄存器放数据，标志位记结果特征。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((运算器))
+    ALU
+      加法
+      减法
+      与或非异或
+      移位
+      比较
+    加法器
+      半加器
+      全加器
+      串行进位
+      先行进位
+    标志位
+      ZF
+      CF
+      OF
+      SF
+    运算
+      补码加减
+      乘法
+      除法
+      浮点运算
+</pre>
+<span class="heading-anchor" id="1. ALU 的作用"></span><h2 id="1-alu">1. ALU 的作用</h2>
+<p>ALU，Arithmetic Logic Unit，算术逻辑单元，用于执行：</p>
+<ul>
+<li>加法、减法。</li>
+<li>与、或、非、异或。</li>
+<li>左移、右移。</li>
+<li>比较。</li>
+<li>生成状态标志。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["操作数A"] --&gt; C["ALU"]
+  B["操作数B"] --&gt; C
+  D["控制信号"] --&gt; C
+  C --&gt; E["运算结果"]
+  C --&gt; F["标志位"]
+</pre>
+<span class="heading-anchor" id="2. 半加器和全加器"></span><h2 id="2">2. 半加器和全加器</h2>
+<p>半加器输入两个 bit，输出 sum 和 carry。</p>
+<pre><code class="language-text">sum = A xor B
+carry = A and B
+</code></pre>
+<p>全加器多一个输入进位 <code>Cin</code>：</p>
+<pre><code class="language-text">sum = A xor B xor Cin
+Cout = majority(A, B, Cin)
+</code></pre>
+<pre class="mermaid">flowchart LR
+  A["A"] --&gt; D["Full Adder"]
+  B["B"] --&gt; D
+  C["Cin"] --&gt; D
+  D --&gt; E["Sum"]
+  D --&gt; F["Cout"]
+</pre>
+<p>多位加法器由多个全加器连接而成。</p>
+<span class="heading-anchor" id="3. 串行进位与先行进位"></span><h2 id="3">3. 串行进位与先行进位</h2>
+<p>串行进位加法器简单，但每一位要等低位进位传来。</p>
+<pre class="mermaid">flowchart LR
+  A["FA0"] --&gt; B["FA1"]
+  B --&gt; C["FA2"]
+  C --&gt; D["FA3"]
+</pre>
+<p>先行进位加法器通过提前计算进位生成和传递信号，加快进位计算。</p>
+<p>权衡：速度更快，但电路更复杂。</p>
+<span class="heading-anchor" id="4. 补码加减法"></span><h2 id="4">4. 补码加减法</h2>
+<p>补码减法：</p>
+<pre><code class="language-text">A - B = A + (-B)
+</code></pre>
+<p>而 <code>-B</code> 的补码可以通过 B 取反加 1 得到。</p>
+<pre class="mermaid">flowchart LR
+  A["B"] --&gt; B["按位取反"]
+  B --&gt; C["加1"]
+  C --&gt; D["-B补码"]
+  D --&gt; E["A加-D"]
+</pre>
+<p>因此硬件可以复用加法器做减法。</p>
+<span class="heading-anchor" id="5. 标志位"></span><h2 id="5">5. 标志位</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>标志位</th>
+<th>含义</th>
+<th>常见用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ZF</td>
+<td>Zero Flag，结果是否为 0</td>
+<td>相等判断</td>
+</tr>
+<tr>
+<td>CF</td>
+<td>Carry Flag，无符号进位或借位</td>
+<td>无符号溢出</td>
+</tr>
+<tr>
+<td>OF</td>
+<td>Overflow Flag，有符号溢出</td>
+<td>补码溢出</td>
+</tr>
+<tr>
+<td>SF</td>
+<td>Sign Flag，结果符号位</td>
+<td>正负判断</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart TD
+  A["ALU结果"] --&gt; B["是否为0 ZF"]
+  A --&gt; C["最高位 SF"]
+  A --&gt; D["进位 CF"]
+  A --&gt; E["有符号溢出 OF"]
+</pre>
+<span class="heading-anchor" id="6. 移位运算"></span><h2 id="6">6. 移位运算</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>逻辑左移</td>
+<td>低位补 0，常相当于乘 2</td>
+</tr>
+<tr>
+<td>逻辑右移</td>
+<td>高位补 0，适合无符号数</td>
+</tr>
+<tr>
+<td>算术右移</td>
+<td>高位补符号位，适合有符号数</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-text">00001100 &lt;&lt; 1 = 00011000
+00001100 &gt;&gt; 1 = 00000110
+</code></pre>
+<p>注意：移位可能丢失位，导致溢出或精度损失。</p>
+<span class="heading-anchor" id="7. 乘法硬件直觉"></span><h2 id="7">7. 乘法硬件直觉</h2>
+<p>二进制乘法可以看作移位加法。</p>
+<pre><code class="language-text">A * B
+检查 B 的每一位
+若该位为 1，就把 A 左移对应位后累加
+</code></pre>
+<pre class="mermaid">flowchart TD
+  A["乘数每一位"] --&gt; B{该位是否为1}
+  B -- 是 --&gt; C["被乘数左移后相加"]
+  B -- 否 --&gt; D["跳过"]
+  C --&gt; E["得到部分积和"]
+  D --&gt; E
+</pre>
+<span class="heading-anchor" id="8. 除法硬件直觉"></span><h2 id="8">8. 除法硬件直觉</h2>
+<p>二进制除法类似手算长除法：比较、减法、移位、产生商位。</p>
+<p>常见实现有恢复余数法、非恢复余数法等。</p>
+<span class="heading-anchor" id="9. 浮点运算流程"></span><h2 id="9">9. 浮点运算流程</h2>
+<p>浮点加法通常需要：</p>
+<pre class="mermaid">flowchart LR
+  A["比较阶码"] --&gt; B["对阶"]
+  B --&gt; C["尾数相加"]
+  C --&gt; D["规格化"]
+  D --&gt; E["舍入"]
+  E --&gt; F["检查溢出"]
+</pre>
+<p>浮点乘法通常需要：</p>
+<pre><code class="language-text">符号位异或
+阶码相加并修正偏置
+尾数相乘
+规格化和舍入
+</code></pre>
+<span class="heading-anchor" id="10. 常见坑"></span><h2 id="10">10. 常见坑</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CF 和 OF 混淆</td>
+<td>CF 看无符号，OF 看有符号</td>
+</tr>
+<tr>
+<td>算术右移和逻辑右移混淆</td>
+<td>负数右移要保符号</td>
+</tr>
+<tr>
+<td>乘法只看结果</td>
+<td>硬件通常分解为移位和加法</td>
+</tr>
+<tr>
+<td>浮点加法忽略对阶</td>
+<td>指数不同必须先对齐</td>
+</tr>
+<tr>
+<td>标志位来源不清</td>
+<td>标志位来自 ALU 运算结果</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>ALU 的输入输出是什么？</li>
+<li>全加器和半加器有什么区别？</li>
+<li>为什么补码减法可以用加法器完成？</li>
+<li>CF 和 OF 分别用于什么判断？</li>
+<li>浮点加法为什么要对阶？</li>
+</ol></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

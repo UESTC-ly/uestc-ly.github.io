@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>05. 索引原理与查询优化 · 李杨的学习笔记</title><meta name="description" content="本章让你从“查询慢就加索引”升级到“知道为什么加、加在哪里、代价是什么”。你将掌握："><meta property="og:title" content="05. 索引原理与查询优化 · 李杨的学习笔记"><meta property="og:description" content="本章让你从“查询慢就加索引”升级到“知道为什么加、加在哪里、代价是什么”。你将掌握："><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-05dc5d6e0a73.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-05dc5d6e0a73.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / 数据库原理</p><h1>05. 索引原理与查询优化</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/%E6%95%B0%E6%8D%AE%E5%BA%93%E5%8E%9F%E7%90%86/05-%E7%B4%A2%E5%BC%95%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">索引是什么</a></li><li><a href="#_3">索引不是免费午餐</a></li><li><a href="#_4">常见索引类型</a></li><li><a href="#_5">组合索引列顺序</a></li><li><a href="#_6">覆盖索引</a></li><li><a href="#_7">部分索引</a></li><li><a href="#_8">函数索引</a></li><li><a href="#_9">外键也需要索引</a></li><li><a href="#_10">分页优化</a></li><li><a href="#offset">OFFSET 分页</a></li><li><a href="#_11">游标分页</a></li><li><a href="#explain">EXPLAIN 入门</a></li><li><a href="#_12">查询优化顺序</a></li><li><a href="#_13">常见慢查询反模式</a></li><li><a href="#1">反模式 1：在索引列上做函数</a></li><li><a href="#2">反模式 2：模糊查询前缀通配</a></li><li><a href="#3-join">反模式 3：大 JOIN 后再过滤</a></li><li><a href="#4n1">反模式 4：N+1 查询</a></li><li><a href="#_14">索引设计清单</a></li><li><a href="#_15">本章练习</a></li><li><a href="#_16">深入展开：索引设计要从“访问路径”而不是“字段重要性”出发</a></li><li><a href="#1_1">1. 一条查询需要怎样的索引</a></li><li><a href="#2_1">2. 单列索引不等于组合索引</a></li><li><a href="#3">3. 选择性不是唯一标准</a></li><li><a href="#4-vs">4. 执行计划要看“估算 vs 实际”</a></li><li><a href="#5">5. 慢查询不一定是查询本身慢</a></li><li><a href="#6">6. 索引生命周期管理</a></li><li><a href="#7">7. 查询优化的完整流程</a></li><li><a href="#_17">思维导图</a></li><li><a href="#1_2">1. 索引的收益与代价</a></li><li><a href="#2_2">2. 组合索引设计</a></li><li><a href="#3_1">3. 慢查询优化流程</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>本章让你从“查询慢就加索引”升级到“知道为什么加、加在哪里、代价是什么”。你将掌握：</p>
+<ul>
+<li>索引的作用和成本。</li>
+<li>B-tree、GIN、BRIN 等索引的适用场景。</li>
+<li>组合索引列顺序。</li>
+<li>覆盖索引、部分索引、函数索引。</li>
+<li>如何用 <code>EXPLAIN</code> 分析查询。</li>
+<li>常见慢查询反模式。</li>
+</ul>
+<span class="heading-anchor" id="索引是什么"></span><h2 id="_2">索引是什么</h2>
+<p>索引是数据库维护的辅助数据结构，用空间和写入成本换读取速度。</p>
+<p>如果没有索引，查询可能需要扫描整张表：</p>
+<pre><code class="language-sql">SELECT * FROM customers WHERE email = 'ada@example.com';
+</code></pre>
+<p>有索引后，数据库可以像查字典一样快速定位：</p>
+<pre><code class="language-sql">CREATE INDEX idx_customers_email ON customers (email);
+</code></pre>
+<p>唯一约束通常也会创建唯一索引：</p>
+<pre><code class="language-sql">ALTER TABLE customers ADD CONSTRAINT customers_email_uq UNIQUE (email);
+</code></pre>
+<span class="heading-anchor" id="索引不是免费午餐"></span><h2 id="_3">索引不是免费午餐</h2>
+<p>索引的成本：</p>
+<ol>
+<li>占用磁盘空间。</li>
+<li>插入、更新、删除时需要维护索引。</li>
+<li>过多索引会拖慢写入。</li>
+<li>错误索引会让优化器误判或根本用不上。</li>
+</ol>
+<p>原则：围绕真实查询模式建立索引，而不是围绕字段名猜。</p>
+<span class="heading-anchor" id="常见索引类型"></span><h2 id="_4">常见索引类型</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>查询模式</th>
+<th>推荐索引</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WHERE col = ?</code></td>
+<td>B-tree</td>
+<td><code>CREATE INDEX ON users (email);</code></td>
+</tr>
+<tr>
+<td>范围查询</td>
+<td>B-tree</td>
+<td><code>CREATE INDEX ON orders (created_at);</code></td>
+</tr>
+<tr>
+<td>等值 + 范围</td>
+<td>组合 B-tree</td>
+<td><code>CREATE INDEX ON orders (status, created_at);</code></td>
+</tr>
+<tr>
+<td>JSONB 包含</td>
+<td>GIN</td>
+<td><code>CREATE INDEX ON events USING gin (payload);</code></td>
+</tr>
+<tr>
+<td>全文搜索</td>
+<td>GIN</td>
+<td><code>CREATE INDEX ON docs USING gin (search_vector);</code></td>
+</tr>
+<tr>
+<td>大型时间序列表</td>
+<td>BRIN</td>
+<td><code>CREATE INDEX ON logs USING brin (created_at);</code></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="组合索引列顺序"></span><h2 id="_5">组合索引列顺序</h2>
+<p>经验规则：等值列在前，范围列在后。</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_status_created
+ON orders (status, created_at);
+</code></pre>
+<p>适合：</p>
+<pre><code class="language-sql">SELECT *
+FROM orders
+WHERE status = 'paid'
+  AND created_at &gt;= now() - interval '30 days'
+ORDER BY created_at DESC;
+</code></pre>
+<p>如果查询经常只按 <code>created_at</code> 过滤，而不按 <code>status</code> 过滤，这个索引未必合适。组合索引要根据高频查询设计。</p>
+<span class="heading-anchor" id="覆盖索引"></span><h2 id="_6">覆盖索引</h2>
+<p>PostgreSQL 支持 <code>INCLUDE</code>：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_customer_created
+ON orders (customer_id, created_at)
+INCLUDE (status, total_amount);
+</code></pre>
+<p>如果查询只需要索引中已有字段，数据库有机会减少回表读取。</p>
+<p>适合：</p>
+<pre><code class="language-sql">SELECT status, total_amount, created_at
+FROM orders
+WHERE customer_id = 1
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<span class="heading-anchor" id="部分索引"></span><h2 id="_7">部分索引</h2>
+<p>只索引满足条件的行：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_pending_created
+ON orders (created_at)
+WHERE status = 'pending';
+</code></pre>
+<p>适合状态分布极不均匀的场景。例如 99% 订单都是已完成，只有少量 pending 需要频繁扫描。</p>
+<p>软删除唯一约束示例：</p>
+<pre><code class="language-sql">CREATE UNIQUE INDEX users_email_active_uq
+ON users (email)
+WHERE deleted_at IS NULL;
+</code></pre>
+<span class="heading-anchor" id="函数索引"></span><h2 id="_8">函数索引</h2>
+<p>如果查询对字段做函数变换，普通索引可能用不上。</p>
+<pre><code class="language-sql">CREATE INDEX idx_customers_lower_email
+ON customers (lower(email));
+</code></pre>
+<p>对应查询：</p>
+<pre><code class="language-sql">SELECT *
+FROM customers
+WHERE lower(email) = lower('Ada@Example.com');
+</code></pre>
+<p>更好的方式通常是在写入时规范化 email，再对规范化字段建索引。</p>
+<span class="heading-anchor" id="外键也需要索引"></span><h2 id="_9">外键也需要索引</h2>
+<p>很多数据库不会自动为外键列创建索引。没有外键索引会导致：</p>
+<ul>
+<li>父表删除或更新时检查慢。</li>
+<li>子表按父 ID 查询慢。</li>
+</ul>
+<p>建议：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_customer_id ON orders (customer_id);
+CREATE INDEX idx_order_items_order_id ON order_items (order_id);
+</code></pre>
+<span class="heading-anchor" id="分页优化"></span><h2 id="_10">分页优化</h2>
+<span class="heading-anchor" id="OFFSET 分页"></span><h3 id="offset">OFFSET 分页</h3>
+<pre><code class="language-sql">SELECT *
+FROM orders
+ORDER BY id
+LIMIT 20 OFFSET 100000;
+</code></pre>
+<p>问题：数据库仍然要跳过前 100000 行，越往后越慢。</p>
+<span class="heading-anchor" id="游标分页"></span><h3 id="_11">游标分页</h3>
+<pre><code class="language-sql">SELECT *
+FROM orders
+WHERE id &gt; 100000
+ORDER BY id
+LIMIT 20;
+</code></pre>
+<p>更适合无限滚动和稳定排序。实际业务中常用 <code>(created_at, id)</code> 组合游标，避免时间重复。</p>
+<pre><code class="language-sql">SELECT *
+FROM orders
+WHERE (created_at, id) &lt; ('2026-04-01 10:00:00+08', 12345)
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+</code></pre>
+<p>对应索引：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_created_id_desc
+ON orders (created_at DESC, id DESC);
+</code></pre>
+<span class="heading-anchor" id="EXPLAIN 入门"></span><h2 id="explain">EXPLAIN 入门</h2>
+<p>PostgreSQL：</p>
+<pre><code class="language-sql">EXPLAIN ANALYZE
+SELECT *
+FROM orders
+WHERE status = 'paid'
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>重点看：</p>
+<ul>
+<li>是否 Seq Scan 全表扫描。</li>
+<li>是否 Index Scan / Index Only Scan。</li>
+<li>估算行数与实际行数差距是否很大。</li>
+<li>排序是否使用内存或落盘。</li>
+<li>总耗时主要在哪个节点。</li>
+</ul>
+<p><code>EXPLAIN ANALYZE</code> 会真实执行查询。对写操作使用时要放在事务里并回滚，或在测试环境执行。</p>
+<span class="heading-anchor" id="查询优化顺序"></span><h2 id="_12">查询优化顺序</h2>
+<ol>
+<li>先确认查询返回结果是否正确。</li>
+<li>用 <code>EXPLAIN</code> 看执行计划。</li>
+<li>确认过滤条件、JOIN 条件、排序条件。</li>
+<li>检查是否缺索引或索引顺序错误。</li>
+<li>检查统计信息是否过期。</li>
+<li>减少返回列，避免 <code>SELECT *</code>。</li>
+<li>分页改游标。</li>
+<li>必要时重构模型或引入汇总表。</li>
+</ol>
+<p>不要第一步就调数据库参数。</p>
+<span class="heading-anchor" id="常见慢查询反模式"></span><h2 id="_13">常见慢查询反模式</h2>
+<span class="heading-anchor" id="反模式 1：在索引列上做函数"></span><h3 id="1">反模式 1：在索引列上做函数</h3>
+<pre><code class="language-sql">WHERE date(created_at) = '2026-04-27'
+</code></pre>
+<p>更好：</p>
+<pre><code class="language-sql">WHERE created_at &gt;= '2026-04-27 00:00:00+08'
+  AND created_at &lt;  '2026-04-28 00:00:00+08'
+</code></pre>
+<span class="heading-anchor" id="反模式 2：模糊查询前缀通配"></span><h3 id="2">反模式 2：模糊查询前缀通配</h3>
+<pre><code class="language-sql">WHERE name LIKE '%phone%'
+</code></pre>
+<p>普通 B-tree 难以利用。应考虑全文搜索、trigram 索引或搜索引擎。</p>
+<span class="heading-anchor" id="反模式 3：大 JOIN 后再过滤"></span><h3 id="3-join">反模式 3：大 JOIN 后再过滤</h3>
+<p>先缩小数据集，再连接。把过滤条件尽量放到能减少行数的位置。</p>
+<span class="heading-anchor" id="反模式 4：N+1 查询"></span><h3 id="4n1">反模式 4：N+1 查询</h3>
+<p>应用层循环查询：</p>
+<pre><code class="language-text">查 20 个订单 -&gt; 每个订单再查一次明细 -&gt; 共 21 次查询
+</code></pre>
+<p>可以用 JOIN、批量查询或预加载解决。</p>
+<span class="heading-anchor" id="索引设计清单"></span><h2 id="_14">索引设计清单</h2>
+<ul>
+<li>[ ] 索引来自真实查询，而不是猜测。</li>
+<li>[ ] 高频 WHERE 条件有合适索引。</li>
+<li>[ ] JOIN 外键列有索引。</li>
+<li>[ ] ORDER BY + LIMIT 有匹配索引。</li>
+<li>[ ] 组合索引列顺序符合查询模式。</li>
+<li>[ ] 低选择性字段不单独滥建索引。</li>
+<li>[ ] 写多读少表控制索引数量。</li>
+<li>[ ] 大表建索引考虑并发/在线方式，见 <a href="n-56eb1bc503be.html">10-迁移版本化与零停机变更</a>。</li>
+</ul>
+<span class="heading-anchor" id="本章练习"></span><h2 id="_15">本章练习</h2>
+<ol>
+<li>给“按客户查看最近订单”设计索引。</li>
+<li>给“查询 pending 订单队列”设计部分索引。</li>
+<li>把 OFFSET 分页改成游标分页。</li>
+<li>找一个慢 SQL，写出你会如何用 <code>EXPLAIN</code> 分析。</li>
+</ol>
+<p>下一章：<a href="n-b8e8ece60f53.html">06-存储引擎日志与恢复</a>。</p>
+<span class="heading-anchor" id="深入展开：索引设计要从“访问路径”而不是“字段重要性”出发"></span><h2 id="_16">深入展开：索引设计要从“访问路径”而不是“字段重要性”出发</h2>
+<p>很多初学者看到字段就想建索引：<code>user_id</code> 重要，建；<code>status</code> 重要，建；<code>created_at</code> 重要，建。真正的索引设计不是按字段重要性，而是按查询访问路径。</p>
+<span class="heading-anchor" id="1. 一条查询需要怎样的索引"></span><h3 id="1_1">1. 一条查询需要怎样的索引</h3>
+<p>查询：</p>
+<pre><code class="language-sql">SELECT id, status, total_amount, created_at
+FROM orders
+WHERE user_id = 42
+ORDER BY created_at DESC
+LIMIT 20;
+</code></pre>
+<p>访问路径是：先定位某个用户的订单，再按创建时间倒序取前 20 条。合适索引是：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_user_created
+ON orders(user_id, created_at DESC)
+INCLUDE(status, total_amount);
+</code></pre>
+<p><code>user_id</code> 用于等值过滤，<code>created_at</code> 用于排序和截断，<code>INCLUDE</code> 字段让查询有机会减少回表。</p>
+<span class="heading-anchor" id="2. 单列索引不等于组合索引"></span><h3 id="2_1">2. 单列索引不等于组合索引</h3>
+<p>有三个单列索引：</p>
+<pre><code class="language-sql">CREATE INDEX ON orders(user_id);
+CREATE INDEX ON orders(status);
+CREATE INDEX ON orders(created_at);
+</code></pre>
+<p>不等于有一个适合下面查询的组合索引：</p>
+<pre><code class="language-sql">WHERE user_id = ? AND status = ?
+ORDER BY created_at DESC
+LIMIT 20
+</code></pre>
+<p>数据库有时可以合并索引，但通常不如一个贴合访问路径的组合索引稳定。组合索引能同时支持过滤和排序，这对分页查询尤其重要。</p>
+<span class="heading-anchor" id="3. 选择性不是唯一标准"></span><h3 id="3">3. 选择性不是唯一标准</h3>
+<p><code>status</code> 只有几个值，单列索引选择性低，通常收益有限。但部分索引可能很有价值：</p>
+<pre><code class="language-sql">CREATE INDEX idx_orders_pending_created
+ON orders(created_at)
+WHERE status = 'pending';
+</code></pre>
+<p>如果 pending 只占 0.1%，后台频繁扫描 pending 订单，这个索引非常小且高效。</p>
+<span class="heading-anchor" id="4. 执行计划要看“估算 vs 实际”"></span><h3 id="4-vs">4. 执行计划要看“估算 vs 实际”</h3>
+<p><code>EXPLAIN ANALYZE</code> 中如果 estimated rows 和 actual rows 差距很大，说明优化器误判了数据量。可能原因：统计信息过期、数据分布倾斜、多列相关性强。</p>
+<p>这种情况下，加索引不一定是第一步。可能先要：</p>
+<pre><code class="language-sql">ANALYZE orders;
+</code></pre>
+<p>或者提高统计目标、建立扩展统计、重写查询。</p>
+<span class="heading-anchor" id="5. 慢查询不一定是查询本身慢"></span><h3 id="5">5. 慢查询不一定是查询本身慢</h3>
+<p>有时 SQL 执行时间长，是因为：</p>
+<ul>
+<li>等锁。</li>
+<li>连接池排队。</li>
+<li>返回数据太多，网络传输慢。</li>
+<li>应用层 N+1。</li>
+<li>数据库缓存被报表查询污染。</li>
+<li>磁盘 I/O 饱和。</li>
+</ul>
+<p>所以排查慢查询时，要同时看数据库执行计划和系统指标。只盯 SQL 文本会漏掉很多问题。</p>
+<span class="heading-anchor" id="6. 索引生命周期管理"></span><h3 id="6">6. 索引生命周期管理</h3>
+<p>索引不是建完就结束。随着业务变化，旧索引可能没人用，新查询可能缺索引。</p>
+<p>定期检查：</p>
+<ul>
+<li>哪些索引长期未使用。</li>
+<li>哪些索引重复或可合并。</li>
+<li>哪些索引过大。</li>
+<li>写入热点表是否索引太多。</li>
+<li>新增接口是否引入慢查询。</li>
+</ul>
+<p>删除索引也要谨慎。低频月结报表索引可能平时使用次数少，但业务重要。删除前要确认用途，最好在预发或灰度环境验证。</p>
+<span class="heading-anchor" id="7. 查询优化的完整流程"></span><h3 id="7">7. 查询优化的完整流程</h3>
+<pre><code class="language-text">确认业务语义 -&gt; 查看执行计划 -&gt; 检查数据量和选择性 -&gt; 设计/调整索引 -&gt; 验证执行计划 -&gt; 压测或观察 -&gt; 固化监控
+</code></pre>
+<p>不要凭感觉加索引。每个索引都应该能回答：它服务哪条查询？减少了什么成本？增加了什么写入代价？</p>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_17">思维导图</h2>
+<blockquote>
+<p>记忆建议：索引不是给“重要字段”建的，而是给“稳定高频访问路径”建的。</p>
+</blockquote>
+<span class="heading-anchor" id="1. 索引的收益与代价"></span><h3 id="1_2">1. 索引的收益与代价</h3>
+<pre class="mermaid">mindmap
+  root((索引))
+    收益
+      缩小扫描范围
+      支持排序
+      覆盖查询
+    代价
+      占用空间
+      降低写入速度
+      维护成本
+    类型
+      BTree
+      组合索引
+      部分索引
+      函数索引
+</pre>
+<span class="heading-anchor" id="2. 组合索引设计"></span><h3 id="2_2">2. 组合索引设计</h3>
+<pre class="mermaid">flowchart LR
+  A["分析WHERE ORDER BY LIMIT"] --&gt; B["等值过滤列靠前"]
+  B --&gt; C["范围列通常靠后"]
+  C --&gt; D["排序列尽量接上"]
+  D --&gt; E["必要时覆盖查询列"]
+  E --&gt; F["用EXPLAIN ANALYZE验证"]
+</pre>
+<span class="heading-anchor" id="3. 慢查询优化流程"></span><h3 id="3_1">3. 慢查询优化流程</h3>
+<pre class="mermaid">flowchart TD
+  A["发现慢查询"] --&gt; B["确认频率和总耗时"]
+  B --&gt; C["查看执行计划"]
+  C --&gt; D["比较估算与实际行数"]
+  D --&gt; E["检查索引和过滤顺序"]
+  E --&gt; F["排查N+1和大分页"]
+  F --&gt; G["上线后复测和清理无用索引"]
+</pre></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

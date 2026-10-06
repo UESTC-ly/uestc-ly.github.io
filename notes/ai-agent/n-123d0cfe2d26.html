@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>10. LLMOps 与生产部署 · 李杨的学习笔记</title><meta name="description" content="LLMOps 是把 LLM 和 Agent 系统稳定、可控、可观测、可回滚地运行在生产环境中的工程体系。"><meta property="og:title" content="10. LLMOps 与生产部署 · 李杨的学习笔记"><meta property="og:description" content="LLMOps 是把 LLM 和 Agent 系统稳定、可控、可观测、可回滚地运行在生产环境中的工程体系。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-123d0cfe2d26.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-123d0cfe2d26.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">LLM / agent</p><h1>10. LLMOps 与生产部署</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/LLM/agent/10-LLMOps%E4%B8%8E%E7%94%9F%E4%BA%A7%E9%83%A8%E7%BD%B2.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">一句话总纲</a></li><li><a href="#_3">思维导图</a></li><li><a href="#1-demo">1. Demo 与生产的差距</a></li><li><a href="#2">2. 生产架构总览</a></li><li><a href="#3">3. 模型路由</a></li><li><a href="#4">4. 缓存策略</a></li><li><a href="#5">5. 限流、超时与重试</a></li><li><a href="#6">6. 版本管理</a></li><li><a href="#7-ab">7. 灰度和 A/B 测试</a></li><li><a href="#8">8. 监控指标</a></li><li><a href="#9">9. 降级策略</a></li><li><a href="#10">10. 数据闭环</a></li><li><a href="#11">11. 学习自检</a></li><li><a href="#_4">参考</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>读完本章，你应该能回答：</p>
+<ol>
+<li>Agent 从 demo 到生产要补齐哪些工程能力？</li>
+<li>如何控制模型成本、延迟和稳定性？</li>
+<li>如何做模型路由、缓存、限流、灰度和回滚？</li>
+<li>生产 Agent 的监控指标有哪些？</li>
+</ol>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_2">一句话总纲</h2>
+<p>LLMOps 是把 LLM 和 Agent 系统稳定、可控、可观测、可回滚地运行在生产环境中的工程体系。</p>
+<blockquote>
+<p>记忆口诀：<strong>能跑 Demo 不难，难的是低成本、低延迟、可监控、可回滚、可持续改进。</strong></p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_3">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((LLMOps))
+    可靠性
+      Retry
+      Timeout
+      Fallback
+      Circuit Breaker
+    成本
+      Model Routing
+      Cache
+      Token Budget
+      Batch
+    发布
+      Versioning
+      Canary
+      A B Test
+      Rollback
+    监控
+      Latency
+      Cost
+      Error Rate
+      Task Success
+      Safety Events
+</pre>
+<span class="heading-anchor" id="1. Demo 与生产的差距"></span><h2 id="1-demo">1. Demo 与生产的差距</h2>
+<p>Demo 只需要一次成功。生产需要长期稳定。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>Demo</th>
+<th>生产</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>错误处理</td>
+<td>打印错误</td>
+<td>重试、降级、告警</td>
+</tr>
+<tr>
+<td>成本控制</td>
+<td>不关注</td>
+<td>预算、缓存、模型路由</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>Prompt 约束</td>
+<td>权限、审批、审计、沙箱</td>
+</tr>
+<tr>
+<td>状态</td>
+<td>内存变量</td>
+<td>持久化、checkpoint</td>
+</tr>
+<tr>
+<td>评估</td>
+<td>手工试用</td>
+<td>回归集和线上指标</td>
+</tr>
+<tr>
+<td>发布</td>
+<td>直接改</td>
+<td>灰度、A/B、回滚</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="2. 生产架构总览"></span><h2 id="2">2. 生产架构总览</h2>
+<pre class="mermaid">flowchart TD
+  A["用户请求"] --&gt; B["API Gateway"]
+  B --&gt; C["Auth和Rate Limit"]
+  C --&gt; D["Agent Orchestrator"]
+  D --&gt; E["Model Router"]
+  D --&gt; F["Tool Gateway"]
+  D --&gt; G["Memory和State Store"]
+  D --&gt; H["Eval和Guardrails"]
+  E --&gt; I["LLM Provider"]
+  F --&gt; J["外部系统"]
+  D --&gt; K["Tracing和Metrics"]
+</pre>
+<span class="heading-anchor" id="3. 模型路由"></span><h2 id="3">3. 模型路由</h2>
+<p>不同任务使用不同模型，可以降低成本和延迟。</p>
+<pre class="mermaid">flowchart TD
+  A["请求"] --&gt; B{复杂度判断}
+  B -- 简单 --&gt; C["小模型"]
+  B -- 中等 --&gt; D["标准模型"]
+  B -- 高风险或复杂 --&gt; E["强模型"]
+  C --&gt; F["输出"]
+  D --&gt; F
+  E --&gt; F
+</pre>
+<p>路由依据：</p>
+<ul>
+<li>任务复杂度。</li>
+<li>是否需要工具调用。</li>
+<li>是否高风险。</li>
+<li>用户等级。</li>
+<li>延迟要求。</li>
+<li>历史失败率。</li>
+</ul>
+<span class="heading-anchor" id="4. 缓存策略"></span><h2 id="4">4. 缓存策略</h2>
+<p>缓存可以降低成本和延迟，但要小心缓存错误和权限问题。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>缓存类型</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prompt Cache</td>
+<td>相同系统指令或长上下文前缀</td>
+</tr>
+<tr>
+<td>Response Cache</td>
+<td>相同问题和上下文的答案</td>
+</tr>
+<tr>
+<td>Retrieval Cache</td>
+<td>相同 query 的检索结果</td>
+</tr>
+<tr>
+<td>Tool Cache</td>
+<td>只读 API 查询结果</td>
+</tr>
+<tr>
+<td>Embedding Cache</td>
+<td>文本到向量结果</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart LR
+  A["请求"] --&gt; B{缓存命中}
+  B -- 是 --&gt; C["返回缓存"]
+  B -- 否 --&gt; D["调用模型或工具"]
+  D --&gt; E["写入缓存"]
+  E --&gt; F["返回"]
+</pre>
+<p>注意：涉及用户权限、实时数据、个性化答案时，缓存 key 必须包含权限和版本信息。</p>
+<span class="heading-anchor" id="5. 限流、超时与重试"></span><h2 id="5">5. 限流、超时与重试</h2>
+<pre class="mermaid">flowchart TD
+  A["请求进入"] --&gt; B["Rate Limit"]
+  B --&gt; C["Timeout控制"]
+  C --&gt; D{调用失败}
+  D -- 可重试 --&gt; E["指数退避"]
+  D -- 不可重试 --&gt; F["降级或返回错误"]
+  E --&gt; C
+</pre>
+<p>重试原则：</p>
+<ul>
+<li>网络超时可重试。</li>
+<li>限流应指数退避。</li>
+<li>写操作必须幂等。</li>
+<li>参数错误不应盲目重试。</li>
+<li>多次失败后熔断。</li>
+</ul>
+<span class="heading-anchor" id="6. 版本管理"></span><h2 id="6">6. 版本管理</h2>
+<p>需要版本化的对象：</p>
+<ul>
+<li>模型版本。</li>
+<li>Prompt 版本。</li>
+<li>工具 schema 版本。</li>
+<li>RAG 索引版本。</li>
+<li>评估集版本。</li>
+<li>工作流图版本。</li>
+<li>微调 adapter 版本。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+  A["版本变更"] --&gt; B["运行回归测试"]
+  B --&gt; C["灰度发布"]
+  C --&gt; D["监控指标"]
+  D --&gt; E{是否退化}
+  E -- 是 --&gt; F["回滚"]
+  E -- 否 --&gt; G["扩大流量"]
+</pre>
+<span class="heading-anchor" id="7. 灰度和 A/B 测试"></span><h2 id="7-ab">7. 灰度和 A/B 测试</h2>
+<p>灰度发布：先给少量流量使用新版本，观察指标。<br/>
+A/B 测试：同时比较两个版本在真实流量下的效果。</p>
+<p>要比较：</p>
+<ul>
+<li>成功率。</li>
+<li>用户满意度。</li>
+<li>延迟。</li>
+<li>成本。</li>
+<li>工具错误率。</li>
+<li>安全事件。</li>
+<li>人类接管率。</li>
+</ul>
+<span class="heading-anchor" id="8. 监控指标"></span><h2 id="8">8. 监控指标</h2>
+<pre class="mermaid">mindmap
+  root((生产监控))
+    质量
+      成功率
+      用户反馈
+      回答正确率
+    性能
+      p50延迟
+      p95延迟
+      超时率
+    成本
+      token消耗
+      单任务成本
+      模型调用次数
+    工具
+      错误率
+      重试率
+      审批率
+    安全
+      拒绝率
+      越权尝试
+      注入检测
+</pre>
+<span class="heading-anchor" id="9. 降级策略"></span><h2 id="9">9. 降级策略</h2>
+<p>当模型、工具或检索服务不可用时，需要降级。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>故障</th>
+<th>降级方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>强模型不可用</td>
+<td>切换备用模型</td>
+</tr>
+<tr>
+<td>RAG 检索失败</td>
+<td>提示无法访问知识库，不编造</td>
+</tr>
+<tr>
+<td>Rerank 超时</td>
+<td>使用初始检索排序</td>
+</tr>
+<tr>
+<td>写工具失败</td>
+<td>创建草稿或请求人工处理</td>
+</tr>
+<tr>
+<td>成本超预算</td>
+<td>限制长上下文或转小模型</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10. 数据闭环"></span><h2 id="10">10. 数据闭环</h2>
+<p>生产 Agent 应持续从失败中改进。</p>
+<pre class="mermaid">flowchart LR
+  A["线上日志"] --&gt; B["失败归因"]
+  B --&gt; C["标注样本"]
+  C --&gt; D["更新评估集"]
+  D --&gt; E["修复系统"]
+  E --&gt; F["回归测试"]
+  F --&gt; G["灰度上线"]
+  G --&gt; A
+</pre>
+<span class="heading-anchor" id="11. 学习自检"></span><h2 id="11">11. 学习自检</h2>
+<ol>
+<li>LLMOps 和普通 DevOps 有什么不同？</li>
+<li>模型路由如何降低成本？</li>
+<li>缓存为什么要考虑权限和版本？</li>
+<li>哪些对象需要版本化？</li>
+<li>生产 Agent 常见降级策略有哪些？</li>
+</ol>
+<span class="heading-anchor" id="参考"></span><h2 id="_4">参考</h2>
+<ul>
+<li>OpenAI Agents SDK Tracing: https://platform.openai.com/docs/guides/agents-sdk/</li>
+<li>OpenAI Evals: https://github.com/openai/evals</li>
+<li>LangGraph Persistence: https://docs.langchain.com/oss/python/langgraph/persistence</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

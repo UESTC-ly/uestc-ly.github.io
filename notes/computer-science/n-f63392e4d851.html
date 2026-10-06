@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>信息检索与搜索引擎：向量检索与混合搜索 · 李杨的学习笔记</title><meta name="description" content="向量检索补足语义召回，关键词检索保证精确匹配，混合搜索常优于单一路径。"><meta property="og:title" content="信息检索与搜索引擎：向量检索与混合搜索 · 李杨的学习笔记"><meta property="og:description" content="向量检索补足语义召回，关键词检索保证精确匹配，混合搜索常优于单一路径。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-f63392e4d851.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-f63392e4d851.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script type="module" src="../render-diagrams.js"></script><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">补充 / 信息检索与搜索引擎</p><h1>信息检索与搜索引擎：向量检索与混合搜索</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E8%A1%A5%E5%85%85/%E4%BF%A1%E6%81%AF%E6%A3%80%E7%B4%A2%E4%B8%8E%E6%90%9C%E7%B4%A2%E5%BC%95%E6%93%8E/04-%E5%90%91%E9%87%8F%E6%A3%80%E7%B4%A2%E4%B8%8E%E6%B7%B7%E5%90%88%E6%90%9C%E7%B4%A2.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_2">学习目标</a></li><li><a href="#_3">一句话总纲</a></li><li><a href="#_4">记忆口诀</a></li><li><a href="#_5">思维导图</a></li><li><a href="#mermaid">Mermaid 图解：核心流程</a></li><li><a href="#_6">底层原则</a></li><li><a href="#_7">分章节讲解</a></li><li><a href="#1-embedding">1. Embedding</a></li><li><a href="#2-ann">2. ANN</a></li><li><a href="#3">3. 混合检索</a></li><li><a href="#4-rag">4. RAG 检索</a></li><li><a href="#_8">召回链路视角</a></li><li><a href="#_9">关键对比表</a></li><li><a href="#_10">混合方案对照表</a></li><li><a href="#_11">常见误区总结</a></li><li><a href="#_12">自检题</a></li><li><a href="#_13">速记卡片</a></li><li><a href="#_14">深度扩展：底层原理与应用边界</a></li><li><a href="#1">1. 本章在「信息检索与搜索引擎」中的位置</a></li><li><a href="#2">2. 小流程图：从概念到应用</a></li><li><a href="#3_1">3. 概念深化：逐个击破</a></li><li><a href="#4">4. 适用边界对比表</a></li><li><a href="#5">5. 记忆强化：三层复述法</a></li><li><a href="#6">6. 工程/做题/面试迁移</a></li><li><a href="#7">7. 深度自检题</a></li><li><a href="#8">8. 深度速记卡片</a></li><li><a href="#_15">专题深化：具体机制、案例与追问</a></li><li><a href="#1_1">1. 具体案例：把「向量检索与混合搜索」放进真实问题</a></li><li><a href="#2_1">2. 本章关键机制细化</a></li><li><a href="#3_2">3. 概念到判断的检查清单</a></li><li><a href="#4_1">4. 面试追问路径</a></li><li><a href="#5_1">5. 验证与复盘</a></li><li><a href="#ann-rag">本轮扩写：ANN、混合召回与 RAG 失败模式</a></li><li><a href="#1-ann">1. ANN 的核心权衡是召回率、延迟和内存</a></li><li><a href="#2_2">2. 混合检索不是简单相加</a></li><li><a href="#3-rag">3. RAG 检索失败模式</a></li><li><a href="#4_2">4. 评测闭环</a></li><li><a href="#5_2">5. 面试追问路径</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="学习目标"></span><h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握 Embedding、ANN、HNSW、RAG 检索和混合排序。</li>
+<li>能画出本章核心流程图，并能用自己的话解释每个节点。</li>
+<li>能说出适用场景、边界条件、召回损失和常见误区。</li>
+</ul>
+<span class="heading-anchor" id="一句话总纲"></span><h2 id="_3">一句话总纲</h2>
+<p>向量检索补足语义召回，关键词检索保证精确匹配，混合搜索常优于单一路径。</p>
+<span class="heading-anchor" id="记忆口诀"></span><h2 id="_4">记忆口诀</h2>
+<blockquote>
+<p>词面保精确，向量补语义，融合稳效果</p>
+</blockquote>
+<span class="heading-anchor" id="思维导图"></span><h2 id="_5">思维导图</h2>
+<pre class="mermaid">mindmap
+  root((向量检索与混合搜索))
+    核心概念
+      Embedding
+      ANN
+      混合检索
+      RAG 检索
+    学习动作
+      先定义
+      再画流程
+      比较适用
+      复述误区
+    输出能力
+      能解释
+      能判断
+      能应用
+      能排错
+</pre>
+<span class="heading-anchor" id="Mermaid 图解：核心流程"></span><h2 id="mermaid">Mermaid 图解：核心流程</h2>
+<pre class="mermaid">flowchart LR
+  A["Embedding"]
+  B["ANN"]
+  C["召回"]
+  D["融合"]
+  E["评估"]
+  A --&gt; B --&gt; C --&gt; D --&gt; E
+</pre>
+<span class="heading-anchor" id="底层原则"></span><h2 id="_6">底层原则</h2>
+<ul>
+<li><strong>语义补盲，词面保真：</strong> 关键词检索擅长精确命中，向量检索擅长捕获改写和同义表达。</li>
+<li><strong>向量不是万能语义理解：</strong> 向量近并不等于业务相关，也不等于用户真的想要。</li>
+<li><strong>近似检索是工程折中：</strong> ANN 用可控的近似换吞吐和延迟，核心是调节召回与性能的平衡。</li>
+<li><strong>混合方案通常更稳：</strong> 只用一种召回方式很容易在长尾、歧义或结构化查询上失分。</li>
+</ul>
+<span class="heading-anchor" id="分章节讲解"></span><h2 id="_7">分章节讲解</h2>
+<span class="heading-anchor" id="1. Embedding"></span><h3 id="1-embedding">1. Embedding</h3>
+<p><strong>核心定义：</strong> Embedding 把文本映射到稠密向量，使语义相近内容在向量空间中距离更近。</p>
+<p><strong>工程理解：</strong>
+- Embedding 是把离散文本映射到连续空间的表示学习结果。
+- 其质量依赖模型、训练语料和任务对齐方式。
+- 如果 embedding 目标和业务目标不一致，向量再好看也可能召回不对。</p>
+<p><strong>适用场景：</strong>
+- 语义相似度搜索。
+- 同义改写和表达不一致的召回。
+- 文本聚类、推荐和多模态检索。</p>
+<p><strong>常见误区：</strong> Embedding 质量依赖模型和训练语料；向量相近不一定符合业务相关性。</p>
+<span class="heading-anchor" id="2. ANN"></span><h3 id="2-ann">2. ANN</h3>
+<p><strong>核心定义：</strong> 近似最近邻用牺牲少量精确性换取大规模向量检索速度，常见结构包括 HNSW、IVF 等。</p>
+<p><strong>工程理解：</strong>
+- ANN 的本质是让“最接近”变成“足够接近”。
+- 常见指标不是只有查询速度，还包括召回率、延迟抖动、内存占用和构建成本。
+- HNSW 更像图搜索，IVF 更像分桶检索，不同结构的调优思路不同。</p>
+<p><strong>适用场景：</strong>
+- 百万到亿级向量检索。
+- 对延迟有要求，但允许少量近似损失。
+- 需要通过索引结构换取实时查询能力。</p>
+<p><strong>常见误区：</strong> ANN 参数会影响召回率、延迟和内存；不能只看查询速度。</p>
+<span class="heading-anchor" id="3. 混合检索"></span><h3 id="3">3. 混合检索</h3>
+<p><strong>核心定义：</strong> 混合检索结合 BM25 与向量召回，再用融合或重排得到最终结果。</p>
+<p><strong>工程理解：</strong>
+- 混合检索不是把两个结果直接拼起来，而是要处理分值归一化、去重、权重协调和冲突消解。
+- 它的目标是同时拿到“词面精确性”和“语义覆盖率”。
+- 如果只加一个向量通道但没有评估，系统可能看起来更“智能”，实际却更不稳定。</p>
+<p><strong>适用场景：</strong>
+- 既有明确关键词也有模糊语义查询。
+- 内容长尾大、表达差异大。
+- 需要兼顾结构化信息和语义信息。</p>
+<p><strong>常见误区：</strong> 简单拼接结果可能重复或权重失衡；需要归一化和评估。</p>
+<span class="heading-anchor" id="4. RAG 检索"></span><h3 id="4-rag">4. RAG 检索</h3>
+<p><strong>核心定义：</strong> RAG 中检索质量直接影响生成答案，需关注切块、召回、重排、引用和新鲜度。</p>
+<p><strong>工程理解：</strong>
+- RAG 中最危险的不是“模型不会说”，而是“模型拿到了错误上下文”。
+- 检索切块过大，会稀释精确信号；切块过小，会丢失上下文。
+- 引用和可追溯性在 RAG 场景里非常重要，因为检索结果本身就是答案依据的一部分。</p>
+<p><strong>适用场景：</strong>
+- 知识库问答。
+- 文档辅助生成。
+- 需要新鲜信息和可引用证据的问答系统。</p>
+<p><strong>常见误区：</strong> 只提高生成模型能力不能弥补错误检索上下文。</p>
+<span class="heading-anchor" id="召回链路视角"></span><h2 id="_8">召回链路视角</h2>
+<pre class="mermaid">flowchart TB
+  Q["查询文本"]
+  K["关键词召回"]
+  V["向量召回"]
+  F["分数融合"]
+  R["重排序"]
+  O["最终结果"]
+  Q --&gt; K --&gt; F --&gt; R --&gt; O
+  Q --&gt; V --&gt; F
+</pre>
+<span class="heading-anchor" id="关键对比表"></span><h2 id="_9">关键对比表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>正确理解</th>
+<th>适用场景</th>
+<th>常见误区</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Embedding</td>
+<td>把文本映射到稠密向量，语义相近内容更接近。</td>
+<td>语义搜索、推荐、聚类。</td>
+<td>向量相近不等于业务相关。</td>
+</tr>
+<tr>
+<td>ANN</td>
+<td>用近似换速度，关注召回、延迟和内存的平衡。</td>
+<td>大规模向量检索。</td>
+<td>只看查询快不看召回损失。</td>
+</tr>
+<tr>
+<td>混合检索</td>
+<td>关键词与向量互补，需做融合和归一化。</td>
+<td>词面与语义都重要的场景。</td>
+<td>结果简单拼接就能最优。</td>
+</tr>
+<tr>
+<td>RAG 检索</td>
+<td>检索质量决定生成质量，需关注切块、引用和新鲜度。</td>
+<td>知识库问答、辅助生成。</td>
+<td>只调大模型就能解决坏检索。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="混合方案对照表"></span><h2 id="_10">混合方案对照表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>风险</th>
+<th>常用判断</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只用 BM25</td>
+<td>精确、稳定、解释性强</td>
+<td>语义改写召回差</td>
+<td>结构化查询多时适合。</td>
+</tr>
+<tr>
+<td>只用向量</td>
+<td>语义覆盖强</td>
+<td>精确匹配和可解释性弱</td>
+<td>自然语言查询多时有优势。</td>
+</tr>
+<tr>
+<td>先各自召回再融合</td>
+<td>覆盖广、鲁棒性好</td>
+<td>融合复杂、调参成本高</td>
+<td>大多数生产系统的默认选择。</td>
+</tr>
+<tr>
+<td>混合后重排</td>
+<td>精度高、排序更稳</td>
+<td>延迟更高</td>
+<td>候选不太大时更划算。</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区总结"></span><h2 id="_11">常见误区总结</h2>
+<ul>
+<li><strong>Embedding：</strong> Embedding 质量依赖模型和训练语料；向量相近不一定符合业务相关性。</li>
+<li><strong>ANN：</strong> ANN 参数会影响召回率、延迟和内存；不能只看查询速度。</li>
+<li><strong>混合检索：</strong> 简单拼接结果可能重复或权重失衡；需要归一化和评估。</li>
+<li><strong>RAG 检索：</strong> 只提高生成模型能力不能弥补错误检索上下文。</li>
+</ul>
+<span class="heading-anchor" id="自检题"></span><h2 id="_12">自检题</h2>
+<ol>
+<li>本章的核心问题是什么？请用一句话回答：向量检索补足语义召回，关键词检索保证精确匹配，混合搜索常优于单一路径。</li>
+<li>为什么很多生产系统会把 BM25 和向量检索放在一起？</li>
+<li>ANN 为什么是“近似”而不是“完全精确”？</li>
+<li>你能说出混合检索里分数融合最常见的两个坑吗？</li>
+<li>哪个误区最容易在面试或工程实践中出现？为什么？</li>
+</ol>
+<span class="heading-anchor" id="速记卡片"></span><h2 id="_13">速记卡片</h2>
+<ul>
+<li>章节口诀：词面保精确，向量补语义，融合稳效果</li>
+<li>答题结构：定义 → 机制 → 场景 → 权衡 → 误区。</li>
+<li>复习动作：遮住正文，只根据思维导图复述一遍。</li>
+</ul>
+<span class="heading-anchor" id="深度扩展：底层原理与应用边界"></span><h2 id="_14">深度扩展：底层原理与应用边界</h2>
+<span class="heading-anchor" id="1. 本章在「信息检索与搜索引擎」中的位置"></span><h3 id="1">1. 本章在「信息检索与搜索引擎」中的位置</h3>
+<ul>
+<li><strong>核心定位：</strong> 通过索引、召回、排序和评估，从大规模内容中找到最符合用户意图的结果。</li>
+<li><strong>本章作用：</strong> 「信息检索与搜索引擎：向量检索与混合搜索」负责把总纲落到可操作的判断框架：先确认问题边界，再拆解机制，最后根据代价和风险选择方法。</li>
+<li><strong>主要风险：</strong> 最大风险是只做关键词匹配，不区分召回、排序、相关性、点击偏差和向量语义边界。</li>
+<li><strong>实践抓手：</strong> 搜索优化要拆成索引质量、召回覆盖、排序特征、评估指标和线上实验。</li>
+</ul>
+<span class="heading-anchor" id="2. 小流程图：从概念到应用"></span><h3 id="2">2. 小流程图：从概念到应用</h3>
+<pre class="mermaid">flowchart LR
+  A["先定边界"]
+  B["拆机制"]
+  C["看条件"]
+  D["比较方案"]
+  E["落到实践"]
+  F["复盘误区"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+  E --&gt; F
+</pre>
+<span class="heading-anchor" id="3. 概念深化：逐个击破"></span><h3 id="3_1">3. 概念深化：逐个击破</h3>
+<span class="heading-anchor" id="3.1 Embedding"></span><h4 id="31-embedding">3.1 Embedding</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> Embedding 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 Embedding，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.2 ANN"></span><h4 id="32-ann">3.2 ANN</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> ANN 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 ANN，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.3 混合检索"></span><h4 id="33">3.3 混合检索</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> 混合检索 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 混合检索，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="3.4 RAG 检索"></span><h4 id="34-rag">3.4 RAG 检索</h4>
+<ul>
+<li><strong>先问它解决什么：</strong> RAG 检索 不是孤立名词，而是用来解决本章某类约束、关系、代价或风险判断的问题。</li>
+<li><strong>底层机制：</strong> 学习时要拆成“输入条件 → 中间结构 → 处理规则 → 输出结果”四步；如果任何一步说不清，说明只是记住了结论。</li>
+<li><strong>适用条件：</strong> 当前提满足、边界清楚、代价可接受时使用；如果输入分布、规模、时序、权限或一致性假设变化，就要重新评估。</li>
+<li><strong>不适用信号：</strong> 需要违反前提才能套用、只能靠特殊样例解释、复杂度或维护成本明显失控时，应换方案。</li>
+<li><strong>面试表达：</strong> “我会先定义 RAG 检索，再说明它依赖的前提，最后用一个反例说明边界。”</li>
+</ul>
+<span class="heading-anchor" id="4. 适用边界对比表"></span><h3 id="4">4. 适用边界对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>应该怎么想</th>
+<th>典型错误</th>
+<th>记忆提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前提条件</td>
+<td>先列出输入规模、数据分布、系统假设或业务约束</td>
+<td>不看条件直接套模板</td>
+<td>先问“凭什么能用”</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>需要能说明为什么结果保持不变或为什么局部选择成立</td>
+<td>只给经验结论</td>
+<td>用不变量、反例或交换论证检查</td>
+</tr>
+<tr>
+<td>复杂度/成本</td>
+<td>同时估算时间、空间、延迟、吞吐、人力和维护成本</td>
+<td>只看理论最优</td>
+<td>工程里还要看常数和可观测性</td>
+</tr>
+<tr>
+<td>失败模式</td>
+<td>主动说明边界外会怎样失败</td>
+<td>面试中只讲优点</td>
+<td>能说失败边界才算真理解</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="5. 记忆强化：三层复述法"></span><h3 id="5">5. 记忆强化：三层复述法</h3>
+<ol>
+<li><strong>概念层：</strong> 用一句话定义本章每个核心概念。</li>
+<li><strong>机制层：</strong> 不看原文画出输入到输出的流程。</li>
+<li><strong>边界层：</strong> 为每个概念准备一个“不能这样用”的反例。</li>
+</ol>
+<span class="heading-anchor" id="6. 工程/做题/面试迁移"></span><h3 id="6">6. 工程/做题/面试迁移</h3>
+<ul>
+<li><strong>工程迁移：</strong> 搜索优化要拆成索引质量、召回覆盖、排序特征、评估指标和线上实验。</li>
+<li><strong>做题迁移：</strong> 先把题目中的对象、关系、约束和目标函数圈出来，再映射到本章概念。</li>
+<li><strong>面试迁移：</strong> 回答时不要只报名词，要说清“为什么需要它、它如何工作、它何时失效”。</li>
+</ul>
+<span class="heading-anchor" id="7. 深度自检题"></span><h3 id="7">7. 深度自检题</h3>
+<ol>
+<li>你能否把本章概念按“前提 → 机制 → 结果 → 代价”重新组织？</li>
+<li>如果输入规模、并发量、数据分布或安全边界变化，原结论是否仍成立？</li>
+<li>本章哪个概念最容易被误用？请给出一个反例。</li>
+<li>如果让你设计一道面试题，你会怎样考察候选人是否真的理解？</li>
+</ol>
+<span class="heading-anchor" id="8. 深度速记卡片"></span><h3 id="8">8. 深度速记卡片</h3>
+<ul>
+<li><strong>总抓手：</strong> 通过索引、召回、排序和评估，从大规模内容中找到最符合用户意图的结果。</li>
+<li><strong>答题模板：</strong> 定义边界 → 拆底层机制 → 说适用条件 → 讲权衡 → 给反例。</li>
+<li><strong>复习动作：</strong> 每次复习只看图和表，尝试口述 3 分钟；卡住处再回正文。</li>
+</ul>
+<span class="heading-anchor" id="专题深化：具体机制、案例与追问"></span><h2 id="_15">专题深化：具体机制、案例与追问</h2>
+<span class="heading-anchor" id="1. 具体案例：把「向量检索与混合搜索」放进真实问题"></span><h3 id="1_1">1. 具体案例：把「向量检索与混合搜索」放进真实问题</h3>
+<p>例如搜索“苹果手机电池”既要词面召回，也要理解同义词和意图，还要用排序模型处理时效、质量和点击偏差。</p>
+<span class="heading-anchor" id="2. 本章关键机制细化"></span><h3 id="2_1">2. 本章关键机制细化</h3>
+<ul>
+<li>Embedding 处理语义相似，但可能损失精确词面约束。</li>
+<li>ANN 用近似换速度，要调召回、延迟和内存。</li>
+<li>混合检索需要归一化、融合和重排。</li>
+</ul>
+<span class="heading-anchor" id="3. 概念到判断的检查清单"></span><h3 id="3_2">3. 概念到判断的检查清单</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念/动作</th>
+<th>你要检查什么</th>
+<th>如果检查失败会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Embedding</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>ANN</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>混合检索</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>RAG 检索</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+<tr>
+<td>本章在「信息检索与搜索引擎」中的位置</td>
+<td>前提、输入、输出、代价、失败边界是否都说清</td>
+<td>可能套错模型、复杂度失控或得到不可验证结论</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="4. 面试追问路径"></span><h3 id="4_1">4. 面试追问路径</h3>
+<pre class="mermaid">flowchart LR
+  A["定义概念"]
+  B["追问前提"]
+  C["追问反例"]
+  D["追问工程化"]
+  E["追问验证"]
+  A --&gt; B
+  B --&gt; C
+  C --&gt; D
+  D --&gt; E
+</pre>
+<ul>
+<li>召回不全还是排序不准？</li>
+<li>评价指标是否匹配用户体验？</li>
+<li>点击数据是否有位置偏差？</li>
+</ul>
+<span class="heading-anchor" id="5. 验证与复盘"></span><h3 id="5_1">5. 验证与复盘</h3>
+<ul>
+<li><strong>验证方式：</strong> 用离线标注集、NDCG/MRR、人工评测、A/B 实验和失败查询分析验证。</li>
+<li><strong>复盘方式：</strong> 每次做题或设计后，记录“我使用了哪个前提、哪个前提最容易被破坏、如果破坏如何调整”。</li>
+<li><strong>记忆方式：</strong> 不背孤立结论，只背“问题 → 机制 → 边界 → 验证”的链路。</li>
+</ul>
+<span class="heading-anchor" id="本轮扩写：ANN、混合召回与 RAG 失败模式"></span><h2 id="ann-rag">本轮扩写：ANN、混合召回与 RAG 失败模式</h2>
+<span class="heading-anchor" id="1. ANN 的核心权衡是召回率、延迟和内存"></span><h3 id="1-ann">1. ANN 的核心权衡是召回率、延迟和内存</h3>
+<p>精确最近邻在大规模向量库上成本高，ANN 用索引结构换取近似结果。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>索引思路</th>
+<th>核心机制</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HNSW</td>
+<td>多层小世界图，贪心搜索</td>
+<td>召回高，在线查询快</td>
+<td>内存占用高，构建成本高</td>
+</tr>
+<tr>
+<td>IVF</td>
+<td>先聚类，再查部分倒排桶</td>
+<td>易控制延迟</td>
+<td>聚类边界可能漏召回</td>
+</tr>
+<tr>
+<td>PQ</td>
+<td>向量量化压缩</td>
+<td>节省内存</td>
+<td>精度损失，需要校准</td>
+</tr>
+<tr>
+<td>Flat</td>
+<td>暴力精确搜索</td>
+<td>结果准确</td>
+<td>大规模延迟不可接受</td>
+</tr>
+</tbody>
+</table></div>
+<pre class="mermaid">flowchart LR
+  A["查询向量"] --&gt; B["候选召回"]
+  B --&gt; C["近似搜索"]
+  C --&gt; D["精排/重排"]
+  D --&gt; E["返回TopK"]
+</pre>
+<span class="heading-anchor" id="2. 混合检索不是简单相加"></span><h3 id="2_2">2. 混合检索不是简单相加</h3>
+<p>BM25 擅长关键词精确匹配，向量召回擅长语义相似；混合检索要解决分数不可比、召回集合重叠和重排成本。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>融合方式</th>
+<th>做法</th>
+<th>适用</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>并联召回</td>
+<td>BM25 和向量各取候选</td>
+<td>召回覆盖优先</td>
+<td>TopK 分配影响召回</td>
+</tr>
+<tr>
+<td>分数归一</td>
+<td>归一后加权</td>
+<td>分数稳定场景</td>
+<td>不同 query 分布会漂移</td>
+</tr>
+<tr>
+<td>RRF</td>
+<td>按排名倒数融合</td>
+<td>分数不可比</td>
+<td>对尾部排序不敏感</td>
+</tr>
+<tr>
+<td>学习排序</td>
+<td>用模型融合多特征</td>
+<td>数据充足</td>
+<td>标注和线上反馈成本高</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3. RAG 检索失败模式"></span><h3 id="3-rag">3. RAG 检索失败模式</h3>
+<ul>
+<li><strong>没召回：</strong> 分块过大/过小、embedding 不适配领域、query 改写失败。</li>
+<li><strong>召回但没排前：</strong> 混合权重不合理、重排器缺失、上下文长度挤压。</li>
+<li><strong>文档过期：</strong> 索引刷新延迟、权限变更未同步、版本未标记。</li>
+<li><strong>答案不引用：</strong> 生成阶段没有强制基于证据，或引用片段粒度不对。</li>
+</ul>
+<span class="heading-anchor" id="4. 评测闭环"></span><h3 id="4_2">4. 评测闭环</h3>
+<ol>
+<li>构造 query-doc 相关性集合，覆盖关键词、同义词、长尾、否定和多跳问题。</li>
+<li>同时看 Recall@K、MRR、nDCG、答案可支持率和引用准确率。</li>
+<li>把失败样本分类到分块、召回、融合、重排、生成和权限六类。</li>
+<li>每次调参只改变一个变量，避免无法解释线上变化。</li>
+</ol>
+<span class="heading-anchor" id="5. 面试追问路径"></span><h3 id="5_2">5. 面试追问路径</h3>
+<ul>
+<li>“为什么向量检索不能替代倒排？”——回答精确词匹配、过滤、可解释性和成本。</li>
+<li>“HNSW 为什么快？”——回答图结构近邻导航、多层入口和贪心搜索。</li>
+<li>“RAG 答错怎么排查？”——按 query 改写、召回、重排、上下文、生成、权限逐层定位。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

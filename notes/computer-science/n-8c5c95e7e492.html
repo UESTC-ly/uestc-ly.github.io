@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>06-发布订阅、Stream 与消息队列 · 李杨的学习笔记</title><meta name="description" content="Redis 7.x 通用视角：Redis 可以做消息传递，但不同机制适合不同场景。本章比较 Pub/Sub、Stream 与基于 List 的队列，帮助你从“能用”走向“选对”。"><meta property="og:title" content="06-发布订阅、Stream 与消息队列 · 李杨的学习笔记"><meta property="og:description" content="Redis 7.x 通用视角：Redis 可以做消息传递，但不同机制适合不同场景。本章比较 Pub/Sub、Stream 与基于 List 的队列，帮助你从“能用”走向“选对”。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-8c5c95e7e492.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-8c5c95e7e492.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">Redis</p><h1>06-发布订阅、Stream 与消息队列</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/Redis/06-%E5%8F%91%E5%B8%83%E8%AE%A2%E9%98%85Stream%E4%B8%8E%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">学习目标</a></li><li><a href="#_2">核心概念</a></li><li><a href="#1-pubsub">1. Pub/Sub：即时广播</a></li><li><a href="#2-pattern-pubsub">2. Pattern Pub/Sub：模式订阅</a></li><li><a href="#3-sharded-pubsubredis-7x">3. Sharded Pub/Sub（Redis 7.x）</a></li><li><a href="#4-stream">4. Stream：可持久化的消息日志</a></li><li><a href="#5-stream">5. Stream 消费模式</a></li><li><a href="#6-pel">6. PEL：待确认消息</a></li><li><a href="#7-list">7. List 队列：简单任务队列</a></li><li><a href="#_3">关键命令 / 配置</a></li><li><a href="#pubsub">Pub/Sub 命令</a></li><li><a href="#stream">Stream 命令</a></li><li><a href="#list">List 队列命令</a></li><li><a href="#_4">相关配置与内存控制</a></li><li><a href="#_5">示例</a></li><li><a href="#1-pubsub_1">示例 1：最小 Pub/Sub</a></li><li><a href="#2-stream">示例 2：使用 Stream 写入订单事件</a></li><li><a href="#3">示例 3：创建消费者组并消费</a></li><li><a href="#4">示例 4：查看并接管超时消息</a></li><li><a href="#5-stream_1">示例 5：限制 Stream 长度</a></li><li><a href="#6list">示例 6：List 简单队列</a></li><li><a href="#_6">选型速查</a></li><li><a href="#_7">常见误区</a></li><li><a href="#1pubsub">误区 1：Pub/Sub 是可靠消息队列</a></li><li><a href="#2stream-xack-stream">误区 2：Stream 消息 XACK 后就从 Stream 删除</a></li><li><a href="#3-pending">误区 3：读取 &gt; 就能重新处理 pending 消息</a></li><li><a href="#4stream">误区 4：Stream 自动无限可靠</a></li><li><a href="#5">误区 5：消费者名可以随便变</a></li><li><a href="#6redis-mq">误区 6：Redis 可以替代所有 MQ</a></li><li><a href="#_8">实践检查清单</a></li><li><a href="#pubsub_1">Pub/Sub</a></li><li><a href="#stream_1">Stream</a></li><li><a href="#list_1">List 队列</a></li><li><a href="#_9">通用消息处理</a></li><li><a href="#_10">延伸阅读关键词</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>Redis 7.x 通用视角：Redis 可以做消息传递，但不同机制适合不同场景。本章比较 Pub/Sub、Stream 与基于 List 的队列，帮助你从“能用”走向“选对”。</p>
+</blockquote>
+<span class="heading-anchor" id="学习目标"></span><h2 id="_1">学习目标</h2>
+<p>学完本篇，你应该能够：</p>
+<ul>
+<li>理解 Redis Pub/Sub 的即时广播模型与可靠性限制。</li>
+<li>使用 <code>PUBLISH</code> / <code>SUBSCRIBE</code> / <code>PSUBSCRIBE</code> 完成基础发布订阅。</li>
+<li>理解 Redis Stream 的追加日志、消息 ID、消费者组与 ACK。</li>
+<li>使用 <code>XADD</code> / <code>XREAD</code> / <code>XGROUP</code> / <code>XREADGROUP</code> / <code>XACK</code> 构建可靠消费。</li>
+<li>区分 Pub/Sub、Stream、List 队列的适用场景。</li>
+<li>识别 Redis 用作消息队列时的常见风险：堆积、重复消费、丢消息、阻塞与内存控制。</li>
+</ul>
+<span class="heading-anchor" id="核心概念"></span><h2 id="_2">核心概念</h2>
+<span class="heading-anchor" id="1. Pub/Sub：即时广播"></span><h3 id="1-pubsub">1. Pub/Sub：即时广播</h3>
+<p>Pub/Sub 是发布订阅模型：</p>
+<ul>
+<li>发布者向 channel 发送消息。</li>
+<li>当前在线订阅该 channel 的客户端立即收到消息。</li>
+<li>Redis 不保存普通 Pub/Sub 消息。</li>
+<li>订阅者离线期间的消息会丢失。</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-redis">SUBSCRIBE news.sports
+</code></pre>
+<p>另一个客户端：</p>
+<pre><code class="language-redis">PUBLISH news.sports "team A won"
+</code></pre>
+<p>适合：</p>
+<ul>
+<li>在线通知。</li>
+<li>实时广播。</li>
+<li>低可靠要求的事件分发。</li>
+<li>多实例应用间的轻量信号。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>订单、支付、库存等必须可靠处理的业务消息。</li>
+<li>需要消息堆积、重放、确认、失败重试的场景。</li>
+</ul>
+<span class="heading-anchor" id="2. Pattern Pub/Sub：模式订阅"></span><h3 id="2-pattern-pubsub">2. Pattern Pub/Sub：模式订阅</h3>
+<p><code>PSUBSCRIBE</code> 支持通配模式：</p>
+<pre><code class="language-redis">PSUBSCRIBE news.*
+</code></pre>
+<p>可收到：</p>
+<ul>
+<li><code>news.sports</code></li>
+<li><code>news.finance</code></li>
+<li><code>news.weather</code></li>
+</ul>
+<p>注意：模式匹配增加管理复杂度，频道命名要有规范。</p>
+<span class="heading-anchor" id="3. Sharded Pub/Sub（Redis 7.x）"></span><h3 id="3-sharded-pubsubredis-7x">3. Sharded Pub/Sub（Redis 7.x）</h3>
+<p>Redis 7.0 引入 Sharded Pub/Sub，主要用于 Redis Cluster 场景，让频道消息限制在对应分片传播，减少集群广播开销。</p>
+<p>常见命令：</p>
+<pre><code class="language-redis">SSUBSCRIBE shard-channel
+SPUBLISH shard-channel "hello"
+SUNSUBSCRIBE shard-channel
+</code></pre>
+<p>学习建议：</p>
+<ul>
+<li>单机或普通入门场景先掌握 <code>PUBLISH</code> / <code>SUBSCRIBE</code>。</li>
+<li>Cluster 中频道数量大、消息量高时，再评估 Sharded Pub/Sub。</li>
+</ul>
+<span class="heading-anchor" id="4. Stream：可持久化的消息日志"></span><h3 id="4-stream">4. Stream：可持久化的消息日志</h3>
+<p>Redis Stream 是 Redis 5.0 引入的数据结构，类似追加日志：</p>
+<ul>
+<li>每条消息有唯一 ID。</li>
+<li>消息按时间与序列追加。</li>
+<li>可以从指定 ID 开始读取。</li>
+<li>支持消费者组。</li>
+<li>支持确认（ACK）和 Pending Entries List（PEL，待确认列表）。</li>
+</ul>
+<p>添加消息：</p>
+<pre><code class="language-redis">XADD orders * userId 1001 amount 99.5
+</code></pre>
+<p>其中：</p>
+<ul>
+<li><code>orders</code> 是 Stream key。</li>
+<li><code>*</code> 表示由 Redis 自动生成消息 ID。</li>
+<li>后面是 field-value 格式的消息体。</li>
+</ul>
+<p>消息 ID 形如：</p>
+<pre><code class="language-text">1710000000000-0
+</code></pre>
+<p>前半部分通常是毫秒时间戳，后半部分是同毫秒内的序列号。</p>
+<span class="heading-anchor" id="5. Stream 消费模式"></span><h3 id="5-stream">5. Stream 消费模式</h3>
+<span class="heading-anchor" id="普通读取：XREAD"></span><h4 id="xread">普通读取：XREAD</h4>
+<pre><code class="language-redis">XREAD COUNT 10 BLOCK 5000 STREAMS orders 0
+</code></pre>
+<p>含义：</p>
+<ul>
+<li>从 <code>orders</code> 的 ID <code>0</code> 之后开始读。</li>
+<li>最多读取 10 条。</li>
+<li>没有消息时最多阻塞 5000ms。</li>
+</ul>
+<p>读取新消息常用：</p>
+<pre><code class="language-redis">XREAD BLOCK 0 STREAMS orders $
+</code></pre>
+<p><code>$</code> 表示从当前最新位置之后的新消息开始读，不读取历史消息。</p>
+<span class="heading-anchor" id="消费者组：XGROUP + XREADGROUP"></span><h4 id="xgroup-xreadgroup">消费者组：XGROUP + XREADGROUP</h4>
+<p>消费者组适合多个消费者分摊处理同一个 Stream。</p>
+<p>创建消费者组：</p>
+<pre><code class="language-redis">XGROUP CREATE orders order-workers 0 MKSTREAM
+</code></pre>
+<p>读取消息：</p>
+<pre><code class="language-redis">XREADGROUP GROUP order-workers worker-1 COUNT 10 BLOCK 5000 STREAMS orders &gt;
+</code></pre>
+<p>含义：</p>
+<ul>
+<li>使用消费者组 <code>order-workers</code>。</li>
+<li>当前消费者名是 <code>worker-1</code>。</li>
+<li><code>&gt;</code> 表示只读取从未投递给该组的新消息。</li>
+</ul>
+<p>处理完成后确认：</p>
+<pre><code class="language-redis">XACK orders order-workers 1710000000000-0
+</code></pre>
+<span class="heading-anchor" id="6. PEL：待确认消息"></span><h3 id="6-pel">6. PEL：待确认消息</h3>
+<p>消费者组中，消息被投递但未 <code>XACK</code> 时，会进入 PEL。</p>
+<p>PEL 用于：</p>
+<ul>
+<li>发现消费者崩溃后未处理完的消息。</li>
+<li>查询积压与超时消息。</li>
+<li>将消息转移给其他消费者继续处理。</li>
+</ul>
+<p>常见命令：</p>
+<pre><code class="language-redis">XPENDING orders order-workers
+XAUTOCLAIM orders order-workers worker-2 60000 0-0 COUNT 10
+</code></pre>
+<p><code>XAUTOCLAIM</code> 可把空闲超过指定时间的 pending 消息转移给当前消费者。</p>
+<span class="heading-anchor" id="7. List 队列：简单任务队列"></span><h3 id="7-list">7. List 队列：简单任务队列</h3>
+<p>在 Stream 之前，常用 List 实现队列：</p>
+<pre><code class="language-redis">LPUSH jobs "job-1"
+BRPOP jobs 0
+</code></pre>
+<p>特点：</p>
+<ul>
+<li>简单、高效。</li>
+<li>适合单队列、简单任务分发。</li>
+<li>缺少 Stream 那种内建消息 ID、消费者组、pending、重放能力。</li>
+</ul>
+<p>更可靠的 List 队列会使用“处理中队列”：</p>
+<pre><code class="language-redis">BRPOPLPUSH jobs processing 0
+</code></pre>
+<p>消费者处理成功后再从 <code>processing</code> 删除对应任务。但这需要客户端自己实现恢复、扫描与重试逻辑。</p>
+<span class="heading-anchor" id="关键命令 / 配置"></span><h2 id="_3">关键命令 / 配置</h2>
+<span class="heading-anchor" id="Pub/Sub 命令"></span><h3 id="pubsub">Pub/Sub 命令</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PUBLISH channel message</code></td>
+<td>向频道发布消息</td>
+</tr>
+<tr>
+<td><code>SUBSCRIBE channel [channel ...]</code></td>
+<td>订阅频道</td>
+</tr>
+<tr>
+<td><code>UNSUBSCRIBE [channel ...]</code></td>
+<td>取消订阅频道</td>
+</tr>
+<tr>
+<td><code>PSUBSCRIBE pattern [pattern ...]</code></td>
+<td>按模式订阅</td>
+</tr>
+<tr>
+<td><code>PUNSUBSCRIBE [pattern ...]</code></td>
+<td>取消模式订阅</td>
+</tr>
+<tr>
+<td><code>PUBSUB CHANNELS [pattern]</code></td>
+<td>查看活跃频道</td>
+</tr>
+<tr>
+<td><code>PUBSUB NUMSUB channel [channel ...]</code></td>
+<td>查看频道订阅者数量</td>
+</tr>
+<tr>
+<td><code>SPUBLISH</code> / <code>SSUBSCRIBE</code></td>
+<td>Redis 7.x Sharded Pub/Sub</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="Stream 命令"></span><h3 id="stream">Stream 命令</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>XADD key ID field value [field value ...]</code></td>
+<td>添加消息</td>
+</tr>
+<tr>
+<td><code>XRANGE key start end [COUNT count]</code></td>
+<td>正序范围查询</td>
+</tr>
+<tr>
+<td><code>XREVRANGE key end start [COUNT count]</code></td>
+<td>倒序范围查询</td>
+</tr>
+<tr>
+<td><code>XLEN key</code></td>
+<td>查看 Stream 长度</td>
+</tr>
+<tr>
+<td><code>XREAD [COUNT n] [BLOCK ms] STREAMS key ID</code></td>
+<td>普通读取</td>
+</tr>
+<tr>
+<td><code>XGROUP CREATE key group ID [MKSTREAM]</code></td>
+<td>创建消费者组</td>
+</tr>
+<tr>
+<td><code>XREADGROUP GROUP group consumer STREAMS key &gt;</code></td>
+<td>消费者组读取新消息</td>
+</tr>
+<tr>
+<td><code>XACK key group ID [ID ...]</code></td>
+<td>确认消息</td>
+</tr>
+<tr>
+<td><code>XPENDING key group</code></td>
+<td>查看待确认消息</td>
+</tr>
+<tr>
+<td><code>XCLAIM</code> / <code>XAUTOCLAIM</code></td>
+<td>转移超时 pending 消息</td>
+</tr>
+<tr>
+<td><code>XDEL key ID [ID ...]</code></td>
+<td>删除消息</td>
+</tr>
+<tr>
+<td><code>XTRIM key MAXLEN ...</code></td>
+<td>裁剪 Stream</td>
+</tr>
+<tr>
+<td><code>XINFO STREAM key</code></td>
+<td>查看 Stream 信息</td>
+</tr>
+<tr>
+<td><code>XINFO GROUPS key</code></td>
+<td>查看消费者组信息</td>
+</tr>
+<tr>
+<td><code>XINFO CONSUMERS key group</code></td>
+<td>查看消费者信息</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="List 队列命令"></span><h3 id="list">List 队列命令</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LPUSH key value</code></td>
+<td>从左侧压入任务</td>
+</tr>
+<tr>
+<td><code>RPUSH key value</code></td>
+<td>从右侧压入任务</td>
+</tr>
+<tr>
+<td><code>LPOP key</code> / <code>RPOP key</code></td>
+<td>弹出任务</td>
+</tr>
+<tr>
+<td><code>BLPOP key timeout</code> / <code>BRPOP key timeout</code></td>
+<td>阻塞弹出任务</td>
+</tr>
+<tr>
+<td><code>BRPOPLPUSH source destination timeout</code></td>
+<td>阻塞弹出并放入处理中队列</td>
+</tr>
+<tr>
+<td><code>LMOVE</code> / <code>BLMOVE</code></td>
+<td>Redis 6.2+ 推荐的移动式弹出命令，可替代 <code>RPOPLPUSH</code> / <code>BRPOPLPUSH</code> 场景</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="相关配置与内存控制"></span><h3 id="_4">相关配置与内存控制</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配置 / 选项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>XADD key MAXLEN ~ n * ...</code></td>
+<td>近似限制 Stream 长度，控制内存</td>
+</tr>
+<tr>
+<td><code>XTRIM key MAXLEN ~ n</code></td>
+<td>裁剪 Stream</td>
+</tr>
+<tr>
+<td><code>client-output-buffer-limit pubsub ...</code></td>
+<td>限制 Pub/Sub 客户端输出缓冲区，慢订阅者可能被断开</td>
+</tr>
+<tr>
+<td><code>maxmemory</code> / eviction policy</td>
+<td>Redis 总内存与淘汰策略会影响消息保留</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="示例"></span><h2 id="_5">示例</h2>
+<span class="heading-anchor" id="示例 1：最小 Pub/Sub"></span><h3 id="1-pubsub_1">示例 1：最小 Pub/Sub</h3>
+<p>客户端 A：</p>
+<pre><code class="language-redis">SUBSCRIBE chat.room.1
+</code></pre>
+<p>客户端 B：</p>
+<pre><code class="language-redis">PUBLISH chat.room.1 "hello redis"
+</code></pre>
+<p>客户端 A 收到消息。</p>
+<p>适合聊天室在线消息提示，但如果客户端 A 离线，就收不到这条消息。</p>
+<span class="heading-anchor" id="示例 2：使用 Stream 写入订单事件"></span><h3 id="2-stream">示例 2：使用 Stream 写入订单事件</h3>
+<pre><code class="language-redis">XADD order-events * type created orderId 1001 userId 42 amount 199.00
+XADD order-events * type paid orderId 1001 payChannel card
+</code></pre>
+<p>查看全部：</p>
+<pre><code class="language-redis">XRANGE order-events - +
+</code></pre>
+<p>查看长度：</p>
+<pre><code class="language-redis">XLEN order-events
+</code></pre>
+<span class="heading-anchor" id="示例 3：创建消费者组并消费"></span><h3 id="3">示例 3：创建消费者组并消费</h3>
+<p>创建组，从头开始消费历史消息：</p>
+<pre><code class="language-redis">XGROUP CREATE order-events order-service 0 MKSTREAM
+</code></pre>
+<p>消费者 <code>worker-a</code> 读取新消息：</p>
+<pre><code class="language-redis">XREADGROUP GROUP order-service worker-a COUNT 5 BLOCK 5000 STREAMS order-events &gt;
+</code></pre>
+<p>处理成功后确认：</p>
+<pre><code class="language-redis">XACK order-events order-service 1710000000000-0
+</code></pre>
+<span class="heading-anchor" id="示例 4：查看并接管超时消息"></span><h3 id="4">示例 4：查看并接管超时消息</h3>
+<p>查看 pending 概览：</p>
+<pre><code class="language-redis">XPENDING order-events order-service
+</code></pre>
+<p>把空闲超过 60 秒的消息转给 <code>worker-b</code>：</p>
+<pre><code class="language-redis">XAUTOCLAIM order-events order-service worker-b 60000 0-0 COUNT 10
+</code></pre>
+<p>处理完成后仍然需要：</p>
+<pre><code class="language-redis">XACK order-events order-service &lt;message-id&gt;
+</code></pre>
+<span class="heading-anchor" id="示例 5：限制 Stream 长度"></span><h3 id="5-stream_1">示例 5：限制 Stream 长度</h3>
+<p>写入时限制长度：</p>
+<pre><code class="language-redis">XADD order-events MAXLEN ~ 10000 * type created orderId 1002
+</code></pre>
+<p>手动裁剪：</p>
+<pre><code class="language-redis">XTRIM order-events MAXLEN ~ 10000
+</code></pre>
+<p><code>~</code> 表示近似裁剪，性能更好；如果必须精确长度，可以不用 <code>~</code>，但成本更高。</p>
+<span class="heading-anchor" id="示例 6：List 简单队列"></span><h3 id="6list">示例 6：List 简单队列</h3>
+<p>生产者：</p>
+<pre><code class="language-redis">LPUSH email-jobs "send welcome email to user 1001"
+</code></pre>
+<p>消费者：</p>
+<pre><code class="language-redis">BRPOP email-jobs 0
+</code></pre>
+<p>说明：</p>
+<ul>
+<li>简单任务可用。</li>
+<li>任务一旦弹出，消费者崩溃可能导致任务丢失。</li>
+<li>如需可靠性，使用 Stream 消费者组通常更省心。</li>
+</ul>
+<span class="heading-anchor" id="选型速查"></span><h2 id="_6">选型速查</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>推荐方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>在线广播，允许离线丢失</td>
+<td>Pub/Sub</td>
+</tr>
+<tr>
+<td>需要模式频道订阅</td>
+<td>Pattern Pub/Sub</td>
+</tr>
+<tr>
+<td>Redis Cluster 大规模频道广播</td>
+<td>Sharded Pub/Sub</td>
+</tr>
+<tr>
+<td>可靠消息、可重放、消费者组</td>
+<td>Stream</td>
+</tr>
+<tr>
+<td>简单轻量任务队列</td>
+<td>List</td>
+</tr>
+<tr>
+<td>需要 ACK、失败接管、积压观察</td>
+<td>Stream</td>
+</tr>
+<tr>
+<td>严格复杂消息系统、跨服务大规模治理</td>
+<td>Kafka / RabbitMQ / RocketMQ 等专用 MQ</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="常见误区"></span><h2 id="_7">常见误区</h2>
+<span class="heading-anchor" id="误区 1：Pub/Sub 是可靠消息队列"></span><h3 id="1pubsub">误区 1：Pub/Sub 是可靠消息队列</h3>
+<p>不是。普通 Pub/Sub 不保存消息，订阅者不在线就收不到。</p>
+<span class="heading-anchor" id="误区 2：Stream 消息 XACK 后就从 Stream 删除"></span><h3 id="2stream-xack-stream">误区 2：Stream 消息 XACK 后就从 Stream 删除</h3>
+<p>不是。<code>XACK</code> 只是从消费者组的 PEL 中确认完成，不会删除 Stream 中的消息。删除或裁剪需要 <code>XDEL</code> / <code>XTRIM</code>。</p>
+<span class="heading-anchor" id="误区 3：读取 &gt; 就能重新处理 pending 消息"></span><h3 id="3-pending">误区 3：读取 <code>&gt;</code> 就能重新处理 pending 消息</h3>
+<p>不能。<code>&gt;</code> 只读取从未投递给该消费者组的新消息。要处理 pending，需要用 <code>XPENDING</code>、<code>XCLAIM</code>、<code>XAUTOCLAIM</code>，或用具体 ID 范围读取。</p>
+<span class="heading-anchor" id="误区 4：Stream 自动无限可靠"></span><h3 id="4stream">误区 4：Stream 自动无限可靠</h3>
+<p>Stream 仍存储在 Redis 内存/持久化体系中。需要配置持久化、复制、高可用、长度裁剪和监控。否则可能内存膨胀或故障丢数据。</p>
+<span class="heading-anchor" id="误区 5：消费者名可以随便变"></span><h3 id="5">误区 5：消费者名可以随便变</h3>
+<p>消费者组中 consumer 名用于追踪 pending。如果每次启动都生成新名字，可能产生大量闲置 consumer 与难以管理的 PEL。生产中应有稳定命名或清理策略。</p>
+<span class="heading-anchor" id="误区 6：Redis 可以替代所有 MQ"></span><h3 id="6redis-mq">误区 6：Redis 可以替代所有 MQ</h3>
+<p>Redis Stream 很强，但如果需要超大规模日志保留、复杂路由、跨数据中心消息治理、严格顺序分区等能力，应评估专用消息系统。</p>
+<span class="heading-anchor" id="实践检查清单"></span><h2 id="_8">实践检查清单</h2>
+<span class="heading-anchor" id="Pub/Sub"></span><h3 id="pubsub_1">Pub/Sub</h3>
+<ul>
+<li>[ ] 确认业务允许订阅者离线期间丢消息。</li>
+<li>[ ] 设计清晰的 channel 命名规范，例如 <code>domain.event.scope</code>。</li>
+<li>[ ] 监控慢订阅者与输出缓冲区。</li>
+<li>[ ] Cluster 高广播量场景评估 Sharded Pub/Sub。</li>
+</ul>
+<span class="heading-anchor" id="Stream"></span><h3 id="stream_1">Stream</h3>
+<ul>
+<li>[ ] 每个 Stream 设置合理保留策略：<code>MAXLEN</code> 或定期 <code>XTRIM</code>。</li>
+<li>[ ] 消费者处理成功后必须 <code>XACK</code>。</li>
+<li>[ ] 定期检查 <code>XPENDING</code>，处理超时 pending。</li>
+<li>[ ] 消费逻辑具备幂等性，因为消息可能重复投递。</li>
+<li>[ ] 监控 <code>XLEN</code>、pending 数、最大 idle 时间、消费者数量。</li>
+<li>[ ] 设计稳定的 group 与 consumer 命名。</li>
+<li>[ ] 明确从 <code>0</code>、<code>$</code>、<code>&gt;</code> 读取的语义差异。</li>
+</ul>
+<span class="heading-anchor" id="List 队列"></span><h3 id="list_1">List 队列</h3>
+<ul>
+<li>[ ] 简单场景才使用 <code>LPUSH</code> + <code>BRPOP</code>。</li>
+<li>[ ] 需要可靠性时，设计处理中队列或改用 Stream。</li>
+<li>[ ] 避免单个大 value，消息体建议存 ID，详情放数据库或 Redis Hash。</li>
+</ul>
+<span class="heading-anchor" id="通用消息处理"></span><h3 id="_9">通用消息处理</h3>
+<ul>
+<li>[ ] 消费者逻辑幂等。</li>
+<li>[ ] 有重试、死信或人工补偿方案。</li>
+<li>[ ] 有积压监控与报警。</li>
+<li>[ ] 了解 Redis 持久化与主从切换对消息可靠性的影响。</li>
+</ul>
+<span class="heading-anchor" id="延伸阅读关键词"></span><h2 id="_10">延伸阅读关键词</h2>
+<ul>
+<li>Redis Pub/Sub</li>
+<li>PUBLISH SUBSCRIBE PSUBSCRIBE</li>
+<li>Redis Sharded Pub/Sub Redis 7</li>
+<li>Redis Stream</li>
+<li>XADD XREAD XGROUP XREADGROUP XACK</li>
+<li>XPENDING XCLAIM XAUTOCLAIM</li>
+<li>Pending Entries List PEL</li>
+<li>XTRIM MAXLEN approximate trimming</li>
+<li>Redis List queue BRPOP BLMOVE</li>
+<li>Redis Stream vs Kafka</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

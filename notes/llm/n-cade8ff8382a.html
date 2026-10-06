@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>Prefix Tuning 详解与实操教程 · 李杨的学习笔记</title><meta name="description" content="这是一份面向初学者到中级读者的 Prefix Tuning 教程，目标是让你在读完后能够回答下面几个问题："><meta property="og:title" content="Prefix Tuning 详解与实操教程 · 李杨的学习笔记"><meta property="og:description" content="这是一份面向初学者到中级读者的 Prefix Tuning 教程，目标是让你在读完后能够回答下面几个问题："><meta property="og:url" content="https://uestc-ly.github.io/notes/llm/n-cade8ff8382a.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/llm/n-cade8ff8382a.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">大模型</a></nav><header class="article-header"><p class="eyebrow">AI与算法知识库 / 01-LLM基础与微调</p><h1>Prefix Tuning 详解与实操教程</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/AI%E4%B8%8E%E7%AE%97%E6%B3%95%E7%9F%A5%E8%AF%86%E5%BA%93/01-LLM%E5%9F%BA%E7%A1%80%E4%B8%8E%E5%BE%AE%E8%B0%83/Prefix%20Tuning.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#1">1. 这份教程会讲什么</a></li><li><a href="#2-prefix-tuning">2. Prefix Tuning 是什么</a></li><li><a href="#3-prefix-tuning">3. 为什么会有 Prefix Tuning</a></li><li><a href="#4">4. 先建立一个直觉模型</a></li><li><a href="#5-prefix-tuning-transformer">5. Prefix Tuning 在 Transformer 里作用在哪里</a></li><li><a href="#51">5.1 先回顾自注意力</a></li><li><a href="#52-prefix-tuning">5.2 Prefix Tuning 做了什么</a></li><li><a href="#53-prompt-tuning">5.3 为什么说它比 Prompt Tuning 更“深入”</a></li><li><a href="#6-prefix-tuning">6. 数学上怎么理解 Prefix Tuning</a></li><li><a href="#61-prefix">6.1 Prefix 参数从哪里来</a></li><li><a href="#62-projection">6.2 为什么要 projection</a></li><li><a href="#7-prefix-tuningprompt-tuningp-tuning-v2lora">7. Prefix Tuning、Prompt Tuning、P-Tuning v2、LoRA 的区别</a></li><li><a href="#71-prompt-tuning-vs-prefix-tuning">7.1 Prompt Tuning vs Prefix Tuning</a></li><li><a href="#72-prefix-tuning-vs-lora">7.2 Prefix Tuning vs LoRA</a></li><li><a href="#8-prefix-tuning">8. Prefix Tuning 的优点与局限</a></li><li><a href="#81">8.1 优点</a></li><li><a href="#82">8.2 局限</a></li><li><a href="#9-prefix-tuning">9. 什么场景适合 Prefix Tuning</a></li><li><a href="#10-prefix-tuning">10. Prefix Tuning 的核心超参数</a></li><li><a href="#101-num_virtual_tokens">10.1 num_virtual_tokens</a></li><li><a href="#102-prefix_projection">10.2 prefix_projection</a></li><li><a href="#103">10.3 学习率</a></li><li><a href="#104">10.4 训练轮数</a></li><li><a href="#11">11. 实操前的环境准备</a></li><li><a href="#12-prefix-tuning">12. 第一个可运行的 Prefix Tuning 示例</a></li><li><a href="#121">12.1 完整训练脚本</a></li><li><a href="#122">12.2 这段代码在做什么</a></li><li><a href="#13-prefix-adapter">13. 如何加载训练好的 Prefix Adapter</a></li><li><a href="#14">14. 如何把最小例子改成真实项目</a></li><li><a href="#141">14.1 换成真实数据集</a></li><li><a href="#142">14.2 加验证集</a></li><li><a href="#143">14.3 加评估样本</a></li><li><a href="#15">15. 调参建议</a></li><li><a href="#151-num_virtual_tokens">15.1 先调 num_virtual_tokens</a></li><li><a href="#152">15.2 学习率从中等偏大开始</a></li><li><a href="#153">15.3 训练轮数别贪多</a></li><li><a href="#154-batch-size">15.4 batch size 不够就用梯度累积</a></li><li><a href="#16-prefix-tuning">16. Prefix Tuning 的常见坑</a></li><li><a href="#161-prompt">16.1 把它当成“自然语言 prompt 优化”</a></li><li><a href="#162">16.2 训练数据模板不一致</a></li><li><a href="#163">16.3 期望它替代全量微调</a></li><li><a href="#164-loss">16.4 只看 loss，不看生成质量</a></li><li><a href="#165">16.5 忽略基座模型本身的能力边界</a></li><li><a href="#17-prefix-tuning-lora">17. Prefix Tuning 与 LoRA 的实战选择建议</a></li><li><a href="#prefix-tuning_2">选 Prefix Tuning，当你：</a></li><li><a href="#lora_1">选 LoRA，当你：</a></li><li><a href="#18">18. 一个更贴近真实任务的训练模板</a></li><li><a href="#19">19. 如何判断训练是否成功</a></li><li><a href="#191">19.1 第一层：训练是否正常收敛</a></li><li><a href="#192">19.2 第二层：固定样本输出是否改善</a></li><li><a href="#193">19.3 第三层：真实任务指标是否提升</a></li><li><a href="#20">20. 常见问题解答</a></li><li><a href="#q1prefix-tuning">Q1：Prefix Tuning 会修改基础模型参数吗？</a></li><li><a href="#q2prefix-tuning">Q2：Prefix Tuning 学出来的是自然语言吗？</a></li><li><a href="#q3">Q3：它和系统提示词有什么关系？</a></li><li><a href="#q4prefix-tuning-prompt-tuning">Q4：Prefix Tuning 一定比 Prompt Tuning 好吗？</a></li><li><a href="#q5prefix-tuning-lora">Q5：Prefix Tuning 和 LoRA 谁更好？</a></li><li><a href="#21-prefix-tuning">21. 学完 Prefix Tuning 之后下一步该学什么</a></li><li><a href="#22">22. 总结</a></li></ul></details><article class="note-content">
+<span class="heading-anchor" id="1. 这份教程会讲什么"></span><h2 id="1">1. 这份教程会讲什么</h2>
+<p>这是一份面向初学者到中级读者的 <code>Prefix Tuning</code> 教程，目标是让你在读完后能够回答下面几个问题：</p>
+<ul>
+<li><code>Prefix Tuning</code> 到底是什么</li>
+<li>它为什么能在冻结大模型参数的前提下完成任务适配</li>
+<li>它和 <code>Prompt Tuning</code>、<code>P-Tuning v2</code>、<code>LoRA</code> 有什么区别</li>
+<li>它在 Transformer 里具体作用在什么位置</li>
+<li>如何用 Hugging Face <code>PEFT</code> 快速跑通一个可工作的 Prefix Tuning 实验</li>
+<li>训练时常见的问题有哪些，应该怎么调</li>
+</ul>
+<p>这份教程聚焦 <code>Causal LM</code> 场景，也就是最常见的自回归语言模型微调。如果你已经熟悉全量微调、LoRA、QLoRA，这篇教程可以把 <code>Prefix Tuning</code> 放到整个参数高效微调的地图里；如果你之前几乎没有接触过 PEFT，这篇教程也会先建立必要的直觉。</p>
+<span class="heading-anchor" id="2. Prefix Tuning 是什么"></span><h2 id="2-prefix-tuning">2. Prefix Tuning 是什么</h2>
+<p>一句话定义：</p>
+<p><code>Prefix Tuning</code> 是一种参数高效微调方法。它冻结原始大模型的参数，只训练一小段可学习的“前缀表示”，让模型在生成时把这段前缀当作额外上下文，从而改变输出行为。</p>
+<p>这里最容易误解的地方在于“前缀”这个词。它不是单纯在输入文本前面拼几个自然语言 token，而是学习一组连续向量表示。更准确地说，在经典 Prefix Tuning 设定里，这些向量会进入每一层 Transformer 的注意力计算，作为额外的 <code>key/value</code> 前缀参与注意力。</p>
+<p>所以它不是：</p>
+<ul>
+<li>手写一段 prompt</li>
+<li>把 prompt 固定住</li>
+<li>然后希望模型自己学会适应</li>
+</ul>
+<p>它是：</p>
+<ul>
+<li>冻结基础模型</li>
+<li>新增少量可训练参数</li>
+<li>用这些参数生成各层共享或各层使用的 prefix 表示</li>
+<li>让模型在每次推理时都“看到”这段可学习前缀</li>
+</ul>
+<p>你可以把它理解为：不给老师换脑子，只给老师在每次答题前塞一份高度压缩、机器可读的“隐藏提示”。</p>
+<span class="heading-anchor" id="3. 为什么会有 Prefix Tuning"></span><h2 id="3-prefix-tuning">3. 为什么会有 Prefix Tuning</h2>
+<p>在大模型时代，全量微调有三个明显问题：</p>
+<ol>
+<li>
+<p>成本高<br/>
+   模型越大，需要更新和存储的参数越多，显存、训练时间、存储空间都会快速上涨。</p>
+</li>
+<li>
+<p>多任务部署不经济<br/>
+   如果你对同一个 7B 或 70B 基座模型做 10 个任务的全量微调，就要保存 10 份完整权重。</p>
+</li>
+<li>
+<p>迁移和实验慢<br/>
+   每次尝试一个新任务，都要改一整套权重，试错成本太高。</p>
+</li>
+</ol>
+<p>于是参数高效微调（PEFT, Parameter-Efficient Fine-Tuning）出现了。它的核心思想是：</p>
+<ul>
+<li>尽量不改原模型</li>
+<li>只训练一小部分新增参数</li>
+<li>用很小的代价换取可接受的任务适配效果</li>
+</ul>
+<p><code>Prefix Tuning</code> 就是 PEFT 家族中的一条路线。它的思路和 LoRA 不同：LoRA 是给线性层加低秩增量；Prefix Tuning 是给注意力机制加可学习前缀。</p>
+<span class="heading-anchor" id="4. 先建立一个直觉模型"></span><h2 id="4">4. 先建立一个直觉模型</h2>
+<p>假设你有一个已经很强的基础模型，它本身已经会：</p>
+<ul>
+<li>理解自然语言</li>
+<li>做基本推理</li>
+<li>生成通顺文本</li>
+</ul>
+<p>但是你希望它更偏向某种行为，比如：</p>
+<ul>
+<li>用客服风格回答</li>
+<li>输出更结构化</li>
+<li>更偏摘要任务</li>
+<li>更适应某个小领域的数据分布</li>
+</ul>
+<p>一种办法是改模型内部权重。另一种办法是：不改原权重，只给它一个稳定、可学习的“开场信号”。</p>
+<p>这个“开场信号”就是 Prefix Tuning 里的 prefix。</p>
+<p>如果用人类类比：</p>
+<ul>
+<li>全量微调像是重新训练一个专家</li>
+<li>LoRA 像是在专家脑内加几个小的专门模块</li>
+<li>Prefix Tuning 像是每次开会前先给专家看一页高度浓缩的 briefing</li>
+</ul>
+<p>区别在于，这份 briefing 不是自然语言写的，而是一组模型能直接读懂的连续向量。</p>
+<span class="heading-anchor" id="5. Prefix Tuning 在 Transformer 里作用在哪里"></span><h2 id="5-prefix-tuning-transformer">5. Prefix Tuning 在 Transformer 里作用在哪里</h2>
+<span class="heading-anchor" id="5.1 先回顾自注意力"></span><h3 id="51">5.1 先回顾自注意力</h3>
+<p>标准自注意力里，输入隐藏状态会被映射成：</p>
+<ul>
+<li><code>Q</code>：Query</li>
+<li><code>K</code>：Key</li>
+<li><code>V</code>：Value</li>
+</ul>
+<p>然后计算：</p>
+<pre><code class="language-text">Attention(Q, K, V) = softmax(QK^T / sqrt(d)) V
+</code></pre>
+<p>直观来说：</p>
+<ul>
+<li><code>Q</code> 表示“我现在在找什么”</li>
+<li><code>K</code> 表示“每个位置提供了什么线索”</li>
+<li><code>V</code> 表示“每个位置真正携带的信息”</li>
+</ul>
+<span class="heading-anchor" id="5.2 Prefix Tuning 做了什么"></span><h3 id="52-prefix-tuning">5.2 Prefix Tuning 做了什么</h3>
+<p>Prefix Tuning 会额外引入一组可训练前缀向量，把它们变成前缀 <code>K_p</code> 和 <code>V_p</code>，再和原始序列的 <code>K</code>、<code>V</code> 拼接：</p>
+<pre><code class="language-text">K' = [K_p ; K]
+V' = [V_p ; V]
+</code></pre>
+<p>然后注意力变成：</p>
+<pre><code class="language-text">Attention(Q, K', V') = softmax(QK'^T / sqrt(d)) V'
+</code></pre>
+<p>这意味着什么？</p>
+<ul>
+<li>模型在看原始输入之前，先多了一批“额外可参考的位置”</li>
+<li>这些位置不是用户文本，而是训练出来的向量</li>
+<li>它们会影响每个 token 的注意力分配</li>
+<li>于是生成行为发生偏移</li>
+</ul>
+<p>这个偏移不需要修改原模型参数，只需要训练这批前缀参数。</p>
+<span class="heading-anchor" id="5.3 为什么说它比 Prompt Tuning 更“深入”"></span><h3 id="53-prompt-tuning">5.3 为什么说它比 Prompt Tuning 更“深入”</h3>
+<p><code>Prompt Tuning</code> 通常是在输入 embedding 层面加虚拟 token。它主要影响输入起点。</p>
+<p><code>Prefix Tuning</code> 则是直接给注意力层提供额外的 <code>K/V</code>。这相当于把控制信号插进了 Transformer 的内部计算路径，而不只是输入端，因此通常比单纯的 prompt embedding 更有控制力。</p>
+<span class="heading-anchor" id="6. 数学上怎么理解 Prefix Tuning"></span><h2 id="6-prefix-tuning">6. 数学上怎么理解 Prefix Tuning</h2>
+<p>下面给一个足够用的数学版本，不追求论文式严密推导，但要让你知道训练目标到底是什么。</p>
+<p>设基础模型参数为：</p>
+<pre><code class="language-text">θ
+</code></pre>
+<p>在 Prefix Tuning 中，<code>θ</code> 冻结不动，只训练 prefix 参数：</p>
+<pre><code class="language-text">φ
+</code></pre>
+<p>对每个任务样本 <code>(x, y)</code>，训练目标仍然是最小化条件语言模型损失：</p>
+<pre><code class="language-text">L(φ) = - Σ log P(y_t | x, y_&lt;t ; θ, φ)
+</code></pre>
+<p>注意这里：</p>
+<ul>
+<li><code>θ</code> 是固定的</li>
+<li>只有 <code>φ</code> 更新</li>
+<li><code>φ</code> 决定了 prefix 的表示</li>
+<li>prefix 会参与各层注意力，进而影响输出概率分布</li>
+</ul>
+<p>因此它本质上仍然是标准监督学习，只是“可训练的对象”从全模型权重，变成了一小段 prefix 参数。</p>
+<span class="heading-anchor" id="6.1 Prefix 参数从哪里来"></span><h3 id="61-prefix">6.1 Prefix 参数从哪里来</h3>
+<p>最直接的方式是：</p>
+<ul>
+<li>设定 <code>m</code> 个虚拟 token</li>
+<li>给每个虚拟 token 一个可训练 embedding</li>
+<li>再通过一个小 MLP 投影成每层所需的 prefix <code>K/V</code></li>
+</ul>
+<p>这就是很多实现里的 <code>prefix_projection=True</code> 背后的想法。</p>
+<span class="heading-anchor" id="6.2 为什么要 projection"></span><h3 id="62-projection">6.2 为什么要 projection</h3>
+<p>如果直接把一组小 embedding 拿去当所有层的 prefix，表达能力可能不够。加一个小 MLP 投影后：</p>
+<ul>
+<li>容量更强</li>
+<li>优化更稳定</li>
+<li>更容易适配不同层的表示空间</li>
+</ul>
+<p>代价是多一点点训练参数，但通常仍然非常小。</p>
+<span class="heading-anchor" id="7. Prefix Tuning、Prompt Tuning、P-Tuning v2、LoRA 的区别"></span><h2 id="7-prefix-tuningprompt-tuningp-tuning-v2lora">7. Prefix Tuning、Prompt Tuning、P-Tuning v2、LoRA 的区别</h2>
+<p>这几个名字很容易混。先给结论，再解释。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>核心做法</th>
+<th>改动位置</th>
+<th>参数量</th>
+<th>常见特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prompt Tuning</td>
+<td>学习少量虚拟输入 token</td>
+<td>输入 embedding</td>
+<td>极少</td>
+<td>最轻量，但控制力偏弱</td>
+</tr>
+<tr>
+<td>Prefix Tuning</td>
+<td>学习注意力前缀</td>
+<td>注意力 <code>K/V</code> 路径</td>
+<td>很少</td>
+<td>比 Prompt Tuning 更强</td>
+</tr>
+<tr>
+<td>P-Tuning v2</td>
+<td>深层 prompt/prefix 化</td>
+<td>多层表示</td>
+<td>很少</td>
+<td>常用于增强稳定性和效果</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>学习权重增量的低秩分解</td>
+<td>线性层权重</td>
+<td>很少</td>
+<td>现在最常用，效果稳</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="7.1 Prompt Tuning vs Prefix Tuning"></span><h3 id="71-prompt-tuning-vs-prefix-tuning">7.1 Prompt Tuning vs Prefix Tuning</h3>
+<p>相同点：</p>
+<ul>
+<li>都冻结大模型</li>
+<li>都训练很少的参数</li>
+<li>都可以视为“软提示”</li>
+</ul>
+<p>不同点：</p>
+<ul>
+<li>Prompt Tuning 更接近“只在输入层学几个 embedding”</li>
+<li>Prefix Tuning 更接近“把可学习信号送进每层注意力”</li>
+</ul>
+<p>因此 Prefix Tuning 往往更适合需要更强控制力的场景。</p>
+<span class="heading-anchor" id="7.2 Prefix Tuning vs LoRA"></span><h3 id="72-prefix-tuning-vs-lora">7.2 Prefix Tuning vs LoRA</h3>
+<p>这是最有实际价值的比较。</p>
+<p>Prefix Tuning：</p>
+<ul>
+<li>不改原线性层权重</li>
+<li>通过前缀影响注意力</li>
+<li>在某些生成控制任务上很自然</li>
+</ul>
+<p>LoRA：</p>
+<ul>
+<li>直接对线性变换加低秩增量</li>
+<li>适用范围更广</li>
+<li>社区生态更成熟</li>
+<li>工程上通常更常用</li>
+</ul>
+<p>如果你问“今天实际项目里优先学哪个”，答案通常是 <code>LoRA</code>。<br/>
+如果你问“想理解 PEFT 的不同路线、知道软前缀是怎么回事”，那 <code>Prefix Tuning</code> 很值得学。</p>
+<span class="heading-anchor" id="8. Prefix Tuning 的优点与局限"></span><h2 id="8-prefix-tuning">8. Prefix Tuning 的优点与局限</h2>
+<span class="heading-anchor" id="8.1 优点"></span><h3 id="81">8.1 优点</h3>
+<span class="heading-anchor" id="参数少"></span><h4 id="_1">参数少</h4>
+<p>它只训练 prefix 相关参数，通常远小于全量微调。</p>
+<span class="heading-anchor" id="适合多任务切换"></span><h4 id="_2">适合多任务切换</h4>
+<p>同一个基座模型可以挂多个不同 prefix，用很小的存储代价切换任务。</p>
+<span class="heading-anchor" id="不破坏基础模型"></span><h4 id="_3">不破坏基础模型</h4>
+<p>基础模型权重不改，管理更简单，也更利于复用和回滚。</p>
+<span class="heading-anchor" id="训练成本低"></span><h4 id="_4">训练成本低</h4>
+<p>对显存和算力的要求明显低于全量微调。</p>
+<span class="heading-anchor" id="8.2 局限"></span><h3 id="82">8.2 局限</h3>
+<span class="heading-anchor" id="表达能力有上限"></span><h4 id="_5">表达能力有上限</h4>
+<p>如果任务变化很大，仅靠 prefix 可能不足以获得最优结果。</p>
+<span class="heading-anchor" id="工程主流度不如 LoRA"></span><h4 id="lora">工程主流度不如 LoRA</h4>
+<p>今天大多数开源实践和教程更偏 LoRA/QLoRA，因此 Prefix Tuning 的资料和经验相对少一些。</p>
+<span class="heading-anchor" id="推理时会有额外前缀开销"></span><h4 id="_6">推理时会有额外前缀开销</h4>
+<p>虽然很小，但并不是完全零成本。</p>
+<span class="heading-anchor" id="对任务类型更敏感"></span><h4 id="_7">对任务类型更敏感</h4>
+<p>不是所有任务都能从 prefix 路线中获得和 LoRA 一样稳定的收益。</p>
+<span class="heading-anchor" id="9. 什么场景适合 Prefix Tuning"></span><h2 id="9-prefix-tuning">9. 什么场景适合 Prefix Tuning</h2>
+<p>适合：</p>
+<ul>
+<li>你想理解软提示和 PEFT 的内部机制</li>
+<li>你只想训练非常少的参数</li>
+<li>你更关注“引导生成行为”而不是大规模改写模型知识</li>
+<li>你要在一个基座模型上挂多个轻量适配器</li>
+</ul>
+<p>不太适合：</p>
+<ul>
+<li>任务和原模型能力差异非常大</li>
+<li>你追求当前最主流、最稳妥的工程路线</li>
+<li>你需要最强的泛化效果，而不是最小参数量</li>
+</ul>
+<span class="heading-anchor" id="10. Prefix Tuning 的核心超参数"></span><h2 id="10-prefix-tuning">10. Prefix Tuning 的核心超参数</h2>
+<span class="heading-anchor" id="10.1 num_virtual_tokens"></span><h3 id="101-num_virtual_tokens">10.1 <code>num_virtual_tokens</code></h3>
+<p>这是最关键的超参数之一，表示前缀长度，也就是虚拟 token 的数量。</p>
+<p>你可以粗略理解为：给模型的“隐藏 briefing”有多长。</p>
+<ul>
+<li>太小：表达能力不够</li>
+<li>太大：训练更慢，也可能更难优化</li>
+</ul>
+<p>常见起点：</p>
+<ul>
+<li>小模型或简单任务：<code>10 ~ 20</code></li>
+<li>稍复杂任务：<code>20 ~ 50</code></li>
+</ul>
+<span class="heading-anchor" id="10.2 prefix_projection"></span><h3 id="102-prefix_projection">10.2 <code>prefix_projection</code></h3>
+<p>是否用一个小 MLP 把 prefix embedding 投影成更适合各层使用的表示。</p>
+<p>一般建议：</p>
+<ul>
+<li>先开：<code>True</code></li>
+<li>如果你明确想要最轻量实验，再试 <code>False</code></li>
+</ul>
+<span class="heading-anchor" id="10.3 学习率"></span><h3 id="103">10.3 学习率</h3>
+<p>因为只训练少量参数，学习率往往会比全量微调大一些。一个常见起点是：</p>
+<pre><code class="language-text">1e-4 ~ 5e-4
+</code></pre>
+<p>如果训练不稳定，可以从 <code>1e-4</code> 开始。</p>
+<span class="heading-anchor" id="10.4 训练轮数"></span><h3 id="104">10.4 训练轮数</h3>
+<p>Prefix 参数少，收敛可能会比较快。常见做法：</p>
+<ul>
+<li>先跑 1 到 3 个 epoch 看验证集趋势</li>
+<li>不要一开始就堆很多 epoch</li>
+</ul>
+<span class="heading-anchor" id="11. 实操前的环境准备"></span><h2 id="11">11. 实操前的环境准备</h2>
+<p>本教程使用 Hugging Face 生态里的 <code>transformers + peft + datasets</code>。</p>
+<p>建议环境：</p>
+<ul>
+<li>Python 3.10+</li>
+<li>PyTorch 2.x</li>
+<li><code>transformers</code></li>
+<li><code>peft</code></li>
+<li><code>datasets</code></li>
+<li><code>accelerate</code></li>
+</ul>
+<p>安装命令：</p>
+<pre><code class="language-bash">pip install torch transformers peft datasets accelerate
+</code></pre>
+<p>如果你后续要混合量化或更复杂的 PEFT 方案，再补装 <code>bitsandbytes</code>。<br/>
+但纯 Prefix Tuning 的最小实验，前面的依赖通常就够了。</p>
+<span class="heading-anchor" id="12. 第一个可运行的 Prefix Tuning 示例"></span><h2 id="12-prefix-tuning">12. 第一个可运行的 Prefix Tuning 示例</h2>
+<p>下面给一个尽量简洁但完整的最小可运行例子。这个例子用的是 <code>gpt2</code>，不是因为它最强，而是因为：</p>
+<ul>
+<li>体量小</li>
+<li>API 简单</li>
+<li>适合先跑通流程</li>
+</ul>
+<p>如果你后面要上生产或做更像样的中文任务，可以换成更合适的基础模型。</p>
+<span class="heading-anchor" id="12.1 完整训练脚本"></span><h3 id="121">12.1 完整训练脚本</h3>
+<pre><code class="language-python">import torch
+from datasets import Dataset
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+    default_data_collator,
+)
+from peft import PrefixTuningConfig, get_peft_model, TaskType
+
+
+model_name = "gpt2"
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+prefix_config = PrefixTuningConfig(
+    task_type=TaskType.CAUSAL_LM,
+    num_virtual_tokens=20,
+    prefix_projection=True,
+)
+
+model = get_peft_model(model, prefix_config)
+model.print_trainable_parameters()
+
+
+samples = [
+    {
+        "text": "### Instruction:\n请用一句话解释什么是机器学习。\n\n### Response:\n机器学习是让模型从数据中学习规律并用于预测或决策的方法。"
+    },
+    {
+        "text": "### Instruction:\n请解释什么是梯度下降。\n\n### Response:\n梯度下降是一种通过沿损失函数下降方向更新参数来最小化误差的优化方法。"
+    },
+    {
+        "text": "### Instruction:\n什么是过拟合？\n\n### Response:\n过拟合是模型过度记住训练数据细节，导致在新数据上表现变差的现象。"
+    },
+]
+
+dataset = Dataset.from_list(samples)
+
+
+def preprocess(example):
+    result = tokenizer(
+        example["text"],
+        truncation=True,
+        max_length=256,
+        padding="max_length",
+    )
+    result["labels"] = result["input_ids"].copy()
+    return result
+
+
+tokenized_dataset = dataset.map(preprocess, remove_columns=dataset.column_names)
+
+
+training_args = TrainingArguments(
+    output_dir="./prefix_tuning_output",
+    per_device_train_batch_size=2,
+    num_train_epochs=10,
+    learning_rate=1e-4,
+    logging_steps=1,
+    save_strategy="epoch",
+    fp16=torch.cuda.is_available(),
+    report_to="none",
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset,
+    data_collator=default_data_collator,
+)
+
+trainer.train()
+
+model.save_pretrained("./prefix_tuning_adapter")
+tokenizer.save_pretrained("./prefix_tuning_adapter")
+</code></pre>
+<span class="heading-anchor" id="12.2 这段代码在做什么"></span><h3 id="122">12.2 这段代码在做什么</h3>
+<span class="heading-anchor" id="第一步：加载基础模型"></span><h4 id="_8">第一步：加载基础模型</h4>
+<pre><code class="language-python">model = AutoModelForCausalLM.from_pretrained(model_name)
+</code></pre>
+<p>这里载入一个普通的自回归语言模型。</p>
+<span class="heading-anchor" id="第二步：定义 Prefix Tuning 配置"></span><h4 id="prefix-tuning_1">第二步：定义 Prefix Tuning 配置</h4>
+<pre><code class="language-python">prefix_config = PrefixTuningConfig(
+    task_type=TaskType.CAUSAL_LM,
+    num_virtual_tokens=20,
+    prefix_projection=True,
+)
+</code></pre>
+<p>关键点：</p>
+<ul>
+<li><code>task_type=TaskType.CAUSAL_LM</code> 表示这是自回归生成任务</li>
+<li><code>num_virtual_tokens=20</code> 指定前缀长度</li>
+<li><code>prefix_projection=True</code> 让 prefix 通过一个小投影层</li>
+</ul>
+<span class="heading-anchor" id="第三步：把 PEFT 包到模型上"></span><h4 id="peft">第三步：把 PEFT 包到模型上</h4>
+<pre><code class="language-python">model = get_peft_model(model, prefix_config)
+</code></pre>
+<p>执行完这一步之后：</p>
+<ul>
+<li>原模型权重被冻结</li>
+<li>prefix 相关参数变成可训练</li>
+<li>后续 <code>Trainer</code> 更新的就是这些 prefix 参数</li>
+</ul>
+<span class="heading-anchor" id="第四步：准备训练数据"></span><h4 id="_9">第四步：准备训练数据</h4>
+<p>例子里用了一个非常小的 toy dataset，只是为了让你能跑通流程。</p>
+<p>真正做任务时，你应该：</p>
+<ul>
+<li>换成真实数据集</li>
+<li>保持统一的指令模板</li>
+<li>做训练集 / 验证集划分</li>
+</ul>
+<span class="heading-anchor" id="第五步：训练和保存"></span><h4 id="_10">第五步：训练和保存</h4>
+<p>保存的不是整份基础模型，而是 prefix adapter。</p>
+<p>这正是 PEFT 的核心价值之一：轻量。</p>
+<span class="heading-anchor" id="13. 如何加载训练好的 Prefix Adapter"></span><h2 id="13-prefix-adapter">13. 如何加载训练好的 Prefix Adapter</h2>
+<p>训练完后，你通常会得到一份很小的 adapter 目录。推理时可以把它重新加载到基础模型上。</p>
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+base_model_name = "gpt2"
+adapter_path = "./prefix_tuning_adapter"
+
+tokenizer = AutoTokenizer.from_pretrained(adapter_path)
+base_model = AutoModelForCausalLM.from_pretrained(base_model_name)
+model = PeftModel.from_pretrained(base_model, adapter_path)
+
+prompt = "### Instruction:\n请解释什么是反向传播。\n\n### Response:\n"
+inputs = tokenizer(prompt, return_tensors="pt")
+
+with torch.no_grad():
+    output = model.generate(
+        **inputs,
+        max_new_tokens=80,
+        do_sample=True,
+        top_p=0.9,
+        temperature=0.8,
+    )
+
+print(tokenizer.decode(output[0], skip_special_tokens=True))
+</code></pre>
+<p>这段代码的含义是：</p>
+<ul>
+<li>先加载基础模型</li>
+<li>再把 prefix adapter 附着上去</li>
+<li>推理时模型会自动使用 prefix</li>
+</ul>
+<span class="heading-anchor" id="14. 如何把最小例子改成真实项目"></span><h2 id="14">14. 如何把最小例子改成真实项目</h2>
+<p>一个 toy 脚本跑通后，下一步通常是把它变成真实训练流程。建议按下面顺序做。</p>
+<span class="heading-anchor" id="14.1 换成真实数据集"></span><h3 id="141">14.1 换成真实数据集</h3>
+<p>例如你的数据可能长这样：</p>
+<pre><code class="language-json">{"instruction": "请概括这段文本", "input": "......", "output": "......"}
+{"instruction": "把这段客服对话改写为工单摘要", "input": "......", "output": "......"}
+</code></pre>
+<p>然后统一拼装成训练文本：</p>
+<pre><code class="language-python">def format_example(example):
+    return (
+        f"### Instruction:\n{example['instruction']}\n\n"
+        f"### Input:\n{example['input']}\n\n"
+        f"### Response:\n{example['output']}"
+    )
+</code></pre>
+<p>重点不是模板长什么样，而是：</p>
+<ul>
+<li>保持一致</li>
+<li>让训练格式和推理格式尽量一致</li>
+<li>不要今天一种模板，明天又换一套</li>
+</ul>
+<span class="heading-anchor" id="14.2 加验证集"></span><h3 id="142">14.2 加验证集</h3>
+<p>只看训练损失是不够的。至少要有：</p>
+<ul>
+<li><code>train split</code></li>
+<li><code>validation split</code></li>
+</ul>
+<p>否则你很难判断：</p>
+<ul>
+<li>模型是真的学会了</li>
+<li>还是只是记住了训练样本</li>
+</ul>
+<span class="heading-anchor" id="14.3 加评估样本"></span><h3 id="143">14.3 加评估样本</h3>
+<p>准备一批固定评估输入，每次训练后都生成结果做对比。<br/>
+Prefix Tuning 的参数很少，训练虽然轻，但行为变化未必直观。固定评估样本可以帮你快速判断模型到底学到了什么。</p>
+<span class="heading-anchor" id="15. 调参建议"></span><h2 id="15">15. 调参建议</h2>
+<p>Prefix Tuning 的调参空间不算大，但几个关键参数影响很明显。</p>
+<span class="heading-anchor" id="15.1 先调 num_virtual_tokens"></span><h3 id="151-num_virtual_tokens">15.1 先调 <code>num_virtual_tokens</code></h3>
+<p>建议顺序：</p>
+<ol>
+<li>从 <code>10</code> 或 <code>20</code> 开始</li>
+<li>如果效果明显不够，再试 <code>30</code>、<code>50</code></li>
+<li>不要一开始就拉很大</li>
+</ol>
+<p>经验上：</p>
+<ul>
+<li>简单风格控制任务：小一点就可能够用</li>
+<li>复杂任务适配：通常需要更长 prefix</li>
+</ul>
+<span class="heading-anchor" id="15.2 学习率从中等偏大开始"></span><h3 id="152">15.2 学习率从中等偏大开始</h3>
+<p>因为只训练小量参数，所以常见学习率会比全量微调大一些。</p>
+<p>推荐起点：</p>
+<pre><code class="language-text">1e-4
+</code></pre>
+<p>如果收敛慢，可以试：</p>
+<pre><code class="language-text">2e-4 或 5e-4
+</code></pre>
+<p>如果训练不稳定、loss 震荡明显，再往下调。</p>
+<span class="heading-anchor" id="15.3 训练轮数别贪多"></span><h3 id="153">15.3 训练轮数别贪多</h3>
+<p>参数少不代表一定要训很久。建议：</p>
+<ul>
+<li>先跑 1 到 3 epoch 看趋势</li>
+<li>用验证集判断是否继续</li>
+</ul>
+<span class="heading-anchor" id="15.4 batch size 不够就用梯度累积"></span><h3 id="154-batch-size">15.4 batch size 不够就用梯度累积</h3>
+<p>如果显存紧张：</p>
+<pre><code class="language-python">gradient_accumulation_steps=4
+</code></pre>
+<p>通常比盲目减小上下文长度更合适。</p>
+<span class="heading-anchor" id="16. Prefix Tuning 的常见坑"></span><h2 id="16-prefix-tuning">16. Prefix Tuning 的常见坑</h2>
+<span class="heading-anchor" id="16.1 把它当成“自然语言 prompt 优化”"></span><h3 id="161-prompt">16.1 把它当成“自然语言 prompt 优化”</h3>
+<p>这是最常见误区。</p>
+<p>Prefix Tuning 学的不是一段人类可读文本，而是一组连续参数。它虽然叫 prefix，但本质是软前缀，不是手写 prompt engineering。</p>
+<span class="heading-anchor" id="16.2 训练数据模板不一致"></span><h3 id="162">16.2 训练数据模板不一致</h3>
+<p>如果训练时样本格式混乱，Prefix Tuning 这种小参数方法更容易学歪，因为它本身容量有限，对格式漂移更敏感。</p>
+<p>建议：</p>
+<ul>
+<li>固定模板</li>
+<li>固定分隔符</li>
+<li>固定指令风格</li>
+</ul>
+<span class="heading-anchor" id="16.3 期望它替代全量微调"></span><h3 id="163">16.3 期望它替代全量微调</h3>
+<p>Prefix Tuning 很强，但它不是万能的。</p>
+<p>如果任务需要：</p>
+<ul>
+<li>大幅改变模型知识结构</li>
+<li>适应极强领域偏移</li>
+<li>提升复杂推理深度</li>
+</ul>
+<p>那 Prefix Tuning 可能不是最优选。</p>
+<span class="heading-anchor" id="16.4 只看 loss，不看生成质量"></span><h3 id="164-loss">16.4 只看 loss，不看生成质量</h3>
+<p>Prefix Tuning 最终作用在生成行为上，所以一定要看生成样例。<br/>
+训练 loss 下降，不代表输出就一定符合预期。</p>
+<span class="heading-anchor" id="16.5 忽略基座模型本身的能力边界"></span><h3 id="165">16.5 忽略基座模型本身的能力边界</h3>
+<p>Prefix Tuning 不是给弱模型“凭空加脑子”。<br/>
+它更像是在已有能力基础上做引导、偏置和适配。</p>
+<p>如果基础模型本身就不擅长某类任务，只靠 prefix 很难逆天改命。</p>
+<span class="heading-anchor" id="17. Prefix Tuning 与 LoRA 的实战选择建议"></span><h2 id="17-prefix-tuning-lora">17. Prefix Tuning 与 LoRA 的实战选择建议</h2>
+<p>如果你是第一次真正做 PEFT 项目，可以这样判断：</p>
+<span class="heading-anchor" id="选 Prefix Tuning，当你："></span><h3 id="prefix-tuning_2">选 Prefix Tuning，当你：</h3>
+<ul>
+<li>想学习软前缀机制</li>
+<li>想做非常轻量的行为引导</li>
+<li>想研究注意力前缀对生成的影响</li>
+<li>想在论文复现或教学场景里理解 PEFT 分支</li>
+</ul>
+<span class="heading-anchor" id="选 LoRA，当你："></span><h3 id="lora_1">选 LoRA，当你：</h3>
+<ul>
+<li>想尽快落地项目</li>
+<li>想获得更稳妥的工程效果</li>
+<li>想复用最多社区经验</li>
+<li>需要更常见的生产部署路径</li>
+</ul>
+<p>换句话说：</p>
+<ul>
+<li><code>Prefix Tuning</code> 很适合学原理、做研究、做轻量适配</li>
+<li><code>LoRA</code> 更像今天的默认工程答案</li>
+</ul>
+<span class="heading-anchor" id="18. 一个更贴近真实任务的训练模板"></span><h2 id="18">18. 一个更贴近真实任务的训练模板</h2>
+<p>下面给一个更像真实项目的训练骨架，保留关键部分，方便你自己扩展。</p>
+<pre><code class="language-python">import torch
+from datasets import load_dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    TrainingArguments,
+    Trainer,
+    default_data_collator,
+)
+from peft import PrefixTuningConfig, get_peft_model, TaskType
+
+
+model_name = "你的基础模型"
+dataset_path = "train.jsonl"
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+)
+
+peft_config = PrefixTuningConfig(
+    task_type=TaskType.CAUSAL_LM,
+    num_virtual_tokens=30,
+    prefix_projection=True,
+)
+
+model = get_peft_model(model, peft_config)
+
+dataset = load_dataset("json", data_files={"train": dataset_path})
+
+
+def format_and_tokenize(example):
+    text = (
+        f"### Instruction:\n{example['instruction']}\n\n"
+        f"### Input:\n{example.get('input', '')}\n\n"
+        f"### Response:\n{example['output']}"
+    )
+    encoded = tokenizer(
+        text,
+        truncation=True,
+        max_length=512,
+        padding="max_length",
+    )
+    encoded["labels"] = encoded["input_ids"].copy()
+    return encoded
+
+
+train_dataset = dataset["train"].map(
+    format_and_tokenize,
+    remove_columns=dataset["train"].column_names,
+)
+
+args = TrainingArguments(
+    output_dir="./prefix_run",
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    num_train_epochs=3,
+    learning_rate=1e-4,
+    warmup_ratio=0.03,
+    logging_steps=10,
+    save_strategy="epoch",
+    bf16=torch.cuda.is_available(),
+    report_to="none",
+)
+
+trainer = Trainer(
+    model=model,
+    args=args,
+    train_dataset=train_dataset,
+    data_collator=default_data_collator,
+)
+
+trainer.train()
+model.save_pretrained("./prefix_adapter")
+tokenizer.save_pretrained("./prefix_adapter")
+</code></pre>
+<p>这份模板已经足够改成真实项目脚手架：</p>
+<ul>
+<li>换模型名</li>
+<li>换数据文件</li>
+<li>增加验证集和评估逻辑</li>
+<li>加日志和实验记录</li>
+</ul>
+<span class="heading-anchor" id="19. 如何判断训练是否成功"></span><h2 id="19">19. 如何判断训练是否成功</h2>
+<p>不要只问“有没有报错”。真正要判断的是：prefix 是否真的把模型行为推向了你想要的方向。</p>
+<p>建议用下面三层判断标准。</p>
+<span class="heading-anchor" id="19.1 第一层：训练是否正常收敛"></span><h3 id="191">19.1 第一层：训练是否正常收敛</h3>
+<p>观察：</p>
+<ul>
+<li>loss 是否下降</li>
+<li>是否出现 NaN</li>
+<li>是否明显震荡</li>
+</ul>
+<span class="heading-anchor" id="19.2 第二层：固定样本输出是否改善"></span><h3 id="192">19.2 第二层：固定样本输出是否改善</h3>
+<p>准备一套固定 prompt，例如 20 条，然后比较：</p>
+<ul>
+<li>基座模型输出</li>
+<li>加 prefix 后输出</li>
+</ul>
+<p>重点看：</p>
+<ul>
+<li>是否更符合任务格式</li>
+<li>是否更贴近目标风格</li>
+<li>是否更稳定</li>
+</ul>
+<span class="heading-anchor" id="19.3 第三层：真实任务指标是否提升"></span><h3 id="193">19.3 第三层：真实任务指标是否提升</h3>
+<p>如果是摘要任务，可能看：</p>
+<ul>
+<li>ROUGE</li>
+<li>BERTScore</li>
+<li>人工评审</li>
+</ul>
+<p>如果是分类或抽取任务，可能看：</p>
+<ul>
+<li>Accuracy</li>
+<li>F1</li>
+<li>Exact Match</li>
+</ul>
+<p>Prefix Tuning 的成败，不是看你训没训完，而是看这些指标和样例是否真的变好。</p>
+<span class="heading-anchor" id="20. 常见问题解答"></span><h2 id="20">20. 常见问题解答</h2>
+<span class="heading-anchor" id="Q1：Prefix Tuning 会修改基础模型参数吗？"></span><h3 id="q1prefix-tuning">Q1：Prefix Tuning 会修改基础模型参数吗？</h3>
+<p>不会。标准 Prefix Tuning 会冻结基础模型，只训练 prefix 相关参数。</p>
+<span class="heading-anchor" id="Q2：Prefix Tuning 学出来的是自然语言吗？"></span><h3 id="q2prefix-tuning">Q2：Prefix Tuning 学出来的是自然语言吗？</h3>
+<p>不是。它学出来的是连续向量表示，不是人类可读文本。</p>
+<span class="heading-anchor" id="Q3：它和系统提示词有什么关系？"></span><h3 id="q3">Q3：它和系统提示词有什么关系？</h3>
+<p>可以类比成“更底层、可训练、不可读的系统提示词”，但两者不等价。Prefix Tuning 直接作用于模型内部注意力路径，系统提示词只是普通文本输入。</p>
+<span class="heading-anchor" id="Q4：Prefix Tuning 一定比 Prompt Tuning 好吗？"></span><h3 id="q4prefix-tuning-prompt-tuning">Q4：Prefix Tuning 一定比 Prompt Tuning 好吗？</h3>
+<p>不一定，但通常控制力更强，因为它不只作用在输入层。</p>
+<span class="heading-anchor" id="Q5：Prefix Tuning 和 LoRA 谁更好？"></span><h3 id="q5prefix-tuning-lora">Q5：Prefix Tuning 和 LoRA 谁更好？</h3>
+<p>没有绝对答案。工程上 LoRA 更常用；学习机制和做轻量实验时，Prefix Tuning 很有价值。</p>
+<span class="heading-anchor" id="21. 学完 Prefix Tuning 之后下一步该学什么"></span><h2 id="21-prefix-tuning">21. 学完 Prefix Tuning 之后下一步该学什么</h2>
+<p>推荐顺序：</p>
+<ol>
+<li>
+<p><code>Prompt Tuning</code><br/>
+   先看最简单的软提示思路。</p>
+</li>
+<li>
+<p><code>Prefix Tuning</code><br/>
+   理解如何把控制信号送进注意力内部。</p>
+</li>
+<li>
+<p><code>P-Tuning v2</code><br/>
+   看深层软提示如何改进表现。</p>
+</li>
+<li>
+<p><code>LoRA / QLoRA</code><br/>
+   进入今天最主流的工程路线。</p>
+</li>
+</ol>
+<p>如果你的目标是“真正做项目”，建议下一站直接去学 <code>LoRA</code>。<br/>
+如果你的目标是“彻底理解 PEFT 家族”，那就继续比较这些方法的结构差异。</p>
+<span class="heading-anchor" id="22. 总结"></span><h2 id="22">22. 总结</h2>
+<p><code>Prefix Tuning</code> 的核心思想可以浓缩成一句话：</p>
+<blockquote>
+<p>冻结基础模型，只训练一小段可学习前缀，把它送进注意力机制，借此改变模型的生成行为。</p>
+</blockquote>
+<p>你可以记住以下四点：</p>
+<ul>
+<li>它是 PEFT，不是全量微调</li>
+<li>它学习的是连续前缀，不是自然语言 prompt</li>
+<li>它主要通过注意力的 <code>K/V</code> 路径发挥作用</li>
+<li>它是理解软提示类方法的重要一环，但工程主流通常仍然是 LoRA</li>
+</ul>
+<p>如果你只是想“知道它是什么”，到这里已经够了。<br/>
+如果你想真正会用它，建议你下一步做两件事：</p>
+<ol>
+<li>用本教程的最小示例先跑通一遍</li>
+<li>再把 toy dataset 换成你自己的真实数据，开始做小规模验证</li>
+</ol>
+<p>当你能稳定比较“基座输出”和“prefix 输出”的差异时，你就真正掌握 Prefix Tuning 了。</p></article><div class="article-end"><a class="button" href="index.html">返回大模型 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>

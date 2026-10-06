@@ -1,0 +1,1070 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0"><title>04 - InnoDB 事务、锁与日志 · 李杨的学习笔记</title><meta name="description" content="本篇定位：解释 MySQL 默认存储引擎 InnoDB 如何保证“并发正确性”和“崩溃可恢复性”。学习顺序建议：先读 01-MySQL基础与体系结构 ，再读本篇，最后结合 03-MySQL索引与查询优化 和 05-MySQL运维高可用安全与面试 做性能与故障排查。"><meta property="og:title" content="04 - InnoDB 事务、锁与日志 · 李杨的学习笔记"><meta property="og:description" content="本篇定位：解释 MySQL 默认存储引擎 InnoDB 如何保证“并发正确性”和“崩溃可恢复性”。学习顺序建议：先读 01-MySQL基础与体系结构 ，再读本篇，最后结合 03-MySQL索引与查询优化 和 05-MySQL运维高可用安全与面试 做性能与故障排查。"><meta property="og:url" content="https://uestc-ly.github.io/notes/computer-science/n-6750fd73b475.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/computer-science/n-6750fd73b475.html"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><script defer src="../article.js"></script></head><body><a class="skip-link" href="#main">跳到主要内容</a><header class="header wrap"><a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a><nav aria-label="主导航"><a href="../../index.html#projects">项目</a><a href="../index.html">笔记</a><a href="../../index.html#about">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></header><main id="main" class="notes-page wrap" tabindex="-1"><nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机基础</a></nav><header class="article-header"><p class="eyebrow">04-计算机基础 / 数据库 / MySQL</p><h1>04 - InnoDB 事务、锁与日志</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/04-%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93/MySQL/04-InnoDB%E4%BA%8B%E5%8A%A1%E9%94%81%E4%B8%8E%E6%97%A5%E5%BF%97.md" download>下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">目录</a></li><li><a href="#1-innodb">1. 核心问题：InnoDB 在解决什么</a></li><li><a href="#2-acid">2. 事务与 ACID</a></li><li><a href="#21">2.1 事务定义</a></li><li><a href="#22-acid">2.2 ACID</a></li><li><a href="#23">2.3 自动提交</a></li><li><a href="#24">2.4 事务边界</a></li><li><a href="#3">3. 隔离级别与并发现象</a></li><li><a href="#31">3.1 四种隔离级别</a></li><li><a href="#32">3.2 脏读</a></li><li><a href="#33">3.3 不可重复读</a></li><li><a href="#34">3.4 幻读</a></li><li><a href="#35-mysql-repeatable-read">3.5 MySQL 默认 REPEATABLE READ 的特点</a></li><li><a href="#4-mvcc-read-view">4. MVCC 与 Read View</a></li><li><a href="#41-mvcc">4.1 MVCC 是什么</a></li><li><a href="#42">4.2 隐藏字段</a></li><li><a href="#43-undo">4.3 Undo 版本链</a></li><li><a href="#44-read-view">4.4 Read View 包含什么</a></li><li><a href="#45-rc-rr-read-view">4.5 RC 与 RR 的 Read View 差异</a></li><li><a href="#5">5. 快照读、当前读与一致性读</a></li><li><a href="#51">5.1 快照读</a></li><li><a href="#52">5.2 当前读</a></li><li><a href="#53">5.3 一致性读与锁定读</a></li><li><a href="#6-innodb">6. InnoDB 锁体系</a></li><li><a href="#61">6.1 锁粒度</a></li><li><a href="#62">6.2 共享锁与排他锁</a></li><li><a href="#63">6.3 意向锁</a></li><li><a href="#64">6.4 记录锁</a></li><li><a href="#65-mdl">6.5 表级元数据锁 MDL</a></li><li><a href="#66-auto-inc">6.6 AUTO-INC 锁</a></li><li><a href="#7-next-key-lock">7. 间隙锁与 Next-Key Lock</a></li><li><a href="#71">7.1 为什么需要间隙锁</a></li><li><a href="#72-gap-lock">7.2 Gap Lock</a></li><li><a href="#73-next-key-lock">7.3 Next-Key Lock</a></li><li><a href="#74">7.4 唯一索引等值查询</a></li><li><a href="#75">7.5 非唯一索引范围查询</a></li><li><a href="#76">7.6 减少间隙锁影响</a></li><li><a href="#8">8. 死锁分析与处理</a></li><li><a href="#81">8.1 死锁定义</a></li><li><a href="#82">8.2 常见死锁原因</a></li><li><a href="#83">8.3 典型案例：更新顺序相反</a></li><li><a href="#84">8.4 查看最近一次死锁</a></li><li><a href="#85">8.5 死锁处理原则</a></li><li><a href="#9-undo-logredo-logbinlog">9. Undo Log、Redo Log、Binlog</a></li><li><a href="#91">9.1 三类日志对比</a></li><li><a href="#92-undo-log">9.2 Undo Log</a></li><li><a href="#93-redo-log">9.3 Redo Log</a></li><li><a href="#94-binlog">9.4 Binlog</a></li><li><a href="#10">10. 两阶段提交与崩溃恢复</a></li><li><a href="#101">10.1 为什么需要两阶段提交</a></li><li><a href="#102">10.2 基本流程</a></li><li><a href="#103">10.3 崩溃点分析</a></li><li><a href="#104">10.4 组提交</a></li><li><a href="#105">10.5 恢复类型</a></li><li><a href="#11-buffer-pool">11. Buffer Pool 与内存结构</a></li><li><a href="#111-buffer-pool">11.1 Buffer Pool 是什么</a></li><li><a href="#112">11.2 页</a></li><li><a href="#113-lru">11.3 LRU 改进</a></li><li><a href="#114-buffer-pool">11.4 Buffer Pool 参数</a></li><li><a href="#115">11.5 脏页</a></li><li><a href="#12-change-bufferdoublewriteahi">12. Change Buffer、Doublewrite、AHI</a></li><li><a href="#121-change-buffer">12.1 Change Buffer</a></li><li><a href="#122-doublewrite-buffer">12.2 Doublewrite Buffer</a></li><li><a href="#123-adaptive-hash-index">12.3 Adaptive Hash Index</a></li><li><a href="#13-checkpoint">13. Checkpoint、刷脏页与写入路径</a></li><li><a href="#131-checkpoint">13.1 Checkpoint 作用</a></li><li><a href="#132-lsn">13.2 LSN</a></li><li><a href="#133">13.3 刷脏页触发因素</a></li><li><a href="#134">13.4 写入路径简化</a></li><li><a href="#135">13.5 写性能调优方向</a></li><li><a href="#14">14. 事务设计实践</a></li><li><a href="#141">14.1 保持事务短小</a></li><li><a href="#142">14.2 固定访问顺序</a></li><li><a href="#143">14.3 用索引缩小锁范围</a></li><li><a href="#144">14.4 乐观锁</a></li><li><a href="#145">14.5 悲观锁</a></li><li><a href="#146">14.6 幂等与重试</a></li><li><a href="#147">14.7 批处理事务</a></li><li><a href="#15">15. 排查命令与诊断模板</a></li><li><a href="#151">15.1 查看事务</a></li><li><a href="#152">15.2 查看锁等待</a></li><li><a href="#153-innodb">15.3 查看 InnoDB 状态</a></li><li><a href="#154">15.4 查看长事务</a></li><li><a href="#155">15.5 查看等待线程</a></li><li><a href="#156">15.6 锁等待超时参数</a></li><li><a href="#157">15.7 诊断模板</a></li><li><a href="#16">16. 高频面试题</a></li><li><a href="#161-mvcc">16.1 MVCC 解决了什么问题？</a></li><li><a href="#162-rr-select">16.2 RR 下为什么普通 SELECT 可重复读？</a></li><li><a href="#163">16.3 当前读和快照读有什么区别？</a></li><li><a href="#164">16.4 为什么索引会影响锁？</a></li><li><a href="#165-redoundobinlog">16.5 Redo、Undo、Binlog 区别？</a></li><li><a href="#166">16.6 两阶段提交解决什么？</a></li><li><a href="#167">16.7 什么是间隙锁？</a></li><li><a href="#168">16.8 死锁如何处理？</a></li><li><a href="#169">16.9 为什么长事务危险？</a></li><li><a href="#1610-innodb_flush_log_at_trx_commit1">16.10 innodb_flush_log_at_trx_commit=1 为什么更安全？</a></li><li><a href="#17">17. 复习清单</a></li><li><a href="#171">17.1 必背概念</a></li><li><a href="#172">17.2 必会命令</a></li><li><a href="#173">17.3 必会分析路径</a></li><li><a href="#174">17.4 与其他主题联动</a></li><li><a href="#18">18. 参考资料</a></li><li><a href="#_2">验证记录</a></li></ul></details><article class="note-content">
+<blockquote>
+<p>本篇定位：解释 MySQL 默认存储引擎 InnoDB 如何保证“并发正确性”和“崩溃可恢复性”。学习顺序建议：先读 <a href="n-f6e6d518f76a.html">01-MySQL基础与体系结构</a>，再读本篇，最后结合 <a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a> 和 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a> 做性能与故障排查。</p>
+</blockquote>
+<span class="heading-anchor" id="目录"></span><h2 id="_1">目录</h2>
+<ul>
+<li><a href="n-6750fd73b475.html#1.%20%E6%A0%B8%E5%BF%83%E9%97%AE%E9%A2%98%EF%BC%9AInnoDB%20%E5%9C%A8%E8%A7%A3%E5%86%B3%E4%BB%80%E4%B9%88">#1. 核心问题：InnoDB 在解决什么</a></li>
+<li><a href="n-6750fd73b475.html#2.%20%E4%BA%8B%E5%8A%A1%E4%B8%8E%20ACID">#2. 事务与 ACID</a></li>
+<li><a href="n-6750fd73b475.html#3.%20%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB%E4%B8%8E%E5%B9%B6%E5%8F%91%E7%8E%B0%E8%B1%A1">#3. 隔离级别与并发现象</a></li>
+<li><a href="n-6750fd73b475.html#4.%20MVCC%20%E4%B8%8E%20Read%20View">#4. MVCC 与 Read View</a></li>
+<li><a href="n-6750fd73b475.html#5.%20%E5%BF%AB%E7%85%A7%E8%AF%BB%E3%80%81%E5%BD%93%E5%89%8D%E8%AF%BB%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E8%AF%BB">#5. 快照读、当前读与一致性读</a></li>
+<li><a href="n-6750fd73b475.html#6.%20InnoDB%20%E9%94%81%E4%BD%93%E7%B3%BB">#6. InnoDB 锁体系</a></li>
+<li><a href="n-6750fd73b475.html#7.%20%E9%97%B4%E9%9A%99%E9%94%81%E4%B8%8E%20Next-Key%20Lock">#7. 间隙锁与 Next-Key Lock</a></li>
+<li><a href="n-6750fd73b475.html#8.%20%E6%AD%BB%E9%94%81%E5%88%86%E6%9E%90%E4%B8%8E%E5%A4%84%E7%90%86">#8. 死锁分析与处理</a></li>
+<li><a href="n-6750fd73b475.html#9.%20Undo%20Log%E3%80%81Redo%20Log%E3%80%81Binlog">#9. Undo Log、Redo Log、Binlog</a></li>
+<li><a href="n-6750fd73b475.html#10.%20%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4%E4%B8%8E%E5%B4%A9%E6%BA%83%E6%81%A2%E5%A4%8D">#10. 两阶段提交与崩溃恢复</a></li>
+<li><a href="n-6750fd73b475.html#11.%20Buffer%20Pool%20%E4%B8%8E%E5%86%85%E5%AD%98%E7%BB%93%E6%9E%84">#11. Buffer Pool 与内存结构</a></li>
+<li><a href="n-6750fd73b475.html#12.%20Change%20Buffer%E3%80%81Doublewrite%E3%80%81AHI">#12. Change Buffer、Doublewrite、AHI</a></li>
+<li><a href="n-6750fd73b475.html#13.%20Checkpoint%E3%80%81%E5%88%B7%E8%84%8F%E9%A1%B5%E4%B8%8E%E5%86%99%E5%85%A5%E8%B7%AF%E5%BE%84">#13. Checkpoint、刷脏页与写入路径</a></li>
+<li><a href="n-6750fd73b475.html#14.%20%E4%BA%8B%E5%8A%A1%E8%AE%BE%E8%AE%A1%E5%AE%9E%E8%B7%B5">#14. 事务设计实践</a></li>
+<li><a href="n-6750fd73b475.html#15.%20%E6%8E%92%E6%9F%A5%E5%91%BD%E4%BB%A4%E4%B8%8E%E8%AF%8A%E6%96%AD%E6%A8%A1%E6%9D%BF">#15. 排查命令与诊断模板</a></li>
+<li><a href="n-6750fd73b475.html#16.%20%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98">#16. 高频面试题</a></li>
+<li><a href="n-6750fd73b475.html#17.%20%E5%A4%8D%E4%B9%A0%E6%B8%85%E5%8D%95">#17. 复习清单</a></li>
+<li><a href="n-6750fd73b475.html#18.%20%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99">#18. 参考资料</a></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="1. 核心问题：InnoDB 在解决什么"></span><h2 id="1-innodb">1. 核心问题：InnoDB 在解决什么</h2>
+<p>InnoDB 的核心职责不是“把数据放进文件”这么简单，而是在高并发和故障环境下同时满足：</p>
+<ol>
+<li><strong>正确性</strong>：事务提交后结果符合业务约束，未提交事务不能污染其他事务。</li>
+<li><strong>并发性</strong>：多个事务同时读写时，尽量减少互相阻塞。</li>
+<li><strong>持久性</strong>：数据库进程、操作系统或机器异常后，已提交事务可恢复。</li>
+<li><strong>可恢复性</strong>：未提交事务回滚，已提交事务重做。</li>
+<li><strong>可观测性</strong>：通过状态表、错误日志、性能模式和慢查询定位问题。</li>
+</ol>
+<p>一句话模型：</p>
+<blockquote>
+<p><strong>MVCC 负责“读不挡写、写不挡读”；锁负责“写写冲突与约束正确性”；Redo/Undo/Binlog 负责“回滚、恢复与复制”。</strong></p>
+</blockquote>
+<p>与其他笔记关系：</p>
+<ul>
+<li>表结构、SQL 与事务语句见 <a href="n-b095ed427c3c.html">02-SQL语言与数据建模</a>。</li>
+<li>索引结构会影响锁范围，见 <a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>。</li>
+<li>Binlog 复制、备份恢复、故障处理见 <a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a>。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="2. 事务与 ACID"></span><h2 id="2-acid">2. 事务与 ACID</h2>
+<span class="heading-anchor" id="2.1 事务定义"></span><h3 id="21">2.1 事务定义</h3>
+<p>事务是一组逻辑操作，要么全部成功，要么全部失败。典型转账：</p>
+<pre><code class="language-sql">START TRANSACTION;
+UPDATE account SET balance = balance - 100 WHERE id = 1;
+UPDATE account SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+</code></pre>
+<p>如果第二条失败，需要回滚第一条：</p>
+<pre><code class="language-sql">ROLLBACK;
+</code></pre>
+<span class="heading-anchor" id="2.2 ACID"></span><h3 id="22-acid">2.2 ACID</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>含义</th>
+<th>InnoDB 主要机制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Atomicity 原子性</td>
+<td>事务内操作不可分割</td>
+<td>undo log</td>
+</tr>
+<tr>
+<td>Consistency 一致性</td>
+<td>事务前后满足约束</td>
+<td>约束、锁、事务隔离、业务逻辑</td>
+</tr>
+<tr>
+<td>Isolation 隔离性</td>
+<td>并发事务互相隔离</td>
+<td>MVCC、锁、隔离级别</td>
+</tr>
+<tr>
+<td>Durability 持久性</td>
+<td>提交后故障不丢</td>
+<td>redo log、刷盘策略</td>
+</tr>
+</tbody>
+</table></div>
+<p>注意：一致性不是单个机制保证的，而是数据库机制 + 应用约束 + 业务代码共同保证。</p>
+<span class="heading-anchor" id="2.3 自动提交"></span><h3 id="23">2.3 自动提交</h3>
+<p>MySQL 默认开启自动提交：</p>
+<pre><code class="language-sql">SELECT @@autocommit;
+</code></pre>
+<ul>
+<li><code>autocommit = 1</code>：每条语句默认一个事务。</li>
+<li>显式 <code>START TRANSACTION</code> 后，直到 <code>COMMIT</code> / <code>ROLLBACK</code> 才结束。</li>
+<li>DDL 通常伴随隐式提交，不能简单当作普通 DML 回滚。</li>
+</ul>
+<span class="heading-anchor" id="2.4 事务边界"></span><h3 id="24">2.4 事务边界</h3>
+<p>常见事务控制语句：</p>
+<pre><code class="language-sql">START TRANSACTION;
+SAVEPOINT s1;
+ROLLBACK TO SAVEPOINT s1;
+RELEASE SAVEPOINT s1;
+COMMIT;
+ROLLBACK;
+</code></pre>
+<p>实践原则：</p>
+<ul>
+<li>事务越短越好。</li>
+<li>不要在事务中等待用户输入、远程 API、长时间计算。</li>
+<li>事务中访问顺序保持一致，减少死锁。</li>
+<li>只把必须原子化的数据库操作放进一个事务。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="3. 隔离级别与并发现象"></span><h2 id="3">3. 隔离级别与并发现象</h2>
+<span class="heading-anchor" id="3.1 四种隔离级别"></span><h3 id="31">3.1 四种隔离级别</h3>
+<pre><code class="language-sql">SELECT @@transaction_isolation;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>脏读</th>
+<th>不可重复读</th>
+<th>幻读</th>
+<th>MySQL/InnoDB 说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>READ UNCOMMITTED</td>
+<td>可能</td>
+<td>可能</td>
+<td>可能</td>
+<td>几乎不用</td>
+</tr>
+<tr>
+<td>READ COMMITTED</td>
+<td>避免</td>
+<td>可能</td>
+<td>可能</td>
+<td>每条一致性读创建新 Read View</td>
+</tr>
+<tr>
+<td>REPEATABLE READ</td>
+<td>避免</td>
+<td>避免</td>
+<td>InnoDB 通过 MVCC + next-key lock 处理很多幻读场景</td>
+<td>MySQL 默认</td>
+</tr>
+<tr>
+<td>SERIALIZABLE</td>
+<td>避免</td>
+<td>避免</td>
+<td>避免</td>
+<td>并发低，读也可能加锁</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3.2 脏读"></span><h3 id="32">3.2 脏读</h3>
+<p>读到其他事务未提交的数据。如果对方回滚，本事务读到的数据从未真实存在。</p>
+<span class="heading-anchor" id="3.3 不可重复读"></span><h3 id="33">3.3 不可重复读</h3>
+<p>同一事务中两次读取同一行，结果不同。通常因为另一事务提交了更新。</p>
+<span class="heading-anchor" id="3.4 幻读"></span><h3 id="34">3.4 幻读</h3>
+<p>同一事务中两次按条件读取，第二次出现或消失了符合条件的行。通常与范围查询和插入有关。</p>
+<span class="heading-anchor" id="3.5 MySQL 默认 REPEATABLE READ 的特点"></span><h3 id="35-mysql-repeatable-read">3.5 MySQL 默认 REPEATABLE READ 的特点</h3>
+<p>InnoDB 默认隔离级别为 <code>REPEATABLE READ</code>。在普通一致性读中，同一事务复用 Read View，因此多次快照读结果稳定；在当前读（如 <code>SELECT ... FOR UPDATE</code>、<code>UPDATE</code>、<code>DELETE</code>）中，需要通过锁约束并发修改。</p>
+<p>关键不要混淆：</p>
+<ul>
+<li><strong>快照读</strong>依赖 MVCC，不加锁。</li>
+<li><strong>当前读</strong>读最新已提交版本，并可能加锁。</li>
+<li>幻读讨论必须说明是快照读还是当前读。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="4. MVCC 与 Read View"></span><h2 id="4-mvcc-read-view">4. MVCC 与 Read View</h2>
+<span class="heading-anchor" id="4.1 MVCC 是什么"></span><h3 id="41-mvcc">4.1 MVCC 是什么</h3>
+<p>MVCC（Multi-Version Concurrency Control，多版本并发控制）通过保存数据行的多个历史版本，让读操作可以读取某个时间点的一致性快照。</p>
+<p>直觉：</p>
+<pre><code class="language-text">当前行记录 + undo log 版本链 + Read View 可见性规则 = 一致性读
+</code></pre>
+<span class="heading-anchor" id="4.2 隐藏字段"></span><h3 id="42">4.2 隐藏字段</h3>
+<p>InnoDB 聚簇索引记录中包含内部隐藏信息，常见概念：</p>
+<ul>
+<li><code>DB_TRX_ID</code>：最近修改该行的事务 ID。</li>
+<li><code>DB_ROLL_PTR</code>：指向 undo log 中旧版本的指针。</li>
+<li><code>DB_ROW_ID</code>：无显式主键且无合适唯一键时生成的隐藏行 ID。</li>
+</ul>
+<span class="heading-anchor" id="4.3 Undo 版本链"></span><h3 id="43-undo">4.3 Undo 版本链</h3>
+<p>当事务更新一行：</p>
+<pre><code class="language-sql">UPDATE user SET age = 20 WHERE id = 1;
+</code></pre>
+<p>InnoDB 会：</p>
+<ol>
+<li>在当前记录写入新值。</li>
+<li>记录旧值到 undo log。</li>
+<li>当前记录的回滚指针指向旧版本。</li>
+<li>多次更新形成版本链。</li>
+</ol>
+<span class="heading-anchor" id="4.4 Read View 包含什么"></span><h3 id="44-read-view">4.4 Read View 包含什么</h3>
+<p>Read View 是一致性读的“可见性快照”，典型包含：</p>
+<ul>
+<li>创建 Read View 时活跃事务 ID 列表。</li>
+<li>当前系统将要分配的下一个事务 ID。</li>
+<li>当前事务 ID。</li>
+<li>活跃事务中的最小 ID。</li>
+</ul>
+<p>判断思路：</p>
+<ol>
+<li>创建该版本的事务如果是本事务，通常可见。</li>
+<li>如果版本事务 ID 早于活跃事务最小 ID，说明已提交，可见。</li>
+<li>如果版本事务 ID 大于等于下一个事务 ID，说明是未来事务，不可见。</li>
+<li>如果版本事务 ID 在活跃事务列表中，不可见。</li>
+<li>否则可见。</li>
+</ol>
+<span class="heading-anchor" id="4.5 RC 与 RR 的 Read View 差异"></span><h3 id="45-rc-rr-read-view">4.5 RC 与 RR 的 Read View 差异</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>Read View 创建时机</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>READ COMMITTED</td>
+<td>每条一致性读语句创建</td>
+<td>同一事务内可能读到其他事务新提交的数据</td>
+</tr>
+<tr>
+<td>REPEATABLE READ</td>
+<td>事务第一次一致性读创建并复用</td>
+<td>同一事务内快照稳定</td>
+</tr>
+</tbody>
+</table></div>
+<p>示例：</p>
+<pre><code class="language-sql">-- T1
+START TRANSACTION;
+SELECT balance FROM account WHERE id = 1; -- 创建 Read View
+
+-- T2
+UPDATE account SET balance = balance + 100 WHERE id = 1;
+COMMIT;
+
+-- T1
+SELECT balance FROM account WHERE id = 1; -- RR 下仍读旧快照
+COMMIT;
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="5. 快照读、当前读与一致性读"></span><h2 id="5">5. 快照读、当前读与一致性读</h2>
+<span class="heading-anchor" id="5.1 快照读"></span><h3 id="51">5.1 快照读</h3>
+<p>普通 <code>SELECT</code> 通常是快照读：</p>
+<pre><code class="language-sql">SELECT * FROM orders WHERE user_id = 10;
+</code></pre>
+<p>特点：</p>
+<ul>
+<li>不加行锁。</li>
+<li>通过 MVCC 读取可见版本。</li>
+<li>在 RR 下同一事务内结果稳定。</li>
+</ul>
+<span class="heading-anchor" id="5.2 当前读"></span><h3 id="52">5.2 当前读</h3>
+<p>以下语句通常需要读取最新版本并加锁：</p>
+<pre><code class="language-sql">SELECT * FROM orders WHERE id = 1 FOR UPDATE;
+SELECT * FROM orders WHERE id = 1 LOCK IN SHARE MODE;
+UPDATE orders SET status = 'PAID' WHERE id = 1;
+DELETE FROM orders WHERE id = 1;
+INSERT INTO orders(id, status) VALUES (1, 'NEW');
+</code></pre>
+<p>MySQL 8.0+ 推荐使用标准写法：</p>
+<pre><code class="language-sql">SELECT * FROM orders WHERE id = 1 FOR SHARE;
+</code></pre>
+<span class="heading-anchor" id="5.3 一致性读与锁定读"></span><h3 id="53">5.3 一致性读与锁定读</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>读类型</th>
+<th>示例</th>
+<th>是否加锁</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一致性读</td>
+<td><code>SELECT ...</code></td>
+<td>通常不加锁</td>
+<td>报表、查询、普通业务读</td>
+</tr>
+<tr>
+<td>共享锁读</td>
+<td><code>SELECT ... FOR SHARE</code></td>
+<td>加共享锁</td>
+<td>防止被其他事务修改</td>
+</tr>
+<tr>
+<td>排他锁读</td>
+<td><code>SELECT ... FOR UPDATE</code></td>
+<td>加排他锁</td>
+<td>准备更新前锁定</td>
+</tr>
+</tbody>
+</table></div>
+<p>实践建议：</p>
+<ul>
+<li>查询展示用快照读。</li>
+<li>先读后改且要求并发正确，用 <code>FOR UPDATE</code>。</li>
+<li>不要为了“保险”滥用锁定读，会降低并发。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="6. InnoDB 锁体系"></span><h2 id="6-innodb">6. InnoDB 锁体系</h2>
+<span class="heading-anchor" id="6.1 锁粒度"></span><h3 id="61">6.1 锁粒度</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>锁粒度</th>
+<th>说明</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>表锁</td>
+<td>锁整张表</td>
+<td>DDL、元数据锁、特殊操作</td>
+</tr>
+<tr>
+<td>行锁</td>
+<td>锁索引记录</td>
+<td>InnoDB 常规 DML</td>
+</tr>
+<tr>
+<td>间隙锁</td>
+<td>锁索引记录之间的范围</td>
+<td>防止范围插入幻影行</td>
+</tr>
+<tr>
+<td>Next-Key Lock</td>
+<td>记录锁 + 前方间隙锁</td>
+<td>RR 下范围当前读常见</td>
+</tr>
+</tbody>
+</table></div>
+<p>InnoDB 的“行锁”实际锁的是<strong>索引记录</strong>。如果查询不走索引，可能扫描并锁住大量记录，甚至表现得像锁表。因此索引设计直接影响锁范围，见 <a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a>。</p>
+<span class="heading-anchor" id="6.2 共享锁与排他锁"></span><h3 id="62">6.2 共享锁与排他锁</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>锁</th>
+<th>兼容性</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S Lock 共享锁</td>
+<td>S 与 S 兼容</td>
+<td>允许多个事务读，阻止写</td>
+</tr>
+<tr>
+<td>X Lock 排他锁</td>
+<td>与 S/X 都不兼容</td>
+<td>修改行时使用</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-sql">SELECT * FROM product WHERE id = 1 FOR SHARE;
+SELECT * FROM product WHERE id = 1 FOR UPDATE;
+</code></pre>
+<span class="heading-anchor" id="6.3 意向锁"></span><h3 id="63">6.3 意向锁</h3>
+<p>意向锁是表级锁，用于表示事务将要或已经在表中某些行上加锁：</p>
+<ul>
+<li>IS：意向共享锁。</li>
+<li>IX：意向排他锁。</li>
+</ul>
+<p>作用：快速判断表锁与行锁是否冲突，避免逐行检查。</p>
+<span class="heading-anchor" id="6.4 记录锁"></span><h3 id="64">6.4 记录锁</h3>
+<p>Record Lock 锁定索引中的某条记录。</p>
+<pre><code class="language-sql">START TRANSACTION;
+UPDATE users SET name = 'A' WHERE id = 100;
+-- 锁定 PRIMARY 索引 id=100 的记录
+</code></pre>
+<span class="heading-anchor" id="6.5 表级元数据锁 MDL"></span><h3 id="65-mdl">6.5 表级元数据锁 MDL</h3>
+<p>MySQL 执行 DML/DDL 时会获取 Metadata Lock。</p>
+<p>典型问题：</p>
+<ol>
+<li>长事务执行 <code>SELECT</code> 后未提交，持有表的 MDL 读锁。</li>
+<li>另一个会话执行 <code>ALTER TABLE</code> 等待 MDL 写锁。</li>
+<li>后续所有访问该表的语句可能排队，形成雪崩。</li>
+</ol>
+<p>排查：</p>
+<pre><code class="language-sql">SHOW FULL PROCESSLIST;
+SELECT * FROM performance_schema.metadata_locks;
+</code></pre>
+<span class="heading-anchor" id="6.6 AUTO-INC 锁"></span><h3 id="66-auto-inc">6.6 AUTO-INC 锁</h3>
+<p>自增列插入涉及 AUTO-INC 机制。参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_autoinc_lock_mode';
+</code></pre>
+<p>一般理解：</p>
+<ul>
+<li>自增值保证分配，不保证业务连续。</li>
+<li>回滚、失败插入、复制模式都可能造成自增间隙。</li>
+<li>不要把自增 ID 连续性作为业务含义。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="7. 间隙锁与 Next-Key Lock"></span><h2 id="7-next-key-lock">7. 间隙锁与 Next-Key Lock</h2>
+<span class="heading-anchor" id="7.1 为什么需要间隙锁"></span><h3 id="71">7.1 为什么需要间隙锁</h3>
+<p>在 RR 隔离级别下，如果事务执行范围当前读：</p>
+<pre><code class="language-sql">SELECT * FROM orders WHERE amount BETWEEN 100 AND 200 FOR UPDATE;
+</code></pre>
+<p>除了已有记录，还需要阻止其他事务在范围内插入新记录，否则同一事务再次当前读可能出现幻影行。</p>
+<span class="heading-anchor" id="7.2 Gap Lock"></span><h3 id="72-gap-lock">7.2 Gap Lock</h3>
+<p>Gap Lock 锁定索引记录之间的“间隙”，不锁定记录本身。</p>
+<p>例如索引值：</p>
+<pre><code class="language-text">10, 20, 30
+</code></pre>
+<p>可能存在间隙：</p>
+<pre><code class="language-text">(-∞,10), (10,20), (20,30), (30,+∞)
+</code></pre>
+<span class="heading-anchor" id="7.3 Next-Key Lock"></span><h3 id="73-next-key-lock">7.3 Next-Key Lock</h3>
+<p>Next-Key Lock = Record Lock + Gap Lock，锁定一个左开右闭区间。</p>
+<p>如果扫描到索引记录 20，可能锁住 <code>(10,20]</code>。</p>
+<span class="heading-anchor" id="7.4 唯一索引等值查询"></span><h3 id="74">7.4 唯一索引等值查询</h3>
+<p>通常情况下，唯一索引等值命中具体记录，可以退化为记录锁：</p>
+<pre><code class="language-sql">UPDATE users SET name = 'x' WHERE id = 1;
+</code></pre>
+<p>如果唯一索引等值查询未命中，仍可能锁住插入位置的间隙，防止其他事务插入该键。</p>
+<span class="heading-anchor" id="7.5 非唯一索引范围查询"></span><h3 id="75">7.5 非唯一索引范围查询</h3>
+<pre><code class="language-sql">UPDATE orders SET status = 'CHECKING'
+WHERE user_id = 10 AND created_at &gt;= '2026-01-01';
+</code></pre>
+<p>如果 <code>user_id, created_at</code> 上有联合索引，锁范围与索引扫描范围相关；如果没有合适索引，锁范围可能扩大。</p>
+<span class="heading-anchor" id="7.6 减少间隙锁影响"></span><h3 id="76">7.6 减少间隙锁影响</h3>
+<ul>
+<li>用唯一索引精确定位要更新的行。</li>
+<li>避免在大范围内 <code>FOR UPDATE</code>。</li>
+<li>把批量任务拆小批。</li>
+<li>保持事务短。</li>
+<li>必要时评估 <code>READ COMMITTED</code>，但必须理解语义变化。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="8. 死锁分析与处理"></span><h2 id="8">8. 死锁分析与处理</h2>
+<span class="heading-anchor" id="8.1 死锁定义"></span><h3 id="81">8.1 死锁定义</h3>
+<p>两个或多个事务互相等待对方释放锁，形成环：</p>
+<pre><code class="language-text">T1 持有 A，等待 B
+T2 持有 B，等待 A
+</code></pre>
+<p>InnoDB 会检测死锁，选择一个事务回滚：</p>
+<pre><code class="language-text">ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction
+</code></pre>
+<span class="heading-anchor" id="8.2 常见死锁原因"></span><h3 id="82">8.2 常见死锁原因</h3>
+<ol>
+<li>多事务更新顺序不一致。</li>
+<li>缺少索引导致扫描锁范围过大。</li>
+<li>范围更新与插入冲突。</li>
+<li>外键级联或唯一约束检查引入额外锁。</li>
+<li>长事务持锁时间过长。</li>
+</ol>
+<span class="heading-anchor" id="8.3 典型案例：更新顺序相反"></span><h3 id="83">8.3 典型案例：更新顺序相反</h3>
+<pre><code class="language-sql">-- T1
+START TRANSACTION;
+UPDATE account SET balance = balance - 10 WHERE id = 1;
+UPDATE account SET balance = balance + 10 WHERE id = 2;
+
+-- T2
+START TRANSACTION;
+UPDATE account SET balance = balance - 10 WHERE id = 2;
+UPDATE account SET balance = balance + 10 WHERE id = 1;
+</code></pre>
+<p>解决：统一按主键升序访问：</p>
+<pre><code class="language-text">所有转账都先锁 id 小的账户，再锁 id 大的账户。
+</code></pre>
+<span class="heading-anchor" id="8.4 查看最近一次死锁"></span><h3 id="84">8.4 查看最近一次死锁</h3>
+<pre><code class="language-sql">SHOW ENGINE INNODB STATUS\G
+</code></pre>
+<p>重点阅读：</p>
+<ul>
+<li><code>LATEST DETECTED DEADLOCK</code></li>
+<li>两个事务执行的 SQL</li>
+<li>等待的锁类型</li>
+<li>持有的锁类型</li>
+<li>使用的索引</li>
+</ul>
+<span class="heading-anchor" id="8.5 死锁处理原则"></span><h3 id="85">8.5 死锁处理原则</h3>
+<ul>
+<li>应用层必须能重试可重入事务。</li>
+<li>重试要有次数上限和退避。</li>
+<li>事务内操作保持固定顺序。</li>
+<li>为 WHERE 条件建立合适索引。</li>
+<li>拆分大事务。</li>
+<li>监控死锁频率，偶发死锁不等于系统异常，频繁死锁才需要结构性治理。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="9. Undo Log、Redo Log、Binlog"></span><h2 id="9-undo-logredo-logbinlog">9. Undo Log、Redo Log、Binlog</h2>
+<span class="heading-anchor" id="9.1 三类日志对比"></span><h3 id="91">9.1 三类日志对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>日志</th>
+<th>所属</th>
+<th>主要用途</th>
+<th>是否 InnoDB 特有</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>undo log</td>
+<td>InnoDB</td>
+<td>回滚、MVCC 旧版本</td>
+<td>是</td>
+</tr>
+<tr>
+<td>redo log</td>
+<td>InnoDB</td>
+<td>崩溃恢复、持久性</td>
+<td>是</td>
+</tr>
+<tr>
+<td>binlog</td>
+<td>MySQL Server 层</td>
+<td>复制、时间点恢复、审计</td>
+<td>否</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="9.2 Undo Log"></span><h3 id="92-undo-log">9.2 Undo Log</h3>
+<p>用途：</p>
+<ol>
+<li>事务回滚时恢复旧值。</li>
+<li>MVCC 一致性读沿版本链找到可见版本。</li>
+</ol>
+<p>注意：</p>
+<ul>
+<li>长事务会阻碍 undo 清理，造成历史版本堆积。</li>
+<li>长事务还可能导致备份、DDL、主从延迟等问题。</li>
+</ul>
+<p>查看事务：</p>
+<pre><code class="language-sql">SELECT *
+FROM information_schema.innodb_trx\G
+</code></pre>
+<span class="heading-anchor" id="9.3 Redo Log"></span><h3 id="93-redo-log">9.3 Redo Log</h3>
+<p>Redo log 记录物理页修改，用于崩溃恢复。</p>
+<p>WAL（Write-Ahead Logging）原则：</p>
+<blockquote>
+<p>修改数据页前，先确保相应 redo 已持久化到日志。</p>
+</blockquote>
+<p>提交时不一定立刻把数据页写回磁盘，但必须保证 redo 满足持久性策略。</p>
+<p>关键参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_flush_log_at_trx_commit';
+</code></pre>
+<p>常见值：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>值</th>
+<th>提交行为</th>
+<th>持久性</th>
+<th>性能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>每次提交写入并 fsync redo</td>
+<td>最强</td>
+<td>较低</td>
+</tr>
+<tr>
+<td>2</td>
+<td>每次提交写入 OS cache，约每秒 fsync</td>
+<td>可能丢 1 秒</td>
+<td>较高</td>
+</tr>
+<tr>
+<td>0</td>
+<td>约每秒写入并 fsync</td>
+<td>可能丢 1 秒以上</td>
+<td>高</td>
+</tr>
+</tbody>
+</table></div>
+<p>生产核心交易一般使用 <code>1</code>。</p>
+<span class="heading-anchor" id="9.4 Binlog"></span><h3 id="94-binlog">9.4 Binlog</h3>
+<p>Binlog 是 Server 层二进制日志，用于：</p>
+<ul>
+<li>主从复制。</li>
+<li>时间点恢复（PITR）。</li>
+<li>数据审计与增量订阅。</li>
+</ul>
+<p>常见格式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>格式</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>STATEMENT</td>
+<td>记录 SQL，可能受非确定函数影响</td>
+</tr>
+<tr>
+<td>ROW</td>
+<td>记录行变化，复制更可靠，日志更大</td>
+</tr>
+<tr>
+<td>MIXED</td>
+<td>混合模式</td>
+</tr>
+</tbody>
+</table></div>
+<p>生产通常更偏向 <code>ROW</code>。</p>
+<p>关键参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'binlog_format';
+SHOW VARIABLES LIKE 'sync_binlog';
+</code></pre>
+<p><code>sync_binlog=1</code> 持久性更强，但性能成本更高。</p>
+<hr/>
+<span class="heading-anchor" id="10. 两阶段提交与崩溃恢复"></span><h2 id="10">10. 两阶段提交与崩溃恢复</h2>
+<span class="heading-anchor" id="10.1 为什么需要两阶段提交"></span><h3 id="101">10.1 为什么需要两阶段提交</h3>
+<p>一次事务提交同时涉及：</p>
+<ul>
+<li>InnoDB redo log</li>
+<li>MySQL binlog</li>
+</ul>
+<p>如果两者不一致，会出现：</p>
+<ul>
+<li>本机恢复后有数据，但 binlog 没有，副本丢事务。</li>
+<li>binlog 有事务，但本机恢复后没有，主从不一致。</li>
+</ul>
+<span class="heading-anchor" id="10.2 基本流程"></span><h3 id="102">10.2 基本流程</h3>
+<p>简化理解：</p>
+<pre><code class="language-text">1. InnoDB 写 redo，状态 prepare
+2. Server 写 binlog
+3. InnoDB 写 redo，状态 commit
+</code></pre>
+<p>崩溃恢复时根据 redo 状态与 binlog 是否完整决定提交或回滚。</p>
+<span class="heading-anchor" id="10.3 崩溃点分析"></span><h3 id="103">10.3 崩溃点分析</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>崩溃位置</th>
+<th>恢复判断</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>redo prepare 前</td>
+<td>事务未提交，回滚</td>
+</tr>
+<tr>
+<td>redo prepare 后、binlog 前</td>
+<td>binlog 无完整事务，回滚</td>
+</tr>
+<tr>
+<td>binlog 后、redo commit 前</td>
+<td>binlog 完整，提交</td>
+</tr>
+<tr>
+<td>redo commit 后</td>
+<td>提交</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="10.4 组提交"></span><h3 id="104">10.4 组提交</h3>
+<p>为了降低 fsync 成本，MySQL 支持 binlog group commit，把多个事务的刷盘合并。理解点：</p>
+<ul>
+<li>持久性参数越严格，fsync 越频繁。</li>
+<li>组提交提升吞吐，但仍要在延迟与安全之间权衡。</li>
+<li>高并发小事务场景中组提交效果明显。</li>
+</ul>
+<span class="heading-anchor" id="10.5 恢复类型"></span><h3 id="105">10.5 恢复类型</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>依赖</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>崩溃恢复</td>
+<td>redo + undo</td>
+<td>数据库异常退出后自动恢复</td>
+</tr>
+<tr>
+<td>事务回滚</td>
+<td>undo</td>
+<td>用户主动回滚或死锁牺牲事务</td>
+</tr>
+<tr>
+<td>时间点恢复</td>
+<td>全量备份 + binlog</td>
+<td>恢复到误删前某一时刻</td>
+</tr>
+<tr>
+<td>复制恢复</td>
+<td>binlog/relay log</td>
+<td>副本追赶主库</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<span class="heading-anchor" id="11. Buffer Pool 与内存结构"></span><h2 id="11-buffer-pool">11. Buffer Pool 与内存结构</h2>
+<span class="heading-anchor" id="11.1 Buffer Pool 是什么"></span><h3 id="111-buffer-pool">11.1 Buffer Pool 是什么</h3>
+<p>Buffer Pool 是 InnoDB 最重要的内存区域，用来缓存：</p>
+<ul>
+<li>数据页。</li>
+<li>索引页。</li>
+<li>undo 页。</li>
+<li>自适应哈希相关结构。</li>
+<li>插入缓冲相关页。</li>
+</ul>
+<p>读写路径：</p>
+<pre><code class="language-text">查询 -&gt; 先查 Buffer Pool -&gt; 未命中再读磁盘页 -&gt; 放入 Buffer Pool
+更新 -&gt; 修改 Buffer Pool 中页 -&gt; 标记脏页 -&gt; 后台刷盘
+</code></pre>
+<span class="heading-anchor" id="11.2 页"></span><h3 id="112">11.2 页</h3>
+<p>InnoDB 默认页大小通常为 16KB。B+Tree、Buffer Pool、redo 记录等都围绕页工作。</p>
+<span class="heading-anchor" id="11.3 LRU 改进"></span><h3 id="113-lru">11.3 LRU 改进</h3>
+<p>传统 LRU 容易被全表扫描污染。InnoDB Buffer Pool 使用改进 LRU，把列表分为：</p>
+<ul>
+<li>young 区：热点页。</li>
+<li>old 区：新读入页先进入 old 区。</li>
+</ul>
+<p>参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_old_blocks_pct';
+SHOW VARIABLES LIKE 'innodb_old_blocks_time';
+</code></pre>
+<span class="heading-anchor" id="11.4 Buffer Pool 参数"></span><h3 id="114-buffer-pool">11.4 Buffer Pool 参数</h3>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+SHOW VARIABLES LIKE 'innodb_buffer_pool_instances';
+</code></pre>
+<p>经验：</p>
+<ul>
+<li>专用数据库服务器上，Buffer Pool 往往占内存大头。</li>
+<li>不要机械设置为 80%，需要给连接、排序、临时表、OS cache、备份等留空间。</li>
+<li>观察命中率、脏页比例、刷盘压力后调整。</li>
+</ul>
+<span class="heading-anchor" id="11.5 脏页"></span><h3 id="115">11.5 脏页</h3>
+<p>被修改但尚未刷入数据文件的页称为脏页。脏页不代表不安全，只要 redo 已持久化，崩溃后可重放恢复。</p>
+<hr/>
+<span class="heading-anchor" id="12. Change Buffer、Doublewrite、AHI"></span><h2 id="12-change-bufferdoublewriteahi">12. Change Buffer、Doublewrite、AHI</h2>
+<span class="heading-anchor" id="12.1 Change Buffer"></span><h3 id="121-change-buffer">12.1 Change Buffer</h3>
+<p>Change Buffer 用于缓存对二级索引页的变更，特别是非唯一二级索引页不在 Buffer Pool 时，可以先缓冲变更，之后读入页面时再合并。</p>
+<p>适合：</p>
+<ul>
+<li>写多读少。</li>
+<li>非唯一二级索引。</li>
+<li>插入/更新/删除二级索引键。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>唯一索引，因为必须检查唯一性。</li>
+<li>写后立即大量读，合并成本可能转移到读路径。</li>
+</ul>
+<p>参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_change_buffering';
+SHOW VARIABLES LIKE 'innodb_change_buffer_max_size';
+</code></pre>
+<span class="heading-anchor" id="12.2 Doublewrite Buffer"></span><h3 id="122-doublewrite-buffer">12.2 Doublewrite Buffer</h3>
+<p>Doublewrite 解决“页写到一半崩溃”的 torn page 问题。</p>
+<p>简化流程：</p>
+<pre><code class="language-text">脏页 -&gt; doublewrite 区域 -&gt; fsync -&gt; 数据文件真实位置
+</code></pre>
+<p>崩溃后如果数据页损坏，可从 doublewrite 中找到完整页，再结合 redo 恢复。</p>
+<span class="heading-anchor" id="12.3 Adaptive Hash Index"></span><h3 id="123-adaptive-hash-index">12.3 Adaptive Hash Index</h3>
+<p>自适应哈希索引（AHI）是 InnoDB 根据访问模式自动为热点页建立的哈希访问路径。</p>
+<p>特点：</p>
+<ul>
+<li>对等值热点查询可能有帮助。</li>
+<li>高并发下可能引入争用。</li>
+<li>是否启用需要基于压测和监控判断。</li>
+</ul>
+<p>参数：</p>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_adaptive_hash_index';
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="13. Checkpoint、刷脏页与写入路径"></span><h2 id="13-checkpoint">13. Checkpoint、刷脏页与写入路径</h2>
+<span class="heading-anchor" id="13.1 Checkpoint 作用"></span><h3 id="131-checkpoint">13.1 Checkpoint 作用</h3>
+<p>Redo log 容量有限，如果一直只写 redo 不刷数据页，恢复时间会变长，redo 也会被写满。Checkpoint 标记：</p>
+<blockquote>
+<p>到某个 LSN 之前的脏页已经或正在安全落盘，崩溃恢复只需从 checkpoint 后开始重放。</p>
+</blockquote>
+<span class="heading-anchor" id="13.2 LSN"></span><h3 id="132-lsn">13.2 LSN</h3>
+<p>LSN（Log Sequence Number）是日志序列号，用来表示 redo 写入位置和页刷新进度。</p>
+<p>查看状态：</p>
+<pre><code class="language-sql">SHOW ENGINE INNODB STATUS\G
+</code></pre>
+<p>关注：</p>
+<ul>
+<li>Log sequence number</li>
+<li>Log flushed up to</li>
+<li>Pages flushed up to</li>
+<li>Last checkpoint at</li>
+</ul>
+<span class="heading-anchor" id="13.3 刷脏页触发因素"></span><h3 id="133">13.3 刷脏页触发因素</h3>
+<ul>
+<li>Buffer Pool 空间不足。</li>
+<li>Redo log 接近写满。</li>
+<li>后台线程周期性刷新。</li>
+<li>正常关闭。</li>
+<li>Checkpoint 推进需求。</li>
+</ul>
+<span class="heading-anchor" id="13.4 写入路径简化"></span><h3 id="134">13.4 写入路径简化</h3>
+<pre><code class="language-text">1. 修改 Buffer Pool 中的数据页
+2. 生成 undo，支持回滚和旧版本
+3. 生成 redo，记录页级修改
+4. 提交时按策略刷 redo
+5. 数据页稍后异步刷盘
+6. 若开启 binlog，还要完成 binlog 与 redo 的一致提交
+</code></pre>
+<span class="heading-anchor" id="13.5 写性能调优方向"></span><h3 id="135">13.5 写性能调优方向</h3>
+<ul>
+<li>减少不必要索引，降低二级索引维护成本。</li>
+<li>批量写入但控制事务大小。</li>
+<li>避免热点行频繁更新。</li>
+<li>合理设置 redo 容量和刷盘策略。</li>
+<li>避免 Buffer Pool 太小导致频繁读写磁盘。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="14. 事务设计实践"></span><h2 id="14">14. 事务设计实践</h2>
+<span class="heading-anchor" id="14.1 保持事务短小"></span><h3 id="141">14.1 保持事务短小</h3>
+<p>反例：</p>
+<pre><code class="language-text">开启事务 -&gt; 查数据库 -&gt; 调第三方支付 API -&gt; 等用户确认 -&gt; 更新订单 -&gt; 提交
+</code></pre>
+<p>问题：持锁时间长、连接占用、死锁概率增加。</p>
+<p>改进：</p>
+<pre><code class="language-text">创建待支付订单并提交 -&gt; 调支付 API -&gt; 支付回调中短事务更新状态
+</code></pre>
+<span class="heading-anchor" id="14.2 固定访问顺序"></span><h3 id="142">14.2 固定访问顺序</h3>
+<p>批量更新多行时统一排序：</p>
+<pre><code class="language-sql">SELECT id FROM account WHERE id IN (3,1,2) ORDER BY id FOR UPDATE;
+</code></pre>
+<span class="heading-anchor" id="14.3 用索引缩小锁范围"></span><h3 id="143">14.3 用索引缩小锁范围</h3>
+<pre><code class="language-sql">-- 危险：无索引 status 时可能扫描大量记录
+UPDATE orders SET status = 'TIMEOUT'
+WHERE status = 'NEW' AND created_at &lt; NOW() - INTERVAL 30 MINUTE;
+
+-- 建议：为批处理条件设计组合索引
+CREATE INDEX idx_status_created ON orders(status, created_at);
+</code></pre>
+<span class="heading-anchor" id="14.4 乐观锁"></span><h3 id="144">14.4 乐观锁</h3>
+<p>适合冲突不高场景：</p>
+<pre><code class="language-sql">UPDATE product
+SET stock = stock - 1,
+    version = version + 1
+WHERE id = 100
+  AND stock &gt; 0
+  AND version = 7;
+</code></pre>
+<p>影响行数为 1 表示成功，为 0 表示版本冲突或库存不足。</p>
+<span class="heading-anchor" id="14.5 悲观锁"></span><h3 id="145">14.5 悲观锁</h3>
+<p>适合冲突高或必须串行化场景：</p>
+<pre><code class="language-sql">START TRANSACTION;
+SELECT stock FROM product WHERE id = 100 FOR UPDATE;
+UPDATE product SET stock = stock - 1 WHERE id = 100 AND stock &gt; 0;
+COMMIT;
+</code></pre>
+<p>注意：悲观锁必须配合短事务。</p>
+<span class="heading-anchor" id="14.6 幂等与重试"></span><h3 id="146">14.6 幂等与重试</h3>
+<p>死锁、锁等待超时、网络抖动都要求应用具备幂等重试能力。</p>
+<p>实践：</p>
+<ul>
+<li>每个外部请求有业务唯一键。</li>
+<li>写入前检查状态。</li>
+<li>重试只包裹可重入事务。</li>
+<li>区分“未知提交结果”和“明确失败”。</li>
+</ul>
+<span class="heading-anchor" id="14.7 批处理事务"></span><h3 id="147">14.7 批处理事务</h3>
+<p>大批量更新建议分批：</p>
+<pre><code class="language-sql">UPDATE orders
+SET archived = 1
+WHERE archived = 0
+ORDER BY id
+LIMIT 1000;
+</code></pre>
+<p>循环执行，直到影响行数为 0。优势：</p>
+<ul>
+<li>降低单事务 undo/redo 压力。</li>
+<li>缩短锁持有时间。</li>
+<li>降低复制延迟。</li>
+<li>更容易中断和恢复。</li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="15. 排查命令与诊断模板"></span><h2 id="15">15. 排查命令与诊断模板</h2>
+<span class="heading-anchor" id="15.1 查看事务"></span><h3 id="151">15.1 查看事务</h3>
+<pre><code class="language-sql">SELECT
+  trx_id,
+  trx_state,
+  trx_started,
+  trx_wait_started,
+  trx_mysql_thread_id,
+  trx_query
+FROM information_schema.innodb_trx
+ORDER BY trx_started;
+</code></pre>
+<span class="heading-anchor" id="15.2 查看锁等待"></span><h3 id="152">15.2 查看锁等待</h3>
+<p>MySQL 8.0+ 可结合 <code>performance_schema</code>：</p>
+<pre><code class="language-sql">SELECT *
+FROM performance_schema.data_lock_waits\G
+</code></pre>
+<pre><code class="language-sql">SELECT *
+FROM performance_schema.data_locks\G
+</code></pre>
+<span class="heading-anchor" id="15.3 查看 InnoDB 状态"></span><h3 id="153-innodb">15.3 查看 InnoDB 状态</h3>
+<pre><code class="language-sql">SHOW ENGINE INNODB STATUS\G
+</code></pre>
+<p>关注：</p>
+<ul>
+<li><code>TRANSACTIONS</code></li>
+<li><code>LATEST DETECTED DEADLOCK</code></li>
+<li><code>BUFFER POOL AND MEMORY</code></li>
+<li><code>LOG</code></li>
+<li><code>ROW OPERATIONS</code></li>
+</ul>
+<span class="heading-anchor" id="15.4 查看长事务"></span><h3 id="154">15.4 查看长事务</h3>
+<pre><code class="language-sql">SELECT
+  trx_mysql_thread_id AS thread_id,
+  TIMESTAMPDIFF(SECOND, trx_started, NOW()) AS trx_seconds,
+  trx_state,
+  trx_query
+FROM information_schema.innodb_trx
+WHERE trx_started &lt; NOW() - INTERVAL 60 SECOND
+ORDER BY trx_started;
+</code></pre>
+<span class="heading-anchor" id="15.5 查看等待线程"></span><h3 id="155">15.5 查看等待线程</h3>
+<pre><code class="language-sql">SHOW FULL PROCESSLIST;
+</code></pre>
+<p>或者：</p>
+<pre><code class="language-sql">SELECT *
+FROM performance_schema.threads
+WHERE PROCESSLIST_STATE IS NOT NULL;
+</code></pre>
+<span class="heading-anchor" id="15.6 锁等待超时参数"></span><h3 id="156">15.6 锁等待超时参数</h3>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'innodb_lock_wait_timeout';
+</code></pre>
+<p>错误：</p>
+<pre><code class="language-text">ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction
+</code></pre>
+<p>区别：</p>
+<ul>
+<li>死锁：InnoDB 检测到环，主动回滚一个事务，错误 1213。</li>
+<li>锁等待超时：等待超过阈值，错误 1205。</li>
+</ul>
+<span class="heading-anchor" id="15.7 诊断模板"></span><h3 id="157">15.7 诊断模板</h3>
+<pre><code class="language-text">问题：接口变慢 / SQL 卡住 / 订单无法更新
+
+1. 是否存在长事务？
+   - information_schema.innodb_trx
+2. 是否存在锁等待？
+   - performance_schema.data_lock_waits
+3. 等待 SQL 和持锁 SQL 分别是什么？
+   - SHOW FULL PROCESSLIST
+4. 使用了哪个索引？锁范围是否过大？
+   - EXPLAIN
+5. 是否有 DDL 等待 MDL？
+   - performance_schema.metadata_locks
+6. 是否近期发布了批处理或大事务？
+7. 临时处理：是否可安全 kill blocker？
+8. 根治：索引、事务边界、访问顺序、批量大小。
+</code></pre>
+<hr/>
+<span class="heading-anchor" id="16. 高频面试题"></span><h2 id="16">16. 高频面试题</h2>
+<span class="heading-anchor" id="16.1 MVCC 解决了什么问题？"></span><h3 id="161-mvcc">16.1 MVCC 解决了什么问题？</h3>
+<p>MVCC 通过行版本链和 Read View，让普通 SELECT 可以读取一致性快照，不必等待正在写入的事务释放锁，从而提升读写并发。它主要解决读写冲突，不解决写写冲突；写写冲突仍需锁。</p>
+<span class="heading-anchor" id="16.2 RR 下为什么普通 SELECT 可重复读？"></span><h3 id="162-rr-select">16.2 RR 下为什么普通 SELECT 可重复读？</h3>
+<p>因为 InnoDB 在 RR 下通常在事务第一次一致性读时创建 Read View，并在事务内复用。后续普通 SELECT 根据同一个可见性快照沿 undo 版本链找到可见版本。</p>
+<span class="heading-anchor" id="16.3 当前读和快照读有什么区别？"></span><h3 id="163">16.3 当前读和快照读有什么区别？</h3>
+<ul>
+<li>快照读：普通 SELECT，读符合 Read View 的历史版本，不加锁。</li>
+<li>当前读：UPDATE/DELETE/INSERT、<code>SELECT ... FOR UPDATE/FOR SHARE</code>，读取最新可见记录并加锁。</li>
+</ul>
+<span class="heading-anchor" id="16.4 为什么索引会影响锁？"></span><h3 id="164">16.4 为什么索引会影响锁？</h3>
+<p>InnoDB 行锁锁的是索引记录。WHERE 条件能用高选择性索引时，锁范围小；不能用索引时，扫描范围变大，锁住的记录更多，并发更差。</p>
+<span class="heading-anchor" id="16.5 Redo、Undo、Binlog 区别？"></span><h3 id="165-redoundobinlog">16.5 Redo、Undo、Binlog 区别？</h3>
+<ul>
+<li>Undo：回滚和 MVCC 旧版本。</li>
+<li>Redo：InnoDB 崩溃恢复，保证提交事务持久性。</li>
+<li>Binlog：Server 层日志，用于复制和时间点恢复。</li>
+</ul>
+<span class="heading-anchor" id="16.6 两阶段提交解决什么？"></span><h3 id="166">16.6 两阶段提交解决什么？</h3>
+<p>解决 redo log 与 binlog 的一致性问题，避免主库崩溃恢复后的数据与用于复制/恢复的 binlog 不一致。</p>
+<span class="heading-anchor" id="16.7 什么是间隙锁？"></span><h3 id="167">16.7 什么是间隙锁？</h3>
+<p>间隙锁锁定索引记录之间的范围，阻止其他事务在该范围插入新记录，主要用于 RR 下当前读防止幻读。</p>
+<span class="heading-anchor" id="16.8 死锁如何处理？"></span><h3 id="168">16.8 死锁如何处理？</h3>
+<p>短期：捕获错误并重试。长期：统一访问顺序、补充索引、缩短事务、拆分批处理、减少范围锁、定位死锁日志。</p>
+<span class="heading-anchor" id="16.9 为什么长事务危险？"></span><h3 id="169">16.9 为什么长事务危险？</h3>
+<p>长事务会长时间持锁，阻碍 undo 清理，扩大历史版本链，影响 DDL、备份、复制延迟和系统稳定性。</p>
+<span class="heading-anchor" id="16.10 innodb_flush_log_at_trx_commit=1 为什么更安全？"></span><h3 id="1610-innodb_flush_log_at_trx_commit1">16.10 <code>innodb_flush_log_at_trx_commit=1</code> 为什么更安全？</h3>
+<p>因为每次事务提交都要求 redo log 写入并刷盘，数据库崩溃后已提交事务更可靠地恢复。代价是更多 fsync，性能可能下降。</p>
+<hr/>
+<span class="heading-anchor" id="17. 复习清单"></span><h2 id="17">17. 复习清单</h2>
+<span class="heading-anchor" id="17.1 必背概念"></span><h3 id="171">17.1 必背概念</h3>
+<ul>
+<li>ACID</li>
+<li>隔离级别</li>
+<li>脏读、不可重复读、幻读</li>
+<li>MVCC</li>
+<li>Read View</li>
+<li>Undo 版本链</li>
+<li>快照读与当前读</li>
+<li>共享锁与排他锁</li>
+<li>意向锁</li>
+<li>记录锁、间隙锁、Next-Key Lock</li>
+<li>死锁</li>
+<li>Undo Log</li>
+<li>Redo Log</li>
+<li>Binlog</li>
+<li>两阶段提交</li>
+<li>Buffer Pool</li>
+<li>Dirty Page</li>
+<li>Checkpoint</li>
+<li>Doublewrite</li>
+</ul>
+<span class="heading-anchor" id="17.2 必会命令"></span><h3 id="172">17.2 必会命令</h3>
+<pre><code class="language-sql">SELECT @@transaction_isolation;
+SHOW ENGINE INNODB STATUS\G
+SELECT * FROM information_schema.innodb_trx\G
+SELECT * FROM performance_schema.data_locks\G
+SELECT * FROM performance_schema.data_lock_waits\G
+SHOW FULL PROCESSLIST;
+SHOW VARIABLES LIKE 'innodb_flush_log_at_trx_commit';
+SHOW VARIABLES LIKE 'sync_binlog';
+</code></pre>
+<span class="heading-anchor" id="17.3 必会分析路径"></span><h3 id="173">17.3 必会分析路径</h3>
+<ol>
+<li>SQL 是否在事务中？事务是否过长？</li>
+<li>SQL 是快照读还是当前读？</li>
+<li>WHERE 条件走了什么索引？</li>
+<li>锁的是记录、间隙还是 next-key？</li>
+<li>是否存在锁等待或死锁？</li>
+<li>Redo/Undo/Binlog 中哪个机制相关？</li>
+<li>是否可通过缩短事务、补索引、统一顺序解决？</li>
+</ol>
+<span class="heading-anchor" id="17.4 与其他主题联动"></span><h3 id="174">17.4 与其他主题联动</h3>
+<ul>
+<li>SQL 写法：<a href="n-b095ed427c3c.html">02-SQL语言与数据建模</a></li>
+<li>索引与执行计划：<a href="n-d4da026bb44e.html">03-MySQL索引与查询优化</a></li>
+<li>复制与恢复：<a href="n-ec92101a7acb.html">05-MySQL运维高可用安全与面试</a></li>
+<li>基础架构：<a href="n-f6e6d518f76a.html">01-MySQL基础与体系结构</a></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="18. 参考资料"></span><h2 id="18">18. 参考资料</h2>
+<blockquote>
+<p>以下为本笔记建议继续阅读的官方文档入口；具体版本以当前生产环境版本为准。</p>
+</blockquote>
+<ul>
+<li>MySQL 8.4 Reference Manual - InnoDB Storage Engine: <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-storage-engine.html">https://dev.mysql.com/doc/refman/8.4/en/innodb-storage-engine.html</a></li>
+<li>MySQL 8.4 Reference Manual - InnoDB Transaction Model: <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-model.html">https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-model.html</a></li>
+<li>MySQL 8.4 Reference Manual - InnoDB Locking: <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html">https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html</a></li>
+<li>MySQL 8.4 Reference Manual - InnoDB Multi-Versioning: <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html">https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html</a></li>
+<li>MySQL 8.4 Reference Manual - InnoDB Redo Log: <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-redo-log.html">https://dev.mysql.com/doc/refman/8.4/en/innodb-redo-log.html</a></li>
+<li>MySQL 8.4 Reference Manual - Binary Log: <a href="https://dev.mysql.com/doc/refman/8.4/en/binary-log.html">https://dev.mysql.com/doc/refman/8.4/en/binary-log.html</a></li>
+</ul>
+<hr/>
+<span class="heading-anchor" id="验证记录"></span><h2 id="_2">验证记录</h2>
+<ul>
+<li>本文件由主 agent 在第 4 子 agent 网络中断后补齐。</li>
+<li>文件仅写入当前 MySQL 知识库目录。</li>
+<li>SQL 示例用于学习与排查模板，未连接真实 MySQL 实例执行。</li>
+<li>建议在个人测试库中复现实验：隔离级别、快照读/当前读、死锁、锁等待、redo/binlog 参数差异。</li>
+</ul></article><div class="article-end"><a class="button" href="index.html">返回计算机基础 ↗</a></div></main><footer class="footer wrap"><span>© 2026 李杨</span><span>学习 · 记录 · 实践</span><a href="../../index.html">返回首页 ↗</a></footer></body></html>
