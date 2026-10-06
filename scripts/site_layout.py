@@ -47,6 +47,7 @@ def module_url(path, module_id):
 
 def header(path, active):
     site = config()
+    brand = site.get('brand', site['name'])
     links = []
     for module in site['modules']:
         current = ' aria-current="page"' if module['id'] == active else ''
@@ -54,7 +55,7 @@ def header(path, active):
         links.append(f'<a href="{href}"{current}>{esc(module["label"])}</a>')
     links.append(f'<a class="nav-github" href="{esc(site["github"])}" target="_blank" rel="noopener noreferrer">GitHub {icon("arrow-up-right")}</a>')
     return f'''<div class="site-header-bar"><header class="header wrap site-header">
-  <a class="brand" href="{module_url(path, 'home')}" aria-label="ly. {esc(site['name'])} BUILD &amp; LEARN，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">{esc(site['name'])}<small>BUILD &amp; LEARN</small></span></a>
+  <a class="brand" href="{module_url(path, 'home')}" aria-label="ly. {esc(brand)}，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">{esc(brand)}</span></a>
   <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open">{icon('menu')}</span><span class="menu-close">{icon('x')}</span></button>
   <nav id="site-navigation" aria-label="主导航">{''.join(links)}</nav>
 </header></div>'''
