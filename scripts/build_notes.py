@@ -8,9 +8,9 @@ import markdown, bleach
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
-from site_layout import render_page
+from site_layout import render_page, icon
 TOPICS = {
- item['id']: (item['name'], item['code'], item['symbol'], item['description'], item['tags'])
+ item['id']: (item['name'], item['code'], icon(item.get('icon', 'book-open')), item['description'], item['tags'])
  for item in json.loads((ROOT / 'config/topics.json').read_text())
 }
 
@@ -60,7 +60,7 @@ def shell(title,desc,path,body,extra=''):
 def topicnav(path,current):
  return '<nav class="topic-nav" aria-label="笔记专题">'+''.join(f'<a href="{local_url(path,ROOT/"notes"/key/"index.html")}"'+(' aria-current="page"' if key==current else '')+f'>{value[0]}</a>' for key,value in TOPICS.items())+'</nav>'
 def cards(path,counts):
- return '<div class="topic-grid">'+''.join(f'<a class="topic-card" href="{local_url(path,ROOT/"notes"/key/"index.html")}"><div class="topic-card-top"><span class="topic-symbol" aria-hidden="true">{v[2]}</span><span class="topic-code">{v[1]}</span></div><h3>{v[0]}</h3><p>{v[3]}</p><div class="topic-tags">'+''.join(f'<span>{s}</span>' for s in v[4])+f'</div><div class="topic-card-bottom"><span>{counts[key]} 篇笔记</span><span>进入专题 ↗</span></div></a>' for key,v in TOPICS.items())+'</div>'
+ return '<div class="topic-grid">'+''.join(f'<a class="topic-card" href="{local_url(path,ROOT/"notes"/key/"index.html")}"><div class="topic-card-top"><span class="topic-symbol" aria-hidden="true">{v[2]}</span><span class="topic-code">{v[1]}</span></div><h2>{v[0]}</h2><p>{v[3]}</p><div class="topic-tags">'+''.join(f'<span>{s}</span>' for s in v[4])+f'</div><div class="topic-card-bottom"><span>{counts[key]} 篇笔记</span><span>进入专题 ↗</span></div></a>' for key,v in TOPICS.items())+'</div>'
 
 def build(base):
  sources={}

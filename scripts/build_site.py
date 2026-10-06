@@ -2,7 +2,32 @@
 """Build module pages and refresh shared chrome without reimporting note content."""
 import re
 from bs4 import BeautifulSoup
-from site_layout import ROOT, config, render_page, module_url, relative
+from site_layout import ROOT, config, render_page, module_url, relative, icon
+import json
+
+def refresh_note_chrome(main, path):
+    topics = {t['id']: t for t in json.loads((ROOT / 'config/topics.json').read_text())}
+    for card in main.select('.topic-card'):
+        card.find(['h2', 'h3']).name = 'h2'
+        topic_id = card['href'].split('/')[0]
+        if topic_id in topics:
+            card.select_one('.topic-symbol').clear()
+            card.select_one('.topic-symbol').append(BeautifulSoup(icon(topics[topic_id].get('icon', 'book-open')), 'html.parser'))
+            bottom = card.select_one('.topic-card-bottom > span:last-child')
+            bottom.clear()
+            bottom.append('进入专题 ')
+            bottom.append(BeautifulSoup(icon('arrow-up-right'), 'html.parser'))
+    symbol = main.select_one('.topic-hero-symbol')
+    if symbol and path.parent.name in topics:
+        symbol.clear()
+        symbol['aria-hidden'] = 'true'
+        symbol.append(BeautifulSoup(icon(topics[path.parent.name].get('icon', 'book-open')), 'html.parser'))
+    search = main.select_one('#note-search')
+    if search and 'search-field' not in search.parent.get('class', []):
+        field = BeautifulSoup('', 'html.parser').new_tag('div')
+        field['class'] = 'search-field'
+        search.wrap(field)
+        field.insert(0, BeautifulSoup(icon('search'), 'html.parser'))
 
 def build():
     site = config()
@@ -13,6 +38,7 @@ def build():
         body = (ROOT / 'templates/pages' / module['template']).read_text()
         body = re.sub(r'\{\{url:([\w-]+)\}\}', lambda m: module_url(path, m[1]), body)
         body = re.sub(r'\{\{asset:([^}]+)\}\}', lambda m: relative(path, ROOT / m[1]), body)
+        body = re.sub(r'\{\{icon:([\w-]+)\}\}', lambda m: icon(m[1]), body)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(render_page(module['title'], module['description'], path, body, active=module['id']))
     # Preserve all article content, anchors and page-specific rendering assets.
@@ -23,6 +49,7 @@ def build():
         soup = BeautifulSoup(path.read_text(), 'html.parser')
         description = soup.select_one('meta[name="description"]')['content']
         main = soup.select_one('main')
+        refresh_note_chrome(main, path)
         extra = ''.join(str(tag) for tag in soup.head.select('script[src], link[rel="stylesheet"]')
                         if any(item in tag.get('src', tag.get('href', '')) for item in ('katex/', 'render-diagrams.js', 'article.js', 'search.js')))
         path.write_text(render_page(soup.title.get_text(), description, path, main.decode_contents(), extra=extra))

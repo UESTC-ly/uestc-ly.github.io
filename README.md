@@ -17,6 +17,10 @@ scripts/
   build_notes.py           导入 Markdown、生成专题与文章
   check_site.py            检查导航、页面和站内链接
 assets/
+  fonts/                  Fontsource 本地 WOFF2 字体与许可证
+  icons/lucide/            按需选取的 SVG 与许可证
+  vendor/radix-colors/      Sand/Teal 色阶与许可证
+  resources.json           上游版本、地址与校验记录
   css/site.css             全站导航、页脚和模块布局
   css/home.css             首页专用样式
   css/portfolio.css        项目与关于的展示组件
@@ -59,7 +63,7 @@ GitHub Pages 从 `main` 分支根目录发布生成后的静态 HTML，不要求
 
 3. 运行 `build_site.py`。新模块页面和所有页面的导航自动生成，手机菜单同时更新。
 
-正文模板中可用 `{{url:notes}}` 引用注册模块，用 `{{asset:assets/example.png}}` 引用资源。构建器根据页面所在目录生成相对 URL，新增模块无需复制导航或页脚。`template: null` 表示由专用生成器管理的模块，例如笔记。
+正文模板中可用 `{{url:notes}}` 引用注册模块，用 `{{asset:assets/example.png}}` 引用资源，用 `{{icon:book-open}}` 内联本地 Lucide 图标。构建器根据页面所在目录生成相对 URL，新增模块无需复制导航或页脚。`template: null` 表示由专用生成器管理的模块，例如笔记。
 
 ## 专题笔记
 
@@ -73,6 +77,12 @@ GitHub Pages 从 `main` 分支根目录发布生成后的静态 HTML，不要求
 .venv/bin/python scripts/check_site.py
 ```
 
-输入目录包含 `力扣刷题笔记/` 和 `知识库/`。导入器只读取原笔记，不修改首页模板；文章 URL 使用原路径的稳定哈希。专题标题、文案与标签在 `config/topics.json` 管理。新增专题可提供 `source_prefixes` 数组指定来源前缀，规则优先于默认分类，例如 `"source_prefixes": ["知识库/新领域/"]`。
+输入目录包含 `力扣刷题笔记/` 和 `知识库/`。导入器只读取原笔记，不修改首页模板；文章 URL 使用原路径的稳定哈希。专题标题、文案、标签与 `icon` 图标在 `config/topics.json` 管理。新增专题可提供 `source_prefixes` 数组指定来源前缀，规则优先于默认分类，例如 `"source_prefixes": ["知识库/新领域/"]`。
 
 `notes/source/` 保留原文及配套文件，排除 Git 数据、会话、缓存与临时文件。`notes/manifest.json` 保存来源映射，`notes/import-report.json` 保存导入报告。公式与流程图使用本地 KaTeX 和 Mermaid 依赖，许可证位于 `notes/vendor/`。原有出处、图片链接与声明保留。字体加载失败时回退系统字体，无追踪脚本或后台服务。
+
+## 视觉设计与资源
+
+使用 UI UX Pro Max 的极简排版建议，搭配 Fontsource Inter / JetBrains Mono、Lucide SVG 与 Radix Sand / Teal 色阶。字体、图标和色阶随站点部署；中文优先系统字体。公共样式与模块样式分离，新模块复用设计变量和图标接口。
+
+完整规范见 [设计规范](design-system/MASTER.md)，资源版本和许可证见 [资源说明](assets/README.md)。

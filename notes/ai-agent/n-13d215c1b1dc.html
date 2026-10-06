@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
 <title>05-06 迁移、重建索引与常见错误 · 李杨的学习笔记</title><meta name="description" content="嵌入向量只在兼容空间中有可比较含义。若旧文档向量由模型 E1 生成，新查询向量改用
 模型 E2 ，两组数值即使维度相同，也通常不能直接比较。更危险的情况是系统把新文档
 向量逐条写入旧索引：查询结果会混合两个空间，却没有明显报错。">
@@ -8,13 +8,14 @@
 模型 E2 ，两组数值即使维度相同，也通常不能直接比较。更危险的情况是系统把新文档
 向量逐条写入旧索引：查询结果会混合两个空间，却没有明显报错。"><meta property="og:url" content="https://uestc-ly.github.io/notes/ai-agent/n-13d215c1b1dc.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/ai-agent/n-13d215c1b1dc.html">
 <link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
-<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../notes.css"><link rel="stylesheet" href="../../assets/css/site.css"><script defer src="../../assets/js/navigation.js"></script><script defer="" src="../article.js"></script>
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script defer src="../../assets/js/navigation.js"></script><script defer="" src="../article.js"></script>
 </head><body class="module-notes">
 <a class="skip-link" href="#main">跳到主要内容</a>
 <div class="site-header-bar"><header class="header wrap site-header">
-  <a class="brand" href="../../index.html" aria-label="李杨，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨</span></a>
-  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-icon" aria-hidden="true"></span></button>
-  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></nav>
+  <a class="brand" href="../../index.html" aria-label="ly. 李杨 BUILD &amp; LEARN，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">李杨<small>BUILD &amp; LEARN</small></span></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
 </header></div>
 <main id="main" class="notes-page wrap" tabindex="-1"><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">AI Agent 开发</a></nav><header class="article-header"><p class="eyebrow">RAG / docs / 05-embeddings</p><h1>05-06 迁移、重建索引与常见错误</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/RAG/docs/05-embeddings/06-migration-reindexing-and-common-errors.md">下载 Markdown ↓</a></div></header><details class="article-toc"><summary>本篇目录</summary><ul><li><a href="#_1">为什么不能原地混换模型</a></li><li><a href="#_2">哪些变化可能触发重建</a></li><li><a href="#_3">通常需要完整重建或独立验证的新空间</a></li><li><a href="#_4">可能需要重建受影响对象</a></li><li><a href="#_5">蓝绿索引迁移直觉</a></li><li><a href="#_6">迁移完成条件</a></li><li><a href="#e1-e2">一个具体例子：从 E1 迁移到 E2</a></li><li><a href="#_7">常见错误与定位</a></li><li><a href="#1">1. 维度不匹配</a></li><li><a href="#2">2. 同维度但版本混用</a></li><li><a href="#3">3. 归一化不一致</a></li><li><a href="#4">4. 空文本或静默截断</a></li><li><a href="#5">5. 返回顺序写错</a></li><li><a href="#6">6. 缓存错误命中</a></li><li><a href="#7">7. 删除或更新未传播</a></li><li><a href="#8">8. 权限元数据丢失</a></li><li><a href="#9">9. 沿用旧阈值</a></li><li><a href="#10">10. 只看最终回答</a></li><li><a href="#_8">回滚不是“把配置改回去”</a></li><li><a href="#_9">安全与运营边界</a></li><li><a href="#_10">迁移清单练习</a></li><li><a href="#_11">自测</a></li><li><a href="#_12">本章状态与导航</a></li></ul></details><article class="note-content">
 <div class="table-scroll"><table>
@@ -199,5 +200,5 @@
 </li>
 <li>返回：<a href="n-5cf09a1e4448.html">05 嵌入向量索引</a>｜下一部分：<a href="n-7e0707727de9.html">06 索引与向量数据库</a></li>
 </ul></article><div class="article-end"><a class="button" href="index.html">返回AI Agent 开发 ↗</a></div></main>
-<footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>保持好奇，持续构建。</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub ↗</a></footer>
+<footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>保持好奇，持续构建。</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer>
 </body></html>

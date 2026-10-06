@@ -4,6 +4,8 @@ from urllib.parse import quote
 import html
 import json
 import os
+import re
+from functools import lru_cache
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,6 +28,16 @@ def config():
 def esc(value):
     return html.escape(str(value), quote=True)
 
+@lru_cache(maxsize=None)
+def icon(name):
+    """Inline a vetted local Lucide SVG; decorative icons never need JavaScript."""
+    if not re.fullmatch(r'[a-z0-9-]+', name):
+        raise ValueError(f'Invalid icon name: {name}')
+    svg = (ROOT / 'assets/icons/lucide' / f'{name}.svg').read_text()
+    svg = re.sub(r'class="[^"]*"', 'class="icon"', svg)
+    svg = re.sub(r'\s+', ' ', svg).strip()
+    return svg.replace('<svg', '<svg aria-hidden="true" focusable="false"', 1)
+
 def relative(path, target):
     return quote(os.path.relpath(target, path.parent).replace(os.sep, '/'), safe='/')
 
@@ -40,30 +52,31 @@ def header(path, active):
         current = ' aria-current="page"' if module['id'] == active else ''
         href = relative(path, ROOT / module['path'] / 'index.html')
         links.append(f'<a href="{href}"{current}>{esc(module["label"])}</a>')
-    links.append(f'<a class="nav-github" href="{esc(site["github"])}" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>')
+    links.append(f'<a class="nav-github" href="{esc(site["github"])}" target="_blank" rel="noopener noreferrer">GitHub {icon("arrow-up-right")}</a>')
     return f'''<div class="site-header-bar"><header class="header wrap site-header">
-  <a class="brand" href="{module_url(path, 'home')}" aria-label="{esc(site['name'])}，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">{esc(site['name'])}</span></a>
-  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-icon" aria-hidden="true"></span></button>
+  <a class="brand" href="{module_url(path, 'home')}" aria-label="ly. {esc(site['name'])} BUILD &amp; LEARN，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">{esc(site['name'])}<small>BUILD &amp; LEARN</small></span></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open">{icon('menu')}</span><span class="menu-close">{icon('x')}</span></button>
   <nav id="site-navigation" aria-label="主导航">{''.join(links)}</nav>
 </header></div>'''
 
 def footer(path):
     site = config()
-    return f'<footer class="footer wrap site-footer"><span>© 2026 {esc(site["name"])}</span><span>{esc(site["footer"])}</span><a href="{esc(site["github"])}" target="_blank" rel="noopener noreferrer">GitHub ↗</a></footer>'
+    return f'<footer class="footer wrap site-footer"><span>© 2026 {esc(site["name"])}</span><span>{esc(site["footer"])}</span><a href="{esc(site["github"])}" target="_blank" rel="noopener noreferrer">GitHub {icon("arrow-up-right")}</a></footer>'
 
 def render_page(title, description, path, body, active='notes', extra='', main_class=None):
     site = config()
     module = next(m for m in site['modules'] if m['id'] == active)
-    styles = ['styles.css', *module.get('styles', []), 'assets/css/site.css']
+    styles = ['styles.css', 'assets/css/site.css', *module.get('styles', [])]
     styles = ''.join(f'<link rel="stylesheet" href="{relative(path, ROOT / s)}">' for s in styles)
     canonical = site['url'].rstrip('/') + '/' + quote(path.relative_to(ROOT).as_posix().removesuffix('index.html'), safe='/')
     main_class = main_class or module['main_class']
     return f'''<!doctype html>
 <html lang="zh-CN"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f6f5f0">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
 <title>{esc(title)}</title><meta name="description" content="{esc(description)}">
 <meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(description)}"><meta property="og:url" content="{canonical}"><link rel="canonical" href="{canonical}">
 <link rel="icon" type="image/svg+xml" href="{relative(path, ROOT / 'assets/favicon.svg')}">
+<link rel="preload" href="{relative(path, ROOT / 'assets/fonts/inter/inter-latin-wght-normal.woff2')}" as="font" type="font/woff2" crossorigin>
 {styles}<script defer src="{relative(path, ROOT / 'assets/js/navigation.js')}"></script>{extra}
 </head><body class="module-{esc(active)}">
 <a class="skip-link" href="#main">跳到主要内容</a>
