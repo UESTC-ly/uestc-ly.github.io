@@ -20,45 +20,6 @@
     css: /\{[\s\S]*:[^:]+;/
   };
 
-  // 语法高亮规则
-  const syntaxRules = {
-    // 注释
-    comment: [
-      { pattern: /(#[^\n]*)/g, class: 'comment' }, // Python, Bash注释
-      { pattern: /(\/\/[^\n]*)/g, class: 'comment' }, // C++, JS注释
-      { pattern: /(\/\*[\s\S]*?\*\/)/g, class: 'comment' } // 多行注释
-    ],
-    // 字符串
-    string: [
-      { pattern: /("(?:[^"\\]|\\.)*")/g, class: 'string' },
-      { pattern: /('(?:[^'\\]|\\.)*')/g, class: 'string' },
-      { pattern: /(`(?:[^`\\]|\\.)*`)/g, class: 'string' }
-    ],
-    // 关键字
-    keyword: [
-      { pattern: /\b(def|class|import|from|if|elif|else|for|while|return|in|and|or|not|try|except|finally|with|as|lambda|yield|async|await)\b/g, class: 'keyword' },
-      { pattern: /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|this|class|extends|async|await|export|import)\b/g, class: 'keyword' },
-      { pattern: /\b(int|float|double|char|void|bool|string|auto|const|static|public|private|protected|class|struct|namespace|using|template|typename)\b/g, class: 'keyword' },
-      { pattern: /\b(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|INDEX|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|NULL|IS|IN)\b/gi, class: 'keyword' }
-    ],
-    // 数字
-    number: [
-      { pattern: /\b(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\b/g, class: 'number' }
-    ],
-    // 函数名
-    function: [
-      { pattern: /\b([a-zA-Z_]\w*)\s*(?=\()/g, class: 'function' }
-    ],
-    // 类名
-    className: [
-      { pattern: /\b([A-Z][a-zA-Z0-9_]*)\b/g, class: 'class-name' }
-    ],
-    // 运算符
-    operator: [
-      { pattern: /([\+\-\*\/\%\=\<\>\!\&\|\^\~])/g, class: 'operator' }
-    ]
-  };
-
   // 检测代码语言
   function detectLanguage(code) {
     // 优先从class属性检测
@@ -80,24 +41,77 @@
 
   // 应用语法高亮
   function applySyntaxHighlight(code) {
-    let html = code.textContent;
+    // 获取原始文本（可能已包含HTML实体）
+    let text = code.textContent;
 
-    // 转义HTML特殊字符
-    html = html
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    // 如果文本为空，跳过
+    if (!text.trim()) return;
 
-    // 按顺序应用语法规则
-    ['comment', 'string', 'keyword', 'number', 'function', 'className', 'operator'].forEach(type => {
-      if (syntaxRules[type]) {
-        syntaxRules[type].forEach(rule => {
-          html = html.replace(rule.pattern, `<span class="${rule.class}">$1</span>`);
-        });
-      }
+    // 存储需要保护的片段（注释和字符串）
+    const protected = [];
+    let protectedIndex = 0;
+
+    // 1. 保护注释（避免注释内容被高亮）
+    text = text.replace(/(\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*)/g, (match) => {
+      const placeholder = `___PROTECTED_${protectedIndex}___`;
+      protected[protectedIndex] = `<span class="comment">${escapeHtml(match)}</span>`;
+      protectedIndex++;
+      return placeholder;
     });
 
-    code.innerHTML = html;
+    // 2. 保护字符串
+    text = text.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g, (match) => {
+      const placeholder = `___PROTECTED_${protectedIndex}___`;
+      protected[protectedIndex] = `<span class="string">${escapeHtml(match)}</span>`;
+      protectedIndex++;
+      return placeholder;
+    });
+
+    // 3. 转义剩余的HTML字符
+    text = escapeHtml(text);
+
+    // 4. 高亮关键字（在非保护区域）
+    const keywords = [
+      // Python
+      'def', 'class', 'import', 'from', 'if', 'elif', 'else', 'for', 'while', 'return', 'in', 'and', 'or', 'not', 'try', 'except', 'finally', 'with', 'as', 'lambda', 'yield', 'async', 'await',
+      // JavaScript
+      'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'new', 'this', 'extends', 'export',
+      // C/C++
+      'int', 'float', 'double', 'char', 'void', 'bool', 'string', 'auto', 'const', 'static', 'public', 'private', 'protected', 'struct', 'namespace', 'using', 'template', 'typename',
+      // SQL
+      'SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'TABLE', 'INDEX', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN'
+    ];
+
+    keywords.forEach(kw => {
+      const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
+      text = text.replace(regex, '<span class="keyword">$1</span>');
+    });
+
+    // 5. 高亮数字
+    text = text.replace(/\b(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\b/g, '<span class="number">$1$2</span>');
+
+    // 6. 高亮函数名（word后跟左括号）
+    text = text.replace(/\b([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="function">$1</span>');
+
+    // 7. 高亮类名（大写开头的单词）
+    text = text.replace(/\b([A-Z][a-zA-Z0-9_]*)\b/g, '<span class="class-name">$1</span>');
+
+    // 8. 还原保护的片段
+    for (let i = 0; i < protected.length; i++) {
+      text = text.replace(`___PROTECTED_${i}___`, protected[i]);
+    }
+
+    code.innerHTML = text;
+  }
+
+  // HTML转义辅助函数
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   // 添加复制按钮
