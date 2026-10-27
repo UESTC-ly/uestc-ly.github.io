@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>一致性、事务与共识 · 李杨的学习笔记</title><meta name="description" content="Consul 注册时候只有过半的节点都写入成功才认为注册成功；leader 挂掉时，重新选举期间整个 Consul 不可用,保证了强一致性但牺牲了可用性 有很多 blog 说 Consul 属于 ap，官方已经确认他为 CP 机制 原文地址：https://developer.hashicorp.com/consul/">
+<meta property="og:type" content="website"><meta property="og:title" content="一致性、事务与共识 · 李杨的学习笔记"><meta property="og:description" content="Consul 注册时候只有过半的节点都写入成功才认为注册成功；leader 挂掉时，重新选举期间整个 Consul 不可用,保证了强一致性但牺牲了可用性 有很多 blog 说 Consul 属于 ap，官方已经确认他为 CP 机制 原文地址：https://developer.hashicorp.com/consul/"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-a4b5f22ec9bd.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-a4b5f22ec9bd.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html" aria-current="page">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">07-分布式与系统设计</p><h1>一致性、事务与共识</h1><p class="article-question-meta">16 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-90d2ebfcdeb2">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/07-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%8E%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E4%B8%80%E8%87%B4%E6%80%A7%E3%80%81%E4%BA%8B%E5%8A%A1%E4%B8%8E%E5%85%B1%E8%AF%86.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#consul">Consul</a></li><li class="outline-level-2"><a href="#eureka">Eureka</a></li><li class="outline-level-2"><a href="#tcc">TCC 方案</a></li><li class="outline-level-2"><a href="#zookeeper">Zookeeper</a></li><li class="outline-level-2"><a href="#zookeeper_1">Zookeeper 的使用场景：面试官心理分析</a></li><li class="outline-level-2"><a href="#xa">两阶段提交方案/XA 方案</a></li><li class="outline-level-2"><a href="#cap-cap-theorem">什么是 CAP 定理（CAP theorem）</a></li><li class="outline-level-2"><a href="#speculative-decodingdraft-modeltarget-model">什么是推测解码（Speculative Decoding）？Draft Model和Target Model如何协同？</a></li><li class="outline-level-2"><a href="#_1_9">你们公司是如何处理分布式事务的？</a></li><li class="outline-level-2"><a href="#_1_10">元数据/配置信息管理</a></li><li class="outline-level-2"><a href="#partition-tolerance">分区容错性（Partition tolerance）</a></li><li class="outline-level-2"><a href="#id">分布式 ID、锁和事务</a></li><li class="outline-level-2"><a href="#_1_13">分布式事务原理：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_14">并发控制与分布式一致性</a></li><li class="outline-level-2"><a href="#_1_15">数据拆分与一致性</a></li><li class="outline-level-2"><a href="#zookeeper_2">配置中心与 ZooKeeper</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k747377041546"></a></p>
+<span class="heading-anchor" id="Consul"></span><h2 id="consul">Consul</h2>
+<p>和 Zookeeper 一样数据 CP</p>
+<p>Consul 注册时候只有过半的节点都写入成功才认为注册成功；leader 挂掉时，重新选举期间整个 Consul 不可用,保证了强一致性但牺牲了可用性<br/>
+有很多 blog 说 Consul 属于 ap，官方已经确认他为 CP 机制 原文地址：https://developer.hashicorp.com/consul/docs/concept/consensus</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-system-cap.md#L50">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k686582d3154b"></a></p>
+<span class="heading-anchor" id="Eureka"></span><h2 id="eureka">Eureka</h2>
+<blockquote>
+<p>Eureka 保证了可用性，实现最终一致性。</p>
+</blockquote>
+<p>Eureka 所有节点都是平等的所有数据都是相同的，且 Eureka 可以相互交叉注册。<br/>
+Eureka client 使用内置轮询负载均衡器去注册，有一个检测间隔时间，如果在一定时间内没有收到心跳，才会移除该节点注册信息；如果客户端发现当前 Eureka 不可用，会切换到其他的节点，如果所有的 Eureka 都跪了，Eureka client 会使用最后一次数据作为本地缓存；所以以上的每种设计都是他不具备<code>一致性</code>的特性。</p>
+<p>注意：因为 EurekaAP 的特性和请求间隔同步机制，在服务更新时候一般会手动通过 Eureka 的 api 把当前服务状态设置为<code>offline</code>，并等待 2 个同步间隔后重新启动，这样就能保证服务更新节点对整体系统的影响</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-system-cap.md#L35">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kbe814feb1818"></a></p>
+<span class="heading-anchor" id="TCC 方案"></span><h2 id="tcc">TCC 方案</h2>
+<p>TCC 的全称是： <code>Try</code> 、 <code>Confirm</code> 、 <code>Cancel</code> 。</p>
+<ul>
+<li>Try 阶段：这个阶段说的是对各个服务的资源做检测以及对资源进行<strong>锁定或者预留</strong>。</li>
+<li>Confirm 阶段：这个阶段说的是在各个服务中<strong>执行实际的操作</strong>。</li>
+<li>Cancel 阶段：如果任何一个服务的业务方法执行出错，那么这里就需要<strong>进行补偿</strong>，就是执行已经执行成功的业务逻辑的回滚操作。（把那些执行成功的回滚）</li>
+</ul>
+<p>这种方案说实话几乎很少人使用，我们用的也比较少，但是也有使用的场景。因为这个<strong>事务回滚</strong>实际上是<strong>严重依赖于你自己写代码来回滚和补偿</strong>了，会造成补偿代码巨大，非常之恶心。</p>
+<p>比如说我们，一般来说跟<strong>钱</strong>相关的，跟钱打交道的，<strong>支付</strong>、<strong>交易</strong>相关的场景，我们会用 TCC，严格保证分布式事务要么全部成功，要么全部自动回滚，严格保证资金的正确性，保证在资金上不会出现问题。</p>
+<p>而且最好是你的各个业务执行的时间都比较短。</p>
+<p>但是说实话，一般尽量别这么搞，自己手写回滚逻辑，或者是补偿逻辑，实在太恶心了，那个业务代码是很难维护的。</p>
+<p><img alt="distributed-transacion-TCC" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/distributed-transaction-TCC.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L38">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k3cfd6a998430"></a></p>
+<span class="heading-anchor" id="Zookeeper"></span><h2 id="zookeeper">Zookeeper</h2>
+<blockquote>
+<p>强一致性</p>
+</blockquote>
+<p>Zookeeper 在选举 leader 时会停止服务，只有成功选举 leader 成功后才能提供服务，选举时间较长；内部使用 paxos 选举投票机制，只有获取半数以上的投票才能成为 leader，否则重新投票，所以部署的时候最好集群节点不小于 3 的奇数个（但是谁能保证跪掉后节点也是奇数个呢）；Zookeeper 健康检查一般是使用 tcp 长链接，在内部网络抖动时或者对应节点阻塞时候都会变成不可用，这里还是比较危险的；</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-system-cap.md#L44">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k243d5d4bbde8"></a></p>
+<span class="heading-anchor" id="Zookeeper 的使用场景：面试官心理分析"></span><h2 id="zookeeper_1">Zookeeper 的使用场景：面试官心理分析</h2>
+<p>现在聊的 topic 是分布式系统，面试官跟你聊完了 dubbo 相关的一些问题之后，已经确认你对分布式服务框架/RPC 框架基本都有一些认知了。那么他可能开始要跟你聊分布式相关的其它问题了。</p>
+<p>分布式锁这个东西，很常用的，你做 Java 系统开发，分布式系统，可能会有一些场景会用到。最常用的分布式锁就是基于 zookeeper 来实现的。</p>
+<p>其实说实话，问这个问题，一般就是看看你是否了解 zookeeper，因为 zookeeper 是分布式系统中很常见的一个基础系统。而且问的话常问的就是说 zookeeper 的使用场景是什么？看你知道不知道一些基本的使用场景。但是其实 zookeeper 挖深了自然是可以问的很深很深的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/zookeeper-application-scenarios.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kcb8bcc8f4552"></a></p>
+<span class="heading-anchor" id="两阶段提交方案/XA 方案"></span><h2 id="xa">两阶段提交方案/XA 方案</h2>
+<p>所谓的 XA 方案，即：两阶段提交，有一个<strong>事务管理器</strong>的概念，负责协调多个数据库（资源管理器）的事务，事务管理器先问问各个数据库你准备好了吗？如果每个数据库都回复 ok，那么就正式提交事务，在各个数据库上执行操作；如果任何其中一个数据库回答不 ok，那么就回滚事务。</p>
+<p>这种分布式事务方案，比较适合单块应用里，跨多个库的分布式事务，而且因为严重依赖于数据库层面来搞定复杂的事务，效率很低，绝对不适合高并发的场景。如果要玩儿，那么基于 <code>Spring + JTA</code> 就可以搞定，自己随便搜个 demo 看看就知道了。</p>
+<p>这个方案，我们很少用，一般来说<strong>某个系统内部如果出现跨多个库</strong>的这么一个操作，是<strong>不合规</strong>的。我可以给大家介绍一下， 现在微服务，一个大的系统分成几十个甚至几百个服务。一般来说，我们的规定和规范，是要求<strong>每个服务只能操作自己对应的一个数据库</strong>。</p>
+<p>如果你要操作别的服务对应的库，不允许直连别的服务的库，违反微服务架构的规范，你随便交叉胡乱访问，几百个服务的话，全体乱套，这样的一套服务是没法管理的，没法治理的，可能会出现数据被别人改错，自己的库被别人写挂等情况。</p>
+<p>如果你要操作别人的服务的库，你必须是通过<strong>调用别的服务的接口</strong>来实现，绝对不允许交叉访问别人的数据库。</p>
+<p><img alt="distributed-transacion-XA" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/distributed-transaction-XA.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L24">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kcd252d26ae17"></a></p>
+<span class="heading-anchor" id="什么是 CAP 定理（CAP theorem）"></span><h2 id="cap-cap-theorem">什么是 CAP 定理（CAP theorem）</h2>
+<p>在理论计算机科学中，CAP 定理（CAP theorem），又被称作布鲁尔定理（Brewer's theorem），它指出对于一个分布式计算系统来说，不可能同时满足以下三点：</p>
+<ul>
+<li>一致性（Consistency） （等同于所有节点访问同一份最新的数据副本）</li>
+<li>可用性（Availability）（每次请求都能获取到非错的响应——但是不保证获取的数据为最新数据）</li>
+<li>分区容错性（Partition tolerance）（以实际效果而言，分区相当于对通信的时限要求。系统如果不能在时限内达成数据一致性，就意味着发生了分区的情况，必须就当前操作在 C 和 A 之间做出选择。）</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-system-cap.md#L9">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k067156fd6af2"></a></p>
+<span class="heading-anchor" id="什么是推测解码（Speculative Decoding）？Draft Model和Target Model如何协同？"></span><h2 id="speculative-decodingdraft-modeltarget-model">什么是推测解码（Speculative Decoding）？Draft Model和Target Model如何协同？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p><img alt="图10：Speculative Decoding推测解码流程" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/speculative-decoding.png"/></p>
+<span class="heading-anchor" id="一、推测解码"></span><h3 id="_1_8">一、推测解码</h3>
+<p>自回归解码的瓶颈在于Token之间存在依赖关系，通常需要逐步生成，每个Token依赖前一个Token。这导致：
+- GPU的并行计算能力被严重浪费（每步只生成1个Token）
+- Decode延迟随Token数量线性增长</p>
+<p>推测解码：<strong>用一个"小而快"的Draft Model预测接下来的K个Token，然后用"大而准"的Target Model一次性验证这些Token，接受正确的部分，拒绝错误的。</strong></p>
+<p>这就是"投机取巧"——反正Decode每步的计算量很小，不如让Target Model一次验证多个Token的推测结果，赌Draft Model预测得对。</p>
+<span class="heading-anchor" id="二、推测解码的工作流程"></span><h3 id="_2">二、推测解码的工作流程</h3>
+<pre><code>输入: Prompt tokens
+循环直到完成:
+  1. Draft阶段:
+     Draft Model自回归生成K个候选Token (draft_1, draft_2, ..., draft_K)
+     (Draft Model很小很快，这一步耗时很短)
+
+  2. Verify阶段:
+     Target Model一次性处理 (Prompt + draft_1 + ... + draft_K)
+     并行计算所有位置的输出概率
+
+  3. Accept/Reject（拒绝采样）:
+     对每个位置i的draft token x:
+       计算接受概率 p_accept = min(1, p_target(x) / p_draft(x))
+       以 p_accept 的概率接受该token
+       如果接受 → 继续验证下一个draft token
+       如果拒绝 → 从 p_target 的残余分布中重新采样，并丢弃后续所有draft token
+
+     被接受的Token直接作为输出（可能接受0到K个）
+
+  4. 将接受的Token追加到输入，准备下一轮
+</code></pre>
+<span class="heading-anchor" id="三、Draft Model和Target Model的协同机制"></span><h3 id="draft-modeltarget-model">三、Draft Model和Target Model的协同机制</h3>
+<p><strong>Draft Model（草稿模型/推测模型）</strong></p>
+<p>要求：
+- 参数量远小于Target Model（如7B的Target配0.1B的Draft）
+- 与Target Model使用相同词表
+- 不需要很高的精度，但需要"大致方向正确"
+- 推理速度快（最好是Target Model的10倍以上）</p>
+<p>常见选择：
+- 同一系列的微型版本（如Llama-3-8B配Llama-3-0.1B）
+- 或仅用最后几层的轻量Draft Head</p>
+<p><strong>Target Model（目标模型/验证模型）</strong></p>
+<p>要求：
+- 就是最终需要的高质量大模型
+- 在验证阶段一次前向处理K+1个Token
+- 通过注意力掩码实现并行计算所有位置的输出概率</p>
+<p><strong>拒绝采样（Rejection Sampling）保证分布一致</strong></p>
+<p>推测解码的关键数学保证：通过 <strong>min(1, p_target(x) / p_draft(x))</strong> 的拒绝采样机制，使最终输出的Token分布与Target Model直接自回归采样保持一致。因此它通常被称为”分布无损”的加速方法，但实际收益仍取决于Draft模型质量和接受率。需要区分的是，这里的接受判断不是简单比较两个概率的大小，而是基于概率比值进行随机采样——即使 p_target &lt; p_draft 时仍有一定概率被接受，这是保证最终分布一致的关键。</p>
+<span class="heading-anchor" id="四、性能收益分析"></span><h3 id="_3">四、性能收益分析</h3>
+<p><strong>加速比取决于两个因素：</strong></p>
+<ol>
+<li>
+<p><strong>接受率（Acceptance Rate）</strong>：Draft Model预测被Target Model接受的比例
+   - 高接受率（&gt;80%）：受益于Target Model一次验证多个Token
+   - 低接受率：大部分Draft Token被拒绝，加速有限</p>
+</li>
+<li>
+<p><strong>Draft Model速度</strong>：Draft越快越好
+   - 理想情况：Draft生成K个Token的时间 &lt;&lt; Target一次验证的时间</p>
+</li>
+</ol>
+<p><strong>典型加速比</strong>：不少场景可达到2×-3×，在Draft模型质量高、接受率高的任务上可能更高；低接受率或Draft开销较大时收益会明显下降。</p>
+<span class="heading-anchor" id="五、推测解码的变体"></span><h3 id="_4">五、推测解码的变体</h3>
+<p><strong>1. Medusa（多头预测）</strong></p>
+<p>不依赖独立的Draft Model，而是在Target Model上增加多个"预测头"，每个头负责预测未来不同位置的Token。减少了Draft Model的额外显存占用。</p>
+<p><strong>2. Eagle（投机采样）</strong></p>
+<p>利用Target Model的中间层特征训练轻量Draft Head，而不是独立的Draft Model。进一步降低额外显存和训练成本。</p>
+<p><strong>3. Lookahead Decoding</strong></p>
+<p>利用Jacobi迭代的方式，在Target Model内部实现并行推测，无需额外模型。</p>
+<span class="heading-anchor" id="六、推测解码的局限"></span><h3 id="_5">六、推测解码的局限</h3>
+<ol>
+<li><strong>Draft Model需要额外显存</strong>：虽然Draft Model很小，但仍需额外空间</li>
+<li><strong>小Batch时收益有限</strong>：Target Model Decode本来就不算慢</li>
+<li><strong>Draft和Target的对齐</strong>：两者分布差异大时接受率低</li>
+<li><strong>长序列验证计算量大</strong>：每轮验证需要处理K个位置的完整注意力</li>
+</ol>
+<p>可以总结为：<strong>推测解码通过"小模型预测K个Token→大模型并行验证→拒绝采样保证分布一致"的机制，在不降低生成质量的前提下实现2-3倍的Decode加速。其变体包括Medusa（多头预测）、Eagle（特征级Draft）等。目前vLLM和SGLang都已集成推测解码支持，是大模型推理中低延迟场景的重要优化手段。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1920">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0917bf7bb6ab"></a></p>
+<span class="heading-anchor" id="你们公司是如何处理分布式事务的？"></span><h2 id="_1_9">你们公司是如何处理分布式事务的？</h2>
+<p>如果你真的被问到，可以这么说，我们某某特别严格的场景，用的是 TCC 来保证强一致性；然后其他的一些场景基于阿里的 RocketMQ 来实现分布式事务。</p>
+<p>你找一个严格资金要求绝对不能错的场景，你可以说你是用的 TCC 方案；如果是一般的分布式事务场景，订单插入之后要调用库存服务更新库存，库存数据没有资金那么的敏感，可以用可靠消息最终一致性方案。</p>
+<p>友情提示一下，RocketMQ 3.2.6 之前的版本，是可以按照上面的思路来的，但是之后接口做了一些改变，我这里不再赘述了。</p>
+<p>当然如果你愿意，你可以参考可靠消息最终一致性方案来自己实现一套分布式事务，比如基于 RocketMQ 来玩儿。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L127">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k60ba2b76eded"></a></p>
+<span class="heading-anchor" id="元数据/配置信息管理"></span><h2 id="_1_10">元数据/配置信息管理</h2>
+<p>zookeeper 可以用作很多系统的配置信息的管理，比如 kafka、storm 等等很多分布式系统都会选用 zookeeper 来做一些元数据、配置信息的管理，包括 dubbo 注册中心不也支持 zookeeper 么？</p>
+<p><img alt="zookeeper-meta-data-manage" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/zookeeper-meta-data-manage.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/zookeeper-application-scenarios.md#L36">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ke2c9ca1fc865"></a></p>
+<span class="heading-anchor" id="分区容错性（Partition tolerance）"></span><h2 id="partition-tolerance">分区容错性（Partition tolerance）</h2>
+<p>理解 CAP 理论的最简单方式是想象两个节点分处分区两侧。允许至少一个节点更新状态会导致数据不一致，即丧失了 C 性质。如果为了保证数据一致性，将分区一侧的节点设置为不可用，那么又丧失了 A 性质。除非两个节点可以互相通信，才能既保证 C 又保证 A，这又会导致丧失 P 性质。</p>
+<ul>
+<li>P 指的是分区容错性，分区现象产生后需要容错，容错是指在 A 与 C 之间选择。如果分布式系统没有分区现象（没有出现不一致不可用情况） 本身就没有分区 ，既然没有分区则就更没有分区容错性 P。</li>
+<li>无论我设计的系统是 AP 还是 CP 系统如果没有出现不一致不可用。 则该系统就处于 CA 状态</li>
+<li>P 的体现前提是得有分区情况存在</li>
+</ul>
+<blockquote>
+<p>文章来源：<a href="https://zh.wikipedia.org/wiki/CAP%E5%AE%9A%E7%90%86">维基百科 CAP 定理</a></p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-system-cap.md#L17">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k3eac7faca237"></a></p>
+<span class="heading-anchor" id="分布式 ID、锁和事务"></span><h2 id="id">分布式 ID、锁和事务</h2>
+<p>订单号怎么生成、多个实例如何争抢同一资源、一次业务跨越多个服务后怎样处理部分成功，这三个问题分别对应分布式 ID、分布式锁和分布式事务。它们在后端面试中经常结合项目继续追问，需要留出更多复习时间。</p>
+<p>相关内容：</p>
+<ul>
+<li><a href="https://javaguide.cn/distributed-system/distributed-id.html">分布式ID介绍&amp;实现方案总结</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-id-design.html">分布式 ID 设计指南</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-lock.html">分布式锁介绍</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-lock-implementations.html">分布式锁常见实现方案总结</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-transaction.html">分布式事务解决方案总结</a></li>
+</ul>
+<p>常见面试题：</p>
+<ul>
+<li>为什么分库分表后不能继续依赖数据库自增 ID？</li>
+<li>UUID、数据库号段、Redis、Snowflake 各有什么优缺点？</li>
+<li>Redis 分布式锁为什么要设置过期时间？为什么要用 Lua 保证释放锁的原子性？</li>
+<li>Redisson 看门狗解决了什么问题？哪些情况下锁仍然可能失效？</li>
+<li>2PC、TCC、本地消息表、事务消息、Saga 分别适合什么场景？</li>
+</ul>
+<p>准备答案时，把异常情况放进方案里一起讲：时钟回拨会不会影响 ID，锁过期后原持有者是否仍在执行，消息重复投递怎样处理，补偿操作失败后由谁接管。工程方案的差异，往往就藏在这些地方。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/distributed-system-interview-questions.md#L90">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k05dbae12badc"></a></p>
+<span class="heading-anchor" id="分布式事务原理：面试官心理分析"></span><h2 id="_1_13">分布式事务原理：面试官心理分析</h2>
+<p>只要聊到你做了分布式系统，必问分布式事务，你对分布式事务一无所知的话，确实会很坑，你起码得知道有哪些方案，一般怎么来做，每个方案的优缺点是什么。</p>
+<p>现在面试，分布式系统成了标配，而分布式系统带来的<strong>分布式事务</strong>也成了标配了。因为你做系统肯定要用事务吧，如果是分布式系统，肯定要用分布式事务吧。先不说你搞过没有，起码你得明白有哪几种方案，每种方案可能有啥坑？比如 TCC 方案的网络问题、XA 方案的一致性问题。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k129c972e88ca"></a></p>
+<span class="heading-anchor" id="并发控制与分布式一致性"></span><h2 id="_1_14">并发控制与分布式一致性</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>核心知识点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>多位骑手抢一个订单如何保证不重复？</strong></td>
+<td>分布式锁、乐观锁、Redis SETNX、并发控制</td>
+</tr>
+<tr>
+<td><strong>发生提现失败（退单）时怎么处理？</strong></td>
+<td>补偿机制、幂等设计、状态回滚、对账系统</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L90">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k860f2cfcf3a1"></a></p>
+<span class="heading-anchor" id="数据拆分与一致性"></span><h2 id="_1_15">数据拆分与一致性</h2>
+<p>服务独立演进通常要求数据归属也清晰。多个服务直接读写同一张表虽然省掉了接口调用，但任何一方修改表结构或数据语义，都可能影响其他服务，服务也很难真正独立发布。</p>
+<p><img alt="订单服务与库存服务形成的分布式事务" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/distributed-system/distributed-transaction/distributed-transaction-with-two-services.png"/></p>
+<p>相关内容：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/distributed-transaction.md">分布式事务解决方案总结</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/message-queue/message-queue-interview-questions.md">消息队列面试题总结</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/idempotency.md">接口幂等方案总结</a></li>
+</ul>
+<p>常见面试题：</p>
+<ul>
+<li>为什么强调每个微服务拥有自己负责的数据？</li>
+<li>多个服务共享数据库表会造成哪些耦合？</li>
+<li>跨服务查询应该使用 API 聚合、读模型、搜索引擎还是数据同步？</li>
+<li>跨服务业务怎样在强一致性和最终一致性之间选择？</li>
+<li>2PC、TCC、Saga、事务消息和本地消息表分别适合什么场景？</li>
+<li>Transactional Outbox 怎样处理“数据库写成功但消息发送失败”？</li>
+<li>补偿操作失败或重复执行时，怎样保证业务状态正确？</li>
+<li>消费者为什么仍然需要幂等？</li>
+</ul>
+<p>分布式事务方案要和业务动作一起讨论。库存预占可以回滚，已发送的短信无法撤回，外部支付也未必支持参与本地事务。补偿并不等于恢复到技术上的旧值，它需要符合业务允许的后续状态。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/microservices-interview-questions.md#L86">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k9d90f96c9b72"></a></p>
+<span class="heading-anchor" id="配置中心与 ZooKeeper"></span><h2 id="zookeeper_2">配置中心与 ZooKeeper</h2>
+<p>配置中心通常和配置变更、客户端推拉、版本管理一起问；ZooKeeper 则容易出现在注册发现、分布式协调和 Leader 选举等问题里。</p>
+<p>如果简历和项目没有使用 ZooKeeper，可以降低这部分的复习优先级。只要简历写了 ZooKeeper，就要准备临时节点、顺序节点、Watcher、会话机制以及典型应用，不能只回答“它可以做分布式锁”。</p>
+<p>相关内容：</p>
+<ul>
+<li><a href="https://javaguide.cn/distributed-system/distributed-configuration-center.html">分布式配置中心面试题总结</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-process-coordination/zookeeper/zookeeper-intro.html">ZooKeeper相关概念总结(入门)</a></li>
+<li><a href="https://javaguide.cn/distributed-system/distributed-process-coordination/zookeeper/zookeeper-plus.html">ZooKeeper相关概念总结(进阶)</a></li>
+</ul>
+<p>常见面试题：</p>
+<ul>
+<li>配置中心为什么不能只是一个配置文件仓库？</li>
+<li>配置变更如何推送？如何保证客户端拿到的是新配置？</li>
+<li>ZooKeeper 的临时节点、顺序节点、Watcher 分别能解决什么问题？</li>
+<li>ZooKeeper 为什么适合做分布式协调？</li>
+<li>ZooKeeper 和注册中心、配置中心之间是什么关系？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/distributed-system-interview-questions.md#L112">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-8e46cc9482dc.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>分布式与系统设计</strong></a><a class="page-next" href="n-86bede6276d9.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>分布式工程问答</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#consul">Consul</a></li><li class="outline-level-2"><a href="#eureka">Eureka</a></li><li class="outline-level-2"><a href="#tcc">TCC 方案</a></li><li class="outline-level-2"><a href="#zookeeper">Zookeeper</a></li><li class="outline-level-2"><a href="#zookeeper_1">Zookeeper 的使用场景：面试官心理分析</a></li><li class="outline-level-2"><a href="#xa">两阶段提交方案/XA 方案</a></li><li class="outline-level-2"><a href="#cap-cap-theorem">什么是 CAP 定理（CAP theorem）</a></li><li class="outline-level-2"><a href="#speculative-decodingdraft-modeltarget-model">什么是推测解码（Speculative Decoding）？Draft Model和Target Model如何协同？</a></li><li class="outline-level-2"><a href="#_1_9">你们公司是如何处理分布式事务的？</a></li><li class="outline-level-2"><a href="#_1_10">元数据/配置信息管理</a></li><li class="outline-level-2"><a href="#partition-tolerance">分区容错性（Partition tolerance）</a></li><li class="outline-level-2"><a href="#id">分布式 ID、锁和事务</a></li><li class="outline-level-2"><a href="#_1_13">分布式事务原理：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_14">并发控制与分布式一致性</a></li><li class="outline-level-2"><a href="#_1_15">数据拆分与一致性</a></li><li class="outline-level-2"><a href="#zookeeper_2">配置中心与 ZooKeeper</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

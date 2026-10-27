@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>函数与语言机制 · 李杨的学习笔记</title><meta name="description" content="在需要绕过 GIL 做 CPU 并行时， multiprocessing 提供完整工具链。注意：Windows/macOS 默认 spawn，主模块必须放在 if __name__ == &quot;__main__&quot;: 下，否则会递归创建进程。">
+<meta property="og:type" content="website"><meta property="og:title" content="函数与语言机制 · 李杨的学习笔记"><meta property="og:description" content="在需要绕过 GIL 做 CPU 并行时， multiprocessing 提供完整工具链。注意：Windows/macOS 默认 spawn，主模块必须放在 if __name__ == &quot;__main__&quot;: 下，否则会递归创建进程。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-2ca08a13121b.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-2ca08a13121b.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html" aria-current="page">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">12-Python</p><h1>函数与语言机制</h1><p class="article-question-meta">19 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-deaa9ce9b131">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/12-Python/%E5%87%BD%E6%95%B0%E4%B8%8E%E8%AF%AD%E8%A8%80%E6%9C%BA%E5%88%B6.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#multiprocessing">multiprocessing模块怎么使用?</a></li><li class="outline-level-2"><a href="#pythoneval">python中eval函数的作用？</a></li><li class="outline-level-2"><a href="#pythonasync-def">Python中使用async def定义函数有什么作用？</a></li><li class="outline-level-2"><a href="#python">Python中使用迭代器遍历和非迭代器遍历有什么区别？</a></li><li class="outline-level-2"><a href="#python_1">Python中如何进行异常处理？</a></li><li class="outline-level-2"><a href="#pythonwith__enter____exit__">Python中的上下文管理器with和__enter__/__exit__有什么价值？</a></li><li class="outline-level-2"><a href="#pythonmetaclass">Python中的元类metaclass是什么？</a></li><li class="outline-level-2"><a href="#python_2">Python中的实例方法、静态方法和类方法三者区别？</a></li><li class="outline-level-2"><a href="#pythonai">Python中的闭包是什么？在AI工程中有什么用？</a></li><li class="outline-level-2"><a href="#python_3">Python中类变量和实例变量有什么区别？</a></li><li class="outline-level-2"><a href="#python_4">Python中迭代器的概念？</a></li><li class="outline-level-2"><a href="#_1_12">一线何时用元类？</a></li><li class="outline-level-2"><a href="#_1_13">一线实践中装饰器几乎无处不在</a></li><li class="outline-level-2"><a href="#_1_14">一线实践：为什么要关心迭代器？</a></li><li class="outline-level-2"><a href="#_1_15">一线实践：生成器的典型场景</a></li><li class="outline-level-2"><a href="#pythonmapreduce">介绍一下Python中map与reduce函数的用法</a></li><li class="outline-level-2"><a href="#pythoninheritance">介绍一下Python中的继承（Inheritance）思想</a></li><li class="outline-level-2"><a href="#python_5">介绍一下Python中高阶函数的原理</a></li><li class="outline-level-2"><a href="#_1_19">类装饰器与装饰器类</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k0a9333864d3d"></a></p>
+<span class="heading-anchor" id="multiprocessing模块怎么使用?"></span><h2 id="multiprocessing">multiprocessing模块怎么使用?</h2>
+<p>在需要绕过 GIL 做 CPU 并行时，<code>multiprocessing</code> 提供完整工具链。注意：Windows/macOS 默认 spawn，主模块必须放在 <code>if __name__ == "__main__":</code> 下，否则会递归创建进程。</p>
+<span class="heading-anchor" id="1. Process：直接起进程"></span><h3 id="1-process">1. Process：直接起进程</h3>
+<pre><code class="language-python">from multiprocessing import Process
+import time
+
+def worker(name):
+    print(f"Worker {name} started")
+    time.sleep(1)
+    print(f"Worker {name} finished")
+
+if __name__ == "__main__":
+    p = Process(target=worker, args=("A",))
+    p.start()
+    p.join()
+</code></pre>
+<span class="heading-anchor" id="2. Pool：进程池 map"></span><h3 id="2-pool-map">2. Pool：进程池 map</h3>
+<pre><code class="language-python">from multiprocessing import Pool
+
+def square(x):
+    return x * x
+
+if __name__ == "__main__":
+    with Pool(4) as p:
+        print(p.map(square, [1, 2, 3, 4]))  # [1, 4, 9, 16]
+</code></pre>
+<span class="heading-anchor" id="3. Queue / Pipe：进程间通信"></span><h3 id="3-queue-pipe">3. Queue / Pipe：进程间通信</h3>
+<pre><code class="language-python">from multiprocessing import Process, Queue
+
+def worker(q):
+    q.put("hello")
+
+if __name__ == "__main__":
+    q = Queue()
+    p = Process(target=worker, args=(q,))
+    p.start()
+    print(q.get())
+    p.join()
+</code></pre>
+<span class="heading-anchor" id="4. Lock：保护共享资源"></span><h3 id="4-lock">4. Lock：保护共享资源</h3>
+<pre><code class="language-python">from multiprocessing import Process, Lock
+
+def worker(lock, num):
+    with lock:
+        print(f"Process {num} working")
+
+if __name__ == "__main__":
+    lock = Lock()
+    ps = [Process(target=worker, args=(lock, i)) for i in range(5)]
+    for p in ps: p.start()
+    for p in ps: p.join()
+</code></pre>
+<span class="heading-anchor" id="5. Value / Array / Manager：共享数据"></span><h3 id="5-value-array-manager">5. Value / Array / Manager：共享数据</h3>
+<pre><code class="language-python">from multiprocessing import Manager, Process
+
+def worker(shared_dict, key, value):
+    shared_dict[key] = value
+
+if __name__ == "__main__":
+    with Manager() as manager:
+        shared = manager.dict()
+        ps = [Process(target=worker, args=(shared, i, i * i)) for i in range(5)]
+        for p in ps: p.start()
+        for p in ps: p.join()
+        print(dict(shared))
+</code></pre>
+<span class="heading-anchor" id="6. Event / Semaphore：同步与限流"></span><h3 id="6-event-semaphore">6. Event / Semaphore：同步与限流</h3>
+<pre><code class="language-python">from multiprocessing import Event, Semaphore, Process
+import time
+
+def worker(sem, num):
+    with sem:
+        print(f"Worker {num} access")
+        time.sleep(1)
+
+if __name__ == "__main__":
+    sem = Semaphore(2)
+    ps = [Process(target=worker, args=(sem, i)) for i in range(4)]
+    for p in ps: p.start()
+    for p in ps: p.join()
+</code></pre>
+<span class="heading-anchor" id="一线实践建议"></span><h3 id="_1_1">一线实践建议</h3>
+<ol>
+<li><strong>现代代码优先 <code>concurrent.futures.ProcessPoolExecutor</code></strong>，接口更干净，和线程池统一。</li>
+<li><strong>传给子进程的参数必须可 pickle</strong>；大数组考虑共享内存 <code>shared_memory</code> 或先落盘再传路径。</li>
+<li><strong>CUDA 张量不要跨进程直接传</strong>；用独立进程加载模型，或走共享显存/文件。</li>
+<li><strong>与 async 混用时</strong>，用 <code>loop.run_in_executor</code> 把 CPU 任务丢进进程池。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1136">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kadd883642f39"></a></p>
+<span class="heading-anchor" id="python中eval函数的作用？"></span><h2 id="pythoneval">python中eval函数的作用？</h2>
+<p><code>eval(expr)</code> 执行字符串表达式并返回结果。极度危险，等同于执行任意代码。</p>
+<pre><code class="language-python"># 不要用在用户输入上
+# result = eval(user_input)
+
+# 安全替代
+import ast
+# 仅解析字面量
+config = ast.literal_eval("{'lr': 0.1}")  # 仍只应来自可信来源
+</code></pre>
+<p>一线规则：生产代码禁止对不可信输入 eval/exec。配置用 JSON/YAML+schema；表达式求值用专用解析器。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L953">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k06b4e71612f2"></a></p>
+<span class="heading-anchor" id="Python中使用async def定义函数有什么作用？"></span><h2 id="pythonasync-def">Python中使用async def定义函数有什么作用？</h2>
+<p><code>async def</code> 定义协程函数。调用它得到 coroutine 对象，需要 <code>await</code> 或事件循环驱动。</p>
+<span class="heading-anchor" id="作用"></span><h3 id="_1_3">作用</h3>
+<ul>
+<li><strong>非阻塞并发</strong>：在等待 I/O 时让出控制权，其他任务继续跑。</li>
+<li><strong>高吞吐低开销</strong>：单线程可挂起成千上万个等待网络的任务。</li>
+<li><strong>结构化并发</strong>：<code>asyncio.gather</code> / <code>TaskGroup</code> 管理一组任务。</li>
+</ul>
+<pre><code class="language-python">import asyncio
+import httpx
+
+async def fetch(client: httpx.AsyncClient, url: str):
+    r = await client.get(url, timeout=10)
+    return r.status_code, len(r.content)
+
+async def main(urls: list[str]):
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*(fetch(client, u) for u in urls), return_exceptions=True)
+    return results
+
+asyncio.run(main(["https://example.com", "https://example.org"]))
+</code></pre>
+<span class="heading-anchor" id="与同步的区别"></span><h3 id="_2_1">与同步的区别</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>同步</th>
+<th>异步</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>等待 I/O</td>
+<td>阻塞整线程</td>
+<td><code>await</code> 让出事件循环</td>
+</tr>
+<tr>
+<td>并发模型</td>
+<td>多线程/多进程</td>
+<td>单线程多协程</td>
+</tr>
+<tr>
+<td>适合</td>
+<td>脚本、CPU</td>
+<td>API 调用、高并发网关</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="一线实践：并发调用 LLM"></span><h3 id="llm">一线实践：并发调用 LLM</h3>
+<pre><code class="language-python">import asyncio
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()
+
+async def one(prompt: str):
+    resp = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content
+
+async def batch(prompts: list[str], concurrency: int = 8):
+    sem = asyncio.Semaphore(concurrency)  # 限流，防止打爆 API
+
+    async def guarded(p):
+        async with sem:
+            return await one(p)
+
+    return await asyncio.gather(*(guarded(p) for p in prompts), return_exceptions=True)
+
+# results = asyncio.run(batch(["解释一下协程"] * 20))
+</code></pre>
+<span class="heading-anchor" id="注意点"></span><h3 id="_3">注意点</h3>
+<ol>
+<li>事件循环里不要跑重 CPU，会卡住所有任务；CPU 丢线程/进程池。</li>
+<li><code>async</code> 函数只能被 <code>await</code>，直接调用只创建协程对象，不执行。</li>
+<li>超时用 <code>asyncio.wait_for</code> / <code>asyncio.timeout</code>（3.11+）。</li>
+<li>取消用 <code>asyncio.CancelledError</code> 与 <code>task.cancel()</code>。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1747">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1248f8447892"></a></p>
+<span class="heading-anchor" id="Python中使用迭代器遍历和非迭代器遍历有什么区别？"></span><h2 id="python">Python中使用迭代器遍历和非迭代器遍历有什么区别？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>迭代器/生成器</th>
+<th>非迭代器（list 等）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存</td>
+<td>惰性，O(1) 附近</td>
+<td>全量在内存</td>
+</tr>
+<tr>
+<td>遍历次数</td>
+<td>通常一次</td>
+<td>可多次</td>
+</tr>
+<tr>
+<td>随机访问</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+<tr>
+<td>何时取值</td>
+<td><code>next()</code> 时计算</td>
+<td>已经算好</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-python"># 迭代器：耗尽即空
+it = iter([1, 2, 3])
+print(list(it))  # [1, 2, 3]
+print(list(it))  # []
+
+# list 可反复
+xs = [1, 2, 3]
+print(list(xs), list(xs))
+</code></pre>
+<span class="heading-anchor" id="一线选择"></span><h3 id="_1_4">一线选择</h3>
+<pre><code class="language-python"># 适合迭代器
+def iter_jsonl(path):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+# 需要 shuffle / 多 epoch / 索引 → 先物化或用可重入数据集类
+</code></pre>
+<pre><code class="language-python"># LLM 流式：必须用迭代器语义
+for chunk in client.chat.completions.create(..., stream=True):
+    print(chunk.choices[0].delta.content or "", end="")
+</code></pre>
+<p>口诀：大数据、单次扫、流式 → 迭代器；小数据、反复用、随机访问 → list。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1951">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd5ddb87923f2"></a></p>
+<span class="heading-anchor" id="Python中如何进行异常处理？"></span><h2 id="python_1">Python中如何进行异常处理？</h2>
+<p>使用 <code>try/except/else/finally</code>，可多层 except，自定义异常继承 <code>Exception</code>。</p>
+<pre><code class="language-python">import httpx
+
+def call_api(url: str):
+    try:
+        resp = httpx.get(url, timeout=5)
+        resp.raise_for_status()
+    except httpx.TimeoutException:
+        return None, "timeout"
+    except httpx.HTTPStatusError as e:
+        return None, f"http {e.response.status_code}"
+    except Exception:
+        raise
+    else:
+        return resp.json(), None
+    finally:
+        # 无论成败都执行：释放连接、打点
+        pass
+</code></pre>
+<p>工程原则：</p>
+<ol>
+<li>捕获尽量窄的异常类型，避免裸 <code>except:</code>。</li>
+<li>不要用异常做普通控制流。</li>
+<li>日志要带上下文（request_id、model、trace）。</li>
+<li>对外服务统一错误模型（FastAPI <code>HTTPException</code>）。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L376">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfae88fdf2abf"></a></p>
+<span class="heading-anchor" id="Python中的上下文管理器with和__enter__/__exit__有什么价值？"></span><h2 id="pythonwith__enter____exit__">Python中的上下文管理器with和__enter__/__exit__有什么价值？</h2>
+<p>上下文管理器保证「进入时获取资源，退出时必定释放」，即使发生异常。</p>
+<span class="heading-anchor" id="协议"></span><h3 id="_1_6">协议</h3>
+<pre><code class="language-python">class Managed:
+    def __enter__(self):
+        print("enter")
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        print("exit", exc_type)
+        return False  # 不吞异常
+
+with Managed() as m:
+    print("body")
+</code></pre>
+<span class="heading-anchor" id="contextlib 更简洁"></span><h3 id="contextlib">contextlib 更简洁</h3>
+<pre><code class="language-python">from contextlib import contextmanager
+
+@contextmanager
+def timer(tag: str):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        print(tag, time.perf_counter() - t0)
+
+with timer("infer"):
+    model(x)
+</code></pre>
+<span class="heading-anchor" id="AI 工程中的高价值用法"></span><h3 id="ai">AI 工程中的高价值用法</h3>
+<p><strong>1. GPU/设备上下文</strong></p>
+<pre><code class="language-python">import torch
+
+with torch.no_grad():
+    out = model(x)
+
+with torch.autocast("cuda", dtype=torch.float16):
+    out = model(x)
+</code></pre>
+<p><strong>2. 分布式与并行</strong></p>
+<pre><code class="language-python">with torch.device("cuda:0"):
+    w = torch.randn(1024, 1024)
+
+# 多卡
+from accelerate import Accelerator
+accelerator = Accelerator()
+model, loader = accelerator.prepare(model, loader)
+</code></pre>
+<p><strong>3. 连接/会话/锁</strong></p>
+<pre><code class="language-python">with engine.begin() as conn:      # SQLAlchemy 事务
+    conn.execute(stmt)
+
+with lock, cache_slot as slot:    # 资源槽
+    ...
+</code></pre>
+<p><strong>4. 临时配置/环境变量</strong></p>
+<pre><code class="language-python">from contextlib import contextmanager
+
+@contextmanager
+def temp_seed(seed: int):
+    state = torch.random.get_rng_state()
+    torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        torch.random.set_rng_state(state)
+</code></pre>
+<span class="heading-anchor" id="价值总结"></span><h3 id="_2_3">价值总结</h3>
+<ol>
+<li>异常安全的资源释放（RAII 风格）。</li>
+<li>代码作用域清晰，减少「忘记 close」类 bug。</li>
+<li>可组合：<code>with A() as a, B() as b:</code>。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L2335">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7b3db0c0f581"></a></p>
+<span class="heading-anchor" id="Python中的元类metaclass是什么？"></span><h2 id="pythonmetaclass">Python中的元类metaclass是什么？</h2>
+<p>元类是「类的类」。普通对象由类创建，类本身由元类创建。默认元类是 <code>type</code>。</p>
+<pre><code class="language-python">class Foo:
+    pass
+
+print(type(Foo))  # &lt;class 'type'&gt;
+</code></pre>
+<p><code>type(name, bases, dict)</code> 可动态建类：</p>
+<pre><code class="language-python">def speak(self):
+    return "hi"
+
+Bar = type("Bar", (), {"speak": speak})
+print(Bar().speak())
+</code></pre>
+<span class="heading-anchor" id="自定义元类"></span><h3 id="_1_7">自定义元类</h3>
+<pre><code class="language-python">class RegistryMeta(type):
+    registry: dict = {}
+
+    def __new__(mcs, name, bases, ns):
+        cls = super().__new__(mcs, name, bases, ns)
+        if name != "BaseTool":
+            RegistryMeta.registry[name] = cls
+        return cls
+
+class BaseTool(metaclass=RegistryMeta):
+    pass
+
+class SearchTool(BaseTool):
+    def run(self, q: str):
+        return f"search {q}"
+
+print(RegistryMeta.registry.keys())
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L2270">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3674f2bb732c"></a></p>
+<span class="heading-anchor" id="Python中的实例方法、静态方法和类方法三者区别？"></span><h2 id="python_2">Python中的实例方法、静态方法和类方法三者区别？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>实例方法</th>
+<th>classmethod</th>
+<th>staticmethod</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>首参</td>
+<td><code>self</code></td>
+<td><code>cls</code></td>
+<td>无</td>
+</tr>
+<tr>
+<td>绑定</td>
+<td>实例</td>
+<td>类</td>
+<td>不绑定</td>
+</tr>
+<tr>
+<td>典型</td>
+<td>业务逻辑</td>
+<td>工厂、缓存、多态构造</td>
+<td>纯工具函数</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-python">import torch
+
+class Engine:
+    _cache = {}
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def infer(self, x):
+        return x  # 实例方法
+
+    @classmethod
+    def from_pretrained(cls, name: str):
+        if name not in cls._cache:
+            cls._cache[name] = cls(name)
+        return cls._cache[name]
+
+    @staticmethod
+    def validate_name(name: str) -&gt; bool:
+        return bool(name) and name.isalnum()
+</code></pre>
+<p>详见进阶篇第 8 题（模型重复加载案例）。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L318">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k254358c4f7f4"></a></p>
+<span class="heading-anchor" id="Python中的闭包是什么？在AI工程中有什么用？"></span><h2 id="pythonai">Python中的闭包是什么？在AI工程中有什么用？</h2>
+<p>闭包：内层函数引用了外层函数的变量，且外层函数已返回，内层函数仍「捕获」这些变量。</p>
+<pre><code class="language-python">def make_multiplier(n):
+    def multiplier(x):
+        return x * n   # n 来自外层作用域
+    return multiplier
+
+double = make_multiplier(2)
+print(double(5))  # 10
+print(double.__closure__)  # 闭包单元
+</code></pre>
+<span class="heading-anchor" id="机制要点"></span><h3 id="_1_9">机制要点</h3>
+<ol>
+<li>捕获的是变量本身（cell），不是某一时刻的值拷贝（对可变对象尤其要注意共享）。</li>
+<li><code>nonlocal</code> 可在内层修改外层绑定。</li>
+<li>闭包是装饰器的底层结构。</li>
+</ol>
+<span class="heading-anchor" id="AI 工程用法"></span><h3 id="ai_1">AI 工程用法</h3>
+<p><strong>1. 装饰器工厂</strong></p>
+<pre><code class="language-python">def retry(times: int):
+    def deco(fn):
+        def wrapper(*a, **k):
+            for _ in range(times):
+                try:
+                    return fn(*a, **k)
+                except Exception:
+                    last = True
+            raise RuntimeError("failed")
+        return wrapper
+    return deco
+</code></pre>
+<p><strong>2. 配置偏函数 / 绑定客户端</strong></p>
+<pre><code class="language-python">def make_client(base_url: str, api_key: str):
+    session = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+    def chat(messages):
+        return session.post("/chat", json={"messages": messages})
+    return chat
+</code></pre>
+<p><strong>3. 回调与钩子</strong></p>
+<pre><code class="language-python">def on_epoch(epoch: int):
+    def hook(state):
+        if state["val_loss"] &lt; best[0]:
+            best[0] = state["val_loss"]
+            save(state)
+    return hook
+</code></pre>
+<span class="heading-anchor" id="坑"></span><h3 id="_2_5">坑</h3>
+<pre><code class="language-python">funcs = []
+for i in range(3):
+    funcs.append(lambda: i)  # 全部捕获同一 i
+
+print([f() for f in funcs])  # [3, 3, 3]
+
+# 修复：默认参数绑定
+funcs = [lambda i=i: i for i in range(3)]
+</code></pre>
+<p>闭包用好了能写出很干净的可配置组件；用不好会造成意外的大对象捕获和延迟绑定 bug。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L2194">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6ef71ddc2639"></a></p>
+<span class="heading-anchor" id="Python中类变量和实例变量有什么区别？"></span><h2 id="python_3">Python中类变量和实例变量有什么区别？</h2>
+<ul>
+<li>类变量：属于类，所有实例共享。</li>
+<li>实例变量：属于实例，定义在 <code>__init__</code>/<code>self.x</code>。</li>
+</ul>
+<p>可变对象做成类变量是经典事故源：</p>
+<pre><code class="language-python">class BadSession:
+    messages = []          # 类变量，共享！
+
+    def add(self, msg):
+        self.messages.append(msg)
+
+a, b = BadSession(), BadSession()
+a.add("userA")
+b.add("userB")
+print(a.messages)  # ['userA', 'userB'] 串了
+</code></pre>
+<p>正确：</p>
+<pre><code class="language-python">class Session:
+    def __init__(self):
+        self.messages = []
+</code></pre>
+<p>会话、Agent 记忆、请求上下文必须放实例变量或外部存储，不能误用类变量。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1058">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kedf65380f9ac"></a></p>
+<span class="heading-anchor" id="Python中迭代器的概念？"></span><h2 id="python_4">Python中迭代器的概念？</h2>
+<p>可迭代对象是迭代器、生成器和装饰器的基础。简单来说，可以使用for来循环遍历的对象就是可迭代对象。比如常见的list、set和dict。</p>
+<p>注意：Python 3.10 起应从 <code>collections.abc</code> 导入抽象基类，<code>from collections import Iterable</code> 已废弃：</p>
+<pre><code class="language-python">from collections.abc import Iterable, Iterator
+
+print(isinstance('abcddddd', Iterable))     # str是否可迭代
+print(isinstance([1, 2, 3, 4, 5, 6], Iterable))  # list是否可迭代
+print(isinstance(12345678, Iterable))       # 整数是否可迭代
+
+-------------结果如下----------------
+True
+True
+False
+</code></pre>
+<p>当对所有的可迭代对象调用 dir() 方法时，会发现他们都实现了 <code>__iter__</code> 方法。这样就可以通过 <code>iter(object)</code> 来返回一个迭代器。</p>
+<pre><code class="language-python">x = [1, 2, 3]
+y = iter(x)
+print(type(x))
+print(type(y))
+
+------------结果如下------------
+&lt;class 'list'&gt;
+&lt;class 'list_iterator'&gt;
+</code></pre>
+<p>可以看到调用 <code>iter()</code> 之后，变成了一个 <code>list_iterator</code> 的对象，并且多了 <code>__next__</code> 方法。所有实现了 <code>__iter__</code> 和 <code>__next__</code> 两个方法的对象，都是迭代器。</p>
+<p>迭代器是带状态的对象，它会记录当前迭代所在的位置。<code>__iter__</code> 返回迭代器自身，<code>__next__</code> 返回容器中的下一个值，如果容器中没有更多元素了，则抛出 <code>StopIteration</code> 异常。</p>
+<pre><code class="language-python">x = [1, 2, 3]
+y = iter(x)
+print(next(y))
+print(next(y))
+print(next(y))
+print(next(y))
+
+----------结果如下----------
+1
+2
+3
+Traceback (most recent last):
+  File "test.py", line 6, in &lt;module&gt;
+    print(next(y))
+StopIteration
+</code></pre>
+<p>Python的for循环本质上就是通过不断调用 <code>next()</code> 函数实现的。迭代器只有在调用 <code>next()</code> 时才实际计算下一个值，因此可显著节省内存。</p>
+<pre><code class="language-python">x = [1, 2, 3]
+for elem in x:
+    ...
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L42">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k936014e50472"></a></p>
+<span class="heading-anchor" id="一线何时用元类？"></span><h2 id="_1_12">一线何时用元类？</h2>
+<p>多数场景用装饰器/<code>__init_subclass__</code> 就够了：</p>
+<pre><code class="language-python">class BaseTool:
+    _registry = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        BaseTool._registry[cls.__name__] = cls
+</code></pre>
+<p>真正用元类的场合：</p>
+<ol>
+<li>ORM/校验框架在类创建时注入字段（pydantic 内部）。</li>
+<li>强制子类实现接口、自动注册插件。</li>
+<li>拦截类创建过程做审计/约束。</li>
+</ol>
+<p>原则：能不用元类就不用；它是框架作者工具，不是业务代码首选。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L2313">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc345d42747bf"></a></p>
+<span class="heading-anchor" id="一线实践中装饰器几乎无处不在"></span><h2 id="_1_13">一线实践中装饰器几乎无处不在</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>典型装饰器</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web 框架路由</td>
+<td><code>@app.get("/health")</code></td>
+<td>注册路由</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><code>@lru_cache</code> / <code>@cache</code></td>
+<td>避免重复计算（embedding、配置解析）</td>
+</tr>
+<tr>
+<td>重试/超时</td>
+<td><code>@retry</code>、<code>tenacity</code></td>
+<td>外部 API 不稳定时的容错</td>
+</tr>
+<tr>
+<td>鉴权</td>
+<td><code>@login_required</code></td>
+<td>FastAPI 依赖注入 / Flask before</td>
+</tr>
+<tr>
+<td>日志与追踪</td>
+<td><code>@trace</code>、OpenTelemetry</td>
+<td>记录耗时、入参、异常</td>
+</tr>
+<tr>
+<td>权限与配额</td>
+<td>自定义 <code>@rate_limit</code></td>
+<td>LLM 服务限流</td>
+</tr>
+<tr>
+<td>torch.no_grad</td>
+<td><code>@torch.no_grad()</code></td>
+<td>推理时关闭梯度</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L300">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3258bf458176"></a></p>
+<span class="heading-anchor" id="一线实践：为什么要关心迭代器？"></span><h2 id="_1_14">一线实践：为什么要关心迭代器？</h2>
+<ol>
+<li><strong>流式读取大数据/日志</strong>：按行读取 GB 级日志或数据集，避免一次性加载进内存。</li>
+<li><strong>DataLoader 与 batch 拼装</strong>：训练/推理时按 batch 拉取数据，本质就是自定义迭代器。</li>
+<li><strong>LLM 流式输出</strong>：<code>stream=True</code> 时，SDK 返回的就是 token 级迭代器。</li>
+</ol>
+<pre><code class="language-python">def read_jsonl(path):
+    """按行读取 jsonl，内存占用 O(1)"""
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                yield __import__("json").loads(line)
+
+# 训练数据批量迭代
+def batch_iter(items, batch_size):
+    batch = []
+    for item in items:
+        batch.append(item)
+        if len(batch) &gt;= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+</code></pre>
+<p>itertools 库提供了很多常见迭代器的使用：</p>
+<pre><code class="language-python">from itertools import count, islice, chain
+
+counter = count(start=13)
+print(next(counter))  # 13
+print(next(counter))  # 14
+
+# 无限迭代器用 islice 截断
+first_5 = list(islice(count(100), 5))  # [100, 101, 102, 103, 104]
+
+# 多数据源拼接成一个迭代流
+stream = chain(train_files, val_files)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L104">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5d06b826ea98"></a></p>
+<span class="heading-anchor" id="一线实践：生成器的典型场景"></span><h2 id="_1_15">一线实践：生成器的典型场景</h2>
+<p><strong>1. 流式处理 LLM 返回</strong></p>
+<pre><code class="language-python">import openai
+
+client = openai.OpenAI()
+
+def stream_chat(prompt: str):
+    stream = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta  # 边收边用，不等全部生成完
+
+for token in stream_chat("介绍一下生成器"):
+    print(token, end="", flush=True)
+</code></pre>
+<p><strong>2. 大文件 ETL / 预处理</strong></p>
+<pre><code class="language-python">import json
+
+def transform_logs(path):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            if rec.get("level") == "ERROR":
+                yield {"ts": rec["ts"], "msg": rec["msg"][:200]}
+</code></pre>
+<p><strong>3. 管道式组合（惰性求值）</strong></p>
+<pre><code class="language-python">def numbers(n):
+    for i in range(n):
+        yield i
+
+def square(seq):
+    for x in seq:
+        yield x * x
+
+def is_even(seq):
+    for x in seq:
+        if x % 2 == 0:
+            yield x
+
+# 全程不落地中间 list
+result = list(is_even(square(numbers(100))))
+</code></pre>
+<p>生成器适合「流式、大体量、不需要反复访问」的数据；需要随机访问或多次遍历时，应转成 list。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L187">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4799317bf2f0"></a></p>
+<span class="heading-anchor" id="介绍一下Python中map与reduce函数的用法"></span><h2 id="pythonmapreduce">介绍一下Python中map与reduce函数的用法</h2>
+<h3 id="map">map</h3>
+<p>把函数映射到可迭代对象每个元素，返回惰性迭代器。</p>
+<pre><code class="language-python">nums = [1, 2, 3, 4]
+print(list(map(lambda x: x * 2, nums)))  # [2, 4, 6, 8]
+
+# 多序列并行
+print(list(map(lambda a, b: a + b, [1, 2], [10, 20])))  # [11, 22]
+</code></pre>
+<p>现代写法通常用列表推导更清晰：</p>
+<pre><code class="language-python">result = [x * 2 for x in nums]
+</code></pre>
+<h3 id="reduce">reduce</h3>
+<p>把序列归约成一个值。</p>
+<pre><code class="language-python">from functools import reduce
+
+print(reduce(lambda a, b: a + b, [1, 2, 3, 4]))  # 10
+
+# 带初始值
+print(reduce(lambda a, b: a + b, [1, 2, 3, 4], 100))  # 110
+</code></pre>
+<span class="heading-anchor" id="一线实践"></span><h3 id="_1_16">一线实践</h3>
+<pre><code class="language-python"># 合并多个 dict 配置层
+layers = [{"a": 1}, {"b": 2}, {"a": 3}]
+merged = reduce(lambda acc, d: {**acc, **d}, layers, {})
+# {'a': 3, 'b': 2}
+
+# 累积评测指标
+from operator import mul
+print(reduce(mul, [0.9, 0.8, 0.95], 1.0))  # 连乘召回率链
+</code></pre>
+<span class="heading-anchor" id="何时不用 reduce"></span><h3 id="reduce_1">何时不用 reduce</h3>
+<ul>
+<li>简单求和/求积：直接 <code>sum()</code> / <code>math.prod()</code> 更快更清晰。</li>
+<li>复杂归约：写具名函数或用 pandas/numpy 聚合，可读性更好。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1993">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc0304894c316"></a></p>
+<span class="heading-anchor" id="介绍一下Python中的继承（Inheritance）思想"></span><h2 id="pythoninheritance">介绍一下Python中的继承（Inheritance）思想</h2>
+<p>继承让子类复用父类的属性和方法，并可扩展或覆盖。</p>
+<span class="heading-anchor" id="基本语法"></span><h3 id="_1_17">基本语法</h3>
+<pre><code class="language-python">class BaseModel:
+    def __init__(self, name: str):
+        self.name = name
+
+    def forward(self, x):
+        raise NotImplementedError
+
+class MLP(BaseModel):
+    def __init__(self, name: str, dims: list[int]):
+        super().__init__(name)   # 推荐 super()，支持多继承
+        self.dims = dims
+
+    def forward(self, x):
+        return x  # 实现
+</code></pre>
+<span class="heading-anchor" id="方法解析顺序（MRO）"></span><h3 id="mro">方法解析顺序（MRO）</h3>
+<p>多重继承时用 C3 线性化决定查找顺序：</p>
+<pre><code class="language-python">class A: ...
+class B(A): ...
+class C(A): ...
+class D(B, C): ...
+
+print(D.mro())
+# [D, B, C, A, object]
+</code></pre>
+<p><code>super()</code> 按 MRO 前进，而不是简单地「调父类」。</p>
+<span class="heading-anchor" id="私有属性不被子类直接访问"></span><h3 id="_2_11">私有属性不被子类直接访问</h3>
+<pre><code class="language-python">class Parent:
+    def __init__(self):
+        self.__private = 1  # _Parent__private
+
+class Child(Parent):
+    def get(self):
+        # return self.__private  # AttributeError
+        return self._Parent__private  # 能绕，但别这么写
+</code></pre>
+<span class="heading-anchor" id="一线建议"></span><h3 id="_3_3">一线建议</h3>
+<ol>
+<li><strong>优先组合而不是深继承</strong>：<code>class Trainer: def __init__(self, model, data, optim)</code> 往往比三层继承更清晰。</li>
+<li><strong>用 ABC/Protocol 定义接口</strong>，而不是靠「继承某个具体类」来表达能力。</li>
+<li><strong>框架扩展点</strong>（HuggingFace Trainer、LightningModule）常用模板方法 + 继承，这是合法且常见的用法。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1472">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcca4c10d21eb"></a></p>
+<span class="heading-anchor" id="介绍一下Python中高阶函数的原理"></span><h2 id="python_5">介绍一下Python中高阶函数的原理</h2>
+<p>高阶函数（Higher-Order Function）指：<strong>接收函数作为参数</strong>，或<strong>返回函数</strong>。</p>
+<p>Python 中函数是一等公民：</p>
+<pre><code class="language-python">def add(x, y):
+    return x + y
+
+def logger(fn):
+    def wrapper(*args, **kwargs):
+        print("call", fn.__name__)
+        return fn(*args, **kwargs)
+    return wrapper
+
+print(logger(add)(1, 2))
+</code></pre>
+<span class="heading-anchor" id="常见形态"></span><h3 id="_1_18">常见形态</h3>
+<ol>
+<li><strong>函数作为参数</strong>：<code>map</code>、<code>sorted(key=...)</code>、<code>filter</code>、装饰器。</li>
+<li><strong>函数作为返回值</strong>：闭包、装饰器工厂、策略工厂。</li>
+<li><strong>偏函数</strong>：固定部分参数。</li>
+</ol>
+<pre><code class="language-python">from functools import partial, wraps
+
+def chat(model: str, prompt: str, temperature: float = 0.7):
+    ...
+
+mini_chat = partial(chat, "gpt-4o-mini", temperature=0.2)
+mini_chat("你好")
+</code></pre>
+<span class="heading-anchor" id="一线场景"></span><h3 id="_2_12">一线场景</h3>
+<pre><code class="language-python"># 1) 统一重试包装
+def with_retry(fn, times=3):
+    @wraps(fn)
+    def wrapper(*a, **k):
+        for i in range(times):
+            try:
+                return fn(*a, **k)
+            except Exception:
+                if i == times - 1:
+                    raise
+    return wrapper
+
+# 2) 排序/分组的 key 函数
+docs.sort(key=lambda d: d["score"], reverse=True)
+
+# 3) 回调与钩子
+def run_training(hooks: dict):
+    hooks.get("on_epoch_end", lambda *_: None)(epoch)
+</code></pre>
+<p>理解高阶函数，才能真正理解装饰器、闭包、策略模式和大部分 Python 框架的扩展机制。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L2045">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k048b8d4d0a23"></a></p>
+<span class="heading-anchor" id="类装饰器与装饰器类"></span><h2 id="_1_19">类装饰器与装饰器类</h2>
+<pre><code class="language-python"># 用类实现装饰器（可带状态，适合统计调用次数、耗时）
+class CountCalls:
+    def __init__(self, func):
+        self.func = func
+        self.count = 0
+
+    def __call__(self, *args, **kwargs):
+        self.count += 1
+        return self.func(*args, **kwargs)
+
+@CountCalls
+def inference(x):
+    return x * 2
+
+inference(1)
+print(inference.count)  # 1
+</code></pre>
+<p>工程建议：装饰器里务必用 <code>functools.wraps</code> 保留原函数的 <code>__name__</code>/<code>__doc__</code>/签名，否则类型检查、文档生成和 APM 链路都会出问题。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L312">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-3fbed5933806.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Python实践问答</strong></a><a class="page-next" href="n-0858abdedcf3.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>对象、类型与容器</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#multiprocessing">multiprocessing模块怎么使用?</a></li><li class="outline-level-2"><a href="#pythoneval">python中eval函数的作用？</a></li><li class="outline-level-2"><a href="#pythonasync-def">Python中使用async def定义函数有什么作用？</a></li><li class="outline-level-2"><a href="#python">Python中使用迭代器遍历和非迭代器遍历有什么区别？</a></li><li class="outline-level-2"><a href="#python_1">Python中如何进行异常处理？</a></li><li class="outline-level-2"><a href="#pythonwith__enter____exit__">Python中的上下文管理器with和__enter__/__exit__有什么价值？</a></li><li class="outline-level-2"><a href="#pythonmetaclass">Python中的元类metaclass是什么？</a></li><li class="outline-level-2"><a href="#python_2">Python中的实例方法、静态方法和类方法三者区别？</a></li><li class="outline-level-2"><a href="#pythonai">Python中的闭包是什么？在AI工程中有什么用？</a></li><li class="outline-level-2"><a href="#python_3">Python中类变量和实例变量有什么区别？</a></li><li class="outline-level-2"><a href="#python_4">Python中迭代器的概念？</a></li><li class="outline-level-2"><a href="#_1_12">一线何时用元类？</a></li><li class="outline-level-2"><a href="#_1_13">一线实践中装饰器几乎无处不在</a></li><li class="outline-level-2"><a href="#_1_14">一线实践：为什么要关心迭代器？</a></li><li class="outline-level-2"><a href="#_1_15">一线实践：生成器的典型场景</a></li><li class="outline-level-2"><a href="#pythonmapreduce">介绍一下Python中map与reduce函数的用法</a></li><li class="outline-level-2"><a href="#pythoninheritance">介绍一下Python中的继承（Inheritance）思想</a></li><li class="outline-level-2"><a href="#python_5">介绍一下Python中高阶函数的原理</a></li><li class="outline-level-2"><a href="#_1_19">类装饰器与装饰器类</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

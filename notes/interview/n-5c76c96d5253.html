@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>Agent、工具与工作流 · 李杨的学习笔记</title><meta name="description" content="长时序 Agent RL 失稳，本质是 长信用分配链、非平稳数据分布和环境噪声叠加 。最终奖励要穿过几十甚至几百个动作才能影响早期决策，优势估计方差很大；策略更新后又会改变后续轨迹分布，旧数据迅速过期；工具超时、检索变化和用户模拟器偏差还会把环境噪声混入奖励。">
+<meta property="og:type" content="website"><meta property="og:title" content="Agent、工具与工作流 · 李杨的学习笔记"><meta property="og:description" content="长时序 Agent RL 失稳，本质是 长信用分配链、非平稳数据分布和环境噪声叠加 。最终奖励要穿过几十甚至几百个动作才能影响早期决策，优势估计方差很大；策略更新后又会改变后续轨迹分布，旧数据迅速过期；工具超时、检索变化和用户模拟器偏差还会把环境噪声混入奖励。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-5c76c96d5253.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-5c76c96d5253.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html" aria-current="page">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">10-RAG与Agent</p><h1>Agent、工具与工作流</h1><p class="article-question-meta">36 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9eca3f1333eb">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/10-RAG%E4%B8%8EAgent/Agent%E3%80%81%E5%B7%A5%E5%85%B7%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81-07.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#agent_1">长时序任务下Agent强化学习训练失稳、容易崩模型的底层原因</a></li><li class="outline-level-2"><a href="#_1_1">长期任务为什么需要主动管理信息生命周期？</a></li><li class="outline-level-2"><a href="#activeoutdatedconflicteddeleted">长期记忆中的 Active、Outdated、Conflicted、Deleted 分别表示什么？</a></li><li class="outline-level-2"><a href="#harness-agent-fork-pr">除了 Harness，你还关注哪些 Agent 方向的开源项目？——你 Fork 过吗？提过 PR 吗？</a></li><li class="outline-level-2"><a href="#agent-agent">除了开源 Agent，你是否调研或使用过其他厂商的 Agent 产品？</a></li><li class="outline-level-2"><a href="#agent_2">除模型生成质量外，Agent系统还需要重点关注哪些维度的评估指标？</a></li><li class="outline-level-2"><a href="#_1_6">面试前要做哪些准备？</a></li><li class="outline-level-2"><a href="#agent-runtime">面试追问：Agent Runtime 的核心职责是什么？</a></li><li class="outline-level-2"><a href="#agent_3">面试追问：Agent 一直思考或重复调用工具，怎么防止它陷入循环？</a></li><li class="outline-level-2"><a href="#agent_4">面试追问：Agent 执行到一半中断了，怎么保存状态并继续执行？</a></li><li class="outline-level-2"><a href="#function-calling">面试追问：Function Calling 是怎么工作的？模型和后端系统分别负责哪些步骤？</a></li><li class="outline-level-2"><a href="#mcp-toolsresources-prompts">面试追问：MCP 中的 Tools、Resources 和 Prompts 有什么区别？</a></li><li class="outline-level-2"><a href="#mcp-a2a">面试追问：MCP 和 A2A 有什么区别？分别适合什么交互场景？</a></li><li class="outline-level-2"><a href="#openclaw-gateway-runtime">面试追问：OpenClaw 的 Gateway 和 Runtime 分别负责什么？为什么分成两层？</a></li><li class="outline-level-2"><a href="#openclaw">面试追问：OpenClaw 的短期、中期和长期记忆分别保存什么？</a></li><li class="outline-level-2"><a href="#reflexion">面试追问：Reflexion 主要解决什么问题？适合在哪些节点加入反思？</a></li><li class="outline-level-2"><a href="#skill">面试追问：Skill 为什么采用按需加载？名称、描述、正文和脚本分别什么时候加载？</a></li><li class="outline-level-2"><a href="#agent_5">面试追问：一个完整的 Agent 系统通常包含哪些组件？各自负责什么？</a></li><li class="outline-level-2"><a href="#_1_18">面试追问：上下文工程具体要做哪些事？为什么不能把所有历史信息直接交给模型？</a></li><li class="outline-level-2"><a href="#agent_6">面试追问：什么是 Agent？它和普通的大模型聊天机器人有什么区别？</a></li><li class="outline-level-2"><a href="#mcpmcp-client-mcp-server">面试追问：什么是 MCP？MCP Client 和 MCP Server 分别负责什么？</a></li><li class="outline-level-2"><a href="#skill-skill">面试追问：什么是 Skill？一个 Skill 通常包含哪些内容，应该怎么编写？</a></li><li class="outline-level-2"><a href="#agent_7">面试追问：介绍一下你的 Agent 项目：解决什么业务问题，包含哪些核心模块？</a></li><li class="outline-level-2"><a href="#agent_8">面试追问：从大模型问答到工具调用，再到 Agent，主要增加了哪些能力？</a></li><li class="outline-level-2"><a href="#_1_24">面试追问：你为什么要把记忆分成短期、中期、长期偏好和跨对话语义记忆？</a></li><li class="outline-level-2"><a href="#_1_25">面试追问：当前用户输入和历史记忆发生冲突时，以哪个为准？为什么？</a></li><li class="outline-level-2"><a href="#harness-engineering">面试追问：提示词工程、上下文工程和 Harness Engineering 有什么区别？</a></li><li class="outline-level-2"><a href="#_1_27">面试追问：滑动窗口和增量摘要怎么配合，避免上下文越来越长？</a></li><li class="outline-level-2"><a href="#agent_9">面试追问：用户发来一个请求后，Agent 从接收请求到完成任务，整体经过哪些步骤？</a></li><li class="outline-level-2"><a href="#_1_29">面试追问：记忆读取和记忆写入的处理流程分别是什么？为什么要分开设计？</a></li><li class="outline-level-2"><a href="#_1_30">面试追问：课程预约这类多轮业务怎么设计？信息收集、校验、确认和执行怎么衔接？</a></li><li class="outline-level-2"><a href="#agent_10">项目中 Agent 的完整流程是怎样的？</a></li><li class="outline-level-2"><a href="#agent_11">项目记忆文件如何帮助编码 Agent 理解仓库？</a></li><li class="outline-level-2"><a href="#agent_12">项目过程中针对 Agent 做过哪些优化？具体怎么调优？</a></li><li class="outline-level-2"><a href="#agent_13">项目里的 agent 都调用了哪些工具？</a></li><li class="outline-level-2"><a href="#_1_35">验收清单</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k84436a4c2c18"></a></p>
+<span class="heading-anchor" id="长时序任务下Agent强化学习训练失稳、容易崩模型的底层原因"></span><h2 id="agent_1">长时序任务下Agent强化学习训练失稳、容易崩模型的底层原因</h2>
+<p><strong>回答：</strong></p>
+<p>长时序 Agent RL 失稳，本质是<strong>长信用分配链、非平稳数据分布和环境噪声叠加</strong>。最终奖励要穿过几十甚至几百个动作才能影响早期决策，优势估计方差很大；策略更新后又会改变后续轨迹分布，旧数据迅速过期；工具超时、检索变化和用户模拟器偏差还会把环境噪声混入奖励。</p>
+<p>常见后果包括策略熵骤降、重复调用工具、过早结束、长度投机、KL 爆炸、奖励升高但任务成功率下降，以及原有通用能力退化。治理需要分层：用强制预算、工具 Schema、状态机和权限边界约束动作空间；用终局 Verifier 加少量可信过程奖励改善信用分配；控制 rollout 长度和优势归一化，监控 token-level KL、长度、熵、成功率与失败类型；采用 checkpoint、参考策略 KL、退火学习率和混合旧数据防止更新过猛；对超时和系统故障单独建模，不能当作业务失败。</p>
+<p>长任务还应使用阶段目标和 checkpoint，让策略在可验证的里程碑上获得反馈。最重要的是不能只盯平均 reward，要同时检查“高奖励失败轨迹”和原能力回归集。</p>
+<p><a id="tencent-llm-collection-20260903-q3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L283">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kef10edc7fe46"></a></p>
+<span class="heading-anchor" id="长期任务为什么需要主动管理信息生命周期？"></span><h2 id="_1_1">长期任务为什么需要主动管理信息生命周期？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>标准大模型本质上是无状态的。每次请求只能看到当前输入窗口中的内容，无法天然记住长期偏好、历史任务、工具经验、项目规则和多轮进展。AI Agent 之所以需要记忆与上下文工程，是因为它要完成的任务往往具备连续性：</p>
+<ul>
+<li>多轮对话需要知道前文。</li>
+<li>长任务需要记住当前进度。</li>
+<li>个人助手需要记住用户偏好。</li>
+<li>编码 Agent 需要记住项目规则和已修改文件。</li>
+<li>工具型 Agent 需要知道哪些工具过去有效。</li>
+<li>多 Agent 系统需要避免重复探索和重复犯错。</li>
+</ul>
+<p>记忆系统解决“哪些信息应该长期保留、如何检索、如何更新、如何遗忘”的问题；上下文工程解决“当前这一轮模型到底应该看到什么”的问题。二者合起来，决定 Agent 能否从一次性问答走向长期可靠工作。</p>
+<p>可以用一个公式理解：</p>
+<pre><code class="language-math">\text{Agent Quality} \approx f(\text{Model}, \text{Tools}, \text{Memory}, \text{Context Assembly}, \text{Feedback})
+</code></pre>
+<p>模型能力很重要，但如果上下文拼错、记忆污染或关键信息丢失，强模型也会做出错误决策。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L48">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k319e01c54eee"></a></p>
+<span class="heading-anchor" id="长期记忆中的 Active、Outdated、Conflicted、Deleted 分别表示什么？"></span><h2 id="activeoutdatedconflicteddeleted">长期记忆中的 Active、Outdated、Conflicted、Deleted 分别表示什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<p>Active、Outdated、Conflicted、Deleted 可以作为项目自定义的记忆生命周期状态，不能把它们说成所有框架通用的内置枚举。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>默认读取与处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Active</td>
+<td>当前有效，满足适用条件</td>
+<td>在授权与相关性过滤后使用</td>
+</tr>
+<tr>
+<td>Outdated</td>
+<td>被新版本替换或已过有效期</td>
+<td>从普通召回排除，按保留策略供历史核对</td>
+</tr>
+<tr>
+<td>Conflicted</td>
+<td>存在尚未解决的不一致证据</td>
+<td>不自动选一个当真，必要时澄清</td>
+</tr>
+<tr>
+<td>Deleted</td>
+<td>用户删除或策略要求移除</td>
+<td>禁止普通召回，并推进实际清理</td>
+</tr>
+</tbody>
+</table></div>
+<p>状态变化应带版本、操作者、时间、证据和替代关系。逻辑删除只是第一步，还需删除或隔离全文/向量索引、摘要副本、缓存与导出，备份按保留策略到期清理。保留审计不等于无限保留原始敏感文本，也不能让后台总结重新写回已删除信息。</p>
+<p><strong>删除需要一条能验证的传播链。</strong> 主记录先停止被普通读取，再清理检索索引、摘要副本和缓存；异步任务提交前检查删除代次或拒绝写回标记，防止用旧快照重新生成原内容。用于阻止重建的最小标记不必保留被删除的原文，保留范围应符合系统的数据约定。</p>
+<p>清理任务应可重试，并记录各派生存储是否已经处理。只测主表查不到是不够的：还要检查全文匹配、向量召回、缓存命中、历史摘要和备份恢复后的再索引。删除期间若无法确认派生数据有效性，应按既定策略停止使用相关记忆。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L368">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfbe6f748ee79"></a></p>
+<span class="heading-anchor" id="除了 Harness，你还关注哪些 Agent 方向的开源项目？——你 Fork 过吗？提过 PR 吗？"></span><h2 id="harness-agent-fork-pr">除了 Harness，你还关注哪些 Agent 方向的开源项目？——你 Fork 过吗？提过 PR 吗？</h2>
+<p><strong>回答：</strong></p>
+<p>回答这道题要按真实经历展开，不能为了显得熟悉而虚构 Fork 或 PR。可以按照“项目类别 -&gt; 关注问题 -&gt; 实际动作 -&gt; 学到什么”组织：</p>
+<ul>
+<li><strong>图编排与状态执行：</strong> 关注循环、条件分支、checkpoint、人工介入和恢复如何表达。</li>
+<li><strong>代码 Agent 与终端 Harness：</strong> 关注仓库检索、补丁应用、沙箱、测试反馈和命令权限。</li>
+<li><strong>协议与工具互操作：</strong> 关注工具发现、schema、能力协商、连接生命周期和权限边界。</li>
+<li><strong>评测与轨迹平台：</strong> 关注任务级成功率、仿真环境、verifier、回放和 badcase 管线。</li>
+<li><strong>记忆与检索系统：</strong> 关注写入门控、冲突消解、过期、引用、权限和上下文预算。</li>
+</ul>
+<p>如果 Fork 过，应该讲清 Fork 的目的、改动文件、测试方式和结果；如果提过 PR，说明问题复现、设计讨论、兼容性和维护者反馈；如果只是阅读和本地实验，就直接说“做过本地实验，没有提交 PR”，并展示实验脚本、对比指标或 issue 分析。面试官真正想判断的是是否能从开源实现中提出可验证的技术判断，而不是 GitHub 账号上有多少动作。</p>
+<p>一个成熟的学习方法是：先锁定版本，画出入口到工具执行的调用图；再用最小任务运行，记录事件和状态变化；随后针对超时、非法调用、重复消息和恢复写测试；最后提交文档、测试或小范围 bug fix。这样比只浏览 README 更能理解 Agent 框架的工程边界。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L777">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka066f2f98329"></a></p>
+<span class="heading-anchor" id="除了开源 Agent，你是否调研或使用过其他厂商的 Agent 产品？"></span><h2 id="agent-agent">除了开源 Agent，你是否调研或使用过其他厂商的 Agent 产品？</h2>
+<p><strong>回答：</strong></p>
+<p>应把“实际使用”“读过公开文档”“仅做过概念验证”分开说明。可以选择 Claude Code、IDE 内的 Agent 功能、企业流程平台或 Computer Use 产品作为案例，但只报告自己能展示的使用证据。</p>
+<p>技术比较围绕完整执行链路：产品能读取哪些工作区内容；工具和权限如何配置；长任务怎样保留状态；失败后能否恢复；是否能用真实结果验收；数据是否出域；成本与并发限制如何影响业务。演示体验好不等于适合长期无人值守任务。</p>
+<p>回答时拿同一任务作为对照，例如修复一个可复现的接口缺陷：是否主动定位依赖、补充关键测试、识别错误假设、限制改动范围、报告验证结果。避免只列产品名和个人喜好，把产品判断落到可重复的任务表现上。</p>
+<p><a id="bytedance-agent-autumn-20260916-q12"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1403">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke3d48440e50e"></a></p>
+<span class="heading-anchor" id="除模型生成质量外，Agent系统还需要重点关注哪些维度的评估指标？"></span><h2 id="agent_2">除模型生成质量外，Agent系统还需要重点关注哪些维度的评估指标？</h2>
+<p><strong>回答：</strong></p>
+<p>实际指标清单应以项目为准。一个可落地的设计应把业务结果、风险和资源开销分开，避免将所有信号压成不可解释的单一总分。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>指标举例</th>
+<th>选择原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务结果</td>
+<td>环境终态验收成功率、产物正确率</td>
+<td>衡量是否完成用户目标</td>
+</tr>
+<tr>
+<td>工具行为</td>
+<td>工具选择准确率、参数正确率、调用成功率</td>
+<td>定位决策、协议与执行层故障</td>
+</tr>
+<tr>
+<td>证据质量</td>
+<td>引用支持率、关键事实正确率</td>
+<td>防止流畅回答掩盖无依据结论</td>
+</tr>
+<tr>
+<td>风险</td>
+<td>越权率、约束违反率、重复副作用率</td>
+<td>捕捉不能被平均收益抵消的错误</td>
+</tr>
+<tr>
+<td>可靠性</td>
+<td>恢复成功率、人工接管率、重复循环率</td>
+<td>评价长任务和异常处理能力</td>
+</tr>
+<tr>
+<td>性能成本</td>
+<td>首字与完成时延 P95、每次成功任务成本</td>
+<td>连接体验和服务经济性</td>
+</tr>
+</tbody>
+</table></div>
+<p>每个指标必须写清分母。例如工具调用成功率的分母是调用次数，任务成功率的分母是任务试验次数，不能混用。人工接管有时是正确的风险控制，应结合“该接管是否接管”评估，不能机械追求越低越好。</p>
+<p>对任务 <span class="arithmatex">\(i\)</span> 进行多次试验，结果可记作 $<code>y_{ij}\in\{0,1\}</code>$。先计算每个任务的平均成功，再按任务权重汇总；避免某些任务被重复运行更多次后主导总分。若讨论独立同分布尝试、单次成功概率为 <span class="arithmatex">\(p\)</span>，则：</p>
+<pre><code class="language-math">\Pr(\text{at least one success in }k)=1-(1-p)^k,\qquad
+\Pr(\text{all }k\text{ succeed})=p^k.
+</code></pre>
+<p>前者衡量多次尝试找到解的可能性，后者强调重复执行的一致可靠性。真实 Agent 试验可能相关，且重试有成本与副作用，不能直接把独立性公式当作无条件业务保证。</p>
+<p><a id="batch4-p2-q19"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L446">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k06de6389b635"></a></p>
+<span class="heading-anchor" id="面试前要做哪些准备？"></span><h2 id="_1_6">面试前要做哪些准备？</h2>
+<p>每个 Agent 项目至少准备下面这些内容：</p>
+<ul>
+<li>一份项目复盘表；</li>
+<li>30 秒、3 分钟和 10 分钟三个版本的介绍；</li>
+<li>一张能从入口讲到最终结果的架构图；</li>
+<li>两个有备选方案的技术选型；</li>
+<li>两个不同根因的 Badcase，最好一个效果问题、一个工程问题；</li>
+<li>一份评测集分类和指标定义；</li>
+<li>一条可以逐节点解释的 Trace；</li>
+<li>当前使用的模型、框架、协议和工具 Schema 版本；</li>
+<li>项目当前明确存在的限制和下一步计划；</li>
+<li>自己负责与未负责的边界。</li>
+</ul>
+<p>最后可以用下面这组问题做一次自测：</p>
+<ol>
+<li>去掉大模型后，原流程是什么？</li>
+<li>为什么是 Agent，不是 RAG 问答或 Workflow？</li>
+<li>模型、工具、Memory、RAG 和 State 的边界分别是什么？</li>
+<li>哪些决策由模型做，哪些必须由代码做？</li>
+<li>写操作如何授权、确认、幂等和核验？</li>
+<li>如何限制死循环、成本和总时延？</li>
+<li>指标的公式、样本和基线是什么？</li>
+<li>最严重的一次失败如何复现？</li>
+<li>修复后如何证明没有引入新的回归？</li>
+<li>如果流量扩大十倍，最先出现瓶颈的环节是什么？</li>
+<li><code>requestId</code>、<code>runId</code>、<code>sessionId</code>、<code>toolCallId</code> 和 <code>actionId</code> 分别解决什么问题？</li>
+<li>HITL 暂停后如何持久化、过期、恢复并重新校验业务状态？</li>
+<li>RAG、工具结果、MCP Server 和长期 Memory 的信任边界在哪里？</li>
+<li>哪些能力由框架提供，哪些权限、状态和可靠性机制是项目自己实现的？</li>
+<li>当前结论哪些来自生产、哪些来自离线实验、哪些只是设计预案？</li>
+</ol>
+<p>如果这些问题都能基于真实证据回答，项目介绍基本不会停留在“套壳 Demo”层面。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/agent-project-interview-guide.md#L419">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kcf99e64654ea"></a></p>
+<span class="heading-anchor" id="面试追问：Agent Runtime 的核心职责是什么？"></span><h2 id="agent-runtime">面试追问：Agent Runtime 的核心职责是什么？</h2>
+<p>Agent Runtime 是运行一次 Agent 任务的执行核心，管理输入、会话与 run 状态、上下文构造、模型调用、工具分派、超时重试、取消恢复、预算和事件输出。模型决定候选行动，Runtime 决定如何受控地推进这些行动。</p>
+<p>Agent Builder 提供任务配置和流程定义；AgentOS 通常指覆盖入口、文件环境、会话及长期运行能力的更大系统；AgentOps 负责评估、监控、发布与事故治理。这些名称没有唯一标准，但职责边界必须在具体架构中说清楚。</p>
+<p>Runtime 宜记录 <code>running、waiting_tool、waiting_confirmation、completed、failed、cancelled</code> 等明确状态，给每个 run 建立可追踪标识。并发、断线、进程崩溃和工具副作用不能靠追加一句提示词处理，应由状态存储、执行器和业务接口共同约束。</p>
+<p><img alt="图1Agent运行时的决策执行与验收" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/imgs/agent-engineering-80-20261014/01_Agent运行时的决策执行与验收.png"/></p>
+<p>图 1：一次任务的逻辑控制环。反馈可以触发继续执行、澄清或结束；具体部署可以合并模块，但不能省略状态与结果核验。</p>
+<p><strong>一次对话与一次任务不是同一个标识。</strong> <code>conversation_id</code> 关联会话，<code>run_id</code> 关联一次执行，<code>step_id</code> 标记逻辑步骤，<code>attempt_id</code> 标记某次尝试，<code>effect_key</code> 关联同一个业务意图的外部效果。重试会产生新的 attempt，却应复用相同意图的 effect key；用户确实提出另一笔预约时，则应创建新的业务意图。</p>
+<p>这些标识使“同一步失败两次”和“提交了两笔不同业务”能够区分。日志、状态快照和工具回执应通过它们关联；单靠时间戳或整段 prompt 的哈希，难以可靠恢复并发任务。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L126">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3ca0c91c9050"></a></p>
+<span class="heading-anchor" id="面试追问：Agent 一直思考或重复调用工具，怎么防止它陷入循环？"></span><h2 id="agent_3">面试追问：Agent 一直思考或重复调用工具，怎么防止它陷入循环？</h2>
+<p>为每个 run 设置步数、模型调用数、工具调用数、Token、费用和墙钟时间上限，并区分暂时失败与永久失败。对相同工具和规范化参数反复调用、连续相同结果、状态长时间不变建立无进展检测。</p>
+<p>重复不一定等于死循环：轮询真实运行中的任务可能合理，因此要关联任务句柄、状态变化、合理间隔与截止时间。盲目禁止同一工具第二次调用也会破坏正常恢复。无进展判断应结合是否有新证据，而非只比较字符串。</p>
+<p>触发限制后可以收敛计划、请求缺失信息、切换已定义的备用路径或终止并说明部分结果。子任务继承整体预算，不能通过递归创建任务逃逸限制。取消信号应传到模型、工具与后台任务，并检查是否仍有未完成副作用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/03_Agent%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%BC%96%E6%8E%92%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L245">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k44a8ae186d03"></a></p>
+<span class="heading-anchor" id="面试追问：Agent 执行到一半中断了，怎么保存状态并继续执行？"></span><h2 id="agent_4">面试追问：Agent 执行到一半中断了，怎么保存状态并继续执行？</h2>
+<p>保存的不只是聊天记录，还包括任务目标、当前状态、计划版本、已完成节点、待执行动作、审批信息、工具回执、幂等键和必要的模型/提示词版本。恢复时先确认真实业务状态，再决定继续、重试或转入核对。</p>
+<p>持久化工作流可在节点或可恢复步骤边界写 checkpoint，事件日志记录前后变化。LangGraph 等框架的恢复可能从节点或任务边界重新执行；尤其 <code>interrupt</code> 所在节点恢复时可能重跑前面的代码，因此暂停之前的副作用必须幂等或单独封装。</p>
+<p>最危险的窗口是“业务已提交，但本地尚未记录成功”。进程重启后应通过幂等键查询服务端结果，不能盲目再提交，也不能仅凭本地状态判断失败。取消、补偿、文件回滚与数据库回滚作用范围不同；跨系统通常需要对账或 Saga 式补偿，不能泛称为 exactly-once。</p>
+<p><strong>恢复协议必须覆盖最危险的三个时刻。</strong> 调用前崩溃，恢复后可能尚未发生业务效果；调用中断连，结果处于未知；业务成功后、checkpoint 写入前崩溃，本地看似未完成，外部却可能已经完成。三种情况不能统一处理成“再执行一次”。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>可观察状态</th>
+<th>恢复动作</th>
+<th>可以据此宣布完成吗</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>尚未发起，或服务端证明请求未受理</td>
+<td>在授权仍有效时执行同一意图</td>
+<td>尚不可以</td>
+</tr>
+<tr>
+<td>已发起但没有确定结果</td>
+<td>按持久业务标识核对，必要时进入人工处理</td>
+<td>不可以</td>
+</tr>
+<tr>
+<td>业务回执确认成功</td>
+<td>保存回执并推进本地状态</td>
+<td>验收条件满足后可以</td>
+</tr>
+<tr>
+<td>已确认业务失败</td>
+<td>根据错误类型重试、修改方案或终止</td>
+<td>应报告失败或待处理</td>
+</tr>
+</tbody>
+</table></div>
+<p>要注意“查询不到”也可能来自索引延迟或查询接口的弱一致性。只有服务端契约能够区分未受理、处理中、完成与失败时，客户端才能据此可靠决策。将本地写入意图与待发送事件放进同一事务，可以缓解丢发问题；它仍不能让远端业务事务与本地数据库自动成为同一个原子操作。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/03_Agent%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%BC%96%E6%8E%92%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L614">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfa2000991b00"></a></p>
+<span class="heading-anchor" id="面试追问：Function Calling 是怎么工作的？模型和后端系统分别负责哪些步骤？"></span><h2 id="function-calling">面试追问：Function Calling 是怎么工作的？模型和后端系统分别负责哪些步骤？</h2>
+<p>后端向模型提供工具名称、说明和参数 Schema；模型返回工具调用提案；后端解析参数、校验类型和业务约束、绑定真实用户身份、执行授权检查，再调用函数或远程服务；工具结果按调用 ID 返回模型，供其继续或回答。</p>
+<p>传统 API 调用由程序逻辑直接决定函数与参数，Function Calling 让模型参与这个选择过程，但不转移执行权。结构化输出降低格式错误，不证明权限、参数语义和业务状态正确。</p>
+<p>对写操作还需确认、幂等、超时与回执核对。多个工具可以并行的前提是没有依赖或冲突，不能把“查询库存”和“据该库存预约”盲目并行。外部异常应返回类型化结果，避免把堆栈、密钥或不可信文本原样提升为指令。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L167">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka25a3628bc68"></a></p>
+<span class="heading-anchor" id="面试追问：MCP 中的 Tools、Resources 和 Prompts 有什么区别？"></span><h2 id="mcp-toolsresources-prompts">面试追问：MCP 中的 Tools、Resources 和 Prompts 有什么区别？</h2>
+<p>Tools 是可调用的操作，适合查询、计算或业务动作；Resources 是应用可读取的上下文对象，如文件、记录或文档；Prompts 是可选择并填参的交互模板，用于组织特定任务。三者区别在使用语义，不能把任何返回文本的接口都叫 Resource。</p>
+<p>协议文档通常将 Tools 描述为模型控制、Resources 为应用控制、Prompts 为用户控制，这是交互设计倾向，不代表模型可以不经授权执行工具，也不要求每个客户端具有完全相同的 UI。</p>
+<p>例如课程服务可提供 <code>list_sessions</code> Tool、课程规则 Resource、报名咨询 Prompt。读资源需要 ACL，工具有只读与副作用之分，模板中的外部内容仍按信任边界处理。Server 可只实现其中部分能力，Client 应通过能力协商与发现接口使用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L353">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k509f1e86136e"></a></p>
+<span class="heading-anchor" id="面试追问：MCP 和 A2A 有什么区别？分别适合什么交互场景？"></span><h2 id="mcp-a2a">面试追问：MCP 和 A2A 有什么区别？分别适合什么交互场景？</h2>
+<p>MCP 主要标准化 AI 应用与工具、资源、提示模板的连接；A2A 主要支持独立 Agent 之间交换消息、委派任务、报告状态和交付产物。前者常被用于“调用一个能力”，后者更关注“把目标交给另一个有自主运行边界的执行者”。</p>
+<p>例如查询课程表适合工具调用，委托另一个部门的 Agent 完成带审批和异步交付的培训方案，可以考虑 A2A。A2A 使用 Agent Card 描述能力与接入信息，交互围绕消息、任务及产物等对象；并非所有请求都必须表现为同一种长任务。</p>
+<p>远端 Agent 内部可以继续通过 MCP 调工具，两者能够组合。都需要身份、权限、状态追踪和失败处理；MCP 不天然可信，A2A 也不意味着无限委派。只是团队内部几个函数协作时，直接 API 或进程内调用往往更简单。</p>
+<p><strong>协议连接成功不等于业务任务完成。</strong> 远端 Agent 接受任务后可能继续异步执行；连接超时、任务取消和最终失败也不是同一状态。委派时应绑定目标、输出契约、截止时间、身份范围与可执行动作，并以任务标识查询结果，不能仅凭一次 HTTP 成功就向用户宣告交付。</p>
+<p>协议选型还要看接收方是否真的需要独立计划与状态。如果只是查询单个字段，增加一层 Agent 委派可能放大延迟和故障面。反过来，复杂异步交付即使通过普通 API 实现，也仍需处理任务身份、进度、产物和取消语义。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L127">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf39610ce2f08"></a></p>
+<span class="heading-anchor" id="面试追问：OpenClaw 的 Gateway 和 Runtime 分别负责什么？为什么分成两层？"></span><h2 id="openclaw-gateway-runtime">面试追问：OpenClaw 的 Gateway 和 Runtime 分别负责什么？为什么分成两层？</h2>
+<p>OpenClaw 的 Gateway 架构承担多通道连接、会话路由、控制与事件分发等职责；Agent Runtime 负责一次运行中的上下文、模型决策、工具执行和状态推进。两层可以在同一进程或部署单元中协作，逻辑分层不等于必须拆成两个独立服务。</p>
+<p>Gateway 根据通道、账号、用户及会话等标识将消息交给对应运行实例，接收并转发进度、结果和控制事件；Runtime 不应依赖每种聊天平台的消息格式。这样可以更换入口或模型执行实现，而不重写全部路由逻辑。</p>
+<p>要明确认证与配对、会话隔离、重连、重复消息处理和副作用幂等的归属。Gateway 收到请求只说明入口接收成功，不能替代 Runtime 完成及业务回执。具体默认通道、传输和运行后端依官方版本及配置判断。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L888">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k982063f86dc2"></a></p>
+<span class="heading-anchor" id="面试追问：OpenClaw 的短期、中期和长期记忆分别保存什么？"></span><h2 id="openclaw">面试追问：OpenClaw 的短期、中期和长期记忆分别保存什么？</h2>
+<p>可以用短期、中期、长期理解个人助手的信息生命周期，但不能假定 OpenClaw 官方实现固定采用这三个命名层。其会话消息、压缩摘要和持久化记忆各有职责，实际注入与检索方式还取决于上下文引擎和记忆插件。</p>
+<p>当前会话消息与工具结果支撑短期交互；压缩摘要可以承载较早步骤的工作状态；工作空间中的 <code>MEMORY.md</code> 常用于持久事实或决策，<code>memory/YYYY-MM-DD.md</code> 用于日常记录。官方文档也描述了可选 <code>USER.md</code> 保存稳定用户信息，不应把所有偏好都强行归入单个文件。</p>
+<p>文件存在不代表每轮全部进入上下文，摘要也不等于永不丢失的真相。长期事实必须经过筛选，原始记录和摘要应可追溯；敏感或共享会话要检查哪些文件允许加载。记忆模块可以替换，因此具体存储和召回行为要看实际配置。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L765">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5759f06aeee0"></a></p>
+<span class="heading-anchor" id="面试追问：Reflexion 主要解决什么问题？适合在哪些节点加入反思？"></span><h2 id="reflexion">面试追问：Reflexion 主要解决什么问题？适合在哪些节点加入反思？</h2>
+<p>Reflexion 用任务反馈形成文字化的经验，在后续尝试中调整策略，通常不通过梯度更新模型参数。一般的 Reflection 可以只是一次输出自检；Reflexion 更强调经验在多次尝试之间被保留和复用。</p>
+<p>适合在测试失败、工具异常、关键阶段完成、最终答案验收失败之后触发。反思应包含错误证据、可能原因、下次动作和适用范围，例如“请求因参数日期格式错误被拒绝，应在调用前按接口 Schema 规范化”，而不是泛泛要求更认真。</p>
+<p>优先使用测试、业务回执和可核查证据作为反馈。自评模型可能强化错误解释，反思还会增加成本，因此要限制次数、对照无反思基线，并允许经验过期或撤回。没有新证据时反复改写同一个答案，通常不能带来可靠提升。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/03_Agent%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%BC%96%E6%8E%92%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L328">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9b194c1ce08b"></a></p>
+<span class="heading-anchor" id="面试追问：Skill 为什么采用按需加载？名称、描述、正文和脚本分别什么时候加载？"></span><h2 id="skill">面试追问：Skill 为什么采用按需加载？名称、描述、正文和脚本分别什么时候加载？</h2>
+<p>按需加载减少不相关说明占用上下文。典型渐进式流程是先提供名称和描述帮助发现能力；确定要使用后读取 <code>SKILL.md</code> 正文；执行到具体步骤再读取相关参考或调用脚本。脚本文件不必全文进入模型上下文，运行方式由宿主与任务需要决定。</p>
+<p>名称和描述因此要写清适用场景与触发边界；正文组织流程；长说明拆到参考；确定性转换交给脚本。具体加载时机由平台实现控制，不能宣称所有产品都具有相同的自动加载行为。</p>
+<p>Skill 提供程序化经验与资源，Tool 提供动作，Memory 提供可持续的信息，RAG 为当前问题检索证据。四者可以配合：加载报表 Skill，读取用户偏好，检索业务规则，再调用查询工具。任何资源都不能绕过宿主权限，技能内的文字也不能提高自身信任等级。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L718">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3fd8f66faa4e"></a></p>
+<span class="heading-anchor" id="面试追问：一个完整的 Agent 系统通常包含哪些组件？各自负责什么？"></span><h2 id="agent_5">面试追问：一个完整的 Agent 系统通常包含哪些组件？各自负责什么？</h2>
+<p>完整系统至少需要明确九类职责：模型负责理解与决策；提示词定义任务与格式；上下文层组织本轮证据；工具层连接环境；规划层维护步骤与依赖；记忆层保存可复用信息；运行时推动状态机；权限层控制读写边界；评测观测层记录结果、延迟和成本。小系统可以合并模块，但不能漏掉职责。</p>
+<p>以课程预约为例，模型提取课程和时间，知识检索提供规则，业务工具查询实时库存，状态机保存待补字段，授权层绑定用户身份，确认后由预约服务事务落库。模型输出“预约成功”必须有工具回执支持。</p>
+<p>组件之间宜使用带类型的数据契约，例如 <code>request_id、tenant_id、session_id、run_id、tool_call_id</code>，并记录工具状态、预算和版本。对话历史、执行状态、长期记忆和业务事实分别保存，避免把一段聊天文本同时充当所有模块的数据库。</p>
+<p><strong>把组件放进同一条业务证据链。</strong> 以课程预约为例：知识库说明退改规则，业务接口提供实时名额，记忆提供经确认的个人偏好，模型理解请求，Runtime 管理执行，预约服务产生最终回执。每个模块应回答“我维护什么事实、谁能修改它、错误如何被发现”。只把这些名称画成方框，尚未解决跨模块的一致性。</p>
+<p>Rocky认为，Agent 工程能力最容易在失败轨迹里看出来：谁能解释一次超时后订单是否已生效，谁能追到一个错误答案使用了哪个版本的证据，谁能让被删除的记忆停止影响后续任务。模型和框架会持续迭代，任务状态、证据、权限和验收之间的关系会长期存在。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L90">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0c234f775878"></a></p>
+<span class="heading-anchor" id="面试追问：上下文工程具体要做哪些事？为什么不能把所有历史信息直接交给模型？"></span><h2 id="_1_18">面试追问：上下文工程具体要做哪些事？为什么不能把所有历史信息直接交给模型？</h2>
+<p>上下文工程包括信息采集、信任分层、相关性检索、权限过滤、去重、摘要、排序、Token 预算分配与版本记录。目标是让模型在当前步骤拿到足够且有效的证据，而不是把已有文本全部发送出去。</p>
+<p>完整历史可能超过窗口，增加预填充耗时与费用；旧偏好、错误工具结果和重复日志还会与当前目标竞争注意力。长上下文能力提升了容量，并不保证模型准确使用每一段内容，更没有自动实现隐私隔离和知识更新。</p>
+<p>优先保留当前目标、约束、未完成动作、工具调用与结果配对；把已完成步骤压成带证据位置的摘要，按需取回原文。输出预算和工具响应空间应预留，超预算时按信息价值裁剪，而不是从消息列表任意截断。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L107">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0c32846cf438"></a></p>
+<span class="heading-anchor" id="面试追问：什么是 Agent？它和普通的大模型聊天机器人有什么区别？"></span><h2 id="agent_6">面试追问：什么是 Agent？它和普通的大模型聊天机器人有什么区别？</h2>
+<p>Agent 是围绕目标与环境持续交互的执行系统：读取状态，选择下一步行动，通过工具影响外部系统，再根据反馈继续或停止。大模型常负责理解与决策，运行时负责实际执行和约束。是否用了大模型、是否能聊天，都不足以单独判定它是不是 Agent。</p>
+<p>普通聊天机器人主要返回文本；带工具的聊天产品可以查天气或查订单，但一次工具调用还不一定形成自主闭环。Workflow 由程序预设主要控制流，适合流程稳定的业务；Copilot 强调用户持续主导；Agent 则在授权范围内动态决定部分执行路径。这些形态可以组合，产品名称并不能代替架构判断。</p>
+<p>例如“解释退款政策”可以是问答，“查询订单退款状态”需要工具，“核查多笔订单并提出可执行的处理方案”才可能需要多步 Agent。衡量后者要看目标是否完成、状态是否正确改变、失败能否恢复及成本是否可控。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L78">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2f51600affd9"></a></p>
+<span class="heading-anchor" id="面试追问：什么是 MCP？MCP Client 和 MCP Server 分别负责什么？"></span><h2 id="mcpmcp-client-mcp-server">面试追问：什么是 MCP？MCP Client 和 MCP Server 分别负责什么？</h2>
+<p>MCP 用标准协议连接 AI 应用与外部工具、资源和提示模板。Host 是用户面对的 AI 应用，负责会话、模型交互和整体策略；Client 是 Host 内与某个 Server 通信的协议组件；Server 提供能力并处理协议请求，通常不需要知道 Host 的完整对话。</p>
+<p>Client 负责连接、初始化、能力协商、请求响应和通知处理；Server 发布并执行获准的工具，提供可读资源与提示模板。常见部署使用本地 stdio 或远程 Streamable HTTP，传输方式不改变业务授权的必要性。</p>
+<p>Host 决定向模型展示哪些能力、何时请求确认和如何使用返回内容，服务端仍须验证认证和资源权限。协议统一了连接方式，不统一业务含义，也不保证 Server 或它返回的文本可信。应按使用的协议版本和双方协商能力判断功能。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L341">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf577d49a4924"></a></p>
+<span class="heading-anchor" id="面试追问：什么是 Skill？一个 Skill 通常包含哪些内容，应该怎么编写？"></span><h2 id="skill-skill">面试追问：什么是 Skill？一个 Skill 通常包含哪些内容，应该怎么编写？</h2>
+<p>Skill 是可复用的任务能力包，将适用条件、步骤、领域知识、脚本和资源组织在一起；Tool 则提供具体可执行动作。Skill 告诉 Agent 如何完成一类工作，但不会自动赋予调用系统或访问文件的权限。</p>
+<p>遵循 Agent Skills 格式的包以 <code>SKILL.md</code> 为入口，含 <code>name、description</code> 等元数据及正文，可配 <code>scripts/、references/、assets/</code>。正文应说明触发范围、输入输出、关键步骤、失败恢复和完成判据；脚本适合重复、确定性的处理，知识说明留在正文或引用文件中。</p>
+<p>写作时避免把所有背景都塞进入口，也不要在脚本中硬编码凭证。用真实任务和相近反例测试是否正确触发、是否能完成并验证结果。修改后检查依赖与资源路径，版本变化须能追踪；一个漂亮的说明文档不等于能力已交付。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L518">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2af63f1b63bc"></a></p>
+<span class="heading-anchor" id="面试追问：介绍一下你的 Agent 项目：解决什么业务问题，包含哪些核心模块？"></span><h2 id="agent_7">面试追问：介绍一下你的 Agent 项目：解决什么业务问题，包含哪些核心模块？</h2>
+<p>项目介绍先讲用户、业务目标和验收标准，再讲模块及一条完整请求。可使用课程服务助手作为练习场景：回答课程规则、查询实时场次、记住经确认的偏好，并在用户确认后提交预约。实际面试应替换成自己真实做过的业务与职责。</p>
+<p>核心模块可包括认证入口、意图路由、知识检索、记忆、上下文组装、运行时/状态图、工具适配、业务服务、事件存储、观测和评测。解释清楚模型决策与确定性检查的分界，例如时间表达由模型理解，名额扣减由数据库事务保障。</p>
+<p>准备一条成功轨迹、一条失败恢复轨迹和一组有样本数的指标，说明基线、改进及本人负责部分。没有线上数据就报告离线或实验结果，不虚构并发、准确率或商业收益。平台能力可以从复用需求逐步抽象，不必为单个项目先搭庞大平台。</p>
+<p>若进一步讨论企业平台，可按入口、Builder、Runtime、共享能力、编排、治理、AgentOps 七层展开。入口接 Web/IM/API，Builder 配任务，Runtime 执行，共享能力提供模型与工具注册、知识及记忆，编排处理依赖和补偿，治理统一身份与资源权限，AgentOps 承担评测、发布、监控与回滚。Agent 身份与用户身份区分，低代码配置不能绕过平台策略；从高价值、低风险、可验证场景逐步开放写操作。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L874">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbb68b256126a"></a></p>
+<span class="heading-anchor" id="面试追问：从大模型问答到工具调用，再到 Agent，主要增加了哪些能力？"></span><h2 id="agent_8">面试追问：从大模型问答到工具调用，再到 Agent，主要增加了哪些能力？</h2>
+<p>从问答到工具调用，增加了结构化动作提案、参数校验和外部信息访问；从工具调用到 Agent，进一步增加了多步控制循环、任务状态、根据反馈调整路径、停止条件和结果验收。自主程度可以逐步开放，不要求一开始就让模型自由规划所有步骤。</p>
+<p>Structured Output 只约束输出结构，不意味着执行；Function Calling 让模型提出函数名与参数，是否执行由宿主判断；Tool Use 包含函数、浏览器、Shell、文件系统等更广的交互。Schema 合法只说明格式满足约束，不能证明参数对应的用户有权操作该资源。</p>
+<p>例如模型提议 <code>create_booking</code> 后，服务端还要验证身份、课程状态、名额、确认版本和幂等键，再产生回执。Agent 要继续检查回执并告知结果。没有回执便宣布成功，是执行闭环缺失。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L205">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd36580427958"></a></p>
+<span class="heading-anchor" id="面试追问：你为什么要把记忆分成短期、中期、长期偏好和跨对话语义记忆？"></span><h2 id="_1_24">面试追问：你为什么要把记忆分成短期、中期、长期偏好和跨对话语义记忆？</h2>
+<p>分层是为了分别管理信息的使用频率、生命周期、查询方式和隐私范围。短期层保存最近消息与当前工具交互；中期层保存会话摘要、阶段结果和未完成任务；长期偏好层保存相对稳定且有适用范围的用户设定；跨对话语义记忆保存可按意义检索的历史事实或经验。</p>
+<p>这些层是工程设计选项，不是 Agent 的统一标准。工作记忆强调正在执行的目标与状态；情景记忆强调某次经历的时间和背景；语义记忆强调可复用事实。它们可以落在同一数据库的不同结构中，无需为每层购买一种数据库。</p>
+<p>例如“我一直偏好中文解释”可成为长期偏好，“这次用英文”只约束当前任务，“等待用户确认 19 点的课程”属于任务状态。身份和权限仍来自业务系统，不应藏在语义记忆中。分层成效看连续任务成功率、错误记忆率、删除一致性和上下文成本。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L156">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4be4b380adf5"></a></p>
+<span class="heading-anchor" id="面试追问：当前用户输入和历史记忆发生冲突时，以哪个为准？为什么？"></span><h2 id="_1_25">面试追问：当前用户输入和历史记忆发生冲突时，以哪个为准？为什么？</h2>
+<p>在同一任务范围内，当前明确用户输入通常比旧偏好更能表达意图，但不能覆盖更高优先级的系统约束、身份认证、权限或客观业务事实。历史记忆是可修订的辅助信息，不是永久生效的最高指令。</p>
+<p>例如旧记忆写“偏好晚课”，用户这次明确要上午课，应按当前请求查上午场次；这并不自动说明永久偏好已经改变。用户说“以后都选上午”才可能形成长期更新。作用范围不明确或出现高风险冲突时，应澄清。</p>
+<p>记录被替换条目的版本、原因和有效期，避免简单采用“最后一条文本获胜”。召回时排除过期信息，对冲突事实降低自动使用程度，并保留证据追踪；记忆清理要同步处理摘要、索引和缓存。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L360">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kab8a9dbdca80"></a></p>
+<span class="heading-anchor" id="面试追问：提示词工程、上下文工程和 Harness Engineering 有什么区别？"></span><h2 id="harness-engineering">面试追问：提示词工程、上下文工程和 Harness Engineering 有什么区别？</h2>
+<p>提示词工程处理“如何给模型表达任务”；上下文工程处理“这次调用应提供哪些信息、如何组织以及何时移除”；Harness Engineering 处理“模型如何在一个受控环境中持续完成任务”。三者分别作用于指令、信息和执行环境，存在交集，但不能相互替代。</p>
+<p>例如要求引用证据属于提示词设计；按身份过滤文档、裁剪检索结果、保留未完成计划属于上下文工程；工具执行、工作目录、权限校验、循环控制、超时恢复和测试验收属于运行 Harness。评测 Harness 则侧重固定任务、环境、运行器和判分器，不能将所有 Harness 都缩成 benchmark 脚本。</p>
+<p>改好提示词不能解决重复扣款，扩大上下文不能解决目录越权。应先定位故障发生在哪一层，再决定修改指令、检索策略还是执行约束。Rocky认为，Agent 工程的长期价值就在于把语言决策接入可验证的执行链路。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L74">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfa4e8ec35fa4"></a></p>
+<span class="heading-anchor" id="面试追问：滑动窗口和增量摘要怎么配合，避免上下文越来越长？"></span><h2 id="_1_27">面试追问：滑动窗口和增量摘要怎么配合，避免上下文越来越长？</h2>
+<p>滑动窗口保留最近的原始对话，增量摘要压缩窗口外已处理内容，二者共同控制上下文增长。摘要应记录目标、已确认事实、决策、未完成事项、约束和证据位置，不需要保存所有措辞。</p>
+<p>维护 <code>summarized_through_message_id</code> 和摘要版本，成功保存摘要后再推进水位，避免重复摘要或漏消息。摘要与新增消息写入需要原子性或可恢复协议；同时保留最近若干完整工具交互。不能把仍待执行的调用压缩成“已经完成”。</p>
+<p>反复压缩会积累遗漏与事实漂移，关键金额、日期、身份和确认记录应保留结构化值或回查原始消息。为摘要预留预算并抽样检查覆盖率，测试跨窗口追问和错误修正；“摘要更短”不等于连续性更好。</p>
+<p><strong>摘要水位必须和摘要内容一起提交。</strong> 两个后台任务同时读取旧水位，一个总结到第 100 条，另一个总结到第 120 条；若较慢任务最后覆盖写入，就可能把摘要和水位一起倒退。可使用版本比较更新，或串行化同一会话的摘要提交；失败任务重新读取新版本再计算。</p>
+<p>同时记录摘要覆盖的消息区间和排除事项。仍待确认的预约应保持为“待确认”，不能因摘要措辞简化变成“已经预约”。更正旧事实时，应使旧摘要失效或补充结构化覆盖规则，否则新窗口即使包含正确消息，旧摘要仍可能反复误导模型。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L448">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb07b30da3b95"></a></p>
+<span class="heading-anchor" id="面试追问：用户发来一个请求后，Agent 从接收请求到完成任务，整体经过哪些步骤？"></span><h2 id="agent_9">面试追问：用户发来一个请求后，Agent 从接收请求到完成任务，整体经过哪些步骤？</h2>
+<p>典型链路是：入口认证与去重 → 解析用户目标 → 绑定会话及任务 → 加载状态、记忆与必要知识 → 构建工具清单和上下文 → 模型提出答案或行动 → 策略校验 → 执行工具 → 回填结果 → 检查完成条件。缺字段就澄清，需确认就暂停，达到预算或不可恢复错误就明确结束。</p>
+<p>长任务要以事件记录 <code>tool_started、tool_finished、confirmation_required、run_completed</code> 等变化。客户端断开与后台任务取消是不同事件；恢复时查询任务真实状态，不能因为前端断线就再次提交同一写操作。</p>
+<p>会话可采用单写入者或版本化并发控制。状态快照保存计划、工具结果引用、待确认信息和预算，日志提供回放证据；外部写操作另存幂等键和结果。最终返回成功、部分完成或失败及相应证据，不能把“模型停止生成”当作业务完成。</p>
+<p>权限请求需要独立 ID、有效期、取消状态与审计，重连后仍能定位原请求。长工具输出压成可取回摘要，后台任务按结束或状态变化通知。心跳异常先触发状态核查，再按明确的超时协议处理孤儿任务；暂时没有新输出不能直接证明任务已经停止。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1143">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k76030818c500"></a></p>
+<span class="heading-anchor" id="面试追问：记忆读取和记忆写入的处理流程分别是什么？为什么要分开设计？"></span><h2 id="_1_29">面试追问：记忆读取和记忆写入的处理流程分别是什么？为什么要分开设计？</h2>
+<p>读取链路是认证与范围确认 → 查询/向量召回 → 有效性与冲突过滤 → 排序 → 组装上下文；写入链路是候选抽取 → 主体和来源判断 → 敏感性与权限检查 → 去重冲突处理 → 确认或提交 → 更新索引。两条链路的风险和延迟目标不同。</p>
+<p>读取应尽量无副作用、低延迟；写入需要版本、可撤销性和审计，可以异步执行，但不能让异步任务覆盖已经更新的记录。采用比较版本或事务检查，区分重复提交与真正的新偏好。</p>
+<p>读取工具不应暗中触发持久化，检索结果也不自动升级为记忆。删除、确认和纠错作为明确事件处理。这样才能定位“系统记错了”来自抽取、冲突合并、索引延迟还是读取策略，并防止问一次偏好就改变偏好。</p>
+<p><img alt="图4记忆读写与版本一致性" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/imgs/agent-engineering-80-20261014/04_记忆读写与版本一致性.png"/></p>
+<p>图 4：读取路径与写入路径共享身份、范围和版本约束，但读取结果不直接成为新的事实。删除与纠错应影响所有派生读取路径。</p>
+<p>可用 <code>memory_id、subject_id、scope、version、status、evidence_message_ids、valid_until</code> 描述一条记录。写入时附预期版本，事务提交成功后产生索引更新事件；消费端按版本忽略重复或迟到事件。若索引暂时落后，返回候选后回查主记录的状态与版本，避免把过期内容直接送进上下文。</p>
+<p>数据库提交和索引可查之间通常存在窗口。系统需要决定是同步等待、短暂回源，还是向用户说明偏好已保存但检索尚未更新，并测量这一窗口。不能仅因为两边最终会一致，就忽略刚刚纠错后仍读出旧事实的体验。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L324">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd05a733476d7"></a></p>
+<span class="heading-anchor" id="面试追问：课程预约这类多轮业务怎么设计？信息收集、校验、确认和执行怎么衔接？"></span><h2 id="_1_30">面试追问：课程预约这类多轮业务怎么设计？信息收集、校验、确认和执行怎么衔接？</h2>
+<p>用显式状态机组织多轮业务：收集课程、日期和必要身份信息 → 规范化时区与字段 → 查询规则与名额 → 展示完整方案 → 用户确认 → 重新校验并事务提交 → 返回回执。拒绝、取消、信息变更与异常也必须有明确转移。</p>
+<p>确认对象应包含课程、场次、时间、地点、价格或费用条件、用户与方案版本，并有有效期。用户改了时间后，旧确认应失效；“好的”只有在明确且仍有效的待确认上下文中才可解释为提交许可。不要把过去偏好当成这次预约授权。</p>
+<p>后端用幂等键防止重试重复写入，通过事务、唯一约束或并发控制保障库存；确认后名额仍可能被抢占，因此提交时需再次检查。响应丢失后先查结果再决定补偿。预约状态、对话状态和工具状态分别核对，模型最终措辞必须依据业务回执。</p>
+<p><img alt="图6课程预约的确认提交与核对" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/imgs/agent-engineering-80-20261014/06_课程预约的确认提交与核对.png"/></p>
+<p>图 6：成功必须由业务回执确认。超时进入结果核对；库存冲突、方案变更和用户取消各有明确后续状态。</p>
+<p><strong>幂等记录和库存变更应一起设计。</strong> 对同一业务意图，服务端保存请求摘要与结果；相同幂等键但不同参数应拒绝。通过唯一约束和事务处理并发请求，保证预约落库、名额扣减及幂等结果在同一业务事务中一致提交，或采用具有等价约束的可靠协议。</p>
+<p>若不同服务分别管理支付、名额和通知，就不能再声称一个数据库事务包住全部效果。需要定义预占、提交、释放与补偿规则，并区分业务成功与通知失败。用户取消也不意味着先前的外部操作已经撤销，系统应返回可核验的取消状态。</p>
+<p>测试应覆盖两个客户端同时提交同一意图、同键不同参数、名额耗尽、确认过期、提交成功但响应丢失、提交期间取消，以及事务回滚后库存是否恢复。这样的用例验证的是业务边界，LLM 输出流畅与否无法替代它们。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L607">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka382e2f532a2"></a></p>
+<span class="heading-anchor" id="项目中 Agent 的完整流程是怎样的？"></span><h2 id="agent_10">项目中 Agent 的完整流程是怎样的？</h2>
+<p><strong>回答：</strong></p>
+<p>典型 Agent Loop 可以表示为：</p>
+<div class="arithmatex">\[
+\text{Request}\rightarrow\text{State/Context}\rightarrow\text{Plan/Route}
+\rightarrow\text{Tool Call}\rightarrow\text{Observation}\rightarrow\text{Validate}
+\rightarrow\text{Final or Next Step}
+\]</div>
+<p>具体过程是：接入层鉴权并创建 <code>conversation_id</code>、<code>task_id</code>；读取当前会话、用户偏好和任务相关知识；模型进行意图识别、任务拆分或路由；如果需要外部能力，就生成符合 schema 的工具调用；服务端校验参数、权限、预算和幂等键后执行工具；将工具结果作为 observation 写回状态；验证器检查格式、事实、业务规则和停止条件；未完成时继续下一轮，完成时生成最终答复并保存摘要、引用和可观测轨迹。</p>
+<p>循环必须有最大步数、总 token/费用预算、单步超时和全局 deadline。工具失败要分类处理：可重试的瞬时错误重试，不可重试的参数错误要求模型修正或直接降级，副作用工具要使用幂等键并支持人工确认。Agent 的本质不是“模型调用工具一次”，而是带状态、观察和停止条件的受控决策循环。</p>
+<p><strong>持久执行与流式恢复。</strong> 消息先持久化，再由调度器创建运行任务。每个 run 固定模型配置与代次，输出事件带递增序号并持久化，客户端重连从快照水位补播；连接断开不自动代表任务取消。模型切换时冻结旧代次、保存工具回执与 checkpoint，迟到输出不能继续推进新任务。</p>
+<p><a id="alibaba-agent-20260802-q3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L805">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5ee0a2474ce3"></a></p>
+<span class="heading-anchor" id="项目记忆文件如何帮助编码 Agent 理解仓库？"></span><h2 id="agent_11">项目记忆文件如何帮助编码 Agent 理解仓库？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>这里从上下文工程视角解释项目记忆文件的作用，重点是如何被加载、作用域如何管理、如何避免过期污染；在真实编码 Agent 中如何配合 <code>rg</code>、LSP、Git diff、测试日志和仓库权限，见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_编码Agent与AgentOS工程高频考点.md">02_编码Agent与AgentOS工程高频考点.md</a>。</p>
+<p>项目记忆文件包括 <code>AGENTS.md</code>、特定生态的项目说明文件、团队约定文档等。它们为编码 Agent 提供仓库级上下文。</p>
+<p>常见内容：</p>
+<ul>
+<li>项目简介。</li>
+<li>目录结构。</li>
+<li>构建命令。</li>
+<li>测试命令。</li>
+<li>代码风格。</li>
+<li>模块边界。</li>
+<li>禁止操作。</li>
+<li>安全要求。</li>
+<li>常见坑。</li>
+<li>提交流程。</li>
+</ul>
+<p>价值：</p>
+<ul>
+<li>减少每次重新探索项目。</li>
+<li>避免运行错误命令。</li>
+<li>帮助 Agent 遵守团队规范。</li>
+<li>降低覆盖用户改动的风险。</li>
+<li>让子 Agent 拿到一致规则。</li>
+</ul>
+<p>注意：</p>
+<ul>
+<li>项目记忆文件不是绝对真理，可能过期。</li>
+<li>Agent 执行前仍应通过 README、package、CI、实际测试结果验证。</li>
+<li>多层目录下的项目记忆要有作用域规则，避免子目录规则被根目录规则覆盖。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/05_Agent%E8%AE%B0%E5%BF%86%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L726">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4ac8ec983fc8"></a></p>
+<span class="heading-anchor" id="项目过程中针对 Agent 做过哪些优化？具体怎么调优？"></span><h2 id="agent_12">项目过程中针对 Agent 做过哪些优化？具体怎么调优？</h2>
+<p><strong>回答：</strong></p>
+<p>我会先用 trace 把一次任务拆成模型耗时、排队耗时、工具耗时、检索耗时、重试次数、上下文 token 和失败节点，再按瓶颈优化，而不是凭感觉改 Prompt。</p>
+<p>常见优化包括：</p>
+<ul>
+<li>对简单意图走固定 Workflow 或小模型路由，复杂任务才进入 Agent Loop；</li>
+<li>将工具描述、Prompt 和输出 schema 精简，减少无效上下文；</li>
+<li>对独立检索/工具调用并行执行，对模型、Embedding 和静态结果做缓存；</li>
+<li>使用结构化输出、参数校验和状态机减少无效循环；</li>
+<li>对工具错误分类，设置有限重试、指数退避、熔断和可解释降级；</li>
+<li>调整 RAG 的召回、Rerank、上下文压缩和引用策略；</li>
+<li>对长任务采用异步队列、checkpoint 和断点续跑，避免请求超时丢失进度。</li>
+</ul>
+<p>调优要固定评测集和版本，做单变量消融，观察任务成功率、工具调用正确率、首 token/总延迟、token 成本、重试率和安全违规率。线上灰度时同时设置 P99、错误率和用户负反馈护栏，避免只优化某一个离线指标。</p>
+<p><a id="alibaba-agent-20260802-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L825">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf39a3b811d2a"></a></p>
+<span class="heading-anchor" id="项目里的 agent 都调用了哪些工具？"></span><h2 id="agent_13">项目里的 agent 都调用了哪些工具？</h2>
+<p><strong>回答：</strong></p>
+<p><a id="tencent-llm-collection-20260903-q133"></a></p>
+<p><strong>相关解释：</strong> <a href="n-bafa092ed5bd.html#k98cb3547adb1">agent 调用工具这个过程是怎么优化的？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1635">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf2aa65709d88"></a></p>
+<span class="heading-anchor" id="验收清单"></span><h2 id="_1_35">验收清单</h2>
+<ul>
+<li>[ ] 我能说清 Agent、Workflow、Chatbot 和 Copilot 的边界。</li>
+<li>[ ] 我能解释工具调用失败后应该如何重试、降级或转人工。</li>
+<li>[ ] 我能把 Memory、MCP、A2A、Eval 和 AgentOps 放进同一张图里。</li>
+<li>[ ] 我能用 3 分钟讲清一个 Agent 项目的端到端设计。</li>
+</ul>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_8">补充说明</h3>
+<ul>
+<li>[ ] 我能区分预训练、SFT、偏好对齐、RAG 和提示工程。</li>
+<li>[ ] 我能解释 Token、注意力、位置编码、KV Cache 和采样策略。</li>
+<li>[ ] 我能把大模型评测说成一套完整体系，而不是一个分数。</li>
+</ul>
+<p><strong>相关解释：</strong> <a href="n-9ac5cc568fa4.html#ke41cfd68798b">我是 2027 届校招，怎么学？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%83%AD%E9%97%A8AI%E5%AD%A6%E4%B9%A0%E6%A0%B8%E5%BF%83%E8%AF%BE%E7%A8%8B%E4%B8%8E%E6%95%99%E7%A8%8B/01_2026_AI_Agent%E5%B2%97%E9%9D%A2%E8%AF%9550%E9%97%AE.md#L39">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%83%AD%E9%97%A8AI%E5%AD%A6%E4%B9%A0%E6%A0%B8%E5%BF%83%E8%AF%BE%E7%A8%8B%E4%B8%8E%E6%95%99%E7%A8%8B/03_%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%9D%A2%E8%AF%95%E6%9C%80%E9%AB%98%E9%A2%91100%E9%97%AE.md#L39">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-baa8bbd91a97.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Agent、工具与工作流</strong></a><a class="page-next" href="n-8c2a7e9f229a.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>RAG与检索增强</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#agent_1">长时序任务下Agent强化学习训练失稳、容易崩模型的底层原因</a></li><li class="outline-level-2"><a href="#_1_1">长期任务为什么需要主动管理信息生命周期？</a></li><li class="outline-level-2"><a href="#activeoutdatedconflicteddeleted">长期记忆中的 Active、Outdated、Conflicted、Deleted 分别表示什么？</a></li><li class="outline-level-2"><a href="#harness-agent-fork-pr">除了 Harness，你还关注哪些 Agent 方向的开源项目？——你 Fork 过吗？提过 PR 吗？</a></li><li class="outline-level-2"><a href="#agent-agent">除了开源 Agent，你是否调研或使用过其他厂商的 Agent 产品？</a></li><li class="outline-level-2"><a href="#agent_2">除模型生成质量外，Agent系统还需要重点关注哪些维度的评估指标？</a></li><li class="outline-level-2"><a href="#_1_6">面试前要做哪些准备？</a></li><li class="outline-level-2"><a href="#agent-runtime">面试追问：Agent Runtime 的核心职责是什么？</a></li><li class="outline-level-2"><a href="#agent_3">面试追问：Agent 一直思考或重复调用工具，怎么防止它陷入循环？</a></li><li class="outline-level-2"><a href="#agent_4">面试追问：Agent 执行到一半中断了，怎么保存状态并继续执行？</a></li><li class="outline-level-2"><a href="#function-calling">面试追问：Function Calling 是怎么工作的？模型和后端系统分别负责哪些步骤？</a></li><li class="outline-level-2"><a href="#mcp-toolsresources-prompts">面试追问：MCP 中的 Tools、Resources 和 Prompts 有什么区别？</a></li><li class="outline-level-2"><a href="#mcp-a2a">面试追问：MCP 和 A2A 有什么区别？分别适合什么交互场景？</a></li><li class="outline-level-2"><a href="#openclaw-gateway-runtime">面试追问：OpenClaw 的 Gateway 和 Runtime 分别负责什么？为什么分成两层？</a></li><li class="outline-level-2"><a href="#openclaw">面试追问：OpenClaw 的短期、中期和长期记忆分别保存什么？</a></li><li class="outline-level-2"><a href="#reflexion">面试追问：Reflexion 主要解决什么问题？适合在哪些节点加入反思？</a></li><li class="outline-level-2"><a href="#skill">面试追问：Skill 为什么采用按需加载？名称、描述、正文和脚本分别什么时候加载？</a></li><li class="outline-level-2"><a href="#agent_5">面试追问：一个完整的 Agent 系统通常包含哪些组件？各自负责什么？</a></li><li class="outline-level-2"><a href="#_1_18">面试追问：上下文工程具体要做哪些事？为什么不能把所有历史信息直接交给模型？</a></li><li class="outline-level-2"><a href="#agent_6">面试追问：什么是 Agent？它和普通的大模型聊天机器人有什么区别？</a></li><li class="outline-level-2"><a href="#mcpmcp-client-mcp-server">面试追问：什么是 MCP？MCP Client 和 MCP Server 分别负责什么？</a></li><li class="outline-level-2"><a href="#skill-skill">面试追问：什么是 Skill？一个 Skill 通常包含哪些内容，应该怎么编写？</a></li><li class="outline-level-2"><a href="#agent_7">面试追问：介绍一下你的 Agent 项目：解决什么业务问题，包含哪些核心模块？</a></li><li class="outline-level-2"><a href="#agent_8">面试追问：从大模型问答到工具调用，再到 Agent，主要增加了哪些能力？</a></li><li class="outline-level-2"><a href="#_1_24">面试追问：你为什么要把记忆分成短期、中期、长期偏好和跨对话语义记忆？</a></li><li class="outline-level-2"><a href="#_1_25">面试追问：当前用户输入和历史记忆发生冲突时，以哪个为准？为什么？</a></li><li class="outline-level-2"><a href="#harness-engineering">面试追问：提示词工程、上下文工程和 Harness Engineering 有什么区别？</a></li><li class="outline-level-2"><a href="#_1_27">面试追问：滑动窗口和增量摘要怎么配合，避免上下文越来越长？</a></li><li class="outline-level-2"><a href="#agent_9">面试追问：用户发来一个请求后，Agent 从接收请求到完成任务，整体经过哪些步骤？</a></li><li class="outline-level-2"><a href="#_1_29">面试追问：记忆读取和记忆写入的处理流程分别是什么？为什么要分开设计？</a></li><li class="outline-level-2"><a href="#_1_30">面试追问：课程预约这类多轮业务怎么设计？信息收集、校验、确认和执行怎么衔接？</a></li><li class="outline-level-2"><a href="#agent_10">项目中 Agent 的完整流程是怎样的？</a></li><li class="outline-level-2"><a href="#agent_11">项目记忆文件如何帮助编码 Agent 理解仓库？</a></li><li class="outline-level-2"><a href="#agent_12">项目过程中针对 Agent 做过哪些优化？具体怎么调优？</a></li><li class="outline-level-2"><a href="#agent_13">项目里的 agent 都调用了哪些工具？</a></li><li class="outline-level-2"><a href="#_1_35">验收清单</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import two local Markdown collections into the static personal site."""
+"""Import local Markdown collections, optionally updating only one topic."""
 from pathlib import Path
 from collections import Counter, defaultdict
 from urllib.parse import quote, unquote, urlsplit
@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parents[1]
 from site_layout import render_page, icon
 from docs_layout import group_id, catalog
+from interview import prepare_entry, entry_order, build_interview, upstream_reference, render_markdown
 TOPICS = {
  item['id']: (item['name'], item['code'], icon(item.get('icon', 'book-open')), item['description'], item['tags'])
  for item in json.loads((ROOT / 'config/topics.json').read_text())
@@ -63,13 +64,22 @@ def topicnav(path,current):
 def cards(path,counts):
  return '<div class="topic-grid">'+''.join(f'<a class="topic-card" href="{local_url(path,ROOT/"notes"/key/"index.html")}"><div class="topic-card-top"><span class="topic-symbol" aria-hidden="true">{v[2]}</span><span class="topic-code">{v[1]}</span></div><h2>{v[0]}</h2><p>{v[3]}</p><div class="topic-tags">'+''.join(f'<span>{s}</span>' for s in v[4])+f'</div><div class="topic-card-bottom"><span>{counts[key]} 篇笔记</span><span>进入专题 ↗</span></div></a>' for key,v in TOPICS.items())+'</div>'
 
-def build(base):
+def build(base, selected_topic=None):
+ if selected_topic and selected_topic not in TOPICS:
+  raise ValueError(f'Unknown topic: {selected_topic}')
+ existing_manifest=json.loads((ROOT/'notes/manifest.json').read_text()) if (ROOT/'notes/manifest.json').exists() else []
+ existing_report=json.loads((ROOT/'notes/import-report.json').read_text()) if (ROOT/'notes/import-report.json').exists() else {}
  sources={}
- for folder in ('力扣刷题笔记','知识库'):
-  for f in sorted((base/folder).rglob('*')):
-   rel=f.relative_to(base/folder)
+ selected_config=next((t for t in json.loads((ROOT/'config/topics.json').read_text()) if t['id']==selected_topic),{})
+ roots=[base/prefix for prefix in selected_config.get('source_prefixes',[])] or [base/'力扣刷题笔记',base/'知识库']
+ for source_root in roots:
+  for f in sorted(source_root.rglob('*')):
+   rel=f.relative_to(source_root)
    if f.is_file() and not any(p.startswith('.') or p in ('__pycache__','node_modules') for p in rel.parts) and f.suffix in ('.md','.html','.png','.jpg','.jpeg','.svg','.webp','.gif','.py','.txt','.sh','.mmd'):
-    sources[f.relative_to(base).as_posix()]=f
+    key=f.relative_to(base).as_posix()
+    if not selected_topic or classify(key)==selected_topic: sources[key]=f
+ if selected_topic and not any(f.suffix=='.md' for f in sources.values()):
+  raise ValueError(f'No Markdown files found for topic {selected_topic}; existing content was preserved')
  posts={}; basenames=defaultdict(list); stems=defaultdict(list)
  for key,f in sources.items():
   basenames[f.name].append(key); stems[f.stem].append(key)
@@ -80,6 +90,7 @@ def build(base):
   parts=key.split('/'); group='/'.join(parts[1:-1]) or '综合与索引'
   if key.startswith('知识库/'): group=' / '.join(parts[1:-1]) or '知识库'
   posts[key]={'title':title,'topic':topic,'path':path,'group':group,'raw':raw}
+  if topic=='interview': prepare_entry(key, posts[key])
  sourcepath={k:ROOT/'notes/source'/k for k in sources}
  unresolved=[]
  def resolve(value,key):
@@ -139,14 +150,22 @@ def build(base):
    return f'<a href="{esc(url)}">{esc(label)}</a>' if url else m.group(0)
   # Convert wiki links only outside fenced code; instructions in notes remain content.
   chunks=re.split(r'(^[ \t]*```[^\n]*\n.*?^[ \t]*```[ \t]*$|`[^`\n]+`)',raw,flags=re.M|re.S)
-  raw=''.join(c if i%2 else re.sub(r'\[\[([^\]\n]+)\]\]',wiki,c) for i,c in enumerate(chunks))
-  output=markdown.markdown(raw,extensions=['extra','toc','sane_lists','pymdownx.arithmatex'],extension_configs={'pymdownx.arithmatex':{'generic':True,'smart_dollar':True},'toc':{'permalink':False}})
+  def prose(chunk):
+   if p['topic']=='interview':
+    chunk=re.sub(r'<p(?:\s+align\s*=\s*[\"\x27]?(?:center|left|right)[\"\x27]?)?\s*>|</p\s*>','\n\n',chunk,flags=re.I)
+   return re.sub(r'\[\[([^\]\n]+)\]\]',wiki,chunk)
+  raw=''.join(c if i%2 else prose(c) for i,c in enumerate(chunks))
+  output=render_markdown(raw) if p['topic']=='interview' else markdown.markdown(raw,extensions=['extra','toc','sane_lists','pymdownx.arithmatex'],extension_configs={'pymdownx.arithmatex':{'generic':True,'smart_dollar':True},'toc':{'permalink':False}})
   allowed=set(bleach.sanitizer.ALLOWED_TAGS)|{'p','div','span','h1','h2','h3','h4','h5','h6','pre','code','table','thead','tbody','tr','th','td','img','hr','br','details','summary','del','sup','sub','kbd','dl','dt','dd','input','blockquote'}
   output=bleach.clean(output,tags=allowed,attributes={'*':['id','class','title'],'a':['href','name'],'img':['src','alt','width','height'],'th':['align'],'td':['align'],'input':['type','checked','disabled']},strip=True)
   soup=BeautifulSoup(output,'html.parser')
   first=soup.find('h1')
-  if first and first.get_text().strip()==p['title']: first.decompose()
-  for h in soup.find_all(re.compile('^h[1-6]$')):
+  if first and (first.get_text().strip()==p['title'] or (p['topic']=='interview' and Path(key).name=='README.md')): first.decompose()
+  if p['topic']=='interview':
+   for heading in soup.find_all('h1'): heading.name='h2'
+  for heading_number,h in enumerate(soup.find_all(re.compile('^h[1-6]$'))):
+   if p['topic']=='interview' and not h.get('id'):
+    h['id']='section-'+hashlib.sha256((key+'|'+str(heading_number)+'|'+h.get_text()).encode()).hexdigest()[:12]
    label=h.get_text().strip(); original=h.get('id')
    if original and original!=label:
     alias=soup.new_tag('span',id=label);alias['class']='heading-anchor'; h.insert_before(alias)
@@ -158,6 +177,9 @@ def build(base):
    if re.match(r'(?:\.\./)*(?:[^/]+/)*n-[a-f0-9]{12}\.html',value): continue
    if 'source/' in value: continue
    url=href(value,key)
+   if not url and p['topic']=='interview':
+    url=upstream_reference(a,value)
+    if url: unresolved.pop()
    if url: a['href']=url
    else: a.unwrap()
   for image in soup.select('img[src]'):
@@ -165,7 +187,10 @@ def build(base):
    if not urlsplit(value).scheme:
     dest,_=resolve(value,key)
     if dest: image['src']=local_url(p['path'],sourcepath[dest])
-    else: unresolved.append({'source':key,'target':value}); image.replace_with(image.get('alt','图片'))
+    else:
+     upstream=upstream_reference(image,value,image=True) if p['topic']=='interview' else None
+     if upstream: image['src']=upstream
+     else: unresolved.append({'source':key,'target':value}); image.replace_with(image.get('alt','图片'))
    image['loading']='lazy';image['referrerpolicy']='no-referrer'
   for code in soup.select('pre > code.language-mermaid'):
    pre=code.parent;pre['class']='mermaid';pre.string=normalize_mermaid(code.get_text())
@@ -188,30 +213,45 @@ def build(base):
     else:
      # Preserve the original reference as a valid alias at the destination.
      span=ds.new_tag('span',id=anchor);span['class']='heading-anchor';ds.insert(0,span)
- counts=Counter(p['topic'] for p in posts.values())
  manifest=[]
  for topic in TOPICS:
   groups=defaultdict(list)
   for key,p in posts.items():
    if p['topic']==topic:
     groups[p['group']].append({'source':key,'title':p['title'],'topic':p['topic'],'group':p['group'],'url':'/'+p['path'].relative_to(ROOT).as_posix()})
-  for group,entries in sorted(groups.items()): manifest.extend(entries)
+  for group,entries in sorted(groups.items(),key=lambda pair: (pair[0]!='阅读指南',pair[0])):
+   if topic=='interview': entries.sort(key=entry_order)
+   manifest.extend(entries)
+ if selected_topic:
+  preserved=[p for p in existing_manifest if p['topic']!=selected_topic]
+  manifest=preserved+manifest
+ counts=Counter(p['topic'] for p in manifest)
  (ROOT/'notes').mkdir(exist_ok=True)
  (ROOT/'notes/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
  catalog.cache_clear()
  for k,f in sources.items():
-  sourcepath[k].parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(f,sourcepath[k])
+  sourcepath[k].parent.mkdir(parents=True,exist_ok=True)
+  if f.resolve()!=sourcepath[k].resolve(): shutil.copyfile(f,sourcepath[k])
  for key,p in posts.items():
   soup=soups[key]; description=next((e.get_text(' ',strip=True) for e in soup.find_all('p') if len(e.get_text())>20),p['title'])[:160]
   p['description']=description
   toc=''.join(f'<li><a href="#{quote(h["id"],safe="")}">{esc(h.get_text())}</a></li>' for h in soup.select('h2[id], h3[id]'))
   toc=f'<details class="article-toc"><summary>本篇目录</summary><ul>{toc}</ul></details>' if toc else ''
   body=f'<nav class="breadcrumb" aria-label="当前位置"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">{TOPICS[p["topic"]][0]}</a></nav><header class="article-header"><p class="eyebrow">{esc(p["group"])}</p><h1>{esc(p["title"])}</h1><div class="article-actions"><a href="index.html">← 返回专题</a><a href="{local_url(p["path"],sourcepath[key])}" download>下载 Markdown ↓</a></div></header>{toc}<article class="note-content">{soup}</article><div class="article-end"><a class="button" href="index.html">返回{TOPICS[p["topic"]][0]} ↗</a></div>'
+  if p['topic']=='interview':
+   body=body.replace('<article class="note-content">','<article class="note-content" data-outline="questions">')
+   body=body.replace('← 返回专题', '← 返回分类目录')
+   body=body.replace('<a href="index.html">← 返回分类目录',f'<a href="index.html#{group_id(p["group"])}">← 返回分类目录')
+   body=body.replace('</h1><div class="article-actions">',f'</h1><p class="article-question-meta">{len(soup.select("h2[id]"))} 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions">')
   extra='<script defer src="../vendor/katex/katex.min.js"></script><script defer src="../vendor/katex/contrib/auto-render.min.js"></script><link rel="stylesheet" href="../vendor/katex/katex.min.css">' if soup.select('.arithmatex') else ''
   if soup.select('pre.mermaid'): extra+='<script type="module" src="../render-diagrams.js"></script>'
   extra+='<script defer src="../article.js"></script>'
   p['path'].parent.mkdir(parents=True,exist_ok=True);p['path'].write_text(shell(p['title'],description,p['path'],body,extra))
  for topic,v in TOPICS.items():
+  if selected_topic and topic!=selected_topic: continue
+  if topic=='interview':
+   build_interview(posts,soups,shell,topicnav)
+   continue
   path=ROOT/'notes'/topic/'index.html'; groups=defaultdict(list)
   for key,p in posts.items():
    if p['topic']==topic: groups[p['group']].append((key,p))
@@ -227,10 +267,13 @@ def build(base):
   body=f'<nav class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><span>{v[0]}</span></nav><section class="notes-hero"><p class="eyebrow">{v[1]}</p><h1>{v[0]}<span class="topic-hero-symbol">{v[2]}</span></h1><p class="notes-description">{v[3]}</p><p class="notes-overview">{counts[topic]} 篇笔记 · {len(groups)} 个分类</p></section>'+topicnav(path,topic)+f'<section class="topic-posts"><div class="search-row"><label for="note-search">搜索本专题</label><input id="note-search" type="search" placeholder="搜索标题或分类…" autocomplete="off"><span id="search-count" role="status">{counts[topic]} 篇笔记</span></div><p id="no-results" hidden>没有找到匹配的笔记，试试其他关键词。</p>{content}</section>'
   path.write_text(shell(v[0],v[3],path,body,'<script defer src="../search.js"></script>'))
  path=ROOT/'notes/index.html'
- body='<nav class="breadcrumb"><a href="../index.html">首页</a><span>/</span><span>专题笔记</span></nav><section class="notes-hero"><p class="eyebrow">LEARNING NOTES</p><h1>专题笔记</h1><p class="notes-description">按专题整理算法、计算机基础与 AI 技术笔记，收录概念、方法和开发实践。</p>'+f'<p class="notes-overview">{len(TOPICS)} 个专题 / {len(posts)} 篇笔记</p></section>'+cards(path,counts)
+ body='<nav class="breadcrumb"><a href="../index.html">首页</a><span>/</span><span>专题笔记</span></nav><section class="notes-hero"><p class="eyebrow">LEARNING NOTES</p><h1>专题笔记</h1><p class="notes-description">按专题整理算法、计算机基础与 AI 技术笔记，收录概念、方法和开发实践。</p>'+f'<p class="notes-overview">{len(TOPICS)} 个专题 / {len(manifest)} 篇笔记</p></section>'+cards(path,counts)
  path.write_text(shell('专题笔记','、'.join(v[0] for v in TOPICS.values())+'。',path,body))
  (ROOT/'notes/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
- (ROOT/'notes/import-report.json').write_text(json.dumps({'counts':dict(counts),'total':len(posts),'support_files':len(sources)-len(posts),'unavailable_source_references':list({(x['source'],x['target']):x for x in unresolved}.values())},ensure_ascii=False,indent=2)+'\n')
- print(json.dumps({'counts':dict(counts),'total':len(posts),'support_files':len(sources)-len(posts),'unresolved':len(unresolved)},ensure_ascii=False))
+ if selected_topic:
+  unresolved=[x for x in existing_report.get('unavailable_source_references',[]) if classify(x['source'])!=selected_topic]+unresolved
+ support_files=sum(1 for f in (ROOT/'notes/source').rglob('*') if f.is_file() and f.suffix!='.md')
+ (ROOT/'notes/import-report.json').write_text(json.dumps({'counts':dict(counts),'total':len(manifest),'support_files':support_files,'unavailable_source_references':list({(x['source'],x['target']):x for x in unresolved}.values())},ensure_ascii=False,indent=2)+'\n')
+ print(json.dumps({'counts':dict(counts),'total':len(manifest),'imported':len(posts),'support_files':support_files,'unresolved':len(unresolved)},ensure_ascii=False))
 if __name__=='__main__':
- parser=argparse.ArgumentParser();parser.add_argument('base',type=Path);args=parser.parse_args();build(args.base.resolve())
+ parser=argparse.ArgumentParser();parser.add_argument('base',type=Path);parser.add_argument('--topic',choices=list(TOPICS));args=parser.parse_args();build(args.base.resolve(),args.topic)

@@ -1,0 +1,37 @@
+# 计算机面试笔记
+
+按知识主题整理的面试学习笔记。每个主题先读基础笔记，再按需要查阅专题问答；相关出处保留在知识点旁。
+
+## 阅读路线
+
+- 公共基础：数据结构与算法、操作系统、计算机网络。
+- 后端开发：目标语言、数据库、缓存、分布式与系统设计。
+- AI 方向：机器学习与视觉、大模型训练与推理、RAG 与 Agent。
+- 按岗位补充前端、移动端、测试、运维、安全、数据工程或嵌入式。
+
+## 笔记目录
+
+- [计算机网络](01-%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C.md)
+- [操作系统与Linux](02-%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E4%B8%8ELinux/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E4%B8%8ELinux.md)
+- [C与C++](03-C%E4%B8%8EC%2B%2B/C%E4%B8%8EC%2B%2B.md)
+- [Java与JVM](04-Java%E4%B8%8EJVM/Java%E4%B8%8EJVM.md)
+- [数据库与SQL](05-%E6%95%B0%E6%8D%AE%E5%BA%93%E4%B8%8ESQL/%E6%95%B0%E6%8D%AE%E5%BA%93%E4%B8%8ESQL.md)
+- [Redis与缓存](06-Redis%E4%B8%8E%E7%BC%93%E5%AD%98/Redis%E4%B8%8E%E7%BC%93%E5%AD%98.md)
+- [分布式与系统设计](07-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%8E%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%8E%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1.md)
+- [机器学习与视觉](08-%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E8%A7%86%E8%A7%89/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E8%A7%86%E8%A7%89.md)
+- [大模型训练与推理](09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86.md)
+- [RAG与Agent](10-RAG%E4%B8%8EAgent/RAG%E4%B8%8EAgent.md)
+- [Go](11-Go/Go.md)
+- [Python](12-Python/Python.md)
+- [Rust](13-Rust/Rust.md)
+- [嵌入式与RTOS](14-%E5%B5%8C%E5%85%A5%E5%BC%8F%E4%B8%8ERTOS/%E5%B5%8C%E5%85%A5%E5%BC%8F%E4%B8%8ERTOS.md)
+- [前端与浏览器](15-%E5%89%8D%E7%AB%AF%E4%B8%8E%E6%B5%8F%E8%A7%88%E5%99%A8/%E5%89%8D%E7%AB%AF%E4%B8%8E%E6%B5%8F%E8%A7%88%E5%99%A8.md)
+- [移动端](16-%E7%A7%BB%E5%8A%A8%E7%AB%AF/%E7%A7%BB%E5%8A%A8%E7%AB%AF.md)
+- [测试开发](17-%E6%B5%8B%E8%AF%95%E5%BC%80%E5%8F%91/%E6%B5%8B%E8%AF%95%E5%BC%80%E5%8F%91.md)
+- [运维与云原生](18-%E8%BF%90%E7%BB%B4%E4%B8%8E%E4%BA%91%E5%8E%9F%E7%94%9F/%E8%BF%90%E7%BB%B4%E4%B8%8E%E4%BA%91%E5%8E%9F%E7%94%9F.md)
+- [安全](19-%E5%AE%89%E5%85%A8/%E5%AE%89%E5%85%A8.md)
+- [数据工程](20-%E6%95%B0%E6%8D%AE%E5%B7%A5%E7%A8%8B/%E6%95%B0%E6%8D%AE%E5%B7%A5%E7%A8%8B.md)
+- [数据结构与算法](21-%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E7%AE%97%E6%B3%95/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E7%AE%97%E6%B3%95.md)
+- [项目与行为面试](22-%E9%A1%B9%E7%9B%AE%E4%B8%8E%E8%A1%8C%E4%B8%BA%E9%9D%A2%E8%AF%95/%E9%A1%B9%E7%9B%AE%E4%B8%8E%E8%A1%8C%E4%B8%BA%E9%9D%A2%E8%AF%95.md)
+- [CSharp与NET](23-CSharp%E4%B8%8ENET/CSharp%E4%B8%8ENET.md)
+- [综合专题](24-%E7%BB%BC%E5%90%88%E4%B8%93%E9%A2%98/%E7%BB%BC%E5%90%88%E4%B8%93%E9%A2%98.md)

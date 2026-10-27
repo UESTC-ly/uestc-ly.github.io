@@ -51,7 +51,8 @@ def sidebar(path, icon):
         content = f'<a class="sidebar-overview" href="{href(path, ROOT / "notes" / topic_id / "index.html")}">专题概览<span>{len(entries)} 篇</span></a>'
         for i, (group, members) in enumerate(groups.items(), 1):
             opened = current and current['group'] == group or not current and i == 1
-            content += f'<details class="sidebar-group"{ " open" if opened else ""}><summary><span class="chapter-number">{i:02d}</span><span>{esc(group_label(group))}</span></summary><div class="sidebar-entries">'
+            number = (group[:2] if re.match(r'^\d{2}-', group) else '·') if topic_id == 'interview' else f'{i:02d}'
+            content += f'<details class="sidebar-group"{ " open" if opened else ""}><summary><span class="chapter-number">{number}</span><span>{esc(group_label(group))}</span></summary><div class="sidebar-entries">'
             for p in members:
                 selected = p['url'] == current_url
                 content += f'<a href="{href(path, ROOT / p["url"].lstrip("/"))}"' + (' aria-current="page"' if selected else '') + f'>{esc(p["title"])}</a>'
@@ -69,7 +70,8 @@ def sidebar(path, icon):
     return f'<aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录">{top}<nav class="sidebar-tree" aria-label="笔记章节">{content}</nav></aside>'
 
 def outline(main, icon):
-    headings = main.select('h2[id], h3[id]')
+    selector = 'h2[id]' if main.select_one('.note-content[data-outline="questions"], .interview-hero') else 'h2[id], h3[id]'
+    headings = main.select(selector)
     links = ''.join(f'<li class="outline-level-{h.name[1]}"><a href="#{quote(h["id"], safe="")}">{esc(h.get_text(" ", strip=True))}</a></li>' for h in headings)
     empty = '博客介绍' if main.select_one('.home-intro') else '暂无小节目录'
     contents = f'<ul>{links}</ul>' if links else f'<p class="outline-empty">{empty}</p>'

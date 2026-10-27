@@ -1,0 +1,1734 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>模型应用与工程实践 · 李杨的学习笔记</title><meta name="description" content="SAM 2 将可提示图像分割扩展为可提示视频分割。其图像编码器提取多尺度视觉特征；提示编码器把点、框或掩码转换成表示；掩码解码器结合这些表示生成目标掩码及质量预测。没有视频历史时，它也可以执行单图分割。">
+<meta property="og:type" content="website"><meta property="og:title" content="模型应用与工程实践 · 李杨的学习笔记"><meta property="og:description" content="SAM 2 将可提示图像分割扩展为可提示视频分割。其图像编码器提取多尺度视觉特征；提示编码器把点、框或掩码转换成表示；掩码解码器结合这些表示生成目标掩码及质量预测。没有视频历史时，它也可以执行单图分割。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-a027b11d8166.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-a027b11d8166.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html" aria-current="page">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>模型应用与工程实践</h1><p class="article-question-meta">75 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E6%A8%A1%E5%9E%8B%E5%BA%94%E7%94%A8%E4%B8%8E%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5-01.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#10sam2">10讲一下SAM2分割模型的原理</a></li><li class="outline-level-2"><a href="#11nnn">1、1:N、N:N、静态识别和动态识别有什么区别？</a></li><li class="outline-level-2"><a href="#1-ai-coding">1）平时怎么使用 AI coding？</a></li><li class="outline-level-2"><a href="#2d-3d">2D 数字人、3D 数字人、实时交互数字人有什么区别？</a></li><li class="outline-level-2"><a href="#2d-3d_1">2D 数字人与 3D 数字人的核心差异是什么？</a></li><li class="outline-level-2"><a href="#3d-gaussian-splatting">3D Gaussian Splatting 为什么适合实时数字人？</a></li><li class="outline-level-2"><a href="#3d">3D 数字人为什么仍然重要？</a></li><li class="outline-level-2"><a href="#3d_1">3D 数字人的典型技术链路是什么？</a></li><li class="outline-level-2"><a href="#3d_2">3D 数据表示为什么会影响算法设计？</a></li><li class="outline-level-2"><a href="#3d-aware-gan-nerf3dgs-avatar">3D-aware GAN 与 NeRF/3DGS Avatar 有什么区别？</a></li><li class="outline-level-2"><a href="#3d-aware-gan">3D-aware GAN 如何实现人脸视角一致性？</a></li><li class="outline-level-2"><a href="#3d-llm">3D-LLM如何处理三维点云数据?</a></li><li class="outline-level-2"><a href="#3dmm">3DMM 是什么？</a></li><li class="outline-level-2"><a href="#3dmm_1">3DMM 有哪些典型应用？</a></li><li class="outline-level-2"><a href="#3dmm_2">3DMM 的形状、表情和纹理参数如何理解？</a></li><li class="outline-level-2"><a href="#3dmmflamebfm">3DMM、FLAME、BFM 分别是什么？</a></li><li class="outline-level-2"><a href="#4deepseekopenai-api">4）DeepSeek、OpenAI 这类模型 API 有哪些接口？</a></li><li class="outline-level-2"><a href="#50">50分钟开放题：</a></li><li class="outline-level-2"><a href="#5">5）如何解决模型回答的事实性和忠实度问题？</a></li><li class="outline-level-2"><a href="#7skill">7）Skill 有哪些特性？</a></li><li class="outline-level-2"><a href="#9">9）手写题（二选一）</a></li><li class="outline-level-2"><a href="#ab">AB 实验你怎么设计，指标冲突听谁的？</a></li><li class="outline-level-2"><a href="#action-chunking">action chunking</a></li><li class="outline-level-2"><a href="#activity-and-fragment">Activity and Fragment</a></li><li class="outline-level-2"><a href="#adapterprefix-tuningprompt-tuning">Adapter、Prefix Tuning、Prompt Tuning 如何对比？</a></li><li class="outline-level-2"><a href="#ai">AI 技术价值判断</a></li><li class="outline-level-2"><a href="#ai_1">AI 领域的人脸主流任务如何分类？</a></li><li class="outline-level-2"><a href="#aigc">AIGC 数字人、换脸和肖像编辑如何保持身份一致？</a></li><li class="outline-level-2"><a href="#aigc-gan">AIGC 数字人从 GAN 走向了哪些新范式？</a></li><li class="outline-level-2"><a href="#aigc_1">AIGC 时代数字人是什么？核心技术栈如何划分？</a></li><li class="outline-level-2"><a href="#aigc-chatgpt">AIGC 领域（如 ChatGPT）</a></li><li class="outline-level-2"><a href="#aigc_2">AIGC领域应用</a></li><li class="outline-level-2"><a href="#ai_2">AI开发工程师这个岗位实际主要做哪些业务？</a></li><li class="outline-level-2"><a href="#ai_3">AI模型的压缩和加速方法如何选择？</a></li><li class="outline-level-2"><a href="#ai_4">AI模型的参数量如何计算？</a></li><li class="outline-level-2"><a href="#animate-anyone">Animate Anyone 类人体驱动方法的核心结构是什么？</a></li><li class="outline-level-2"><a href="#api">API 调用工程</a></li><li class="outline-level-2"><a href="#attnresmhc-gr">AttnRes、mHC 和 GR 分别改进了残差路径的什么问题？</a></li><li class="outline-level-2"><a href="#badcase">Badcase有哪些，占比怎么样</a></li><li class="outline-level-2"><a href="#beanfactoryapplicationcontext">BeanFactory和ApplicationContext有什么差异？</a></li><li class="outline-level-2"><a href="#behavior-cloning">Behavior Cloning</a></li><li class="outline-level-2"><a href="#bellman-ford-algorithm">Bellman-Ford Algorithm</a></li><li class="outline-level-2"><a href="#bernoullicategoricalbinomialmultinomial">Bernoulli、Categorical、Binomial、Multinomial 分布分别适合什么场景？</a></li><li class="outline-level-2"><a href="#bertopic-c-tf-idf-tf-idf">BERTopic 中的 c-TF-IDF 与传统的 TF-IDF 有何不同？这种差异如何帮助改进主题表示的质量？</a></li><li class="outline-level-2"><a href="#bf16fp16fp32">bf16、fp16和fp32，并进行计算。</a></li><li class="outline-level-2"><a href="#bfm-flame">BFM 和 FLAME 有什么区别？</a></li><li class="outline-level-2"><a href="#bi-encoder-cross-encoder">bi-encoder 和 cross-encoder 有什么区别？</a></li><li class="outline-level-2"><a href="#bin">bin模型</a></li><li class="outline-level-2"><a href="#blend-shape-lbs-smpl">Blend Shape 和 LBS 在 SMPL 中分别解决什么问题？</a></li><li class="outline-level-2"><a href="#bytetrack">ByteTrack 为什么说低分检测框也有价值？</a></li><li class="outline-level-2"><a href="#chunk-overlap">chunk overlap 的作用和风险是什么？</a></li><li class="outline-level-2"><a href="#chunk-size">chunk size 太大有什么问题？太小有什么问题？</a></li><li class="outline-level-2"><a href="#clash-tun-vpn">Clash 的 TUN 模式为什么看起来像 VPN</a></li><li class="outline-level-2"><a href="#classifier-free-guidance-cfg-scale">Classifier-Free Guidance 的数学形式是什么？为什么 CFG scale 过大会失真？</a></li><li class="outline-level-2"><a href="#claude-code">claude code 了解哪些</a></li><li class="outline-level-2"><a href="#claude-codecodexcursordevinjules">Claude Code、Codex、Cursor、Devin、Jules 代表什么趋势？</a></li><li class="outline-level-2"><a href="#cnn">cnn能不能做语言模型</a></li><li class="outline-level-2"><a href="#coding">coding一道并解释代码</a></li><li class="outline-level-2"><a href="#coding-k">Coding：和为 K 的连续子数组个数</a></li><li class="outline-level-2"><a href="#coding_1">Coding：滑动窗口最大值</a></li><li class="outline-level-2"><a href="#computer-use">Computer Use 操作本地电脑的大致实现机制是什么？</a></li><li class="outline-level-2"><a href="#copy-paste">Copy-Paste 现象是什么？如何缓解？</a></li><li class="outline-level-2"><a href="#cross-entropykl">Cross Entropy、KL 散度和最大似然之间有什么关系？</a></li><li class="outline-level-2"><a href="#ctc">CTC主要解决的问题是什么？</a></li><li class="outline-level-2"><a href="#dbnet">DBNet 为什么是文本检测中的高频模型？</a></li><li class="outline-level-2"><a href="#decaemocamica3ddfadeep3dfacerecon">DECA、EMOCA、MICA、3DDFA、Deep3DFaceRecon 的路线如何区分？</a></li><li class="outline-level-2"><a href="#deepfakesfaceswapfaceshiftersimswaphififace">DeepFakes、FaceSwap、FaceShifter、SimSwap、HiFiFace 的核心差异是什么？</a></li><li class="outline-level-2"><a href="#deepseek-r1-r1-zero-rl">DeepSeek-R1 为什么要经历 R1-Zero、冷启动和多阶段 RL？</a></li><li class="outline-level-2"><a href="#deepseek-v4v3">DeepSeek-V4对比V3版本的核心技术迭代与能力升级</a></li><li class="outline-level-2"><a href="#deepsort-sort">DeepSORT 相比 SORT 改进了什么？</a></li><li class="outline-level-2"><a href="#deepspeed">deepspeed的三个阶段</a></li><li class="outline-level-2"><a href="#distribution-shift">distribution shift</a></li><li class="outline-level-2"><a href="#dockerfilecmdentrypoint">Dockerfile中CMD和ENTRYPOINT的区别</a></li><li class="outline-level-2"><a href="#dockerfile">Dockerfile的基本结构</a></li><li class="outline-level-2"><a href="#docker">docker中如何使用摄像头并显示画面？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k65882f31ba00"></a></p>
+<span class="heading-anchor" id="10讲一下SAM2分割模型的原理"></span><h2 id="10sam2">10讲一下SAM2分割模型的原理</h2>
+<p><strong>回答：</strong></p>
+<p>SAM 2 将可提示图像分割扩展为可提示视频分割。其图像编码器提取多尺度视觉特征；提示编码器把点、框或掩码转换成表示；掩码解码器结合这些表示生成目标掩码及质量预测。没有视频历史时，它也可以执行单图分割。</p>
+<p>视频部分的关键是<strong>记忆注意力与记忆编码器</strong>。处理当前帧时，记忆注意力读取之前帧保存的空间特征和对象信息；预测出的掩码与图像特征再经记忆编码器形成后续可读取的记忆。这样可把用户在某帧上的提示传播到其他帧，而不必逐帧重新标注。</p>
+<p>遮挡、目标重现、相似目标和早期错误都可能造成漂移。可在关键帧补充正负点击、修正掩码并重新传播；评测既看区域重叠也看边界与时序稳定性，同时统计交互次数和速度。记忆机制有助于追踪，但不等于永久准确的目标身份识别。</p>
+<p><a id="jd-damodel-20251211-20260205-p1-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L197">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k122f81bce65c"></a></p>
+<span class="heading-anchor" id="1、1:N、N:N、静态识别和动态识别有什么区别？"></span><h2 id="11nnn">1、1:N、N:N、静态识别和动态识别有什么区别？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>定义</th>
+<th>典型应用</th>
+<th>关键工程问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1:1 验证</td>
+<td>当前人脸与指定模板是否同一人</td>
+<td>手机解锁、身份核验</td>
+<td>阈值、安全等级、误拒</td>
+</tr>
+<tr>
+<td>1:N 识别</td>
+<td>在身份底库中寻找当前人脸</td>
+<td>门禁、考勤</td>
+<td>检索速度、库规模、开集拒识</td>
+</tr>
+<tr>
+<td>N:N 识别</td>
+<td>一张图或一段视频中的多人同时与底库匹配</td>
+<td>群体门禁、视频归档</td>
+<td>批处理吞吐、跟踪、多人遮挡</td>
+</tr>
+<tr>
+<td>静态识别</td>
+<td>受控采集，姿态和距离相对稳定</td>
+<td>自拍核验</td>
+<td>采集约束较强、实现较容易</td>
+</tr>
+<tr>
+<td>动态识别</td>
+<td>运动中抓拍，存在模糊、侧脸和光照变化</td>
+<td>无感通行、驾驶员监控</td>
+<td>质量波动、时序聚合、误报控制</td>
+</tr>
+</tbody>
+</table></div>
+<p>三者都依赖 embedding，但不能共用未经校准的阈值。1:N 和 N:N 还要设置“最高分低于阈值则拒识”的开集分支，不能把所有输入强行分配给库内身份。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E4%BA%BA%E8%84%B8%E6%A8%A1%E5%9E%8B%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L131">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k843ee9dc2ce4"></a></p>
+<span class="heading-anchor" id="1）平时怎么使用 AI coding？"></span><h2 id="1-ai-coding">1）平时怎么使用 AI coding？</h2>
+<p><strong>回答：</strong></p>
+<p>我把 AI coding 当作“可审查的工程协作者”，而不是把需求直接丢给模型生成一份代码。通常分成五步：</p>
+<ol>
+<li><strong>先定义边界。</strong> 说明业务目标、输入输出、已有模块、技术栈、约束、非目标和验收条件；涉及 Agent 时还要说明工具协议、状态结构、超时和安全边界。</li>
+<li><strong>先让模型理解再实现。</strong> 让它先阅读目录、接口、测试和调用链，输出改动计划及风险点，再按小步提交代码。新项目先让模型生成接口、数据结构和最小可运行骨架。</li>
+<li><strong>把重复劳动交给模型。</strong> 适合交给 AI 的工作包括样板代码、类型补全、单元测试、SQL/正则草稿、日志分析、重构候选和文档；核心业务规则、权限、数据一致性和安全策略必须由人确认。</li>
+<li><strong>验证后再合入。</strong> 我会执行格式化、静态检查、单元测试、集成测试和关键场景回放，审查 diff、依赖变化、异常路径、资源释放和日志是否泄露敏感信息。</li>
+<li><strong>保留可追溯性。</strong> 每次让模型完成一个小任务，记录输入约束、改动范围、测试结果和未解决风险，避免大范围生成导致问题无法定位。</li>
+</ol>
+<p>本质上，AI coding 提升的是“从意图到可验证变更”的吞吐；代码是否进入主干，仍然由需求、测试、评审和生产指标共同决定。</p>
+<p><a id="mihoyo-agent-20260801-q2"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%B1%B3%E5%93%88%E6%B8%B8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L27">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9fd74d31fbe2"></a></p>
+<span class="heading-anchor" id="2D 数字人、3D 数字人、实时交互数字人有什么区别？"></span><h2 id="2d-3d">2D 数字人、3D 数字人、实时交互数字人有什么区别？</h2>
+<p><strong>2D 数字人</strong>通常以图像或视频为输出，核心是让一个参考人物在目标音频、目标姿态或目标文本条件下动起来。它更依赖扩散视频生成、talking head、pose-guided animation、换脸和换衣技术。</p>
+<p><strong>3D 数字人</strong>通常显式建模几何、骨骼、材质、表情和渲染，可以在任意视角和场景中驱动。它更依赖 3DMM、FLAME、SMPL/SMPL-X、Blendshape、LBS、NeRF/3DGS 和渲染引擎。</p>
+<p><strong>实时交互数字人</strong>强调对话闭环和低延迟体验，通常包括：</p>
+<div class="arithmatex">\[
+\text{用户语音} \rightarrow \text{ASR} \rightarrow \text{LLM} \rightarrow \text{TTS} \rightarrow \text{唇形/表情驱动} \rightarrow \text{渲染播放}
+\]</div>
+<p><strong>区别总结：</strong></p>
+<ul>
+<li>2D 数字人：视觉生成效果强，适合视频内容生产。</li>
+<li>3D 数字人：可控性强，适合游戏、直播、XR、虚拟拍摄。</li>
+<li>实时交互数字人：系统工程要求高，核心指标是延迟、稳定性、可打断和对话自然度。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L81">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k336571774841"></a></p>
+<span class="heading-anchor" id="2D 数字人与 3D 数字人的核心差异是什么？"></span><h2 id="2d-3d_1">2D 数字人与 3D 数字人的核心差异是什么？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>2D 数字人</th>
+<th>3D 数字人</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>表示方式</td>
+<td>图像、视频、特征图、隐空间</td>
+<td>Mesh、点云、体素、SDF、NeRF、3DGS、骨骼、材质</td>
+</tr>
+<tr>
+<td>生成优势</td>
+<td>真实感强、训练数据多、风格迁移灵活</td>
+<td>姿态可控、视角一致、可实时驱动、资产可复用</td>
+</tr>
+<tr>
+<td>主要难点</td>
+<td>时序闪烁、身份漂移、手部/遮挡错误</td>
+<td>建模成本高、纹理/头发/衣物复杂、真实感依赖渲染</td>
+</tr>
+<tr>
+<td>适合任务</td>
+<td>口播视频、换脸、换衣、短视频生成</td>
+<td>虚拟主播、游戏角色、AR/VR、全身交互、动作捕捉</td>
+</tr>
+<tr>
+<td>工程依赖</td>
+<td>扩散模型、视频生成、检测分割、人脸识别</td>
+<td>图形学、Rig、渲染引擎、可微渲染、3D 重建</td>
+</tr>
+</tbody>
+</table></div>
+<p>面试中不要把 2D 和 3D 讲成替代关系。更准确的回答是：</p>
+<ul>
+<li><strong>2D 负责观感上限</strong>：让图像更像真实视频。</li>
+<li><strong>3D 负责控制下限</strong>：确保动作、视角、结构、遮挡不崩。</li>
+<li><strong>混合式系统最常见</strong>：先用 3D 或几何条件控制结构，再用生成模型补纹理、细节和真实感。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L71">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke3e2c8913acc"></a></p>
+<span class="heading-anchor" id="3D Gaussian Splatting 为什么适合实时数字人？"></span><h2 id="3d-gaussian-splatting">3D Gaussian Splatting 为什么适合实时数字人？</h2>
+<p>3D Gaussian Splatting，常简称 3DGS，是一种显式辐射场表示。它用大量三维高斯椭球表示场景，每个 Gaussian 通常包含：</p>
+<ul>
+<li>三维位置。</li>
+<li>尺度和旋转，或协方差矩阵。</li>
+<li>不透明度。</li>
+<li>颜色或球谐系数。</li>
+</ul>
+<p>渲染时将三维 Gaussian 投影到屏幕空间，通过 splatting 和 alpha blending 快速合成图像。</p>
+<p>相比 NeRF，3DGS 的优势是：</p>
+<ul>
+<li><strong>渲染速度快</strong>：更适合实时预览和交互。</li>
+<li><strong>显式表示</strong>：不需要对每条射线密集查询 MLP。</li>
+<li><strong>训练和编辑更直接</strong>：可以增删、移动、剪枝 Gaussian。</li>
+<li><strong>高保真新视角</strong>：对真实捕获场景能保留丰富纹理。</li>
+</ul>
+<p>数字人中的典型用法：</p>
+<ul>
+<li>多视角采集真人头像或上半身，训练可实时渲染的 3DGS Avatar。</li>
+<li>将 3DGS 与骨骼、SMPL 或 FLAME 绑定，实现动态驱动。</li>
+<li>用 3DGS 做高保真头发、衣物和非刚体外观补充。</li>
+</ul>
+<p>局限也要说清楚：</p>
+<ul>
+<li>动态人体需要处理 Gaussian 的形变和拓扑变化。</li>
+<li>直接编辑语义、骨骼绑定和碰撞仍不如 Mesh 成熟。</li>
+<li>训练质量依赖相机标定、多视角覆盖和数据稳定性。</li>
+<li>透明区域、反光材质、快速运动和遮挡会增加难度。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L554">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k13975df1bd54"></a></p>
+<span class="heading-anchor" id="3D 数字人为什么仍然重要？"></span><h2 id="3d">3D 数字人为什么仍然重要？</h2>
+<p>虽然 2D 生成模型效果越来越强，3D 数字人仍然重要，因为它提供可控视角、物理一致性、骨骼驱动、实时渲染和交互空间能力。游戏、XR、直播、虚拟拍摄、工业仿真和长时交互仍高度依赖 3D 表示。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L558">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k19cba2743ead"></a></p>
+<span class="heading-anchor" id="3D 数字人的典型技术链路是什么？"></span><h2 id="3d_1">3D 数字人的典型技术链路是什么？</h2>
+<p>一个典型 3D 数字人系统通常包含以下模块：</p>
+<ol>
+<li><strong>资产构建</strong></li>
+</ol>
+<p>通过扫描、多视角重建、单图重建、参数化模型拟合或生成式 3D 方法得到人脸/人体几何、纹理、头发、衣物和材质。</p>
+<ol>
+<li><strong>参数化表示</strong></li>
+</ol>
+<p>人脸常用 3DMM、FLAME、BlendShape；人体常用 SMPL、SMPL-X、MANO；更高保真的 Avatar 会进一步叠加衣物网格、头发表示、动态纹理和神经渲染模块。</p>
+<ol>
+<li><strong>驱动控制</strong></li>
+</ol>
+<p>输入可以是文本、音频、视频、动作捕捉、关键点、骨骼序列或表情参数。系统将这些输入转换为姿态、表情、口型、手势和相机轨迹。</p>
+<ol>
+<li><strong>渲染生成</strong></li>
+</ol>
+<p>传统路线用 PBR/实时渲染引擎输出画面；神经路线用 NeRF、3D Gaussian Splatting 或神经纹理增强；混合路线把 3D 渲染结果作为扩散模型控制条件。</p>
+<ol>
+<li><strong>后处理与上线</strong></li>
+</ol>
+<p>包括人脸增强、超分、时序一致性、口型校准、背景融合、绿幕/透明通道、模型压缩、流式推理和端侧部署。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L87">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbd44803e693d"></a></p>
+<span class="heading-anchor" id="3D 数据表示为什么会影响算法设计？"></span><h2 id="3d_2">3D 数据表示为什么会影响算法设计？</h2>
+<p>3D 数据表示决定了模型能否高效学习、是否便于渲染、能否表达拓扑变化、是否适合实时系统。</p>
+<p>同一个数字人可以有多种表示：</p>
+<ul>
+<li>用 <strong>Mesh</strong> 表示可动画人体。</li>
+<li>用 <strong>点云</strong> 表示扫描结果。</li>
+<li>用 <strong>SDF</strong> 表示连续曲面。</li>
+<li>用 <strong>NeRF</strong> 表示视角相关辐射场。</li>
+<li>用 <strong>3D Gaussian Splatting</strong> 表示可快速渲染的显式辐射场。</li>
+<li>用 <strong>多视角图像</strong> 表示训练监督。</li>
+<li>用 <strong>RGB-D</strong> 表示带深度的相机观测。</li>
+</ul>
+<p>没有一种表示适合所有任务。面试中要从表达能力、可微性、渲染效率、内存成本、拓扑灵活性、动画控制和工程部署几个角度回答。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L445">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k752009fbe12c"></a></p>
+<span class="heading-anchor" id="3D-aware GAN 与 NeRF/3DGS Avatar 有什么区别？"></span><h2 id="3d-aware-gan-nerf3dgs-avatar">3D-aware GAN 与 NeRF/3DGS Avatar 有什么区别？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>3D-aware GAN</th>
+<th>NeRF/3DGS Avatar</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目标</td>
+<td>学习人脸/人体类别分布，能随机生成新身份</td>
+<td>针对一个或多个具体人物重建可渲染 Avatar</td>
+</tr>
+<tr>
+<td>输入</td>
+<td>随机 latent、相机、条件</td>
+<td>多视角图像/视频、相机标定、驱动参数</td>
+</tr>
+<tr>
+<td>输出</td>
+<td>新身份图像或可视角控制图像</td>
+<td>具体人物的新视角/动态渲染</td>
+</tr>
+<tr>
+<td>训练方式</td>
+<td>对抗训练，类别级生成</td>
+<td>重建/渲染损失，实例级或少量身份</td>
+</tr>
+<tr>
+<td>编辑性</td>
+<td>latent editing 较强</td>
+<td>几何/外观编辑依赖表示</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>有 3D 先验但可能不完美</td>
+<td>对捕获人物通常更一致</td>
+</tr>
+</tbody>
+</table></div>
+<p>简洁回答：</p>
+<p>3D-aware GAN 更像“会生成很多 3D 感虚拟人的生成器”；NeRF/3DGS Avatar 更像“为某个真实人物建立一个可渲染数字分身”。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/06_GAN%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8EAIGC%E5%89%8D%E6%B2%BF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L596">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdda1ba7b182b"></a></p>
+<span class="heading-anchor" id="3D-aware GAN 如何实现人脸视角一致性？"></span><h2 id="3d-aware-gan">3D-aware GAN 如何实现人脸视角一致性？</h2>
+<p>3D-aware GAN 通常通过以下机制实现视角一致：</p>
+<ol>
+<li><strong>显式相机条件</strong></li>
+</ol>
+<p>生成时输入相机位姿，让模型学习同一 latent identity 在不同视角下的投影。</p>
+<ol>
+<li><strong>三维中间表示</strong></li>
+</ol>
+<p>使用 feature volume、NeRF、tri-plane 等表示，让图像不是直接生成，而是从 3D 表示渲染出来。</p>
+<ol>
+<li><strong>体渲染或投影</strong></li>
+</ol>
+<p>对相机射线采样三维点，计算颜色和密度，保证多视角共享同一空间表示。</p>
+<ol>
+<li><strong>身份 latent 共享</strong></li>
+</ol>
+<p>同一个 latent code 对应同一人物，不同相机只改变观察角度。</p>
+<ol>
+<li><strong>pose-aware 训练</strong></li>
+</ol>
+<p>训练中引入相机分布、姿态估计或镜像增强，避免模型把姿态误当成身份。</p>
+<p>局限：</p>
+<ul>
+<li>多视角一致性通常仍弱于真实 3D 扫描或 NeRF/3DGS Avatar。</li>
+<li>背面头部、耳朵、头发等区域可能出现幻觉。</li>
+<li>对超大姿态、复杂发型和遮挡仍不稳定。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/06_GAN%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8EAIGC%E5%89%8D%E6%B2%BF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L566">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kea83be2e467f"></a></p>
+<span class="heading-anchor" id="3D-LLM如何处理三维点云数据?"></span><h2 id="3d-llm">3D-LLM如何处理三维点云数据?</h2>
+<p>3D-LLM采用分层特征提取架构处理点云数据：首先通过体素化将无序点云转换为规则网格，使用3D稀疏卷积提取局部几何特征；接着通过图注意力网络建模点间拓扑关系；最后将全局特征与文本嵌入对齐。创新性地引入可微的神经渲染模块，将3D特征投影到2D视图以实现与视觉语言模型的兼容。训练时采用多任务学习，联合优化点云重建、跨模态检索和三维问答任务。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E6%A0%B8%E5%BF%83%E6%A8%A1%E5%9E%8B.md#L175">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb4f54a641437"></a></p>
+<span class="heading-anchor" id="3DMM 是什么？"></span><h2 id="3dmm">3DMM 是什么？</h2>
+<p>3DMM，全称 3D Morphable Model，是一种基于统计形变空间的三维人脸模型。它把人脸几何和纹理表示为平均脸与若干主成分基的线性组合，从而用低维参数生成不同身份、表情和纹理的人脸。</p>
+<p>经典形式可以写成：</p>
+<div class="arithmatex">\[
+S = \bar{S} + A_{\text{id}}\alpha + A_{\text{exp}}\beta
+\]</div>
+<div class="arithmatex">\[
+T = \bar{T} + A_t\gamma
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(S\)</span> 表示三维人脸形状。</li>
+<li><span class="arithmatex">\(\bar{S}\)</span> 表示平均脸形状。</li>
+<li><span class="arithmatex">\(A_{\text{id}}\)</span> 表示身份形状基。</li>
+<li><span class="arithmatex">\(\alpha\)</span> 表示身份参数。</li>
+<li><span class="arithmatex">\(A_{\text{exp}}\)</span> 表示表情基。</li>
+<li><span class="arithmatex">\(\beta\)</span> 表示表情参数。</li>
+<li><span class="arithmatex">\(T\)</span> 表示纹理或反照率。</li>
+<li><span class="arithmatex">\(A_t\)</span> 和 <span class="arithmatex">\(\gamma\)</span> 分别表示纹理基与纹理参数。</li>
+</ul>
+<p>3DMM 的核心思想是：虽然真实人脸空间很复杂，但大部分常见人脸形状可以落在一个低维统计子空间中。因此从单张图像估计少量参数，就能恢复一个可解释、可渲染、可动画的人脸模型。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L127">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke3e72ab50e72"></a></p>
+<span class="heading-anchor" id="3DMM 有哪些典型应用？"></span><h2 id="3dmm_1">3DMM 有哪些典型应用？</h2>
+<p>3DMM 在数字人中常见应用包括：</p>
+<ol>
+<li><strong>单图/视频人脸重建</strong></li>
+</ol>
+<p>从图像中估计三维脸型、头部姿态、表情和纹理，用于建模或后续编辑。</p>
+<ol>
+<li><strong>表情驱动动画</strong></li>
+</ol>
+<p>将音频、视频或表情捕捉结果映射到 3DMM 表情参数，再驱动数字人说话、眨眼、微笑和转头。</p>
+<ol>
+<li><strong>换脸与身份保持</strong></li>
+</ol>
+<p>3DMM 可以提供脸部几何对齐、姿态归一化、mask、法线和 UV 映射，帮助处理大姿态、遮挡和光照差异。</p>
+<ol>
+<li><strong>人脸编辑与美化</strong></li>
+</ol>
+<p>通过调整形状、表情、纹理和光照参数实现瘦脸、表情编辑、视角重定向、表情迁移等。</p>
+<ol>
+<li><strong>可微优化</strong></li>
+</ol>
+<p>将 3DMM 渲染到图像平面后，用 landmark loss、photometric loss、identity loss 等反向优化参数。</p>
+<ol>
+<li><strong>生成模型控制条件</strong></li>
+</ol>
+<p>渲染出的 depth、normal、landmark、semantic map 可以作为扩散模型的结构条件，提升脸部稳定性。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L173">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6357fab897c7"></a></p>
+<span class="heading-anchor" id="3DMM 的形状、表情和纹理参数如何理解？"></span><h2 id="3dmm_2">3DMM 的形状、表情和纹理参数如何理解？</h2>
+<p>3DMM 中常见参数可以分为三类：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>含义</th>
+<th>主要控制内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>身份形状参数</td>
+<td>identity shape</td>
+<td>脸宽、脸长、颧骨、下巴、鼻梁、眼距等相对稳定特征</td>
+</tr>
+<tr>
+<td>表情参数</td>
+<td>expression</td>
+<td>张嘴、微笑、皱眉、眯眼、脸颊运动等动态变形</td>
+</tr>
+<tr>
+<td>纹理参数</td>
+<td>texture/albedo</td>
+<td>肤色、眉毛、嘴唇、局部颜色分布等外观特征</td>
+</tr>
+</tbody>
+</table></div>
+<p>还会配合估计：</p>
+<ul>
+<li><strong>相机参数</strong>：旋转、平移、尺度、焦距或弱透视投影。</li>
+<li><strong>光照参数</strong>：常用球谐光照近似环境光。</li>
+<li><strong>姿态参数</strong>：头部 yaw、pitch、roll。</li>
+<li><strong>局部细节参数</strong>：皱纹、法线、displacement 或 detail code。</li>
+</ul>
+<p>面试回答时要强调：身份参数不应该包含表情，纹理参数不应该把光照误当成肤色。实际训练中经常需要通过正则项、光照建模和多视角/多帧约束来减少参数耦合。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L154">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5d217793bfce"></a></p>
+<span class="heading-anchor" id="3DMM、FLAME、BFM 分别是什么？"></span><h2 id="3dmmflamebfm">3DMM、FLAME、BFM 分别是什么？</h2>
+<p><strong>3DMM</strong> 是三维可变形模型，通过统计人脸数据建立形状和纹理基：</p>
+<div class="arithmatex">\[
+S = \bar{S} + A_s\alpha,\quad T=\bar{T}+A_t\beta
+\]</div>
+<p>通过调整低维参数生成不同人脸。</p>
+<p><strong>BFM</strong> 是经典 3DMM 人脸模型，包含人脸形状和纹理空间，适合人脸重建和纹理拟合。</p>
+<p><strong>FLAME</strong> 是更现代的人头模型，覆盖头部、脖子、眼球和表情，常用于表情动画、头部重建和 neural rendering。相比 BFM，FLAME 更强调可动画性和头部结构；BFM 更强调人脸纹理统计空间。</p>
+<p><strong>应用：</strong></p>
+<ul>
+<li>单图/视频 3D 人脸重建</li>
+<li>表情迁移</li>
+<li>换脸几何对齐</li>
+<li>头部姿态估计</li>
+<li>可微渲染监督</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L562">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka993c121a5ac"></a></p>
+<span class="heading-anchor" id="4）DeepSeek、OpenAI 这类模型 API 有哪些接口？"></span><h2 id="4deepseekopenai-api">4）DeepSeek、OpenAI 这类模型 API 有哪些接口？</h2>
+<p><strong>回答：</strong></p>
+<p>不同厂商的命名和兼容层不完全相同，但从能力抽象看，常见 API 可以分为以下几类：</p>
+<ul>
+<li><strong>生成接口：</strong> 文本/多模态输入、文本输出、流式输出、批量请求，以及对话状态或响应 ID 管理。</li>
+<li><strong>工具与结构化接口：</strong> Function/Tool Calling、JSON Schema 结构化输出、并行工具调用、工具结果回传和响应终止原因。</li>
+<li><strong>表示与检索接口：</strong> Embedding、向量相似度相关能力；部分平台还提供 Rerank 或专门的检索模型接口。</li>
+<li><strong>多模态接口：</strong> 图片、音频、视频理解，语音识别、语音合成和图像生成/编辑，具体可用能力取决于模型。</li>
+<li><strong>模型运营接口：</strong> Fine-tuning、Batch、文件/数据集管理、评估、配额、用量查询和模型列表。</li>
+<li><strong>安全与治理接口：</strong> 内容审核、敏感信息检测、权限、审计和请求追踪。</li>
+</ul>
+<p>工程上不能只记接口名称，还要关注请求 schema、认证、超时、重试、速率限制、幂等键、错误码、上下文窗口、计费单位和数据保留策略。最好在业务侧定义统一的 Provider Adapter，把流式事件、工具调用、结构化输出和错误类型归一化，避免上层 Agent 与某一家 SDK 强耦合。</p>
+<p>回答“有哪些接口”时，我会先按能力分类，再选一个具体业务说明调用顺序，例如：用户请求进入生成接口，模型返回工具调用，服务端执行工具并回传结果，最后以结构化或流式结果结束。</p>
+<p><a id="mihoyo-agent-20260801-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%B1%B3%E5%93%88%E6%B8%B8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L79">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka522fc7d12c9"></a></p>
+<span class="heading-anchor" id="50分钟开放题："></span><h2 id="50">50分钟开放题：</h2>
+<p><strong>回答：</strong></p>
+<p>这是一个题目类别而非完整问题。正式回答时不能补造具体业务题面，应先澄清目标、输入输出、约束、数据可用性、成功指标和时间边界，再给出最小可行方案、关键假设、验证方法和风险。50 分钟开放题建议前 5 分钟澄清与拆解，30 分钟完成主链路，10 分钟补测试和异常路径，最后 5 分钟复盘取舍。</p>
+<p><a id="tencent-llm-collection-20260903-q18"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L533">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9fad629b9e1e"></a></p>
+<span class="heading-anchor" id="5）如何解决模型回答的事实性和忠实度问题？"></span><h2 id="5">5）如何解决模型回答的事实性和忠实度问题？</h2>
+<p><strong>回答：</strong></p>
+<p>事实性是答案是否符合真实世界或权威数据；忠实度是答案是否被给定证据支持。两者相关但不相同：模型可能说了一个真实事实，却没有来自当前检索证据；也可能忠实复述了错误来源。</p>
+<p>我会建立分层方案：</p>
+<ol>
+<li><strong>限定知识来源。</strong> 对稳定知识使用版本化知识库，对实时信息调用权威 API/搜索工具；RAG 中保留文档 ID、版本、时间和段落引用。</li>
+<li><strong>提升证据质量。</strong> 做查询改写、混合召回、元数据过滤和 Rerank，过滤过期、冲突、低质量文档；证据不足时明确触发拒答或澄清。</li>
+<li><strong>约束生成。</strong> Prompt 中要求只基于证据回答、区分事实与推断、逐项引用；需要机器消费的结果使用 JSON Schema 或工具调用。</li>
+<li><strong>生成后核验。</strong> 对答案拆分原子事实，用 NLI/LLM Judge/规则/第二次检索核对每条陈述；高风险动作必须由规则引擎或人工审批决定。</li>
+<li><strong>做可观测评测。</strong> 分别评估 answer correctness、citation correctness、citation completeness、faithfulness、拒答准确率和工具执行成功率，并按问题类型、时间新鲜度和长尾场景分桶。</li>
+</ol>
+<p>治理重点不是让模型永远回答，而是让系统在“有证据时准确回答、证据不足时可解释地不回答、需要行动时先验证权限和参数”。</p>
+<p><a id="mihoyo-agent-20260801-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%B1%B3%E5%93%88%E6%B8%B8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L97">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc3769659f1a9"></a></p>
+<span class="heading-anchor" id="7）Skill 有哪些特性？"></span><h2 id="7skill">7）Skill 有哪些特性？</h2>
+<p><strong>回答：</strong></p>
+<p>一个成熟 Skill 至少应具备以下特性：</p>
+<ul>
+<li><strong>可发现。</strong> 具有清晰名称、描述、触发条件和输入输出，Agent 能判断什么时候应该使用。</li>
+<li><strong>模块化。</strong> 将领域知识、提示模板、脚本、资源和验证器封装在一起，避免每次从零编排。</li>
+<li><strong>渐进式加载。</strong> 先加载短描述和入口规则，真正触发后再读取详细文档和资源，节省上下文窗口。</li>
+<li><strong>流程可执行。</strong> 关键步骤、分支、停止条件和失败兜底明确，不能只有泛泛的知识介绍。</li>
+<li><strong>可组合。</strong> Skill 可以调用其他 Skill 或 MCP 工具，但要避免循环依赖、重复执行和权限越界。</li>
+<li><strong>可验证。</strong> 有样例、测试、输出 schema、质量门禁和可观测日志，能通过回放判断是否完成任务。</li>
+<li><strong>可版本化和可治理。</strong> 变更可审查、依赖可锁定、权限最小化、敏感操作需确认，并能回滚。</li>
+</ul>
+<p>Skill 的边界也很重要：它不应把所有业务逻辑都藏在不可见 Prompt 中，更不能绕过权限、审计和代码评审。真正有价值的 Skill 是把专家经验变成可重复、可评估、可维护的执行单元。</p>
+<p><a id="mihoyo-agent-20260801-q8"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%B1%B3%E5%93%88%E6%B8%B8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L129">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k73c1f05387bc"></a></p>
+<span class="heading-anchor" id="9）手写题（二选一）"></span><h2 id="9">9）手写题（二选一）</h2>
+<p><strong>回答：</strong></p>
+<p>两道题都可以先澄清输入输出和边界，再选择实现。若现场只要求二选一，我会优先选择自己能完整验证的一道；下面给出两道的可运行思路。</p>
+<p><strong>A：Python 实现一个打印 log 的装饰器。</strong> 使用 <code>functools.wraps</code> 保留原函数元数据，记录调用开始、参数、耗时和异常；生产环境应使用结构化日志并对密码、Token、个人信息脱敏。</p>
+<pre><code>from functools import wraps
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+def log_call(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        started = time.perf_counter()
+        logger.info("call_start function=%s", func.__qualname__)
+        try:
+            result = func(*args, **kwargs)
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.info("call_success function=%s elapsed_ms=%.2f", func.__qualname__, elapsed_ms)
+            return result
+        except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.exception("call_failed function=%s elapsed_ms=%.2f", func.__qualname__, elapsed_ms)
+            raise
+
+    return wrapper
+</code></pre>
+<p><strong>B：筛选并输出售价最低的前 4 个有效记录。</strong> 在题目未给出完整输入格式时，我会先确认是否为“第一行 n，后续每行 price sold buy”。下面按这个常见 ACM 约定实现：过滤 <code>sold == 0</code> 或 <code>buy == 0</code> 的记录，按售价升序取前 4 个；同价时保留输入顺序。</p>
+<pre><code>import sys
+
+def solve():
+    data = list(map(int, sys.stdin.buffer.read().split()))
+    if not data:
+        return
+    n = data[0]
+    records = []
+    for i in range(n):
+        price, sold, buy = data[1 + 3 * i: 4 + 3 * i]
+        if sold != 0 and buy != 0:
+            records.append((price, sold, buy))
+    records.sort(key=lambda row: row[0])
+    for row in records[:4]:
+        print(*row)
+
+if __name__ == "__main__":
+    solve()
+</code></pre>
+<p>排序复杂度是 <span class="arithmatex">\(O(n\log n)\)</span>，额外空间是 <span class="arithmatex">\(O(n)\)</span>。如果只需要前 4 个且 <span class="arithmatex">\(n\)</span> 很大，可以用大小为 4 的堆把复杂度降到 <span class="arithmatex">\(O(n\log 4)\)</span>，但仍要先根据题意确认输出顺序和并列价格规则。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%B1%B3%E5%93%88%E6%B8%B8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L162">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke2900c159fe3"></a></p>
+<span class="heading-anchor" id="AB 实验你怎么设计，指标冲突听谁的？"></span><h2 id="ab">AB 实验你怎么设计，指标冲突听谁的？</h2>
+<p><strong>回答：</strong></p>
+<p>先明确可证伪假设、实验对象、主指标、护栏、最小可检测效应和停止规则，再开始分流。通常按稳定用户 ID 随机分桶并保持组别，统计分析与随机化单元一致；推荐内容供给会相互影响时，需要评估网络干扰，考虑集群随机化或 switchback，而不是默认普通用户级实验一定无偏。</p>
+<p>样本量由基线波动、期望效应、显著性水平和检验功效共同决定。先检查埋点和 A/A，实验过程中监控 sample ratio mismatch、跨组污染、曝光不完整与延迟标签。按完整业务周期观察，固定时点检验不要反复看普通 p 值并随时宣布胜利；需要随时监控时使用适当的序贯方法。</p>
+<p>对于同一用户多次访问，应按用户聚合或使用聚类稳健分析。比率指标的分子分母可能同时变化，应使用合适的 delta method 或按随机化单元 bootstrap。CUPED 等方法可以用实验前变量降低方差，不能把受实验影响的后验变量随意拿来校正。</p>
+<p>指标冲突由预先定义的决策原则处理：主指标必须体现产品长期价值，安全、严重负反馈、延迟等护栏不可随意交换；点击与收藏或留存冲突时，拆分人群、观察成熟窗口并核对机制。如果目标本身确实冲突，由业务、产品、算法共同确认可接受的权衡，记录决策依据，不能挑一个上涨指标就宣告成功。</p>
+<p>除统计显著性，还要看收益量级、置信区间、实现成本和持续性。小流量提升未必能外推全量，尤其涉及创作者供给、竞价或社区反馈的策略，需要分阶段放量验证。</p>
+<p><a id="xiaohongshu-llm-20260922-q20"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1573">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k543a64c721a2"></a></p>
+<span class="heading-anchor" id="action chunking"></span><h2 id="action-chunking">action chunking</h2>
+<p><strong>回答：</strong></p>
+<p>action chunking 是一次预测连续多步动作，利用时间相关性并减少每个控制步都调用大模型的开销。要区分预测长度 H 与实际执行长度 K：可以预测较长动作块，只执行前 K 步，再用新观测重规划，通常满足 K 不超过 H。</p>
+<pre><code class="language-text">时刻 t：取观测 → 预测 H 步 → 执行前 K 步
+时刻 t+K：重新观测 → 更新动作块 → 继续执行
+</code></pre>
+<p>H 较大有助于表达连贯行为，但也增加远期预测难度；K 较大会降低重规划频率，同时让机器人更长时间无法利用新反馈。不同接触阶段可以需要不同选择。</p>
+<p>ACT 将动作分块与条件变分建模结合，并使用时间集成平滑重叠预测；其他系统可采用滚动执行、块衔接或异步推理。时间集成需要对同一执行时刻的候选动作正确对齐，且不能无条件平均来自不同可行动作模式的命令。</p>
+<p>离线训练要处理尾部 mask、episode 边界和观测—动作延迟。部署要测块切换的连续性、扰动恢复与关键路径时延；分块并不自动保证实时性，也没有消除闭环反馈的需要。</p>
+<p><img alt="图2动作块预测执行与重新观测" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/imgs/yuanlilingji-embodied-20261013-939528346956726272/02_动作块预测执行与重新观测.png"/></p>
+<p>图 2：H=8、K=3 的滚动执行示例。先预测八步，只执行前三步，再用新观测计算下一块；图中编号表示执行时间位置，不是另一套动作编码。</p>
+<p>若控制频率为 20 Hz，这个教学例子的预测跨度为 0.4 秒，每次承诺执行的跨度为 0.15 秒。前一个块中未执行的五步可以被新预测替换；它们不应在下一块到来后仍被全部下发。预测范围 H、执行范围 K 与实际产生反馈的频率是不同变量。</p>
+<p>时间集成需要把不同预测块中“对应同一真实执行时刻”的候选动作对齐。例如不能把当前时刻的第一步与旧块已执行完的第一步平均。对位置、速度、旋转和夹爪，融合的数学含义也不同；两个绕障碍方向都正确，直接平均却可能撞上障碍。平滑应服从可行性与控制语义。</p>
+<p><a id="yuanlilingji-embodied-20261013-939528346956726272-q15"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%8E%9F%E5%8A%9B%E7%81%B5%E6%9C%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L328">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2f4170463119"></a></p>
+<span class="heading-anchor" id="Activity and Fragment"></span><h2 id="activity-and-fragment">Activity and Fragment</h2>
+<ul>
+<li>
+<p><strong>Why is it recommended to use only the default constructor to create a <code>Fragment</code>?</strong> - Learn from <a href="https://www.youtube.com/watch?v=CitBt0FZFIc">video</a> and <a href="https://outcomeschool.com/blog/default-constructor-to-create-a-fragment">blog</a></p>
+</li>
+<li>
+<p><strong>What is <code>Activity</code> and its lifecycle?</strong> - <a href="https://developer.android.com/guide/components/activities/activity-lifecycle">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What is the difference between onCreate() and onStart()</strong> - <a href="https://developer.android.com/guide/components/activities/activity-lifecycle">Learn from here</a></p>
+</li>
+<li>
+<p><strong>When only onDestroy is called for an activity without onPause() and onStop()?</strong> - <a href="https://www.youtube.com/watch?v=B2kY_ckZa-g">Learn from here</a></p>
+</li>
+<li>
+<p><strong>Why do we need to call setContentView() in onCreate() of Activity class?</strong> - <a href="https://www.youtube.com/watch?v=U1aHAt7XC5I">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What is onSaveInstanceState() and onRestoreInstanceState() in activity?</strong> - <a href="https://www.linkedin.com/posts/outcomeschool_outcomeschool-softwareengineer-tech-activity-7301985158608392193-pA5M">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What is <code>Fragment</code> and its lifecycle?</strong> - <a href="https://developer.android.com/guide/fragments/lifecycle">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What is Bundle in Android?</strong> - <a href="https://www.linkedin.com/posts/amit-shekhar-iitbhu_outcomeschool-softwareengineer-tech-activity-7355846437718413316-jRI4">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What are "launchMode"?</strong> - <a href="https://outcomeschool.com/blog/singletask-launchmode-in-android">Learn from here</a> and <a href="https://youtu.be/WYkQEnm4jeI">singleTask launchMode in Android</a></p>
+</li>
+<li>
+<p><strong>What is the difference between a <code>Fragment</code> and an <code>Activity</code>? Explain the relationship between the two.</strong> - <a href="https://stackoverflow.com/questions/10478233/why-fragments-and-when-to-use-fragments-instead-of-activities">Learn from here</a></p>
+</li>
+<li>
+<p><strong>When should you use a Fragment rather than an Activity?</strong></p>
+<ul>
+<li>When you have some UI components to be used across various activities</li>
+<li>When multiple views can be displayed side by side just like ViewPager</li>
+</ul>
+</li>
+<li>
+<p><strong>What is the difference between FragmentPagerAdapter vs FragmentStatePagerAdapter?</strong></p>
+<ul>
+<li>FragmentPagerAdapter: Each fragment visited by the user will be stored in the memory but the view will be destroyed. When the page is revisited, then the view will be created not the instance of the fragment.</li>
+<li>FragmentStatePagerAdapter: Here, the fragment instance will be destroyed when it is not visible to the user, except the saved state of the fragment.</li>
+</ul>
+</li>
+<li>
+<p><strong>What is the difference between adding/replacing fragment in backstack?</strong> - <a href="https://stackoverflow.com/questions/24466302/basic-difference-between-add-and-replace-method-of-fragment/24466345">Learn from here</a></p>
+</li>
+<li>
+<p><strong>How would you communicate between two Fragments?</strong></p>
+</li>
+<li>
+<p><strong>What is retained <code>Fragment</code>?</strong> - <a href="https://www.linkedin.com/posts/outcomeschool_softwareengineer-androiddev-android-activity-7265620144289193984-hlpH">Learn from here</a></p>
+</li>
+<li>
+<p><strong>What is the purpose of <code>addToBackStack()</code> while commiting fragment transaction?</strong></p>
+<ul>
+<li>By calling addToBackStack(), the replace transaction is saved to the back stack so the user can reverse the transaction and bring back the previous fragment by pressing the Back button. For more <a href="https://stackoverflow.com/questions/22984950/what-is-the-meaning-of-addtobackstack-with-null-parameter">Learn from here</a></li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/amitshekhariitbhu/android-interview-questions/blob/a8f95e444cd9a52a244929c55dd9fdc9ffe336d0/README.md#L342">amitshekhariitbhu/android-interview-questions</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kca1a268e8dd3"></a></p>
+<span class="heading-anchor" id="Adapter、Prefix Tuning、Prompt Tuning 如何对比？"></span><h2 id="adapterprefix-tuningprompt-tuning">Adapter、Prefix Tuning、Prompt Tuning 如何对比？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>思路</th>
+<th>优点</th>
+<th>可能问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Adapter</td>
+<td>在层间插入小模块</td>
+<td>模块化强</td>
+<td>可能增加推理延迟</td>
+</tr>
+<tr>
+<td>Prefix Tuning</td>
+<td>给每层 attention 加可训练 prefix</td>
+<td>适合生成任务</td>
+<td>实现和长度设计较复杂</td>
+</tr>
+<tr>
+<td>Prompt Tuning</td>
+<td>只训练输入端软 prompt</td>
+<td>参数更少</td>
+<td>对小模型效果可能弱</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>低秩更新线性层</td>
+<td>效果好、可合并</td>
+<td>rank 和注入层需调</td>
+</tr>
+</tbody>
+</table></div>
+<p>面试中可这样说：</p>
+<ul>
+<li>Adapter 是加模块。</li>
+<li>Prefix / Prompt 是加可学习提示。</li>
+<li>LoRA 是改权重更新方式。</li>
+</ul>
+<p>AIGC 工程里，LoRA 最常见，因为生态成熟、效果稳定、部署方便。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E5%BC%BA%E5%8C%96%E5%AD%A6%E4%B9%A0%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L524">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k86b16b778f94"></a></p>
+<span class="heading-anchor" id="AI 技术价值判断"></span><h2 id="ai">AI 技术价值判断</h2>
+<p>AI技术更新迭代很快，但真正长期具备跨周期能力的高价值技术并不多。本项目平台也将持续判断前沿AI技术的本质价值、跨周期价值以及在AI行业的产业价值。</p>
+<p>这套判断由 Rocky Ding 主编，结合技术发展趋势、真实工程落地、产业变化情况、岗位要求和社区反馈持续更新。你可以进入 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/workspace/前沿AI技术价值判断/README.md">《前沿AI技术价值判断》工作区</a>，了解平台如何判断技术价值、记录技术周期变化，并将判断结果转化为我们职业生涯的关键助力。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/README.md#L206">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k59231195323d"></a></p>
+<span class="heading-anchor" id="AI 领域的人脸主流任务如何分类？"></span><h2 id="ai_1">AI 领域的人脸主流任务如何分类？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>可以按“定位、身份、结构、属性、生成、安全”六类理解，而不是背一串模型名：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th>代表任务</th>
+<th>输出或用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定位与跟踪</td>
+<td>人脸检测、视频跟踪</td>
+<td>人脸框、轨迹、置信度</td>
+</tr>
+<tr>
+<td>身份建模</td>
+<td>验证、1:N 识别、检索、跨年龄识别</td>
+<td>embedding、身份决策、候选排序</td>
+</tr>
+<tr>
+<td>结构理解</td>
+<td>关键点、头姿、3D 重建、Face Parsing</td>
+<td>坐标、姿态、像素级 mask、几何参数</td>
+</tr>
+<tr>
+<td>属性与状态</td>
+<td>年龄段、表情、眼睛开合、口罩/眼镜等</td>
+<td>分类、回归或时序状态</td>
+</tr>
+<tr>
+<td>生成与编辑</td>
+<td>人脸生成、换脸、虚拟化妆、数字人驱动</td>
+<td>身份条件化图像或视频</td>
+</tr>
+<tr>
+<td>安全与质量</td>
+<td>活体、DeepFake、质量评估</td>
+<td>风险分数、质量分数、拒绝或复核</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一系统往往组合多类任务。例如驾驶员监控需要检测、跟踪、关键点、头姿和疲劳状态；AIGC 人像编辑需要检测、对齐、解析、身份 embedding、生成和安全审核。任务分类决定数据标注、模型接口和评估指标，不能用一个“人脸准确率”概括全部效果。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E4%BA%BA%E8%84%B8%E6%A8%A1%E5%9E%8B%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L84">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kac38dcccf1e0"></a></p>
+<span class="heading-anchor" id="AIGC 数字人、换脸和肖像编辑如何保持身份一致？"></span><h2 id="aigc">AIGC 数字人、换脸和肖像编辑如何保持身份一致？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>身份保持通常需要同时约束身份、几何、局部区域和时间：</p>
+<ul>
+<li>用 ArcFace/InsightFace embedding 约束全局身份；</li>
+<li>用关键点、头姿或 3DMM 控制表情与姿态，减少五官漂移；</li>
+<li>用 Face Parsing mask 限定编辑区域，保护背景和非目标区域；</li>
+<li>用参考图适配器或身份 token 注入生成模型条件；</li>
+<li>对视频使用跟踪、光流、时序 attention 和跨帧身份损失，减少闪烁；</li>
+<li>在融合阶段匹配光照、色彩、边界和景深，避免“贴脸”效果。</li>
+</ul>
+<p>典型链路是“参考图提取身份—驱动视频或文本提供姿态/场景—生成模型合成—检测、身份、时序和安全评估”。身份一致性不能脱离自然度、可控性、授权和可解释的失败回退来评价。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E4%BA%BA%E8%84%B8%E6%A8%A1%E5%9E%8B%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L242">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k663285da333c"></a></p>
+<span class="heading-anchor" id="AIGC 数字人从 GAN 走向了哪些新范式？"></span><h2 id="aigc-gan">AIGC 数字人从 GAN 走向了哪些新范式？</h2>
+<p>AIGC 数字人正在从“局部生成和身份编辑”走向“多条件、长视频、全身、可交互、多模态”的新范式。</p>
+<p>主要变化：</p>
+<ol>
+<li><strong>从 GAN 到 Diffusion</strong></li>
+</ol>
+<p>从一步生成转为多步去噪，提升多样性、文本可控性和高保真复杂场景生成能力。</p>
+<ol>
+<li><strong>从 U-Net Diffusion 到 DiT/Flow</strong></li>
+</ol>
+<p>大模型架构从卷积 U-Net 走向 Transformer 和 Flow Matching，更适合大规模视频和多模态条件。</p>
+<ol>
+<li><strong>从头像到全身</strong></li>
+</ol>
+<p>任务从 talking head 扩展到半身、全身、手势、物体交互、舞蹈和多人场景。</p>
+<ol>
+<li><strong>从单条件到多条件混合</strong></li>
+</ol>
+<p>同时利用文本、音频、姿态、参考图、视频、深度、3D 参数等条件。</p>
+<ol>
+<li><strong>从短视频到长视频</strong></li>
+</ol>
+<p>强调跨分钟级甚至小时级的一致性、身份保持和记忆机制。</p>
+<ol>
+<li><strong>从离线生成到实时交互</strong></li>
+</ol>
+<p>ASR、LLM、TTS、数字人驱动和渲染形成低延迟闭环。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/06_GAN%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8EAIGC%E5%89%8D%E6%B2%BF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L649">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6a92521279ed"></a></p>
+<span class="heading-anchor" id="AIGC 时代数字人是什么？核心技术栈如何划分？"></span><h2 id="aigc_1">AIGC 时代数字人是什么？核心技术栈如何划分？</h2>
+<p>数字人是将人物外观、身份、语音、表情、动作、交互能力和场景表现整合到一起的虚拟人系统。AIGC 时代的数字人不再只是传统动画或 3D 建模，而是由大模型、扩散/视频生成模型、语音模型、3D 表示、实时渲染和交互式 Agent 共同驱动。</p>
+<p>从技术栈看，数字人可以拆成六层：</p>
+<ol>
+<li><strong>感知层</strong>：人脸检测、关键点、头姿、人体姿态、分割、深度、音频特征、情绪识别。</li>
+<li><strong>身份层</strong>：人脸 ID embedding、外观 reference、服装/发型/配饰、角色一致性建模。</li>
+<li><strong>驱动层</strong>：音频驱动、文本驱动、姿态驱动、视频驱动、表情驱动、多角色驱动。</li>
+<li><strong>生成层</strong>：GAN、Diffusion、Video Diffusion、DiT、Flow Matching、NeRF/3DGS、可微渲染。</li>
+<li><strong>交互层</strong>：ASR、LLM、RAG、TTS、情绪控制、打断、流式对话。</li>
+<li><strong>工程层</strong>：低延迟推理、移动端部署、视频编码、流媒体、缓存、量化、端云协同。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L68">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5decf8358d4e"></a></p>
+<span class="heading-anchor" id="AIGC 领域（如 ChatGPT）"></span><h2 id="aigc-chatgpt">AIGC 领域（如 ChatGPT）</h2>
+<ul>
+<li><strong>训练优化</strong>：  </li>
+<li>结合 <strong>RLHF（人类反馈强化学习）</strong> 微调模型，动态分配 PP 阶段处理提示数据。  </li>
+<li><strong>推理部署</strong>：  </li>
+<li>使用 <strong>Triton 推理服务器</strong>在多 GPU 上运行 Megatron 530B，响应时间从 <strong>&gt;1 分钟</strong>（CPU）压缩至 <strong>0.5 秒</strong>。  </li>
+<li><strong>案例</strong>：阿里通义千问 Qwen3-235B 通过类似技术实现高效训练。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L2085">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5d38be793f38"></a></p>
+<span class="heading-anchor" id="AIGC领域应用"></span><h2 id="aigc_2">AIGC领域应用</h2>
+<p><strong>典型场景：短视频自动生成</strong>
+- <strong>传统痛点</strong>：需要人工串联文案生成→素材搜索→视频剪辑工具链
+- <strong>MCP解决方案</strong>：
+  - 集成Stable Diffusion MCP（文生图）
+  - 接入GettyImages MCP（版权素材库）
+  - 对接Premiere Pro MCP（自动化剪辑）</p>
+<p><strong>工作流示例</strong>：</p>
+<pre><code>用户输入 → 剧本生成 → [分镜指令] → 调用SD生成画面 → 
+[选取素材] → 调用GettyImages搜索 → [时间线编排] → Premiere渲染输出
+</code></pre>
+<p>效率提升：单条视频制作从2小时缩短至8分钟</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1484">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke4f75ed72e94"></a></p>
+<span class="heading-anchor" id="AI开发工程师这个岗位实际主要做哪些业务？"></span><h2 id="ai_2">AI开发工程师这个岗位实际主要做哪些业务？</h2>
+<p><strong>回答：</strong></p>
+<p>这个反问用于确认岗位的实际工作重心。可以进一步了解团队目前更侧重业务 AI 应用，还是服务多个应用团队的 AI 基础设施，以及岗位负责从需求到上线的哪一段。</p>
+<p>此次面试交流提及两个方向：一类是 AI Agent 应用开发，例如 AI 客服、AI 语音下单；另一类是 AI 基础设施，例如 AI 链路观测、监控和 AI 框架开发。这反映本次交流涉及的岗位场景，不能外推为整个公司的统一职责安排。</p>
+<p>顺着业务场景可以追问成功指标与协作方式。例如客服更关注问题解决、错误回答和转人工，语音下单还涉及识别、确认和业务操作；基础设施则更关注接入成本、可观测性和稳定性。这些是帮助理解岗位的讨论角度，不是对团队现状的额外断言。</p>
+<p><a id="sftech-ai-dev-20261019-463a64c7-g5-q02"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%A1%BA%E4%B8%B0%E7%A7%91%E6%8A%80%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L515">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7d9692272ac5"></a></p>
+<span class="heading-anchor" id="AI模型的压缩和加速方法如何选择？"></span><h2 id="ai_3">AI模型的压缩和加速方法如何选择？</h2>
+<p>​1. 对于在线计算内存存储有限的应用场景或算力设备，可以选择参数共享和参数剪枝方法，特别是二值量化权值和激活、结构化剪枝．其他方法虽然能够有效的压缩模型中的权值参数，但无法减小计算中隐藏的内存大小（如特征图）。
+2. 如果在应用中用到的紧性模型需要利用预训练模型，那么参数剪枝、参数共享以及低秩分解将成为首要考虑的方法．相反地，若不需要借助预训练模型，则可以考虑紧性滤波设计及知识蒸馏方法。
+3. 若需要一次性端对端训练得到压缩与加速后模型，可以利用基于紧性滤波设计的深度神经网络压缩与加速方法。
+4. 一般情况下，参数剪枝，特别是非结构化剪枝，能大大压缩模型大小，且不容易丢失分类精度。对于需要稳定的模型分类的应用，非结构化剪枝成为首要选择。
+5. 若采用的数据集较小时，可以考虑知识蒸馏方法．对于小样本的数据集，学生网络能够很好地迁移教师模型的知识，提高学生网络的判别性。
+6. 主流的AI模型压缩与加速算法相互之间是正交的，可以结合不同技术进行进一步的压缩与加速。比如结合参数剪枝和参数共享；结合参数剪枝和低秩分解。此外对于特定的应用场景，如目标检测，可以对卷积层和全连接层使用不同的压缩与加速技术分别处理。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E7%9F%A5%E8%AF%86%E7%82%B9.md#L228">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k694597f82572"></a></p>
+<span class="heading-anchor" id="AI模型的参数量如何计算？"></span><h2 id="ai_4">AI模型的参数量如何计算？</h2>
+<p>不管是AIGC、传统深度学习还是自动驾驶领域，计算 AI 模型的参数量（参数个数）是评估模型复杂度的常用指标。参数量指的是 <strong>模型中所有可学习参数（权重和偏置）</strong> 的数量。Rocky总结了通用AI模型参数量计算方法，在不同类型的神经网络中，计算参数量的方法略有不同。下面是详细的计算方法：</p>
+<p>不同类型神经网络参数量的计算方法：
+1. <strong>全连接层</strong>：输入特征数 × 输出特征数 + 输出特征数。
+2. <strong>卷积层</strong>：卷积核高度 × 卷积核宽度 × 输入通道数 × 输出通道数 + 输出通道数。
+3. <strong>循环神经网络</strong>：需要考虑输入、隐藏单元和门结构。
+4. <strong>Transformer 模型</strong>：关注多头自注意力机制和前馈网络。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L255">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb886a8ba2adc"></a></p>
+<span class="heading-anchor" id="Animate Anyone 类人体驱动方法的核心结构是什么？"></span><h2 id="animate-anyone">Animate Anyone 类人体驱动方法的核心结构是什么？</h2>
+<p>Animate Anyone 类方法通常由三部分组成：</p>
+<ol>
+<li><strong>ReferenceNet</strong>：提取参考图像外观细节，包括脸、衣服、发型、纹理、背景。</li>
+<li><strong>Pose Encoder</strong>：编码目标姿态序列，如 DWPose/OpenPose/DensePose。</li>
+<li><strong>Denoising U-Net + Motion Module</strong>：在扩散去噪过程中融合参考外观和目标姿态，并通过时序模块保证帧间一致。</li>
+</ol>
+<p>抽象训练目标是：</p>
+<div class="arithmatex">\[
+L=\mathbb{E}_{z_t,t,\epsilon,c}\left[\|\epsilon-\epsilon_\theta(z_t,t,c_{\text{ref}},c_{\text{pose}})\|_2^2\right]
+\]</div>
+<p>其中 <span class="arithmatex">\(c_{\text{ref}}\)</span> 是参考图条件，<span class="arithmatex">\(c_{\text{pose}}\)</span> 是姿态条件。</p>
+<p><strong>面试要点：</strong></p>
+<ul>
+<li>ReferenceNet 负责“像谁、穿什么”。</li>
+<li>Pose Encoder 负责“怎么动”。</li>
+<li>Motion Module 负责“连续帧是否稳定”。</li>
+<li>CLIP image embedding 可提供全局语义，但细粒度纹理通常需要 ReferenceNet 或局部特征。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L177">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k33d8ec6ade22"></a></p>
+<span class="heading-anchor" id="API 调用工程"></span><h2 id="api">API 调用工程</h2>
+<p>相关内容：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/llm-basis/llm-api-engineering.md">《大模型 API 调用工程实践：流式输出、重试、限流与结构化返回》</a></p>
+<p>模型 API 的响应时间、计费方式和错误类型都与普通业务接口有所不同。面试中通常会把 Streaming、重试、幂等、限流和模型网关放在一条调用链里考察。</p>
+<p>常见面试题：</p>
+<ul>
+<li>大模型 API 调用的完整链路是什么？</li>
+<li>Streaming 为什么能改善用户体验？它能减少总耗时和 Token 成本吗？</li>
+<li>SSE、WebSocket、HTTP Chunked 在流式输出场景下怎么选？</li>
+<li>哪些大模型 API 错误可以重试？哪些错误不能重试？</li>
+<li>为什么大模型调用必须做幂等？</li>
+<li>大模型限流为什么不能只按 QPS 做？</li>
+<li>模型网关通常要承担哪些能力？</li>
+<li>AI 应用的调用日志里至少要记录哪些字段？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/llm-interview-questions.md#L38">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kcb41ef70cc1c"></a></p>
+<span class="heading-anchor" id="AttnRes、mHC 和 GR 分别改进了残差路径的什么问题？"></span><h2 id="attnresmhc-gr">AttnRes、mHC 和 GR 分别改进了残差路径的什么问题？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5) | 考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>普通前置归一化残差把以前各层的信息不断累积到一个状态 <span class="arithmatex">\(h_l\)</span>；网络越深，后层只能从这一个累积表示读取历史。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>核心做法</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://arxiv.org/abs/2603.15031">Attention Residuals（AttnRes）</a></td>
+<td>对前面层的输出按内容计算权重，再聚合为当前层输入</td>
+<td>全层版本需保存并读取多层输出</td>
+</tr>
+<tr>
+<td><a href="https://arxiv.org/abs/2512.24880">mHC</a></td>
+<td>扩宽残差流，并约束分支混合矩阵以维持稳定的信息传递</td>
+<td>约束与分支混合有额外计算、访存开销</td>
+</tr>
+<tr>
+<td><a href="https://arxiv.org/abs/2608.30320">Gated Residual（GR）</a></td>
+<td>扩宽为多分支残差流，用逐元素门控读取，不做完整分支混合</td>
+<td>更宽的残差状态仍占用内存；要与优化器共同验证稳定性</td>
+</tr>
+</tbody>
+</table></div>
+<p><a id="sota-section-3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/07_%E6%A8%A1%E5%9E%8B%E6%8B%86%E8%A7%A3%EF%BC%9A%E8%B7%A8%E5%91%A8%E6%9C%9F%E6%8A%80%E6%9C%AF%E6%8B%86%E8%A7%A3.md#L81">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf461ff8fef93"></a></p>
+<span class="heading-anchor" id="Badcase有哪些，占比怎么样"></span><h2 id="badcase">Badcase有哪些，占比怎么样</h2>
+<p><strong>回答：</strong></p>
+<p>建立可操作的错误分类：小字模糊、文字识别错、版面顺序错、表格错列、数值幻觉、字段缺失、格式非法、工具失败。每类保存样本、期望结果、实际结果与复现条件。</p>
+<p>占比要明确分母：占所有测试请求、占失败请求，还是多标签错误事件比例。一个样本可能同时有多个错误，需要说明是否互斥；不要把多标签比例相加后强行解释为 100%。</p>
+<p>按频次与业务损失排序，优先修复高影响问题，通过困难回归集复测。没有实际统计时，给分类与计算方法，不能声称某类占比为固定百分数。</p>
+<p><a id="jd-damodel-20251211-20260205-p7-q7"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_39">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1076">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka6120efd3209"></a></p>
+<span class="heading-anchor" id="BeanFactory和ApplicationContext有什么差异？"></span><h2 id="beanfactoryapplicationcontext">BeanFactory和ApplicationContext有什么差异？</h2>
+<p><strong>面试官：</strong> BeanFactory和ApplicationContext有什么差异？</p>
+<p><strong>回答：</strong></p>
+<p><code>BeanFactory</code> 是 Spring IoC 容器最基础的能力契约，负责 Bean 的注册、查找、依赖注入、作用域和生命周期协作。<code>ApplicationContext</code> 建立在更完整的 BeanFactory 体系之上，面向实际应用提供统一的运行时上下文。</p>
+<p>二者的差异可以从四层理解：</p>
+<ol>
+<li><strong>容器能力。</strong> <code>ApplicationContext</code> 同时具备可列举和分层 BeanFactory 能力，并集成资源加载、环境与 Profile、国际化消息、应用事件发布等接口。</li>
+<li><strong>启动流程。</strong> 常见 <code>ApplicationContext</code> 在 <code>refresh()</code> 时会自动发现并执行 <code>BeanFactoryPostProcessor</code>、注册 <code>BeanPostProcessor</code>，并默认预实例化非 Lazy 的 Singleton。裸 <code>BeanFactory</code> 通常需要调用者自行完成更多装配步骤。</li>
+<li><strong>基础设施集成。</strong> AOP 自动代理、事务、注解处理、事件、组件扫描等能力通常由 Context 启动流程中的后处理器和基础设施 Bean 完整启用。</li>
+<li><strong>使用场景。</strong> 普通 Spring/Spring Boot 应用几乎都使用 <code>ApplicationContext</code>；<code>BeanFactory</code> 更常作为底层 SPI、轻量测试或框架内部扩展点。</li>
+</ol>
+<p>“BeanFactory 懒加载、ApplicationContext 饿加载”只是默认行为的简化说法，不是接口层面的绝对差异。Bean 是否延迟创建取决于 Bean 定义、作用域、Context 刷新策略和是否提前被依赖。<code>ApplicationContext</code> 也支持 <code>@Lazy</code>，<code>BeanFactory</code> 也可以主动预实例化 Singleton。</p>
+<p>还应注意，不要把 <code>ApplicationContext</code> 理解成另一个与 BeanFactory 平行的容器。它仍以 BeanFactory 作为核心注册表和实例工厂，只是在其上增加应用级生命周期与服务。Spring Boot 又进一步负责创建和配置合适的 <code>ApplicationContext</code>，并加载自动配置。</p>
+<p><strong>一句话总结：BeanFactory 定义“Bean 怎么被管理”，ApplicationContext 定义“一个 Spring 应用如何在完整环境中启动、扩展和协作”。</strong></p>
+<p><a id="alibaba-cloud-agent-algo-20260901-q18"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_40">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1685">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8273e90cb378"></a></p>
+<span class="heading-anchor" id="Behavior Cloning"></span><h2 id="behavior-cloning">Behavior Cloning</h2>
+<p><strong>回答：</strong></p>
+<p>Behavior Cloning（BC）把专家示教转成监督学习：在专家访问过的观测或状态上，学习输出对应动作或动作分布。对于概率策略，常见目标为：</p>
+<pre><code class="language-math">\mathcal L_{BC}(\theta)=-\mathbb E_{(o,a)\sim D_E}\log\pi_\theta(a\mid o)
+</code></pre>
+<p>确定性连续回归常用均方误差，但在“绕障碍左边或右边都可行”等多峰动作分布下，平均动作可能不可行。使用概率分布、离散 token、扩散等动作建模可缓解表达问题，却不自动解决闭环分布偏移。</p>
+<p>BC 通常不需要显式奖励或环境动力学模型，数据与训练流程相对直接，适合已有高质量示教的任务。它的质量受示教覆盖、动作标注与时间对齐影响，低训练误差不保证真实执行稳定。</p>
+<p>机器人执行中的小偏差可能让策略进入示教中很少出现的状态，此时需要恢复数据、数据聚合或其他闭环改进。评测应在实际策略产生的轨迹上进行，而不是只看专家数据上的预测误差。</p>
+<p><a id="yuanlilingji-embodied-20261013-939528346956726272-q19"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_41">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%8E%9F%E5%8A%9B%E7%81%B5%E6%9C%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L456">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4975136b6752"></a></p>
+<span class="heading-anchor" id="Bellman-Ford Algorithm"></span><h2 id="bellman-ford-algorithm">Bellman-Ford Algorithm</h2>
+<ul>
+<li><em>Bellman-Ford Algorithm</em> is an algorithm that computes the shortest paths from a single source node to all other nodes in a weighted graph</li>
+<li>Although it is slower than Dijkstra's, it is more versatile, as it is capable of handling graphs in which some of the edge weights are
+  negative numbers</li>
+<li>Time Complexity:</li>
+<li>Best Case: <code>O(|E|)</code></li>
+<li>Worst Case: <code>O(|V||E|)</code></li>
+</ul>
+<p><img alt="Alt text" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/images/bellman-ford.gif?raw=true" title="Bellman-Ford"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_42">参考资料</h3>
+<ul>
+<li><a href="https://github.com/kdn251/interviews/blob/03fdcb2703ce72dc0606748733d0c13f09d41d21/README.md#L257">kdn251/interviews</a>，来源许可：MIT。</li>
+</ul>
+<p><a id="k647ee50980a1"></a></p>
+<span class="heading-anchor" id="Bernoulli、Categorical、Binomial、Multinomial 分布分别适合什么场景？"></span><h2 id="bernoullicategoricalbinomialmultinomial">Bernoulli、Categorical、Binomial、Multinomial 分布分别适合什么场景？</h2>
+<p>Bernoulli 分布描述单次二值试验：</p>
+<div class="arithmatex">\[
+P(X=1)=p,\quad P(X=0)=1-p
+\]</div>
+<p>概率质量函数：</p>
+<div class="arithmatex">\[
+P(X=x)=p^x(1-p)^{1-x}
+\]</div>
+<p>适合二分类标签、开关变量、dropout mask。</p>
+<p>Categorical 分布描述单次多类别试验：</p>
+<div class="arithmatex">\[
+P(X=i)=p_i,\quad \sum_i p_i=1
+\]</div>
+<p>适合多分类、token 采样。</p>
+<p>Binomial 分布描述 <span class="arithmatex">\(n\)</span> 次 Bernoulli 试验中成功次数：</p>
+<div class="arithmatex">\[
+P(X=k)=\binom{n}{k}p^k(1-p)^{n-k}
+\]</div>
+<p>Multinomial 分布是 Binomial 的多类别推广，适合词袋模型、类别计数建模。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_43">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%A6%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L846">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7d8178cab834"></a></p>
+<span class="heading-anchor" id="BERTopic 中的 c-TF-IDF 与传统的 TF-IDF 有何不同？这种差异如何帮助改进主题表示的质量？"></span><h2 id="bertopic-c-tf-idf-tf-idf">BERTopic 中的 c-TF-IDF 与传统的 TF-IDF 有何不同？这种差异如何帮助改进主题表示的质量？</h2>
+<p>c-TF-IDF 与传统 TF-IDF 的区别：</p>
+<ul>
+<li>传统 TF-IDF 是针对单个文档计算词频和逆文档频率，用来衡量词在文档中的重要性。</li>
+<li>c-TF-IDF 是针对一个“类”或“主题下的所有文档的集合”来计算词频和逆文档频率，强调词在该主题下的重要性，同时抑制在其他主题中的普遍词。</li>
+</ul>
+<p>c-TF-IDF 可以更准确地找到某个主题的<strong>代表性关键词</strong>，因为它把主题内词频和跨主题词频都考虑进去了。这样主题关键词更具区分性，不容易被在所有主题中都出现的高频词干扰。因此，c-TF-IDF 提升了主题的清晰度和区分度，使得主题表示更精准、更有意义。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_44">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L136">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kae9e894f2778"></a></p>
+<span class="heading-anchor" id="bf16、fp16和fp32，并进行计算。"></span><h2 id="bf16fp16fp32">bf16、fp16和fp32，并进行计算。</h2>
+<p><strong>回答：</strong></p>
+<p>FP32 使用 1 位符号、8 位指数、23 位尾数；FP16 使用 1/5/10；BF16 使用 1/8/7。BF16 与 FP32 指数范围相同，适合大模型训练的动态范围，但精度低于 FP16；FP16 精度相对更高但更容易溢出，通常需要 loss scaling。存储大小分别为 4、2、2 字节。</p>
+<p>计算时要说明舍入、溢出、下溢和累加精度。混合精度训练一般让矩阵乘用 BF16/FP16，关键归约、优化器状态或 Master Weight 保持 FP32，不能只按“参数个数乘 2”判断整个训练显存。</p>
+<p><a id="tencent-llm-collection-20260903-q31"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_45">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L659">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0eed0903a476"></a></p>
+<span class="heading-anchor" id="BFM 和 FLAME 有什么区别？"></span><h2 id="bfm-flame">BFM 和 FLAME 有什么区别？</h2>
+<p>BFM 和 FLAME 都属于三维人脸/头部统计模型，但建模范围和目标不同。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>BFM</th>
+<th>FLAME</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全称</td>
+<td>Basel Face Model</td>
+<td>Faces Learned with an Articulated Model and Expressions</td>
+</tr>
+<tr>
+<td>建模对象</td>
+<td>主要是人脸区域</td>
+<td>完整头部，包含脸、头颅、脖子等</td>
+</tr>
+<tr>
+<td>重点</td>
+<td>身份形状和纹理统计空间</td>
+<td>头部姿态、脖子、眼球、下颌和表情动画</td>
+</tr>
+<tr>
+<td>动画能力</td>
+<td>经典 BFM 本身偏静态</td>
+<td>更适合表情和头部动画</td>
+</tr>
+<tr>
+<td>纹理</td>
+<td>通常包含纹理空间</td>
+<td>原始 FLAME 更偏几何，可与纹理模型结合</td>
+</tr>
+<tr>
+<td>数字人应用</td>
+<td>人脸重建、身份拟合、纹理建模</td>
+<td>Talking head、表情驱动、头部 avatar、可控视频生成</td>
+</tr>
+</tbody>
+</table></div>
+<p>简洁回答：</p>
+<p>BFM 更像一个经典的人脸形状/纹理统计模型；FLAME 更像一个适合动画驱动的完整头部参数化模型，显式考虑脖子、下颌、眼球和表情。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L201">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4db29a01535d"></a></p>
+<span class="heading-anchor" id="bi-encoder 和 cross-encoder 有什么区别？"></span><h2 id="bi-encoder-cross-encoder">bi-encoder 和 cross-encoder 有什么区别？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型类型</th>
+<th>工作方式</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>bi-encoder</td>
+<td>query 和文档分别编码，再算相似度</td>
+<td>可预计算文档向量，检索快,大规模召回</td>
+<td>交互建模弱，精排能力有限</td>
+</tr>
+<tr>
+<td>cross-encoder</td>
+<td>query 和文档拼接后共同编码打分</td>
+<td>相关性判断更准确，小候选集重排序</td>
+<td>计算成本高，难以全库检索</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_47">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/05_%E6%8F%90%E7%A4%BA%E5%B7%A5%E7%A8%8B%EF%BC%9A%E5%BA%94%E7%94%A8%E5%A4%A7%E6%A8%A1%E5%9E%8B%E7%9A%84%E9%AB%98%E7%BA%A7%E6%96%B9%E6%B3%95.md#L887">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka98dec93130a"></a></p>
+<span class="heading-anchor" id="bin模型"></span><h2 id="bin">bin模型</h2>
+<p>1) 通常是一种通用的二进制格式文件，它可以用来存储任意类型的数据。
+2) 在机器学习领域，.bin 文件有时用于存储模型权重或其他二进制数据，但并不特指PyTorch的官方标准格式。
+3) 对于PyTorch而言，如果用户自己选择将模型权重以二进制格式保存，可能会使用 .bin 扩展名，加载时需要自定义逻辑读取和应用这些权重到模型结构中。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_48">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L1316">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k59b41958ea8d"></a></p>
+<span class="heading-anchor" id="Blend Shape 和 LBS 在 SMPL 中分别解决什么问题？"></span><h2 id="blend-shape-lbs-smpl">Blend Shape 和 LBS 在 SMPL 中分别解决什么问题？</h2>
+<p><strong>Blend Shape</strong> 负责“形变”，<strong>LBS</strong> 负责“摆姿态”。</p>
+<p>SMPL 中常见变形可以写成：</p>
+<div class="arithmatex">\[
+T_P(\beta,\theta) = \bar{T} + B_S(\beta) + B_P(\theta)
+\]</div>
+<p>其中：</p>
+<ul>
+<li><span class="arithmatex">\(\bar{T}\)</span> 是模板人体。</li>
+<li><span class="arithmatex">\(B_S(\beta)\)</span> 是 shape blend shape，表示体型变化。</li>
+<li><span class="arithmatex">\(B_P(\theta)\)</span> 是 pose blend shape，表示姿态导致的局部修正。</li>
+</ul>
+<p>然后通过线性混合蒙皮把顶点变换到目标姿态：</p>
+<div class="arithmatex">\[
+v_i' = \sum_k w_{ik}G_k(\theta, J(\beta))v_i
+\]</div>
+<ul>
+<li><span class="arithmatex">\(w_{ik}\)</span> 是第 <span class="arithmatex">\(i\)</span> 个顶点受第 <span class="arithmatex">\(k\)</span> 个关节影响的权重。</li>
+<li><span class="arithmatex">\(G_k\)</span> 是第 <span class="arithmatex">\(k\)</span> 个关节的全局变换矩阵。</li>
+<li><span class="arithmatex">\(J(\beta)\)</span> 是由体型决定的关节位置。</li>
+</ul>
+<p><strong>LBS 的问题：</strong></p>
+<p>传统 LBS 容易出现关节塌陷、糖纸扭曲等伪影。SMPL 通过 pose blend shapes 学习姿态相关修正，使弯肘、抬腿、扭腰等动作更加自然。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_49">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L331">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k28d2067fcfda"></a></p>
+<span class="heading-anchor" id="ByteTrack 为什么说低分检测框也有价值？"></span><h2 id="bytetrack">ByteTrack 为什么说低分检测框也有价值？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>ByteTrack 的关键洞察是：低置信度检测框不一定都是背景，有很多是真实目标在遮挡、模糊、小尺度情况下的检测结果。如果只保留高分框，会导致轨迹断裂。</p>
+<p>ByteTrack 将检测框分成两组：</p>
+<ul>
+<li><strong>高分检测框</strong>：优先与已有轨迹匹配；</li>
+<li><strong>低分检测框</strong>：在高分框匹配后，再尝试与未匹配轨迹进行二次匹配。</li>
+</ul>
+<p>这样可以恢复部分被遮挡目标，减少漏检和轨迹中断。同时，低分框不会直接初始化新轨迹，从而降低误检带来的错误轨迹。</p>
+<p>面试中可以这样回答：</p>
+<blockquote>
+<p>ByteTrack 的重点不是发明复杂网络结构，而是重新思考数据关联策略：低分框对新目标初始化不可靠，但对已有轨迹的遮挡恢复很有价值。</p>
+</blockquote>
+<p>这类思想对 AIGC 视频分析也很有启发：生成视频中角色可能出现模糊、闪烁、局部遮挡，如果过早丢弃低置信度检测结果，会影响角色一致性评估。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_50">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E7%9B%AE%E6%A0%87%E8%B7%9F%E8%B8%AA%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L142">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4e53d6a2c30f"></a></p>
+<span class="heading-anchor" id="chunk overlap 的作用和风险是什么？"></span><h2 id="chunk-overlap">chunk overlap 的作用和风险是什么？</h2>
+<p>overlap 用于减少边界信息丢失，让相邻 chunk 共享部分上下文。它对长句、跨段落定义和表格说明有帮助。但 overlap 过大会造成重复内容增多、索引膨胀、检索结果冗余、成本上升，并可能让模型在上下文中看到重复证据。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_51">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/05_%E6%8F%90%E7%A4%BA%E5%B7%A5%E7%A8%8B%EF%BC%9A%E5%BA%94%E7%94%A8%E5%A4%A7%E6%A8%A1%E5%9E%8B%E7%9A%84%E9%AB%98%E7%BA%A7%E6%96%B9%E6%B3%95.md#L739">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kac71feba1002"></a></p>
+<span class="heading-anchor" id="chunk size 太大有什么问题？太小有什么问题？"></span><h2 id="chunk-size">chunk size 太大有什么问题？太小有什么问题？</h2>
+<p>chunk 太大会包含多个主题，embedding 表示会被稀释，检索命中后也可能把大量无关内容塞进上下文。降低检索精度，增加 token 成本，并干扰模型聚焦关键证据。</p>
+<p>chunk 太小会丢失上下文，导致召回片段虽然包含关键词，却缺少完整条件。小 chunk 还会增加索引数量、检索噪声和重排序成本。对于需要整段内容或条款解释的任务，过小分块会明显影响答案质量。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_52">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/05_%E6%8F%90%E7%A4%BA%E5%B7%A5%E7%A8%8B%EF%BC%9A%E5%BA%94%E7%94%A8%E5%A4%A7%E6%A8%A1%E5%9E%8B%E7%9A%84%E9%AB%98%E7%BA%A7%E6%96%B9%E6%B3%95.md#L733">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k318169f4a6ba"></a></p>
+<span class="heading-anchor" id="Clash 的 TUN 模式为什么看起来像 VPN"></span><h2 id="clash-tun-vpn">Clash 的 TUN 模式为什么看起来像 VPN</h2>
+<p>两者都可能创建虚拟网卡、修改路由并透明接管应用流量，所以操作体验相似。但传统 VPN 的核心抽象通常是把设备接入一个远端私有网络，强调网络层隧道、地址分配和对端网络路由；Clash 类 TUN 客户端则更强调把本机 IP 流量转换为连接，再执行按域名、IP、进程等规则选择不同出站。它可以表现得像 VPN 客户端，但内部策略模型更接近“透明的规则代理”。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_53">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E4%BB%A3%E7%90%86%E3%80%81%E9%9A%A7%E9%81%93%E4%B8%8EVPN%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L290">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2f5688a811df"></a></p>
+<span class="heading-anchor" id="Classifier-Free Guidance 的数学形式是什么？为什么 CFG scale 过大会失真？"></span><h2 id="classifier-free-guidance-cfg-scale">Classifier-Free Guidance 的数学形式是什么？为什么 CFG scale 过大会失真？</h2>
+<p>Classifier-Free Guidance 同时训练条件和无条件预测。以噪声预测为例：</p>
+<div class="arithmatex">\[
+\hat{\epsilon}=\epsilon_{\theta}(x_t,\varnothing,t)+s\left(\epsilon_{\theta}(x_t,c,t)-\epsilon_{\theta}(x_t,\varnothing,t)\right)
+\]</div>
+<p>其中 <span class="arithmatex">\(s\)</span> 是 guidance scale。</p>
+<p>直觉：无条件分支给出“自然图像先验”，条件分支给出“满足文本条件的方向”，二者差值代表条件引导方向。</p>
+<p>当 <span class="arithmatex">\(s\)</span> 过大时：</p>
+<ul>
+<li>模型过度追逐条件方向。</li>
+<li>样本可能偏离真实数据流形。</li>
+<li>容易出现过饱和、纹理失真、构图僵硬、多样性下降。</li>
+</ul>
+<p>工程上常通过动态 CFG、阈值裁剪、降低 scale、改进 prompt 或使用更强文本图像对齐模型缓解。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_54">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%A6%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1584">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9aece8dc389c"></a></p>
+<span class="heading-anchor" id="claude code 了解哪些"></span><h2 id="claude-code">claude code 了解哪些</h2>
+<p><strong>回答：</strong></p>
+<p>对 Claude Code 的理解应基于公开文档和可观察工作流：它是面向代码仓库的 Agent，核心不是一个单独的聊天窗口，而是模型在受控工具集合中进行文件读取、搜索、编辑、命令执行、测试和多轮修复。它通常优先使用精确的文件/文本检索，再把必要上下文送给模型；这与把整个代码库预先向量化并不矛盾。</p>
+<p>回答时要区分模型、CLI Host、工具协议、权限沙箱、上下文管理和任务循环，不要声称掌握未公开的完整内部源码。</p>
+<p><a id="tencent-llm-collection-20260903-q53"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_55">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L885">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8c860dd61477"></a></p>
+<span class="heading-anchor" id="Claude Code、Codex、Cursor、Devin、Jules 代表什么趋势？"></span><h2 id="claude-codecodexcursordevinjules">Claude Code、Codex、Cursor、Devin、Jules 代表什么趋势？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>这些工具代表 Agent 在软件工程中的产品化。</p>
+<p>共同趋势：</p>
+<ul>
+<li>从“代码补全”走向“任务执行”。</li>
+<li>从单文件编辑走向仓库级理解。</li>
+<li>从聊天窗口走向 IDE/CLI/云端工作区。</li>
+<li>从建议代码走向运行测试、修 bug、提 PR。</li>
+<li>从单 Agent 走向子 Agent、技能、hooks、项目说明文件。</li>
+<li>从一次性对话走向会话恢复、记忆和长期任务。</li>
+</ul>
+<p>核心能力：</p>
+<ul>
+<li>代码搜索和索引。</li>
+<li>文件读写和 diff。</li>
+<li>Shell/测试/构建执行。</li>
+<li>Git 操作。</li>
+<li>权限审批。</li>
+<li>上下文压缩。</li>
+<li>项目级指令。</li>
+<li>工具结果摘要。</li>
+<li>远程会话和 IDE 桥接。</li>
+</ul>
+<p>编码 Agent 是 Agent 工程最成熟的落地场景之一，因为软件仓库天然具备可验证反馈：编译、测试、lint、diff、CI。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_56">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L522">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9cb472b911d4"></a></p>
+<span class="heading-anchor" id="cnn能不能做语言模型"></span><h2 id="cnn">cnn能不能做语言模型</h2>
+<p><strong>回答：</strong></p>
+<p>可以。语言模型定义的是序列概率或条件概率，不限定主干必须是 Transformer。因果 CNN 只卷积当前位置及左侧历史，再用输出分布预测下一个 token，就能构成自回归语言模型；训练时所有位置可并行计算。</p>
+<p>普通 stride 为 1、核宽 $<code>k</code>$ 的 $<code>L</code>$ 层卷积，感受野约为 $<code>1+L(k-1)</code>$；采用扩张卷积可更快扩大覆盖。未来位置必须用因果 padding 或掩码隔离，否则训练时会泄漏答案。</p>
+<p>局限是长距离关系依赖固定感受野与卷积结构，不像注意力能直接按内容连接远处 token。CNN 能做语言模型，与它是不是当前通用大模型的主流方案，是两个问题。</p>
+<p><a id="jd-damodel-20251211-20260205-p3-q10"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_57">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L483">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7ae63d082873"></a></p>
+<span class="heading-anchor" id="coding一道并解释代码"></span><h2 id="coding">coding一道并解释代码</h2>
+<p><strong>回答：</strong></p>
+<p>题目没有给出 coding 的具体输入、输出或代码，无法还原唯一算法与现场执行结果。应先澄清数据类型、规模、是否可修改输入、异常约定和期望复杂度，再进行实现。</p>
+<p>解释代码时围绕状态不变量和关键分支：每个变量保存什么，循环前后满足什么条件，为什么不会遗漏或重复。若是前端功能，再解释事件触发、状态变更、异步取消、卸载清理和 DOM 更新时机。</p>
+<p>验证至少覆盖正常流程、空输入、极值与重复操作。没有具体题面时，不能随意指定一道算法题并声称它就是现场手撕内容。</p>
+<p><a id="jd-damodel-20251211-20260205-p5-q17"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_58">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L784">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0448fbab16d3"></a></p>
+<span class="heading-anchor" id="Coding：和为 K 的连续子数组个数"></span><h2 id="coding-k">Coding：和为 K 的连续子数组个数</h2>
+<p><strong>回答：</strong></p>
+<p>这题的关键不是维护一个不断扩缩的数值窗口，而是把区间和转化为两个前缀和之差，再统计所需历史前缀出现过多少次。数组允许负数时，普通按大小收缩的滑动窗口缺少单调性，不能直接套用。</p>
+<p>后续追问依次给出数学关系、从枚举到哈希计数的优化，以及实现与验证。</p>
+<p><a id="baidu-aigc-multimodal-agent-20260922-20260924-r2-q12-1"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_59">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2071">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kaaf7317e2715"></a></p>
+<span class="heading-anchor" id="Coding：滑动窗口最大值"></span><h2 id="coding_1">Coding：滑动窗口最大值</h2>
+<p><strong>回答：</strong></p>
+<p>维护一个保存下标的单调双端队列，使对应值从队首到队尾严格递减。队首始终是当前窗口的最大值；下标用于识别元素是否已经滑出窗口。</p>
+<p>处理新元素 <code>nums[i]</code> 时，先移除下标不在窗口内的队首，再移除队尾所有不大于新元素的候选，最后把 <code>i</code> 入队。被新元素淘汰的旧元素既不更大，又更早过期，所以不可能在未来包含新元素的窗口中重新成为更优候选。</p>
+<pre><code class="language-python">from collections import deque
+
+def sliding_window_max(nums, k):
+    if not 1 &lt;= k &lt;= len(nums):
+        raise ValueError("require 1 &lt;= k &lt;= len(nums)")
+    q = deque()
+    result = []
+    for i, x in enumerate(nums):
+        while q and q[0] &lt;= i - k:
+            q.popleft()
+        while q and nums[q[-1]] &lt;= x:
+            q.pop()
+        q.append(i)
+        if i &gt;= k - 1:
+            result.append(nums[q[0]])
+    return result
+</code></pre>
+<p>示例 <code>[1,3,-1,-3,5,3,6,7]</code>、<code>k=3</code> 返回 <code>[3,3,5,5,6,7]</code>。需要额外检查 <code>k=1</code>、<code>k=n</code>、重复值、全负数，以及递增和递减输入。相同值保留较新的下标，可延长候选有效期；若采用另一种相等值处理策略，也必须保证过期判断正确。</p>
+<p>每个下标最多入队一次、出队一次，因此总时间为 <span class="arithmatex">\(O(n)\)</span>，不是每轮都需要 <span class="arithmatex">\(O(k)\)</span>。队列额外空间为 <span class="arithmatex">\(O(k)\)</span>；输出本身另占 <span class="arithmatex">\(O(n-k+1)\)</span>。这里明确将空数组或非法窗口大小视为错误，实际实现应与题目接口约定一致。</p>
+<p>可以用 <code>[1,3,3,-1,5]</code>、<code>k=3</code> 逐步检查队列。处理第二个 <code>3</code> 时，旧 <code>3</code> 会被淘汰，保留较新下标；第一个窗口的答案仍为 <code>3</code>。读入 <code>5</code> 后，队尾的 <code>-1</code> 和 <code>3</code> 都被淘汰，后续答案为 <code>5</code>。单轮可能弹出多个元素，但总弹出次数不超过入队次数，这才是线性复杂度的依据。</p>
+<p><a id="baidu-aigc-multimodal-agent-20260922-20260924-r2-q12"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_60">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2037">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kab4695cd2cd9"></a></p>
+<span class="heading-anchor" id="Computer Use 操作本地电脑的大致实现机制是什么？"></span><h2 id="computer-use">Computer Use 操作本地电脑的大致实现机制是什么？</h2>
+<p><strong>回答：</strong></p>
+<p>本地运行执行器，模型可以在本地或远端推理。执行器采集屏幕截图，也可读取可访问性树或应用状态；模型返回点击、输入、滚动、按键等结构化动作；执行器校验动作、坐标和权限后调用操作系统接口，再将新观察返回模型。</p>
+<p>需要明确截图坐标与实际屏幕坐标的关系。若截图经过裁剪和缩放，则：</p>
+<pre><code class="language-math">x_{\mathrm{screen}}=x_0+x_{\mathrm{image}}\frac{W_{\mathrm{crop}}}{W_{\mathrm{image}}},\qquad
+y_{\mathrm{screen}}=y_0+y_{\mathrm{image}}\frac{H_{\mathrm{crop}}}{H_{\mathrm{image}}}.
+</code></pre>
+<p>其中 $<code>(x_0,y_0)</code>$ 是裁剪区域起点。还要处理 Retina/DPI、多显示器、窗口移动与缩放；屏幕状态改变后，旧截图中的坐标可能失效。</p>
+<p>执行控制包括前台窗口确认、等待界面稳定、动作超时、步数预算、取消、重复操作检测和执行后验证。读取截图失败与点击超时不能同样重试，后者可能已经发生副作用。敏感动作应先读回状态，再决定是否重试。</p>
+<p>macOS 通常涉及屏幕录制与辅助功能权限；其他系统使用各自的桌面自动化接口。凭据应由受控机制管理，截图和日志需考虑隐私。当地运行电脑并不意味着截图和文件不会发到远端，数据流向取决于推理与工具配置。</p>
+<p><a id="bytedance-agent-autumn-20260916-q15"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_61">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1440">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb4252ce186ec"></a></p>
+<span class="heading-anchor" id="Copy-Paste 现象是什么？如何缓解？"></span><h2 id="copy-paste">Copy-Paste 现象是什么？如何缓解？</h2>
+<p>Copy-Paste 指模型不是学习“身份在不同姿态/表情/光照下如何保持”，而是直接复制参考脸的局部外观，导致输出看起来像贴图，表情僵硬、角度不自然、可编辑性差。</p>
+<p>原因：</p>
+<ul>
+<li>训练数据多为同图重建，缺少同 ID 不同姿态/表情配对。</li>
+<li>ID 条件过强，模型把非身份因素也编码进 ID token。</li>
+<li>缺少显式解耦，表情、姿态、光照与身份混在一起。</li>
+</ul>
+<p>缓解方法：</p>
+<ul>
+<li>多图同 ID 数据训练。</li>
+<li>DropToken/DropPath 解耦 ID 与结构细节。</li>
+<li>对比损失约束有无 ID 条件路径。</li>
+<li>延迟 ID 注入，前期生成结构，后期补身份细节。</li>
+<li>使用 face parsing/mask 限制 ID 条件作用区域。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_62">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L432">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka2ab045f9ed4"></a></p>
+<span class="heading-anchor" id="Cross Entropy、KL 散度和最大似然之间有什么关系？"></span><h2 id="cross-entropykl">Cross Entropy、KL 散度和最大似然之间有什么关系？</h2>
+<p>交叉熵：</p>
+<div class="arithmatex">\[
+H(P,Q)=-\sum_x P(x)\log Q(x)
+\]</div>
+<p>KL 散度：</p>
+<div class="arithmatex">\[
+D_{KL}(P\|Q)=\sum_x P(x)\log\frac{P(x)}{Q(x)}
+\]</div>
+<p>展开 KL：</p>
+<div class="arithmatex">\[
+D_{KL}(P\|Q)=\sum_x P(x)\log P(x)-\sum_x P(x)\log Q(x)
+\]</div>
+<p>因为：</p>
+<div class="arithmatex">\[
+H(P)=-\sum_xP(x)\log P(x)
+\]</div>
+<p>所以：</p>
+<div class="arithmatex">\[
+D_{KL}(P\|Q)=H(P,Q)-H(P)
+\]</div>
+<p>即：</p>
+<div class="arithmatex">\[
+H(P,Q)=H(P)+D_{KL}(P\|Q)
+\]</div>
+<p>当真实分布 <span class="arithmatex">\(P\)</span> 固定时，<span class="arithmatex">\(H(P)\)</span> 与模型无关，最小化交叉熵等价于最小化 <span class="arithmatex">\(D_{KL}(P\|Q)\)</span>。</p>
+<p>经验分布下：</p>
+<div class="arithmatex">\[
+\hat{P}(x)=\frac{1}{N}\sum_i\delta(x-x_i)
+\]</div>
+<p>最小化交叉熵：</p>
+<div class="arithmatex">\[
+-\frac{1}{N}\sum_i\log q_{\theta}(x_i)
+\]</div>
+<p>等价于最大似然估计。</p>
+<p><strong>一句话总结：</strong></p>
+<p>最大似然、交叉熵训练、最小化真实分布到模型分布的 KL，在监督学习和语言模型预训练中本质上是同一件事的不同表述。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_63">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/02_AIGC%E6%95%B0%E5%AD%A6%E5%85%AC%E5%BC%8F%E6%8E%A8%E5%AF%BC%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L357">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc4d8e2c347f0"></a></p>
+<span class="heading-anchor" id="CTC主要解决的问题是什么？"></span><h2 id="ctc">CTC主要解决的问题是什么？</h2>
+<p>CTC主要解决的是<strong>输出序列和标签对应不上的问题</strong>，RNN进行时序分类时，不可避免地会出现很多冗余信息，比如一个字母被连续识别两次，这时候就需要一个去冗余机制。
+举个例子，当一个标签为ab的图像输入到CRNN中，经过RNN后得到了长度为5的序列向量， 前面三个序列向量都映射为“a”，后面两个映射为“b”，即得到输出为aaabb，
+如果直接将重复的字符合并去除的话得到的结果就为ab，但是当如果标签之间也存在连续字符时，例如aab，将连续a去除后就得到了ab，这显然是不对的，
+所以<strong>CTC引入了blank机制</strong>，以“-”符号代表blank，若标签为aaaaaabb，则结果为ab，若标签为aaa-aaaabb，则结果为aab。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_64">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/OCR%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L68">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k11a40c5eeb4f"></a></p>
+<span class="heading-anchor" id="DBNet 为什么是文本检测中的高频模型？"></span><h2 id="dbnet">DBNet 为什么是文本检测中的高频模型？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>DBNet 是文本检测中非常高频的模型，核心思想是将文本区域检测建模为可微分二值化的分割问题。</p>
+<p>传统分割式文本检测需要先预测文本概率图，再通过阈值二值化得到文本区域，但固定阈值不可学习，容易受场景影响。DBNet 引入 Differentiable Binarization，让二值化过程近似可导，从而让网络学习更合适的文本边界。</p>
+<p>DBNet 的优势：</p>
+<ul>
+<li>对任意形状文本更友好，适合弯曲文本和多方向文本；</li>
+<li>检测速度较快，工程部署成熟；</li>
+<li>文本边界质量较好，适合与 CRNN/SVTR 等识别器组合；</li>
+<li>在通用 OCR 框架中经常作为检测基础模型。</li>
+</ul>
+<p>面试中可以概括为：</p>
+<blockquote>
+<p>DBNet 的价值在于把文本检测中的后处理阈值问题融入训练过程，使文本区域分割与二值化边界更一致。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_65">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/OCR%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L200">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k14ab96667e98"></a></p>
+<span class="heading-anchor" id="DECA、EMOCA、MICA、3DDFA、Deep3DFaceRecon 的路线如何区分？"></span><h2 id="decaemocamica3ddfadeep3dfacerecon">DECA、EMOCA、MICA、3DDFA、Deep3DFaceRecon 的路线如何区分？</h2>
+<p>这些方法都服务于 3D 人脸重建，但目标侧重点不同。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>主要特点</th>
+<th>适合理解成</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3DDFA/3DDFA-V2</td>
+<td>快速密集人脸对齐，偏实时鲁棒</td>
+<td>工程友好的人脸 3D 对齐方法</td>
+</tr>
+<tr>
+<td>Deep3DFaceRecon</td>
+<td>基于 3DMM 的深度人脸重建，常用于身份、姿态、光照估计</td>
+<td>经典 3DMM 回归路线</td>
+</tr>
+<tr>
+<td>DECA</td>
+<td>基于 FLAME，强调细节表情捕捉和可动画细节</td>
+<td>高质量人脸细节重建</td>
+</tr>
+<tr>
+<td>EMOCA</td>
+<td>在 DECA 基础上更重视情绪和表情语义</td>
+<td>表情感知的人脸重建</td>
+</tr>
+<tr>
+<td>MICA</td>
+<td>强调身份级高精度几何，常与 FLAME 结合</td>
+<td>更稳定的身份形状估计</td>
+</tr>
+</tbody>
+</table></div>
+<p>面试中可以这样概括：</p>
+<ul>
+<li><strong>3DDFA</strong> 偏快速对齐和稳定姿态。</li>
+<li><strong>Deep3DFaceRecon</strong> 偏标准 3DMM 参数估计。</li>
+<li><strong>DECA/EMOCA</strong> 偏细节、表情和可动画 Avatar。</li>
+<li><strong>MICA</strong> 偏身份形状的准确性和跨图一致性。</li>
+</ul>
+<p>真实系统经常组合使用：先做人脸检测和关键点，再估计 3DMM/FLAME 参数，最后用神经渲染或扩散模型增强纹理细节。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_66">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/05_3D%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8E%E5%8F%AF%E5%BE%AE%E6%B8%B2%E6%9F%93%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L218">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k32d4baa49c11"></a></p>
+<span class="heading-anchor" id="DeepFakes、FaceSwap、FaceShifter、SimSwap、HiFiFace 的核心差异是什么？"></span><h2 id="deepfakesfaceswapfaceshiftersimswaphififace">DeepFakes、FaceSwap、FaceShifter、SimSwap、HiFiFace 的核心差异是什么？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>核心思路</th>
+<th>优势</th>
+<th>局限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepFakes/AutoEncoder</td>
+<td>为源/目标身份训练自编码器或共享编码器</td>
+<td>概念简单，早期效果直观</td>
+<td>每个身份需训练，泛化弱</td>
+</tr>
+<tr>
+<td>FaceSwap 传统路线</td>
+<td>检测对齐、人脸重建、颜色融合</td>
+<td>工程可控</td>
+<td>高保真和大姿态有限</td>
+</tr>
+<tr>
+<td>FaceShifter</td>
+<td>身份编码 + 属性编码 + 自适应融合</td>
+<td>一次训练可泛化多身份</td>
+<td>遮挡和边界需额外处理</td>
+</tr>
+<tr>
+<td>SimSwap</td>
+<td>ArcFace 身份特征 + 弱特征匹配</td>
+<td>高效、泛化好、实时友好</td>
+<td>极端角度和细节仍有限</td>
+</tr>
+<tr>
+<td>HiFiFace</td>
+<td>强调 3D 形状感知和高保真身份</td>
+<td>细节和身份更强</td>
+<td>模型与训练更复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>面试总结：</p>
+<p>早期 DeepFakes 是 per-identity 训练；FaceShifter/SimSwap 进入 one-shot 泛化换脸；HiFiFace 等方法进一步增强 3D 几何和高保真细节。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_67">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E6%95%B0%E5%AD%97%E4%BA%BA%E5%9F%BA%E7%A1%80/06_GAN%E6%95%B0%E5%AD%97%E4%BA%BA%E4%B8%8EAIGC%E5%89%8D%E6%B2%BF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L371">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3cc93b4c955e"></a></p>
+<span class="heading-anchor" id="DeepSeek-R1 为什么要经历 R1-Zero、冷启动和多阶段 RL？"></span><h2 id="deepseek-r1-r1-zero-rl">DeepSeek-R1 为什么要经历 R1-Zero、冷启动和多阶段 RL？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>R1-Zero 的实验说明：对可自动验证的任务直接做大规模强化学习，模型可以出现自检、回溯和更长推理链；但纯 RL 轨迹也会出现可读性、语言混杂和格式稳定性问题。R1 因此先加入少量高质量冷启动推理数据，再做面向推理的 RL、拒绝采样与覆盖更广任务的后训练。</p>
+<p>组相对策略优化（Group Relative Policy Optimization，GRPO）的常见形式是<strong>在同一题的 <span class="arithmatex">\(G\)</span> 个采样答案间构造相对优势</strong>，随后用带 KL 约束的策略目标提高 <span class="arithmatex">\(A_i\)</span> 大的轨迹概率。</p>
+<div class="arithmatex">\[
+A_i=\frac{r_i-\mathrm{mean}(r_{1:G})}{\mathrm{std}(r_{1:G})+\epsilon}.
+\]</div>
+<p><a id="sota-section-49-question-03"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_68">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/%E8%A1%A5%E5%85%85%E8%B5%84%E6%96%99%EF%BC%9ASOTA%E6%A8%A1%E5%9E%8B%E5%88%86%E6%9E%90.md#L196">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdab7e8b3a4c7"></a></p>
+<span class="heading-anchor" id="DeepSeek-V4对比V3版本的核心技术迭代与能力升级"></span><h2 id="deepseek-v4v3">DeepSeek-V4对比V3版本的核心技术迭代与能力升级</h2>
+<p><strong>回答：</strong></p>
+<p>这道题首先要做事实边界声明：截至当前可核验的公开资料，不能把“DeepSeek-V4”的具体参数规模、架构改动、训练数据、OPD 占比或能力指标当作已经确认的官方事实。面试中如果题目来自内部材料，应明确区分“公开已证实”“论文/代码可复现”和“根据题干做的设计推断”，不能为了回答完整而编造版本对比表。</p>
+<p>如果只讨论合理的技术演进方向，可以从五个维度比较：模型结构与 MoE 路由；上下文和多模态能力；数据配比与后训练目标；Agent 工具/环境交互能力；推理效率、量化和服务化。每一项都要有公开实验或内部评测支撑，指标应覆盖知识、推理、代码、工具调用、长上下文、成本和安全，而不是只报告一个榜单分数。</p>
+<p><a id="tencent-llm-collection-20260903-q13"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_69">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L448">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfe67be52415f"></a></p>
+<span class="heading-anchor" id="DeepSORT 相比 SORT 改进了什么？"></span><h2 id="deepsort-sort">DeepSORT 相比 SORT 改进了什么？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>DeepSORT 在 SORT 的基础上加入了外观特征（Appearance Embedding），本质是将 ReID 思想引入多目标跟踪。</p>
+<p>SORT 主要使用运动信息和 IoU 匹配，DeepSORT 同时考虑：</p>
+<ul>
+<li><strong>运动距离</strong>：Kalman Filter 预测位置与检测框之间的马氏距离；</li>
+<li><strong>外观距离</strong>：目标 ReID embedding 的余弦距离；</li>
+<li><strong>级联匹配</strong>：优先匹配最近刚出现过的轨迹，提高短期关联稳定性。</li>
+</ul>
+<p>DeepSORT 适合人员跟踪、车辆跟踪等外观可区分场景。它的核心价值是降低遮挡后目标重现时的 ID Switch。</p>
+<p>但 DeepSORT 也有局限：</p>
+<ul>
+<li>ReID 模型质量强依赖训练数据；</li>
+<li>外观相似目标仍然容易混淆；</li>
+<li>复杂场景下仅靠检测框和 ReID embedding 不足以解决长期遮挡；</li>
+<li>端到端联合优化能力弱。</li>
+</ul>
+<p>在实际项目中，如果检测器足够强、目标遮挡不严重，ByteTrack/BoT-SORT 常比原始 DeepSORT 更简洁有效。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_70">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BB%8F%E5%85%B8%E6%A8%A1%E5%9E%8B/%E7%9B%AE%E6%A0%87%E8%B7%9F%E8%B8%AA%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L118">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke0b4ffaef32b"></a></p>
+<span class="heading-anchor" id="deepspeed的三个阶段"></span><h2 id="deepspeed">deepspeed的三个阶段</h2>
+<p><strong>回答：</strong></p>
+<p>这里通常指 DeepSpeed ZeRO 的三个阶段。它们都利用数据并行，但逐步减少每张 GPU 必须完整保存的训练状态：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>分片对象</th>
+<th>每张 GPU 仍保留</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ZeRO-1</td>
+<td>优化器状态</td>
+<td>完整模型参数与完整梯度</td>
+</tr>
+<tr>
+<td>ZeRO-2</td>
+<td>优化器状态、梯度</td>
+<td>完整模型参数</td>
+</tr>
+<tr>
+<td>ZeRO-3</td>
+<td>优化器状态、梯度、模型参数</td>
+<td>当前计算所需的参数分片或临时聚合</td>
+</tr>
+</tbody>
+</table></div>
+<p>设参数量为 <span class="arithmatex">\(P\)</span>，混合精度训练还需保存参数、梯度和优化器状态，朴素数据并行中每卡都复制这些内容；ZeRO 通过在 <span class="arithmatex">\(D\)</span> 张卡之间分片，使理想状态下每卡的持久化状态规模近似按 <span class="arithmatex">\(1/D\)</span> 缩减，但实际还会有通信 buffer、临时 all-gather、激活和框架开销。</p>
+<p>ZeRO-1 通信和实现风险较低，适合优化器状态占比很大的训练；ZeRO-2 进一步节省梯度显存；ZeRO-3 最省显存，可训练更大的模型，但参数在层计算前后需要聚合和释放，通信、配置复杂度和小 batch 性能代价更高。ZeRO-Infinity 还可以把部分状态卸载到 CPU/NVMe，但会受 PCIe、内存带宽和 I/O 影响。</p>
+<p>需要区分 ZeRO 与 Tensor Parallel、Pipeline Parallel：ZeRO 主要分片数据并行中的训练状态，TP/PP 主要切分模型计算和层；它们可以组合。选择时要综合模型大小、序列长度、GPU 数量、互联带宽、checkpoint 需求和吞吐目标，而不是默认 ZeRO-3 一定最好。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_71">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L481">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcc23832fee70"></a></p>
+<span class="heading-anchor" id="distribution shift"></span><h2 id="distribution-shift">distribution shift</h2>
+<p><strong>回答：</strong></p>
+<p>这里至少包含两种偏移：外部环境改变造成的域偏移，以及策略动作改变后续状态、导致训练和执行访问不同状态的闭环偏移。模仿学习中第二种尤其重要。</p>
+<p>BC 在专家状态分布 d_E 上学习，部署则访问自身策略诱导的分布 d_π。一步小误差可能把机器人带到陌生位置，再产生更大误差；即使相机和任务完全不变，也可能发生这种偏移。</p>
+<p>DAgger 的典型思路是让学习策略参与收集状态，在这些访问到的状态上查询专家动作，将数据加入训练集后迭代更新。具体训练过程可以采用专家与学习策略混合执行；真机应用要考虑专家可用性与试错约束。</p>
+<p>还可用恢复示教、相关扰动增强、域随机化、失败检测与受控交互改善覆盖。图像增强主要改变观测，不等于已经解决错误动作带来的状态分布变化；离线数据重采样也不能创造完全未覆盖的恢复动作。</p>
+<p>实验时分别测试未见视觉条件、动作扰动后的恢复、长时序成功率与接管次数，从而判断实际修复的是哪一种偏移。</p>
+<p><img alt="图3BC分布偏移与专家数据聚合" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/imgs/yuanlilingji-embodied-20261013-939528346956726272/03_BC分布偏移与专家数据聚合.png"/></p>
+<p>图 3：BC 的部署轨迹可能偏离专家轨迹；DAgger 式数据聚合的关键，是在学习策略访问到的状态上获得专家标签。图示不代表真机可以无约束试错。</p>
+<p>如果把策略在偏离状态下自己生成的动作原样回灌为“专家动作”，只是在强化自身行为，并不构成 DAgger 所需的专家纠正。专家也未必总是人类：在具备相应能力与适用条件时，可以是控制器或规划器，但必须说明它为何能在这些状态上给出有效标签。</p>
+<p>另一个边界是信息可用性。训练时如果策略利用只有仿真器能提供的完整物体状态，部署时却只有图像，这属于信息条件改变；单纯增加 DAgger 轮数无法自动消除传感器差异。应先明确策略输入契约，再讨论如何改善访问状态分布。</p>
+<p><a id="yuanlilingji-embodied-20261013-939528346956726272-q20"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_72">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%8E%9F%E5%8A%9B%E7%81%B5%E6%9C%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L473">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4325770b234b"></a></p>
+<span class="heading-anchor" id="Dockerfile中CMD和ENTRYPOINT的区别"></span><h2 id="dockerfilecmdentrypoint">Dockerfile中CMD和ENTRYPOINT的区别</h2>
+<p>在 Dockerfile 中，<code>CMD</code> 和 <code>ENTRYPOINT</code> 都用于定义容器启动时执行的命令，但它们的用途和行为有显著区别。以下是两者的核心区别和用法：</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_73">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L2078">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb6fd951da7ea"></a></p>
+<span class="heading-anchor" id="Dockerfile的基本结构"></span><h2 id="dockerfile">Dockerfile的基本结构</h2>
+<p>1) 基础镜像（Base Image）：使用 FROM 指令指定基础映像，作为构建镜像的起点。基础映像通常包含了操作系统和一些预装的软件和工具
+2) 构建过程指令：使用一系列指令来描述构建过程，例如 RUN 用于执行命令和安装软件包，COPY 用于拷贝文件和目录，ADD 用于拷贝和提取文件，WORKDIR 用于设置工作目录等
+3) 容器启动指令：使用 CMD 或 ENTRYPOINT 指令来定义容器启动时要执行的命令，也就是默认的容器执行命令</p>
+<p>通过编写Dockerfile，可以自定义构建过程，选择所需的软件和配置，以及设置环境变量、暴露端口等。Dockerfile 的语法简单且易于理解，使得镜像的构建过程变得可重复和可维护。</p>
+<p>Dockerfile 是定义和构建 docker 镜像的文本文件，通过编写指令和参数来描述镜像的构建过程和配置，以实现应用程序的打包和部署。它是使用 docker 进行容器化开发和部署的重要工具。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_74">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L490">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k87c80ce16292"></a></p>
+<span class="heading-anchor" id="docker中如何使用摄像头并显示画面？"></span><h2 id="docker">docker中如何使用摄像头并显示画面？</h2>
+<p>在docker中想要使用宿主机的摄像头时，需要在docker创建之初挂载宿主机的摄像头设备
+使用--device参数进行挂载，--device=/dev/video0:/dev/video0，可挂载多个摄像头</p>
+<p>显示画面
+linux系统目前的主流图像界面服务X11支持 客户端/服务端（C/S）的工作模式，需要在容器启动的时候，将unix:端口或主机名:端口共享给docker，docker 就可以通过端口找到显示输出的地方，和linux系统共用显示接口。
+1、安装xserver</p>
+<pre><code>sudo apt install x11-xserver-utils
+</code></pre>
+<p>2、设置权限</p>
+<pre><code># 允许所有用户访问显示接口
+xhost +
+# 只允许Docker用户访问显示接口 (两者选其一即可)
+xhost +local:docker 
+</code></pre>
+<p>3、运行docker镜像的时候，设置环境变量</p>
+<pre><code>#共享本地unix端口
+-v /tmp/.X11-unix:/tmp/.X11-unix           
+#修改环境变量DISPLAY
+-e DISPLAY=unix$DISPLAY 
+</code></pre>
+<p>示例：</p>
+<pre><code>docker run -it -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=unix$DISPLAY &lt;image_name&gt;
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_75">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1120">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-4ff5efaa0dbf.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a><a class="page-next" href="n-6ef1d9456736.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>模型应用与工程实践</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#10sam2">10讲一下SAM2分割模型的原理</a></li><li class="outline-level-2"><a href="#11nnn">1、1:N、N:N、静态识别和动态识别有什么区别？</a></li><li class="outline-level-2"><a href="#1-ai-coding">1）平时怎么使用 AI coding？</a></li><li class="outline-level-2"><a href="#2d-3d">2D 数字人、3D 数字人、实时交互数字人有什么区别？</a></li><li class="outline-level-2"><a href="#2d-3d_1">2D 数字人与 3D 数字人的核心差异是什么？</a></li><li class="outline-level-2"><a href="#3d-gaussian-splatting">3D Gaussian Splatting 为什么适合实时数字人？</a></li><li class="outline-level-2"><a href="#3d">3D 数字人为什么仍然重要？</a></li><li class="outline-level-2"><a href="#3d_1">3D 数字人的典型技术链路是什么？</a></li><li class="outline-level-2"><a href="#3d_2">3D 数据表示为什么会影响算法设计？</a></li><li class="outline-level-2"><a href="#3d-aware-gan-nerf3dgs-avatar">3D-aware GAN 与 NeRF/3DGS Avatar 有什么区别？</a></li><li class="outline-level-2"><a href="#3d-aware-gan">3D-aware GAN 如何实现人脸视角一致性？</a></li><li class="outline-level-2"><a href="#3d-llm">3D-LLM如何处理三维点云数据?</a></li><li class="outline-level-2"><a href="#3dmm">3DMM 是什么？</a></li><li class="outline-level-2"><a href="#3dmm_1">3DMM 有哪些典型应用？</a></li><li class="outline-level-2"><a href="#3dmm_2">3DMM 的形状、表情和纹理参数如何理解？</a></li><li class="outline-level-2"><a href="#3dmmflamebfm">3DMM、FLAME、BFM 分别是什么？</a></li><li class="outline-level-2"><a href="#4deepseekopenai-api">4）DeepSeek、OpenAI 这类模型 API 有哪些接口？</a></li><li class="outline-level-2"><a href="#50">50分钟开放题：</a></li><li class="outline-level-2"><a href="#5">5）如何解决模型回答的事实性和忠实度问题？</a></li><li class="outline-level-2"><a href="#7skill">7）Skill 有哪些特性？</a></li><li class="outline-level-2"><a href="#9">9）手写题（二选一）</a></li><li class="outline-level-2"><a href="#ab">AB 实验你怎么设计，指标冲突听谁的？</a></li><li class="outline-level-2"><a href="#action-chunking">action chunking</a></li><li class="outline-level-2"><a href="#activity-and-fragment">Activity and Fragment</a></li><li class="outline-level-2"><a href="#adapterprefix-tuningprompt-tuning">Adapter、Prefix Tuning、Prompt Tuning 如何对比？</a></li><li class="outline-level-2"><a href="#ai">AI 技术价值判断</a></li><li class="outline-level-2"><a href="#ai_1">AI 领域的人脸主流任务如何分类？</a></li><li class="outline-level-2"><a href="#aigc">AIGC 数字人、换脸和肖像编辑如何保持身份一致？</a></li><li class="outline-level-2"><a href="#aigc-gan">AIGC 数字人从 GAN 走向了哪些新范式？</a></li><li class="outline-level-2"><a href="#aigc_1">AIGC 时代数字人是什么？核心技术栈如何划分？</a></li><li class="outline-level-2"><a href="#aigc-chatgpt">AIGC 领域（如 ChatGPT）</a></li><li class="outline-level-2"><a href="#aigc_2">AIGC领域应用</a></li><li class="outline-level-2"><a href="#ai_2">AI开发工程师这个岗位实际主要做哪些业务？</a></li><li class="outline-level-2"><a href="#ai_3">AI模型的压缩和加速方法如何选择？</a></li><li class="outline-level-2"><a href="#ai_4">AI模型的参数量如何计算？</a></li><li class="outline-level-2"><a href="#animate-anyone">Animate Anyone 类人体驱动方法的核心结构是什么？</a></li><li class="outline-level-2"><a href="#api">API 调用工程</a></li><li class="outline-level-2"><a href="#attnresmhc-gr">AttnRes、mHC 和 GR 分别改进了残差路径的什么问题？</a></li><li class="outline-level-2"><a href="#badcase">Badcase有哪些，占比怎么样</a></li><li class="outline-level-2"><a href="#beanfactoryapplicationcontext">BeanFactory和ApplicationContext有什么差异？</a></li><li class="outline-level-2"><a href="#behavior-cloning">Behavior Cloning</a></li><li class="outline-level-2"><a href="#bellman-ford-algorithm">Bellman-Ford Algorithm</a></li><li class="outline-level-2"><a href="#bernoullicategoricalbinomialmultinomial">Bernoulli、Categorical、Binomial、Multinomial 分布分别适合什么场景？</a></li><li class="outline-level-2"><a href="#bertopic-c-tf-idf-tf-idf">BERTopic 中的 c-TF-IDF 与传统的 TF-IDF 有何不同？这种差异如何帮助改进主题表示的质量？</a></li><li class="outline-level-2"><a href="#bf16fp16fp32">bf16、fp16和fp32，并进行计算。</a></li><li class="outline-level-2"><a href="#bfm-flame">BFM 和 FLAME 有什么区别？</a></li><li class="outline-level-2"><a href="#bi-encoder-cross-encoder">bi-encoder 和 cross-encoder 有什么区别？</a></li><li class="outline-level-2"><a href="#bin">bin模型</a></li><li class="outline-level-2"><a href="#blend-shape-lbs-smpl">Blend Shape 和 LBS 在 SMPL 中分别解决什么问题？</a></li><li class="outline-level-2"><a href="#bytetrack">ByteTrack 为什么说低分检测框也有价值？</a></li><li class="outline-level-2"><a href="#chunk-overlap">chunk overlap 的作用和风险是什么？</a></li><li class="outline-level-2"><a href="#chunk-size">chunk size 太大有什么问题？太小有什么问题？</a></li><li class="outline-level-2"><a href="#clash-tun-vpn">Clash 的 TUN 模式为什么看起来像 VPN</a></li><li class="outline-level-2"><a href="#classifier-free-guidance-cfg-scale">Classifier-Free Guidance 的数学形式是什么？为什么 CFG scale 过大会失真？</a></li><li class="outline-level-2"><a href="#claude-code">claude code 了解哪些</a></li><li class="outline-level-2"><a href="#claude-codecodexcursordevinjules">Claude Code、Codex、Cursor、Devin、Jules 代表什么趋势？</a></li><li class="outline-level-2"><a href="#cnn">cnn能不能做语言模型</a></li><li class="outline-level-2"><a href="#coding">coding一道并解释代码</a></li><li class="outline-level-2"><a href="#coding-k">Coding：和为 K 的连续子数组个数</a></li><li class="outline-level-2"><a href="#coding_1">Coding：滑动窗口最大值</a></li><li class="outline-level-2"><a href="#computer-use">Computer Use 操作本地电脑的大致实现机制是什么？</a></li><li class="outline-level-2"><a href="#copy-paste">Copy-Paste 现象是什么？如何缓解？</a></li><li class="outline-level-2"><a href="#cross-entropykl">Cross Entropy、KL 散度和最大似然之间有什么关系？</a></li><li class="outline-level-2"><a href="#ctc">CTC主要解决的问题是什么？</a></li><li class="outline-level-2"><a href="#dbnet">DBNet 为什么是文本检测中的高频模型？</a></li><li class="outline-level-2"><a href="#decaemocamica3ddfadeep3dfacerecon">DECA、EMOCA、MICA、3DDFA、Deep3DFaceRecon 的路线如何区分？</a></li><li class="outline-level-2"><a href="#deepfakesfaceswapfaceshiftersimswaphififace">DeepFakes、FaceSwap、FaceShifter、SimSwap、HiFiFace 的核心差异是什么？</a></li><li class="outline-level-2"><a href="#deepseek-r1-r1-zero-rl">DeepSeek-R1 为什么要经历 R1-Zero、冷启动和多阶段 RL？</a></li><li class="outline-level-2"><a href="#deepseek-v4v3">DeepSeek-V4对比V3版本的核心技术迭代与能力升级</a></li><li class="outline-level-2"><a href="#deepsort-sort">DeepSORT 相比 SORT 改进了什么？</a></li><li class="outline-level-2"><a href="#deepspeed">deepspeed的三个阶段</a></li><li class="outline-level-2"><a href="#distribution-shift">distribution shift</a></li><li class="outline-level-2"><a href="#dockerfilecmdentrypoint">Dockerfile中CMD和ENTRYPOINT的区别</a></li><li class="outline-level-2"><a href="#dockerfile">Dockerfile的基本结构</a></li><li class="outline-level-2"><a href="#docker">docker中如何使用摄像头并显示画面？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

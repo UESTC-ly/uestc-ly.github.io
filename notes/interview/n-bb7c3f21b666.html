@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>JVM、类加载与垃圾回收 · 李杨的学习笔记</title><meta name="description" content="以 HotSpot 中普通 new 对象为例，可以沿着“类的准备、分配、初始化、使用、可达性变化、回收”理解。类加载与解析并非每创建一个对象都重新执行； new 涉及的类在需要时完成加载、链接，并在首次主动使用前完成类初始化。类初始化执行静态初始化逻辑，与每个对象的构造方法不同。">
+<meta property="og:type" content="website"><meta property="og:title" content="JVM、类加载与垃圾回收 · 李杨的学习笔记"><meta property="og:description" content="以 HotSpot 中普通 new 对象为例，可以沿着“类的准备、分配、初始化、使用、可达性变化、回收”理解。类加载与解析并非每创建一个对象都重新执行； new 涉及的类在需要时完成加载、链接，并在首次主动使用前完成类初始化。类初始化执行静态初始化逻辑，与每个对象的构造方法不同。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-bb7c3f21b666.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-bb7c3f21b666.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html" aria-current="page">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">04-Java与JVM</p><h1>JVM、类加载与垃圾回收</h1><p class="article-question-meta">11 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9d8eee222e98">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/04-Java%E4%B8%8EJVM/JVM%E3%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD%E4%B8%8E%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#jvm_1">JVM 中对象从创建到回收大致经历了哪些阶段？</a></li><li class="outline-level-2"><a href="#jvm_2">JVM 参数与诊断工具</a></li><li class="outline-level-2"><a href="#jvm_3">JVM 线上问题排查</a></li><li class="outline-level-2"><a href="#jvmclass">JVM加载一个class文件的完整过程是什么？</a></li><li class="outline-level-2"><a href="#_1_4">什么是字节码？采用字节码的好处是什么？</a></li><li class="outline-level-2"><a href="#java">介绍一个熟悉的 Java 垃圾回收器</a></li><li class="outline-level-2"><a href="#_1_6">垃圾回收</a></li><li class="outline-level-2"><a href="#jvm_4">复习 JVM 时先抓住哪些问题？</a></li><li class="outline-level-2"><a href="#_1_8">如何避免内存泄漏的发生？</a></li><li class="outline-level-2"><a href="#_1_9">按准备时间安排复习</a></li><li class="outline-level-2"><a href="#_1_10">虚拟机栈和本地方法栈为什么是私有的？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k3069b6d6eae6"></a></p>
+<span class="heading-anchor" id="JVM 中对象从创建到回收大致经历了哪些阶段？"></span><h2 id="jvm_1">JVM 中对象从创建到回收大致经历了哪些阶段？</h2>
+<p><strong>回答：</strong></p>
+<p>以 HotSpot 中普通 <code>new</code> 对象为例，可以沿着“类的准备、分配、初始化、使用、可达性变化、回收”理解。类加载与解析并非每创建一个对象都重新执行；<code>new</code> 涉及的类在需要时完成加载、链接，并在首次主动使用前完成类初始化。类初始化执行静态初始化逻辑，与每个对象的构造方法不同。</p>
+<ol>
+<li><strong>分配内存。</strong> 常见路径先尝试线程本地分配缓冲区 TLAB，减少共享堆分配竞争；大对象、TLAB 不足或不同收集器会进入其他分配路径。具体使用指针碰撞还是空闲空间管理，取决于堆组织方式。</li>
+<li><strong>建立初始状态。</strong> 实例字段先获得零值，运行时设置对象头等信息；随后执行实例初始化和构造逻辑。零值初始化不等于执行了业务构造方法。</li>
+<li><strong>使用与发布。</strong> 对象被线程、集合或其他对象引用。跨线程传递仍需安全发布，不能认为“构造完了”就天然对另一线程可见。避免在构造函数中让 <code>this</code> 提前逸出。</li>
+<li><strong>判断存活。</strong> GC 从线程栈、静态字段等根集合出发分析可达性，并处理强、软、弱、虚引用等不同语义。循环引用本身不会阻止可达性分析回收。</li>
+<li><strong>回收或移动。</strong> 收集器释放不可达对象占据的空间，可能伴随复制、整理和引用更新。对象何时回收没有应用层的及时性保证。</li>
+</ol>
+<p>并非所有对象都实际完成一次堆分配：JIT 的逃逸分析和标量替换可能消除分配，但这不意味着“所有不逃逸对象都直接放到栈上”。晋升老年代也不是所有对象必经的阶段，具体取决于收集器和存活情况。</p>
+<p><code>finalize()</code> 已被弃用并标记为待移除，不能用于可靠释放资源。文件、连接、锁应采用 <code>try-with-resources</code>、显式关闭或 <code>finally</code> 等确定性路径；Cleaner 也只是兜底，不能承诺及时执行。</p>
+<p><a id="baidu-agent-20260922-r1-q3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L736">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8774a0e702ce"></a></p>
+<span class="heading-anchor" id="JVM 参数与诊断工具"></span><h2 id="jvm_2">JVM 参数与诊断工具</h2>
+<p>参数题考察的是配置依据。堆大小、年轻代比例、收集器和日志参数要跟部署内存、对象分配速率、延迟目标及 JDK 版本一起讨论。尤其是 G1，通常不建议照搬以固定年轻代大小为中心的旧配置。</p>
+<p>相关内容：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-parameters-intro.md">JVM 常用参数总结</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jdk-monitoring-and-troubleshooting-tools.md">JDK 监控和故障处理工具总结</a></li>
+</ul>
+<p>常见面试题：</p>
+<ul>
+<li><code>-Xms</code>、<code>-Xmx</code>、<code>-Xmn</code> 和 <code>-Xss</code> 分别控制什么？</li>
+<li>为什么服务端应用常把 <code>-Xms</code> 和 <code>-Xmx</code> 设为相同值？</li>
+<li><code>-XX:MetaspaceSize</code> 和 <code>-XX:MaxMetaspaceSize</code> 有什么区别？</li>
+<li>怎样为应用选择垃圾收集器？切换收集器前要收集哪些数据？</li>
+<li>JDK 8 和 JDK 9 及之后怎样配置 GC 日志？</li>
+<li>发生 OOM 时怎样自动生成 Heap Dump？为什么要提前确认存储空间？</li>
+<li><code>jps</code>、<code>jstat</code>、<code>jinfo</code>、<code>jmap</code>、<code>jstack</code> 和 <code>jcmd</code> 分别适合查什么？</li>
+<li>怎样用 <code>jstat</code> 观察 GC 频率、各区域容量和对象晋升情况？</li>
+<li>线程长时间阻塞、死锁或 CPU 飙高时，线程转储能提供什么信息？</li>
+<li>Heap Dump 和线程转储有什么区别？<code>kill -3</code> 生成的是哪一种？</li>
+<li>MAT 分析 Heap Dump 时，Dominator Tree 和到 GC Roots 的引用链分别有什么用？</li>
+<li>JFR、JMC、VisualVM 适合观察哪些运行时信息？在线采集时要考虑什么开销？</li>
+</ul>
+<p>生成 Heap Dump、类直方图或高频采样都有可能增加线上负载，Dump 文件也可能包含业务数据。执行诊断命令前要确认影响范围、磁盘空间和文件保存位置；紧急重启前，至少保留告警时间、关键指标、线程栈和必要的 GC 信息。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-interview-questions.md#L109">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kcd52963c6873"></a></p>
+<span class="heading-anchor" id="JVM 线上问题排查"></span><h2 id="jvm_3">JVM 线上问题排查</h2>
+<p>线上排查通常没有“一个命令直接定位”的答案。收到告警后先核对时间、影响范围、最近变更和系统资源，再决定采集线程栈、GC 日志还是堆转储。若服务已经影响用户，止血和留证需要同时安排，不能为了抓全量证据让故障继续扩大。</p>
+<p>相关内容：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-in-action.md">Java 后端线上问题排查</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>CPU 飙高时，怎样从进程定位到线程和具体代码栈？</li>
+<li>CPU 不高但 Load 很高，应该检查哪些线程状态和系统指标？</li>
+<li>接口响应很慢但 CPU 使用率正常，怎样区分锁等待、I/O、连接池和下游延迟？</li>
+<li>内存持续上涨时，怎样判断是业务缓存增长、对象分配过快还是内存泄漏？</li>
+<li>Java 进程 OOM 后，怎样判断问题发生在堆、元空间、直接内存还是本地内存？</li>
+<li>Young GC 很频繁，但每次回收很快，应该重点检查什么？</li>
+<li>Full GC 频繁时，怎样观察老年代增长、对象晋升和回收效果？</li>
+<li>Heap Dump 应该在什么时候生成？生产环境直接执行 <code>jmap -dump</code> 有什么风险？</li>
+<li>线程池队列堆积与 CPU 使用率、线程状态之间有什么关系？</li>
+<li>修复 JVM 问题后，应该对比哪些指标来确认改动有效？</li>
+<li>面试中怎样讲一次没有亲历过的 JVM 故障排查题？</li>
+</ul>
+<p>排查结果要能形成证据链。例如 CPU 飙高时，先找到高 CPU 的 Java 进程和线程，把线程 ID 转成线程转储使用的格式，再核对多次线程栈是否持续落在同一段代码。内存问题则要结合 GC 日志、对象直方图、Heap Dump 和本机内存，单看 JVM 堆使用率无法覆盖所有 OOM。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-interview-questions.md#L135">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k4a32a74df4ab"></a></p>
+<span class="heading-anchor" id="JVM加载一个class文件的完整过程是什么？"></span><h2 id="jvmclass">JVM加载一个class文件的完整过程是什么？</h2>
+<p><strong>回答：</strong></p>
+<p>JVM 对类的生命周期通常描述为：<strong>加载（Loading）-&gt; 链接（Linking：验证、准备、解析）-&gt; 初始化（Initialization）-&gt; 使用 -&gt; 卸载</strong>。其中解析在规范允许的范围内可以延迟执行，所以不要把所有实现细节说成绝对同步顺序。</p>
+<ol>
+<li><strong>加载：</strong> 类加载器根据二进制名定位字节流，JVM 解析 class 文件并在方法区/元空间建立运行时表示，同时创建对应的 <code>java.lang.Class</code> 对象。来源可以是文件、JAR、网络或运行时生成的字节码。</li>
+<li><strong>验证：</strong> 检查文件格式、元数据、字节码和符号引用是否合法，保证类型安全与控制流约束。验证通过不代表业务代码安全。</li>
+<li><strong>准备：</strong> 为类的 <code>static</code> 字段分配存储并设置 JVM 规定的默认值；带 <code>ConstantValue</code> 属性的编译期常量可在该阶段赋值。普通静态赋值语句不是在这里执行。</li>
+<li><strong>解析：</strong> 将运行时常量池中的符号引用转换为直接引用，涉及类/接口、字段、方法、方法句柄等；可以采用惰性解析。</li>
+<li><strong>初始化：</strong> 执行类初始化方法 <code>&lt;clinit&gt;</code>，其内容由静态字段赋值和静态代码块按源码顺序合并。JVM 保证同一个类加载器定义的类只初始化一次，并进行同步；初始化子类前先初始化父类，但接口初始化规则不同。</li>
+</ol>
+<p>主动使用通常包括 <code>new</code>、访问非编译期常量静态字段、调用静态方法、反射和初始化子类等；仅引用编译期常量或创建该类型数组通常不会触发初始化。</p>
+<p>类身份由“二进制类名 + 定义它的类加载器”共同决定。常见父级委派用于避免核心类被重复定义，但模块化、插件、容器会使用更复杂的委派策略。类卸载通常要求其定义类加载器不可达且相关类对象不再可达，实际何时回收由 JVM 决定。</p>
+<p><a id="insta360-agent-20260809-q18"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BD%B1%E7%9F%B3%E5%88%9B%E6%96%B0%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L354">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb149972cb0e5"></a></p>
+<span class="heading-anchor" id="什么是字节码？采用字节码的好处是什么？"></span><h2 id="_1_4">什么是字节码？采用字节码的好处是什么？</h2>
+<p>在 Java 中，JVM 可以理解的代码就叫做字节码（即扩展名为 <code>.class</code> 的文件），它不面向任何特定的处理器，只面向虚拟机。Java 语言通过字节码的方式，在一定程度上解决了传统解释型语言执行效率低的问题，同时又保留了解释型语言可移植的特点。所以， Java 程序运行时相对来说还是高效的（不过，和 C、 C++，Rust，Go 等语言还是有一定差距的），而且，由于字节码并不针对一种特定的机器，因此，Java 程序无须重新编译便可在多种不同操作系统的计算机上运行。</p>
+<p><strong>Java 程序从源代码到运行的过程如下图所示</strong>：</p>
+<p><img alt="Java程序转变为机器代码的过程" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/basis/java-code-to-machine-code.png"/></p>
+<p>我们需要格外注意的是 <code>.class-&gt;机器码</code> 这一步。以 HotSpot 为例，JVM 加载字节码后可以先解释执行，并识别经常调用的方法和代码块（即热点代码），再由 <strong>JIT（Just in Time Compilation）</strong> 编译器将热点字节码编译为机器码。在当前 JVM 进程后续执行这些代码时，可以直接使用已编译的机器码。这也解释了我们为什么经常会说 <strong>Java 是编译与解释共存的语言</strong>。不过，JVM 规范并不要求具体实现必须包含解释器或 JIT 编译器。</p>
+<blockquote>
+<p>🌈 拓展阅读：</p>
+<ul>
+<li><a href="https://mp.weixin.qq.com/s/7PH8o1tbjLsM4-nOnjbwLw">基本功 | Java 即时编译器原理解析及实践 - 美团技术团队</a></li>
+<li><a href="https://mp.weixin.qq.com/s/4haTyXUmh8m-dBQaEzwDJw">基于静态编译构建微服务应用 - 阿里巴巴中间件</a></li>
+</ul>
+</blockquote>
+<p><img alt="Java程序转变为机器代码的过程" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/basis/java-code-to-machine-code-with-jit.png"/></p>
+<blockquote>
+<p>HotSpot 采用了惰性评估(Lazy Evaluation)的做法，根据二八定律，消耗大部分系统资源的只有那一小部分的代码（热点代码），而这也就是 JIT 所需要编译的部分。JVM 会根据代码每次被执行的情况收集信息并相应地做出一些优化，因此执行的次数越多，它的速度就越快。</p>
+</blockquote>
+<p>JDK、JRE、JVM、JIT 这四者的关系如下图所示。</p>
+<p><img alt="JDK、JRE、JVM、JIT 这四者的关系" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/basis/jdk-jre-jvm-jit.png"/></p>
+<p>下面这张图是 JVM 的大致结构模型。</p>
+<p><img alt="JVM 的大致结构模型" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/basis/jvm-rough-structure-model.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/basis/java-basic-questions-01.md#L86">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kaed98f55f8c7"></a></p>
+<span class="heading-anchor" id="介绍一个熟悉的 Java 垃圾回收器"></span><h2 id="java">介绍一个熟悉的 Java 垃圾回收器</h2>
+<p><strong>回答：</strong></p>
+<p>可以介绍 JDK 21 HotSpot 中的 G1。G1 将堆划分为多个大小相同的 Region，逻辑上区分 Eden、Survivor、Old 等角色，通过选择回收收益较高的区域控制停顿。Region 化并不意味着完全取消分代，也不意味着每次回收都遍历整个老年代。</p>
+<p>年轻代回收会在 Stop-The-World 阶段将存活对象从回收集复制到其他 Region，更新引用并释放原区域。G1 通过 Remembered Set 和写屏障等机制追踪跨区域引用，减少局部回收时需要扫描的范围。并发标记与应用线程交错执行，仍包含需要停顿的阶段；标记结果帮助后续 Mixed GC 选择部分老年代区域与年轻代一起回收。</p>
+<p>G1 使用 SATB 思路支持并发标记，记录标记期间可能影响快照可达性的信息；它不是保证程序执行期间所有垃圾立即被清理。大对象可能成为 Humongous 对象并占用连续 Region，增加分配和空间管理压力。若可用空间不足或复制失败，可能出现更重的回收甚至 Full GC，不能把 G1 描述成“没有长停顿”。</p>
+<p>调优先看 GC 日志、分配速率、晋升情况、存活集、停顿分位数、Humongous 分配和应用吞吐。MaxGCPauseMillis 是尽力满足的目标，不是硬实时保证；缩小停顿目标可能增加回收频率、降低吞吐。堆大小、并发标记启动时机和区域选择应结合负载验证，不能只套一组参数。</p>
+<p>面试时可以联系 AI 应用的实际对象分配：大量 JSON、文档解析中间对象、日志拼接和长生命周期缓存可能造成不同 GC 压力。先判断是否存在内存泄漏、无限缓存或异常分配，再考虑收集器参数。若比较 ZGC 等方案，须明确 JDK 版本和延迟目标，不能混用不同版本的实现与默认值。</p>
+<p><a id="alibaba-taotian-ai-app-20261020-942091198347345920-q09"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2497">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6e4b1dfe5f8b"></a></p>
+<span class="heading-anchor" id="垃圾回收"></span><h2 id="_1_6">垃圾回收</h2>
+<p>垃圾回收题要从对象分配和存活判断讲到具体收集器。吞吐量、停顿时间和内存占用之间存在取舍，选择收集器时还要考虑 JDK 版本、堆大小和业务对延迟的要求，不能只比较算法名称。</p>
+<p>相关内容：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-garbage-collection.md">JVM 垃圾回收详解</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>新生代和老年代通常怎样划分？对象一般怎样分配和晋升？</li>
+<li>大对象和长期存活对象会怎样进入老年代？</li>
+<li>什么是空间分配担保？</li>
+<li>引用计数法为什么难以解决对象之间的循环引用？</li>
+<li>可达性分析怎样判断对象是否存活？哪些对象可以作为 GC Roots？</li>
+<li>强引用、软引用、弱引用和虚引用有什么区别？</li>
+<li>标记-清除、复制和标记-整理算法各有什么优缺点？</li>
+<li>分代收集为什么要为新生代和老年代选择不同算法？</li>
+<li>Minor GC、Major GC 和 Full GC 有什么区别？为什么要结合收集器和日志理解这些名称？</li>
+<li>Serial、Parallel、CMS、G1 和 ZGC 的目标和适用场景有什么不同？</li>
+<li>CMS 为什么会产生内存碎片和浮动垃圾？</li>
+<li>G1 怎样通过 Region、回收价值预测和 Mixed GC 控制停顿？</li>
+<li>ZGC 怎样降低长时间停顿？低停顿收集器会付出哪些代价？</li>
+<li>哪些情况可能触发 Full GC？频繁 Full GC 应该从哪些数据开始查？</li>
+</ul>
+<p>GC 日志中的事件名称、内存分区和参数会随 JDK 与收集器变化。面试中可以先说明自己的运行环境，再解释一次回收的触发原因、回收范围、停顿阶段和结果；脱离版本背固定结论，很容易在追问时互相矛盾。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-interview-questions.md#L84">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kbee80467528f"></a></p>
+<span class="heading-anchor" id="复习 JVM 时先抓住哪些问题？"></span><h2 id="jvm_4">复习 JVM 时先抓住哪些问题？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>需要讲清楚的内容</th>
+<th>常见追问方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存与对象</td>
+<td>运行时数据区怎样划分，对象怎样创建、存放和访问</td>
+<td>堆、栈、方法区、直接内存、对象头、TLAB、OOM</td>
+</tr>
+<tr>
+<td>类文件与类加载</td>
+<td><code>.class</code> 文件如何进入 JVM，类在什么时机完成初始化</td>
+<td>常量池、加载过程、类加载器、双亲委派、类隔离</td>
+</tr>
+<tr>
+<td>垃圾回收</td>
+<td>怎样判断对象存活，内存如何回收，停顿从哪里产生</td>
+<td>GC Roots、引用类型、收集算法、CMS、G1、ZGC、Full GC</td>
+</tr>
+<tr>
+<td>参数与工具</td>
+<td>参数如何跟着 JDK、收集器和运行现象选择</td>
+<td><code>-Xms</code>、<code>-Xmx</code>、GC 日志、Heap Dump、jstat、jstack、JFR</td>
+</tr>
+<tr>
+<td>线上排查</td>
+<td>收到告警后怎样保留证据、缩小范围并验证修复</td>
+<td>CPU、Load、OOM、内存泄漏、频繁 GC、线程阻塞</td>
+</tr>
+</tbody>
+</table></div>
+<p>大多数对象实例分配在堆中，活跃线程、静态字段等位置可能持有到对象的引用；GC 从 GC Roots 出发判断对象是否可达，再由具体收集器完成回收。应用出现内存上涨或停顿时，还要结合 GC 日志、线程栈、堆转储和系统指标判断原因，不能看到 Full GC 就直接改堆大小。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-interview-questions.md#L21">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd2b6a18488d3"></a></p>
+<span class="heading-anchor" id="如何避免内存泄漏的发生？"></span><h2 id="_1_8">如何避免内存泄漏的发生？</h2>
+<ol>
+<li>在使用完 <code>ThreadLocal</code> 后，务必调用 <code>remove()</code> 方法。 这是最安全和最推荐的做法。 <code>remove()</code> 方法会从 <code>ThreadLocalMap</code> 中显式地移除对应的 entry，彻底解决内存泄漏的风险。 即使将 <code>ThreadLocal</code> 定义为 <code>static final</code>，也强烈建议在每次使用后调用 <code>remove()</code>。</li>
+<li>在线程池等线程复用的场景下，使用 <code>try-finally</code> 块可以确保即使发生异常，<code>remove()</code> 方法也一定会被执行。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L158">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf228487ebe70"></a></p>
+<span class="heading-anchor" id="按准备时间安排复习"></span><h2 id="_1_9">按准备时间安排复习</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过一遍 <a href="https://interview.javaguide.cn/java/java-jvm.html">JVM 常见面试题总结</a>，优先补内存区域、对象创建、类加载、对象存活判断和主流收集器</td>
+<td>能回答基础高频题，知道不同结论对应的 JDK 与收集器</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>补 JVM 参数、GC 日志和 JDK 诊断工具，分别口述一次 CPU 飙高、OOM 与频繁 Full GC 的排查过程</td>
+<td>能从告警现象选择指标和工具，并说明操作风险</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>阅读全部 JVM 专题文章，在本地或测试环境分析一次 GC 日志、线程转储或 Heap Dump；结合项目记录实际 JDK、收集器、堆配置和运行指标</td>
+<td>能把原理、配置、运行现象和验证方法连起来</td>
+</tr>
+</tbody>
+</table></div>
+<p>社招和中高级岗位往往会继续追问参数依据与排查证据。没有实际处理过线上 JVM 故障，可以按测试环境观察和专题资料回答，说明自己会先采集什么、怎样缩小范围；不要把学习案例说成亲历的生产事故。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_3">补充说明</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过一遍<a href="https://interview.javaguide.cn/high-performance/message-queue-interview-questions.html">消息队列常见面试题总结</a>，优先补可靠性、幂等、顺序和积压</td>
+<td>能沿消息生命周期回答高频问题</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>在通用问题之外，重点学习项目实际使用的一种 MQ，再补另外两种产品的定位和主要差异</td>
+<td>能回答产品原理、异常处理和选型追问</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>按本文顺序阅读专题文章，画出生产、存储、复制、消费、确认和补偿链路，并结合项目整理监控与故障恢复过程</td>
+<td>能从业务要求讲到配置、取舍和运维</td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过本文所有问题，优先补 SQL/索引、读写分离、分库分表和消息可靠性</td>
+<td>能回答高频问题，并说出每种方案的主要限制</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>补 CDN、负载均衡、深度分页、冷热分离及一种主流 MQ，再画一条完整请求链路</td>
+<td>能从瓶颈推导方案，遇到一致性和异常场景可以继续回答</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>阅读全部专题文章，结合项目整理一次性能问题的发现、定位、优化和验证过程</td>
+<td>能用真实指标说明选型、收益、代价和后续监控方式</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/jvm/jvm-interview-questions.md#L157">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/message-queue/message-queue-interview-questions.md#L160">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/high-performance-system-interview-questions.md#L134">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k5ec0428e1fd5"></a></p>
+<span class="heading-anchor" id="虚拟机栈和本地方法栈为什么是私有的？"></span><h2 id="_1_10">虚拟机栈和本地方法栈为什么是私有的？</h2>
+<ul>
+<li><strong>虚拟机栈：</strong> 每个 Java 方法在执行之前会创建一个栈帧用于存储局部变量表、操作数栈、常量池引用等信息。从方法调用直至执行完成的过程，就对应着一个栈帧在 Java 虚拟机栈中入栈和出栈的过程。</li>
+<li><strong>本地方法栈：</strong> 和虚拟机栈所发挥的作用非常相似，区别是：<strong>虚拟机栈为虚拟机执行 Java 方法（也就是字节码）服务，而本地方法栈则为虚拟机使用到的 Native 方法服务。</strong> 在 HotSpot 虚拟机中和 Java 虚拟机栈合二为一。</li>
+</ul>
+<p>所以，为了<strong>保证线程中的局部变量不被别的线程访问到</strong>，虚拟机栈和本地方法栈是线程私有的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L108">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-887b71433487.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Java与JVM</strong></a><a class="page-next" href="n-2d4e4ce09f23.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Java综合问答</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#jvm_1">JVM 中对象从创建到回收大致经历了哪些阶段？</a></li><li class="outline-level-2"><a href="#jvm_2">JVM 参数与诊断工具</a></li><li class="outline-level-2"><a href="#jvm_3">JVM 线上问题排查</a></li><li class="outline-level-2"><a href="#jvmclass">JVM加载一个class文件的完整过程是什么？</a></li><li class="outline-level-2"><a href="#_1_4">什么是字节码？采用字节码的好处是什么？</a></li><li class="outline-level-2"><a href="#java">介绍一个熟悉的 Java 垃圾回收器</a></li><li class="outline-level-2"><a href="#_1_6">垃圾回收</a></li><li class="outline-level-2"><a href="#jvm_4">复习 JVM 时先抓住哪些问题？</a></li><li class="outline-level-2"><a href="#_1_8">如何避免内存泄漏的发生？</a></li><li class="outline-level-2"><a href="#_1_9">按准备时间安排复习</a></li><li class="outline-level-2"><a href="#_1_10">虚拟机栈和本地方法栈为什么是私有的？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

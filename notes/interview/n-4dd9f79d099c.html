@@ -1,0 +1,1380 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>预训练、微调与优化 · 李杨的学习笔记</title><meta name="description" content="工业界通常采用多源混合，而不是依赖单一来源。配比调优很关键：高质量代码、数学、论文和领域数据占比提高，可能增强特定能力，但也可能牺牲通用表达、多样性或多语种覆盖。因此，大语言模型预训练数据治理的重点不只看“收集更多数据”，而是建立与目标能力匹配的数据分布。">
+<meta property="og:type" content="website"><meta property="og:title" content="预训练、微调与优化 · 李杨的学习笔记"><meta property="og:description" content="工业界通常采用多源混合，而不是依赖单一来源。配比调优很关键：高质量代码、数学、论文和领域数据占比提高，可能增强特定能力，但也可能牺牲通用表达、多样性或多语种覆盖。因此，大语言模型预训练数据治理的重点不只看“收集更多数据”，而是建立与目标能力匹配的数据分布。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-4dd9f79d099c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-4dd9f79d099c.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html" aria-current="page">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>预训练、微调与优化</h1><p class="article-question-meta">69 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E9%A2%84%E8%AE%AD%E7%BB%83%E3%80%81%E5%BE%AE%E8%B0%83%E4%B8%8E%E4%BC%98%E5%8C%96-03.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#_1_1">不同来源的数据有什么贡献和风险？</a></li><li class="outline-level-2"><a href="#bert">与 BERT 的掩蔽策略相比，掩码语言建模有何不同？这种预训练方式如何帮助模型在下游的文本分类任务中获得更好的性能？</a></li><li class="outline-level-2"><a href="#_1_3">中间表示如何帮助推理框架做图优化、硬件适配和跨平台部署？</a></li><li class="outline-level-2"><a href="#lora">为什么 LoRA 适合大语言模型参数高效微调？</a></li><li class="outline-level-2"><a href="#lora_1">为什么 LoRA 需要改进？</a></li><li class="outline-level-2"><a href="#sft">为什么 SFT 之后还要进行后训练</a></li><li class="outline-level-2"><a href="#sft_1">为什么 SFT 格式要和推理一致？</a></li><li class="outline-level-2"><a href="#token-budget">为什么 token budget 是视频生成训练的核心约束？</a></li><li class="outline-level-2"><a href="#lora_2">为什么LoRA不会增加额外的推理延迟？</a></li><li class="outline-level-2"><a href="#omniavatarlora-based">为什么OmniAvatar选择LoRA-based训练而不是全模型训练或部分层冻结？</a></li><li class="outline-level-2"><a href="#grpo-dpo">为什么不用 GRPO 训练，而是用 DPO 训练</a></li><li class="outline-level-2"><a href="#reward-score-ppodpogrpo">为什么不能只用 reward score 评估大语言模型偏好优化算法？PPO、DPO、GRPO 等方法应如何评估？</a></li><li class="outline-level-2"><a href="#llm">为什么主流 LLM 预训练通常采用自回归（下一词元预测）？</a></li><li class="outline-level-2"><a href="#_1_14">为什么低秩矩阵有效？</a></li><li class="outline-level-2"><a href="#_1_15">为什么使用强化学习会存在训练不稳定问题？为什么业界还在用？</a></li><li class="outline-level-2"><a href="#_1_16">为什么多模态模型需要大规模预训练？</a></li><li class="outline-level-2"><a href="#_1_17">为什么大语言模型与训练需要多来源数据？</a></li><li class="outline-level-2"><a href="#_1_18">为什么大语言模型训练需要多种并行策略？</a></li><li class="outline-level-2"><a href="#_1_19">为什么微调后必须分层评估？</a></li><li class="outline-level-2"><a href="#_1_20">为什么推理模型训练越来越重视过程奖励和可验证反馈？</a></li><li class="outline-level-2"><a href="#_1_21">为什么模型部署中常用中间表示而不是直接使用训练框架模型？</a></li><li class="outline-level-2"><a href="#lora_3">为什么用 LoRA，而不用全量微调</a></li><li class="outline-level-2"><a href="#sft_2">为什么要SFT</a></li><li class="outline-level-2"><a href="#progressive-training">为什么视频生成训练通常需要 progressive training？</a></li><li class="outline-level-2"><a href="#_1_25">为什么训练可以并行？</a></li><li class="outline-level-2"><a href="#_1_26">为什么训练好的模型不能直接用训练框架上线？</a></li><li class="outline-level-2"><a href="#_1_27">为什么训练瓶颈会随规模变化？</a></li><li class="outline-level-2"><a href="#assistant">为什么通常只对 assistant 回复计算损失？</a></li><li class="outline-level-2"><a href="#_1_29">为什么非凸仍能训练成功？</a></li><li class="outline-level-2"><a href="#_1_30">主流大模型训练框架如何组合并行策略？</a></li><li class="outline-level-2"><a href="#_1_31">了解哪些训练框架</a></li><li class="outline-level-2"><a href="#gpt-3">二、实际案例：GPT-3 训练</a></li><li class="outline-level-2"><a href="#_1_33">什么平台上训练的训练多久学习率多少为什么是这个学习率</a></li><li class="outline-level-2"><a href="#_1_34">什么时候微调？</a></li><li class="outline-level-2"><a href="#_1_35">什么是多机器人、多任务、多具身形态训练？</a></li><li class="outline-level-2"><a href="#_1_36">什么是大语言模型预训练？</a></li><li class="outline-level-2"><a href="#_1_37">什么是损失掩码？</a></li><li class="outline-level-2"><a href="#_1_38">什么是数据混合配比？</a></li><li class="outline-level-2"><a href="#sftdpo">介绍sft和dpo</a></li><li class="outline-level-2"><a href="#grpo-ppo-loss-clip">介绍一下 grpo 训练流程、ppo loss 公式，新概率比老概率大很多且优势为负时被 clip 掉需要学习吗</a></li><li class="outline-level-2"><a href="#wan21">介绍一下Wan2.1视频大模型的数据处理策略和训练/推理优化策略</a></li><li class="outline-level-2"><a href="#_1_42">介绍一下多模态中预训练和微调的区别</a></li><li class="outline-level-2"><a href="#_1_43">介绍一下模型性能优化与模型部署之间的关系</a></li><li class="outline-level-2"><a href="#clapaudioclip">介绍一下音频表示编码器CLAP和AudioCLIP，说明模型结构、预训练目标</a></li><li class="outline-level-2"><a href="#_1_45">优化模型端侧性能的一些方法</a></li><li class="outline-level-2"><a href="#pcalora">低秩近似如何解释 PCA、LoRA、模型压缩和推荐系统？</a></li><li class="outline-level-2"><a href="#ttft18-flashkv">你刚才提到为了降低TTFT替换了豆包1.8 flash模型，还做了kv缓存优化。在平衡响应速度、回答准确性、调用成本这三者的时候，你们最终做了哪些关键取舍？</a></li><li class="outline-level-2"><a href="#rag">你刚才提到，当提示词工程、RAG优化到位仍达不到效果时，才考虑模型微调。那你认为微调会从根本上改变大模型的哪些固有能力边界？</a></li><li class="outline-level-2"><a href="#_1_49">你最初判断是切分太碎，导致漏召。在优化切分策略的过程中，有没有出现过你原本判断有效的调整方案，实际测试后发现效果不达预期被推翻的情况。</a></li><li class="outline-level-2"><a href="#_1_50">你训练的时候主要调了哪些参数，最终比较适合的参数是多少？</a></li><li class="outline-level-2"><a href="#loralora">使用LoRA微调，在用LoRA时有没有遇到模型不收敛或指令输出格式损失不符合预期?</a></li><li class="outline-level-2"><a href="#sft_3">使用了多少张卡？SFT 训练多久？</a></li><li class="outline-level-2"><a href="#_1_53">假设一个嵌入模型的训练语料主要由英文构成，在中文任务上表现不佳，如何用较低的继续预训练成本提升其中文能力？</a></li><li class="outline-level-2"><a href="#mertics">假设现在我有一个训练集群，每个节点都有大量的mertics需要记录和分析，你怎么设计？</a></li><li class="outline-level-2"><a href="#_1_55">全量微调有什么特点？</a></li><li class="outline-level-2"><a href="#_1_56">全量微调的劣势是什么？既然容易灾难性遗忘，有什么方法能够保证能尽可能保留模型原始能力，并让其迁移到新任务上</a></li><li class="outline-level-2"><a href="#_1_57">关键优化技术</a></li><li class="outline-level-2"><a href="#lora_4">其他常见 LoRA 改进方法有哪些？</a></li><li class="outline-level-2"><a href="#_1_59">具身智能的硬件优化有哪些关键方向？</a></li><li class="outline-level-2"><a href="#_1_60">内存优化有哪些常用技术？</a></li><li class="outline-level-2"><a href="#context">再给一个上下文处理相关的场景题，如何优化 context 管理？</a></li><li class="outline-level-2"><a href="#bce">写出BCE损失公式，分析软标签能否直接参与训练</a></li><li class="outline-level-2"><a href="#vid-llms">分析Vid-LLMs的多阶段训练策略设计，包括预训练对齐、指令微调、特定任务适配等阶段</a></li><li class="outline-level-2"><a href="#instruction-tuningvideo-llms">分析指令微调（Instruction-Tuning）在Video-LLMs中的关键作用和技术实现方案</a></li><li class="outline-level-2"><a href="#_1_65">分析时序建模中的训练技术挑战，包括长期依赖、计算效率、标注稀疏等问题</a></li><li class="outline-level-2"><a href="#dpogrpo">分类场景下DPO效果优于GRPO的核心原因是什么，二者能否串行训练？</a></li><li class="outline-level-2"><a href="#_1_67">分辨率和码率有什么区别？它们如何影响训练数据？</a></li><li class="outline-level-2"><a href="#_1_68">单个视频耗时从三十分钟缩短到五分钟，你做了哪些优化？</a></li><li class="outline-level-2"><a href="#_1_69">原生多模态预训练的数据配比与工程要点是什么？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kcbee5ad0c3b4"></a></p>
+<span class="heading-anchor" id="不同来源的数据有什么贡献和风险？"></span><h2 id="_1_1">不同来源的数据有什么贡献和风险？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>数据来源</th>
+<th>主要贡献</th>
+<th>优点</th>
+<th>风险或缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网页</td>
+<td>通用知识、语言覆盖、多样表达</td>
+<td>规模大、覆盖广、更新快</td>
+<td>噪声、广告、重复内容多</td>
+</tr>
+<tr>
+<td>书籍</td>
+<td>长文本、表达质量、逻辑连贯性</td>
+<td>结构完整、语义密度高</td>
+<td>更新慢、版权风险高</td>
+</tr>
+<tr>
+<td>百科</td>
+<td>事实知识、实体关系</td>
+<td>结构清晰、事实密度高</td>
+<td>表达形式单一、覆盖有限</td>
+</tr>
+<tr>
+<td>论文</td>
+<td>专业知识、科研表达、复杂推理</td>
+<td>专业性强、术语规范</td>
+<td>解析复杂、领域偏窄</td>
+</tr>
+<tr>
+<td>代码</td>
+<td>编程能力、符号结构、逻辑模式</td>
+<td>结构严格、可验证</td>
+<td>许可证、重复仓库、低质代码</td>
+</tr>
+<tr>
+<td>问答/社区对话</td>
+<td>解释表达、交互风格、问题形式</td>
+<td>接近真实用户提问方式</td>
+<td>质量不稳定，可能引入偏见</td>
+</tr>
+<tr>
+<td>领域语料</td>
+<td>行业知识、业务流程、专业术语</td>
+<td>专业密度高</td>
+<td>获取难、标注贵、合规要求高</td>
+</tr>
+<tr>
+<td>合成数据</td>
+<td>长尾任务、稀缺场景、格式控制</td>
+<td>可控、成本低、易扩展</td>
+<td>可能放大幻觉和模板化</td>
+</tr>
+<tr>
+<td>机器转写文本</td>
+<td>光学字符/自动语音识别得到的文本资料、扫描文档转写</td>
+<td>扩展文本语料覆盖范围</td>
+<td>转写错误和噪声</td>
+</tr>
+</tbody>
+</table></div>
+<p>工业界通常采用多源混合，而不是依赖单一来源。配比调优很关键：高质量代码、数学、论文和领域数据占比提高，可能增强特定能力，但也可能牺牲通用表达、多样性或多语种覆盖。因此，大语言模型预训练数据治理的重点不只看“收集更多数据”，而是建立与目标能力匹配的数据分布。</p>
+<p><a id="pretraining-section-16-question-02"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L156">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8a61d3f0e9d6"></a></p>
+<span class="heading-anchor" id="与 BERT 的掩蔽策略相比，掩码语言建模有何不同？这种预训练方式如何帮助模型在下游的文本分类任务中获得更好的性能？"></span><h2 id="bert">与 BERT 的掩蔽策略相比，掩码语言建模有何不同？这种预训练方式如何帮助模型在下游的文本分类任务中获得更好的性能？</h2>
+<p>BERT 用的就是掩码语言建模（MLM），它会把句子里一部分词换成 <code>[MASK]</code>，然后让模型去猜被遮住的词是什么。这种方法让模型学会理解整个句子的意思，而不是像 GPT 那样只预测下一个词。因为模型在预训练时学会了看一句话的上下文，理解句子的语义，所以在做文本分类时，比如判断情感、话题、意图，只需要在上面接一个简单的分类器，模型就能表现很好。</p>
+<p><strong>Q15：假设你有一个包含 100 万条客户评论的数据集，但只有 1000 条带有标签的数据，请同时利用有标签和无标签的数据，结合表示模型和生成模型的优势，构建一个分类系统。</strong></p>
+<p>Step 1：构建基础表示模型，使用 BERT 类预训练模型，加载 MLM 预训练权重，用这 1000 条标注样本训练</p>
+<p>Step 2：利用无标签数据做伪标签增强，用初始模型对部分高置信度的无标签数据打标签，将这些“伪标签样本”加入训练集，继续训练模型</p>
+<p>Step 3：引入生成模型增强（Prompt + 少样本能力），使用LLM做 zero-shot 或 few-shot 辅助，和 BERT 模型的预测结果进行融合，提升低资源条件下的准确率。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L108">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k13dae1c6e366"></a></p>
+<span class="heading-anchor" id="中间表示如何帮助推理框架做图优化、硬件适配和跨平台部署？"></span><h2 id="_1_3">中间表示如何帮助推理框架做图优化、硬件适配和跨平台部署？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、帮助图优化：把模型变成可分析的计算图"></span><h3 id="_2_1">一、帮助图优化：把模型变成可分析的计算图</h3>
+<p>中间表示通常会把模型前向过程表示成静态或半静态计算图。推理框架可以基于图结构分析节点依赖、张量生命周期和算子模式。</p>
+<p>常见图优化包括：</p>
+<ol>
+<li><strong>常量折叠</strong>：提前计算编译期可确定的常量表达式</li>
+<li><strong>死代码消除</strong>：删除不影响输出的节点</li>
+<li><strong>公共子表达式消除</strong>：相同计算只保留一份</li>
+<li><strong>算子融合</strong>：把多个连续算子合并成更高效的执行单元</li>
+<li><strong>布局转换</strong>：根据硬件选择NCHW、NHWC或其他更高效格式</li>
+</ol>
+<p>例如，推理框架可以识别Conv + BatchNorm + Relu模式，并将其融合为更少的kernel执行，从而减少中间张量读写和调度开销。</p>
+<span class="heading-anchor" id="二、帮助硬件适配：让不同后端理解同一模型"></span><h3 id="_3">二、帮助硬件适配：让不同后端理解同一模型</h3>
+<p>不同硬件擅长的计算方式不同：</p>
+<ul>
+<li>CPU依赖SIMD、多线程和缓存友好布局</li>
+<li>NVIDIA GPU依赖CUDA、Tensor Core和高性能kernel</li>
+<li>Intel硬件可以使用OpenVINO进行图优化和低精度执行</li>
+<li>NPU通常依赖厂商编译器和专用算子格式</li>
+</ul>
+<p>中间表示提供统一模型描述，推理框架再把同一个模型映射到不同硬件后端。例如ONNX Runtime可以通过不同Execution Provider把同一个ONNX模型交给CPU、CUDA、TensorRT、OpenVINO等后端执行。</p>
+<span class="heading-anchor" id="三、帮助跨平台部署：减少重复转换成本"></span><h3 id="_4">三、帮助跨平台部署：减少重复转换成本</h3>
+<p>如果没有中间表示，每个训练框架和每个推理后端之间都要单独适配。中间表示相当于提供了统一接口：</p>
+<pre><code class="language-text">PyTorch / TensorFlow / Paddle
+          ↓
+        ONNX
+          ↓
+ONNX Runtime / TensorRT / OpenVINO / 端侧Runtime
+</code></pre>
+<p>这样可以减少模型迁移成本，也方便同一模型在不同平台上做性能对比和灰度验证。</p>
+<span class="heading-anchor" id="四、需要注意中间表示不是最终性能保证"></span><h3 id="_5">四、需要注意中间表示不是最终性能保证</h3>
+<p>中间表示只是让优化和适配成为可能，不代表一定能获得最佳性能。实际效果还取决于：</p>
+<ul>
+<li>目标推理框架的算子覆盖</li>
+<li>硬件后端是否有高性能kernel</li>
+<li>动态shape是否支持完善</li>
+<li>是否能成功做算子融合和量化</li>
+<li>输入大小、batch大小和精度策略是否合理</li>
+</ul>
+<p>可以总结为：<strong>中间表示通过标准计算图让推理框架能看懂模型、分析模型并重写模型，从而支持图优化、硬件后端映射和跨平台部署。但最终性能仍需要结合具体推理引擎、硬件和压测结果验证。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L265">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0e282e6d58e5"></a></p>
+<span class="heading-anchor" id="为什么 LoRA 适合大语言模型参数高效微调？"></span><h2 id="lora">为什么 LoRA 适合大语言模型参数高效微调？</h2>
+<p><strong>低秩适配（Low-Rank Adaptation, LoRA）</strong> 是一种参数高效微调方法。它的基本思路是：<strong>冻结原始预训练权重</strong> $<code>W</code>$，不直接更新 $<code>W</code>$，而是在部分线性层旁边增加一个可训练的低秩增量：</p>
+<div class="arithmatex">\[
+\Delta W = BA
+\]</div>
+<p>训练时只更新 $<code>A</code>$ 和 $<code>B</code>$ 两个低秩矩阵，原始模型权重保持冻结。推理时可以将 LoRA 增量合并到原始权重中：</p>
+<div class="arithmatex">\[
+W' = W + BA
+\]</div>
+<p>LoRA 可以明显减少 <strong>可训练参数量、梯度显存、优化器状态显存和任务权重存储成本</strong>。如果推理时将 LoRA 权重合并进原始权重，通常几乎不增加推理延迟；如果推理时动态加载 LoRA Adapter，则可能带来少量额外计算和管理开销。</p>
+<p><strong>相关解释：</strong> <a href="n-4dd9f79d099c.html#k661122dd3cee">什么是损失掩码？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L449">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2afeb0b2fe5f"></a></p>
+<span class="heading-anchor" id="为什么 LoRA 需要改进？"></span><h2 id="lora_1">为什么 LoRA 需要改进？</h2>
+<p>标准 <strong>低秩适配（Low-Rank Adaptation, LoRA）</strong> 的基本思路是：冻结原模型权重 $<code>W</code>$，只训练低秩增量矩阵。但标准 LoRA 仍存在一些局限：</p>
+<ul>
+<li><strong>rank 固定</strong>：不同层、不同模块统一使用相同 rank，可能造成参数浪费；</li>
+<li><strong>表达能力受限</strong>：低秩增量可能不足以表示复杂任务所需的权重变化；</li>
+<li><strong>训练稳定性依赖超参数</strong>：rank、alpha、学习率、target modules 等都会影响效果；</li>
+<li><strong>参数分配不灵活</strong>：无法自动判断哪些层更需要适配；</li>
+<li><strong>量化、多任务、长上下文场景适配不足</strong>：标准 LoRA 本身不专门解决这些工程问题。</li>
+</ul>
+<p>因此，后续 LoRA 改进方法主要围绕 <strong>显存占用、表达能力、训练稳定性、参数分配、多任务适配和量化兼容性</strong> 进行优化。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L635">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="keb710d81aa9d"></a></p>
+<span class="heading-anchor" id="为什么 SFT 之后还要进行后训练"></span><h2 id="sft">为什么 SFT 之后还要进行后训练</h2>
+<p><strong>回答：</strong></p>
+<p>SFT 让模型学习任务格式、基本行为和示范分布，但示范不一定覆盖偏好排序、复杂推理、工具错误恢复或真实环境目标。后训练可以用偏好优化、可验证奖励、蒸馏或 RL 让模型在这些目标上进一步调整。</p>
+<p>顺序不是绝对固定：SFT 提供稳定初始策略，降低后续探索空间；后训练提高目标一致性，但可能造成长度投机、能力遗忘和安全回归，所以必须保留通用能力集、约束集和回滚策略。</p>
+<p><a id="tencent-llm-collection-20260903-q98"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1328">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3f91f390c474"></a></p>
+<span class="heading-anchor" id="为什么 SFT 格式要和推理一致？"></span><h2 id="sft_1">为什么 SFT 格式要和推理一致？</h2>
+<p>SFT 的目标是让模型学习：</p>
+<pre><code class="language-text">P(assistant response | system, user, history)
+</code></pre>
+<p>也就是在给定系统指令、用户输入和上下文时，生成正确的 assistant 回复。如果训练格式和推理格式不一致，会造成训练分布和推理分布不匹配。</p>
+<p>例如：</p>
+<ul>
+<li>训练时没有 <code>system prompt</code>，推理时加入系统约束，模型可能无法正确理解规则；</li>
+<li>训练和推理使用不同的角色标记，模型可能无法识别 user/assistant 边界；</li>
+<li>训练中没有工具调用格式，推理时要求函数参数，模型容易生成非法格式；</li>
+<li><code>loss mask</code> 错误时，模型可能学习复述用户输入，而不是学习如何回答。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L257">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5c06c83f42ed"></a></p>
+<span class="heading-anchor" id="为什么 token budget 是视频生成训练的核心约束？"></span><h2 id="token-budget">为什么 token budget 是视频生成训练的核心约束？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>token budget 的关键不是“一个 batch 有多少条视频”，而是每条视频进入生成主干后形成多长的序列。假设输入视频大小为 <span class="arithmatex">\(T \times H \times W\)</span>，Video VAE 在时间和空间上的下采样率为 <span class="arithmatex">\(r_t,r_h,r_w\)</span>，DiT 的 patch 大小为 <span class="arithmatex">\(p_t,p_h,p_w\)</span>。忽略边界补齐且各维可以整除时，单条视频的 token 数为：</p>
+<pre><code class="language-math">N_{\mathrm{vid}}
+=\frac{T}{r_t p_t}
+\times\frac{H}{r_h p_h}
+\times\frac{W}{r_w p_w}
+</code></pre>
+<p>这条式子也划清了一个容易混淆的边界：<span class="arithmatex">\(T_l \times H_l \times W_l\)</span> 是 VAE 的 latent 网格，其中 <span class="arithmatex">\(T_l=T/r_t\)</span>、<span class="arithmatex">\(H_l=H/r_h\)</span>、<span class="arithmatex">\(W_l=W/r_w\)</span>；经过 patchify 后才是 DiT 的视频 token。文本或其他条件是否增加同一条序列的长度，取决于注入方式：拼接后做联合 attention 会增加序列长度，单独做 cross-attention 则形成另一部分计算。</p>
+<p><strong>序列长度直接改变算力和显存。</strong> 对稠密全局 self-attention，注意力部分随序列长度二次增长；逐 token 的投影和 MLP 等计算则近似线性增长：</p>
+<pre><code class="language-math">C_{\mathrm{attn}}\propto B N_{\mathrm{vid}}^2,
+\qquad
+C_{\mathrm{token}}\propto B N_{\mathrm{vid}}
+</code></pre>
+<p>其中 <span class="arithmatex">\(B\)</span> 是 batch size。局部、分解或稀疏注意力会改变二次项，具体成本还受隐藏维度、激活重计算、并行方式和算子实现影响。因此 token 数适合作为第一层预算，不能代替真实性能测量。</p>
+<p><strong>它还会改变训练权重。</strong> 如果 loss 对 batch 内所有 token 直接求平均，长视频和高分辨率样本贡献的元素更多；如果先按样本归一化再求平均，各规格样本的权重又不同。混合规格训练必须明确归一化口径，否则数据采样比例相同，实际优化权重也可能不同。</p>
+<p>工程上应同时记录单样本最大 token 数、batch 总 token 数、峰值显存、step time 和有效 tokens/s。只固定 batch 总 token 仍不一定能固定计算量：对稠密注意力，少量长序列可能比大量短序列更贵。最终应按不同规格实测，再决定 batch size、梯度累积和并行策略。</p>
+<blockquote>
+<p><strong>面试速答</strong>：token budget 把帧数、分辨率、VAE 压缩率和 patch 大小统一成生成主干实际处理的序列长度。它直接影响显存、注意力计算、batch size 和不同规格样本的 loss 权重。排查时既要看单样本与 batch 总 token，也要看实测峰值显存和 step time，因为相同总 token 在不同序列长度下未必具有相同成本。</p>
+</blockquote>
+<p>参考资料：<a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>、<a href="https://arxiv.org/abs/2408.06072">CogVideoX</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/05_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%B7%A5%E7%A8%8B%E4%BC%98%E5%8C%96.md#L133">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf0ccbb93b00e"></a></p>
+<span class="heading-anchor" id="为什么LoRA不会增加额外的推理延迟？"></span><h2 id="lora_2">为什么LoRA不会增加额外的推理延迟？</h2>
+<p>1、参数高效性: LoRA 不直接修改原始模型的参数，而是添加少量可训练的低秩矩阵 (通常只有几千个参数) 到目标模块中。这些新增的参数被称为 “LoRA 矩阵”。由于参数数量非常少，因此不会对模型的计算量造成显著影响。
+2、推理时仅使用新增参数: 在推理过程中，LoRA 矩阵会与原始模型参数进行融合，然后进行计算。这意味着模型在推理时只需要使用原始模型参数和 LoRA 矩阵，而不需要加载和计算所有原始模型参数，从而提高了推理效率。
+3、并行计算: LoRA 矩阵可以被并行地加载和计算，进一步提高了推理速度。
+4、目标模块的选择: LoRA 通常只针对模型中的一些关键模块进行微调，例如注意力机制中的 query、key、value 投影矩阵。这些模块是模型中最为重要的部分，微调它们可以显著提高模型性能，而不会影响其他模块的性能。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83.md#L101">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb9a1446e2b40"></a></p>
+<span class="heading-anchor" id="为什么OmniAvatar选择LoRA-based训练而不是全模型训练或部分层冻结？"></span><h2 id="omniavatarlora-based">为什么OmniAvatar选择LoRA-based训练而不是全模型训练或部分层冻结？</h2>
+<p>OmniAvatar选择LoRA-based训练基于以下原因：</p>
+<ol>
+<li>全模型训练的问题：
+   - 会导致模型生成能力退化
+   - 容易过拟合人类语音数据集
+   - 生成内容可能出现不真实或静态化
+   - 细节捕捉能力下降（如手部和嘴部）</li>
+<li>部分层冻结的问题：
+   - 音频-视频对齐性能差
+   - 唇同步效果不佳
+   - 难以准确映射音频特征到真实面部动作</li>
+<li>LoRA的优势：
+   - 通过低秩矩阵更新注意力层和FFN层
+   - 保持基础模型能力的同时高效适应音频条件
+   - 训练参数少（rank=128，alpha=64）
+   - 避免过拟合，保持良好泛化能力
+   - 保留Wan2.1基础模型的高质量视频生成能力</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/03_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E5%85%B8%E5%9E%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E6%9E%B6%E6%9E%84.md#L993">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k47e2970ebf2b"></a></p>
+<span class="heading-anchor" id="为什么不用 GRPO 训练，而是用 DPO 训练"></span><h2 id="grpo-dpo">为什么不用 GRPO 训练，而是用 DPO 训练</h2>
+<p><strong>回答：</strong></p>
+<p>当奖励不可验证、组内样本几乎同分、任务很长且信用分配稀疏、环境噪声大或基础模型探索能力不足时，GRPO 可能效果差。数据构造要有清晰输入、足够多样的可执行任务、可靠奖励和独立评测，不能只用模型自评。</p>
+<p><a id="tencent-llm-collection-20260903-q105"></a></p>
+<p><strong>相关解释：</strong> <a href="n-9c4d907ced10.html#k5499dd0eae0f">GRPO 和 PPO 的区别</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1391">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6734072717db"></a></p>
+<span class="heading-anchor" id="为什么不能只用 reward score 评估大语言模型偏好优化算法？PPO、DPO、GRPO 等方法应如何评估？"></span><h2 id="reward-score-ppodpogrpo">为什么不能只用 reward score 评估大语言模型偏好优化算法？PPO、DPO、GRPO 等方法应如何评估？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5) | 考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>Reward score 只是奖励模型或规则奖励给出的代理指标，不一定等于真实人类偏好或真实任务成功。模型可能通过 reward hacking 获得更高分，也可能牺牲事实性、安全性、简洁性或通用能力来迎合奖励模型。若继续训练只推高代理奖励、真实质量反而下降，这通常称为 <strong>reward over-optimization / over-optimization</strong>。</p>
+<p><a id="posttraining-section-29"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L1202">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kad3d581080c4"></a></p>
+<span class="heading-anchor" id="为什么主流 LLM 预训练通常采用自回归（下一词元预测）？"></span><h2 id="llm">为什么主流 LLM 预训练通常采用自回归（下一词元预测）？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>当模型规模、数据规模和计算规模足够大时，下一词元预测（next token prediction ）成为一种可以利用海量未标注文本训练通用能力底座的统一目标。</p>
+<p>自回归语言模型的训练目标是最大化文本序列的联合概率。根据链式法则：</p>
+<div class="arithmatex">\[
+P(x_1,x_2,\dots,x_T)=\prod_{t=1}^{T}P(x_t \mid x_{\lt t})
+\]</div>
+<p>所以训练可以转化为每个位置根据前文预测当前词元，也就是下一词元预测。它属于自监督学习，因为文本本身就提供标签：前面的词元（token）是输入，后一个词元是监督信号。</p>
+<p>这种目标成为主流，主要有三个原因：</p>
+<ul>
+<li><strong>不依赖人工标注</strong>：任意文本都能转成训练样本，适合扩展到万亿词元。</li>
+<li><strong>训练形式统一</strong>：续写、问答、代码生成、对话、摘要等任务都可以表示成条件上下文下的下一个词元预测。</li>
+<li><strong>可扩展性强</strong>：在足够规模和高质量数据下，模型为了降低预测损失，会学习大量语法、语义、知识、代码、格式和推理相关模式。</li>
+</ul>
+<p>在 Decoder-only 模型中，因果掩码（causal mask）会保证每个位置只能看到历史词元，看不到未来词元，从而让训练目标和推理时逐词元生成保持一致。</p>
+<p>但下一词元预测也有局限。它可以看作在拟合训练文本分布，不天然保证事实正确、指令跟随、安全拒答或人类偏好最优。因此预训练模型通常只是“会续写”，还需要 SFT、偏好优化、RLHF/RLAIF、安全对齐和工具使用训练等后训练手段，让它从基础语言模型变成更可靠的任务型助手。</p>
+<p><a id="pretraining-section-19-question-03"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L426">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5446877ec59b"></a></p>
+<span class="heading-anchor" id="为什么低秩矩阵有效？"></span><h2 id="_1_14">为什么低秩矩阵有效？</h2>
+<p>LoRA 的核心假设是：对于很多下游任务，模型需要学习的参数变化并不需要覆盖完整的高维参数空间，而是集中在一个较低维的子空间中。</p>
+<p>预训练大模型已经具备较强的通用语言能力、知识表示能力和一定推理能力。很多业务微调并不是重新训练一个模型，而只是调整模型在特定输入下的输出倾向（例如：回答风格，输出格式，领域术语使用等）。因此，用低秩矩阵近似权重增量，往往就能在许多任务上达到接近全量微调的效果。</p>
+<p>当然，如果任务和底座模型差异很大，或者需要大幅改变模型能力边界，LoRA 的表达能力也可能不足，此时可能需要继续预训练、全量微调，或更换更强的底座模型。</p>
+<p><a id="posttraining-section-26-question-02"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L512">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8d4411cc416a"></a></p>
+<span class="heading-anchor" id="为什么使用强化学习会存在训练不稳定问题？为什么业界还在用？"></span><h2 id="_1_15">为什么使用强化学习会存在训练不稳定问题？为什么业界还在用？</h2>
+<p><strong>回答：</strong></p>
+<p>语言模型 RL 不稳定主要来自：策略更新改变采样分布；序列很长导致奖励稀疏与信用分配困难；奖励模型或规则存在噪声、漏洞；优势估计方差较大；旧策略样本与新策略偏离；KL、学习率和长度处理相互影响。高奖励也可能只是更会利用奖励漏洞。</p>
+<p>常见控制手段包括 SFT 初始化、较小更新、PPO clipping、适当 KL 约束、奖励尺度处理、批次和样本多样性控制，以及独立任务验证。检查梯度、熵、输出长度、KL、组内奖励分布和真实成功率，不能只看 reward 曲线。</p>
+<p>仍然使用 RL，是因为它能利用结果反馈优化难以逐步标注的策略，例如可验证推理和工具任务。收益需要超过采样与基础设施成本；没有可靠奖励和验收时，更多训练可能放大问题。</p>
+<p><a id="jd-damodel-20251211-20260205-p7"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L999">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka2393a1cf787"></a></p>
+<span class="heading-anchor" id="为什么多模态模型需要大规模预训练？"></span><h2 id="_1_16">为什么多模态模型需要大规模预训练？</h2>
+<p>多模态模型需要大规模预训练的原因包括：</p>
+<p>(1)数据丰富性：大规模预训练可以暴露模型于丰富的数据，提升其泛化能力。</p>
+<p>(2)特征提取：通过预训练，模型能够学习到有效的特征表示，提升后续任务的表现。</p>
+<p>(3)知识积累：预训练过程使模型积累了大量的先验知识，有助于更好地理解和处理复杂任务。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83.md#L26">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4a82affee9b8"></a></p>
+<span class="heading-anchor" id="为什么大语言模型与训练需要多来源数据？"></span><h2 id="_1_17">为什么大语言模型与训练需要多来源数据？</h2>
+<p>大语言模型带来的变化在于：预训练数据规模更大、来源更复杂、能力目标更通用，因此通常需要混合 <strong>网页、书籍、百科、论文、代码、问答社区、对话数据、领域语料、合成数据和机器转写文本</strong> 等多类语料。Common Crawl 提供广覆盖的原始 Web 供给，但不是可直接训练的“高质量数据集”。从原始语料到训练配方，需经历正文抽取、语言识别、去重及质量与合规过滤等步骤；这些步骤的严格程度最终决定了入选语料的规模。</p>
+<p><strong>不同来源对应不同能力</strong>：网页提供通用知识和语言覆盖，书籍和论文提升长文本理解与知识密度，代码增强程序生成、符号结构和逻辑模式，问答与社区对话数据提升解释表达和交互风格，领域语料决定垂直模型的专业上限。<strong>多来源数据的核心价值，是让模型在通用语言能力、知识覆盖、推理能力、代码能力、多语种能力和领域能力之间取得更好的平衡。</strong></p>
+<p>从训练目标看，大语言模型通常做下一词元预测（next token prediction），即 $<code>P(x_t \mid x_{&lt;t})</code>$。</p>
+<p>训练本质是在拟合训练数据分布。某类数据占比越高，它对梯度更新的贡献越大，模型就越容易学习该类数据中的语言模式、知识结构、表达风格和推理方式。因此数据不能简单理解为越多越好，而是要看<strong>质量、分布和目标能力是否匹配</strong>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L146">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc4fe55585302"></a></p>
+<span class="heading-anchor" id="为什么大语言模型训练需要多种并行策略？"></span><h2 id="_1_18">为什么大语言模型训练需要多种并行策略？</h2>
+<p>大语言模型训练需要多种并行策略，核心原因是单张 GPU 很难同时承载模型参数、激活值、梯度、优化器状态和大 batch 训练所需的显存与计算量。因此，大语言模型训练通常采用 <strong>数据并行、张量并行、流水线并行</strong>，甚至进一步结合 ZeRO、序列并行、专家并行等方法，形成多维并行训练方案。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L742">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k99ae8ea40e0b"></a></p>
+<span class="heading-anchor" id="为什么微调后必须分层评估？"></span><h2 id="_1_19">为什么微调后必须分层评估？</h2>
+<p>微调可能提升目标任务，但同时带来副作用。例如：</p>
+<ul>
+<li>领域问答更专业，但通用对话能力下降；</li>
+<li>输出格式更稳定，但回答变得模板化；</li>
+<li>目标任务准确率提升，但安全拒答能力退化；</li>
+<li>模型更符合业务话术，但事实性变差；</li>
+<li>离线测试表现好，但线上真实用户不满意。</li>
+</ul>
+<p>因此，评估不能只看单一指标，而是要综合判断。</p>
+<p><a id="posttraining-section-25"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L203">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k43cf37528d55"></a></p>
+<span class="heading-anchor" id="为什么推理模型训练越来越重视过程奖励和可验证反馈？"></span><h2 id="_1_20">为什么推理模型训练越来越重视过程奖励和可验证反馈？</h2>
+<p>复杂推理任务中，最终答案对错只提供稀疏反馈。过程奖励能在中间步骤提供更密集监督，帮助模型学习“如何推理”，而不仅是“答案是什么”。</p>
+<p>对一个推理轨迹：</p>
+<div class="arithmatex">\[
+\tau=(s_1,s_2,...,s_T,y)
+\]</div>
+<p>Outcome Reward 只给最终答案打分：</p>
+<div class="arithmatex">\[
+R_{\text{outcome}}(\tau)=r(y)
+\]</div>
+<p>Process Reward 给每个步骤或部分步骤打分：</p>
+<div class="arithmatex">\[
+R_{\text{process}}(\tau)=\sum_{t=1}^{T}r_t(s_t)
+\]</div>
+<p><strong>为什么重要：</strong></p>
+<ul>
+<li>数学、代码、证明、规划任务有长链条依赖。</li>
+<li>最终答案正确不代表过程可靠，过程错误也可能偶然得到正确答案。</li>
+<li>过程监督能改善搜索、重排和强化学习的信用分配。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/03_%E5%A4%A7%E6%A8%A1%E5%9E%8B%E4%B8%8E%E5%A4%9A%E6%A8%A1%E6%80%81%E6%9C%80%E6%96%B0%E6%95%B0%E5%AD%A6%E4%B8%93%E9%A2%98.md#L719">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k01ea8a86e952"></a></p>
+<span class="heading-anchor" id="为什么模型部署中常用中间表示而不是直接使用训练框架模型？"></span><h2 id="_1_21">为什么模型部署中常用中间表示而不是直接使用训练框架模型？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<span class="heading-anchor" id="一、训练框架模型更适合研发，不一定适合部署"></span><h3 id="_2_9">一、训练框架模型更适合研发，不一定适合部署</h3>
+<p>训练框架的模型表达通常服务于模型研发和训练，强调灵活性、可调试性和自动求导能力。例如PyTorch动态图非常适合实验和调试，但生产推理通常更关注：</p>
+<ul>
+<li>执行路径是否稳定</li>
+<li>是否容易做图优化</li>
+<li>是否能脱离训练框架运行</li>
+<li>是否能适配不同硬件后端</li>
+<li>是否能降低线上依赖和部署复杂度</li>
+</ul>
+<p>因此，直接把训练框架模型搬到线上虽然可行，但通常不是高性能、可维护部署的最佳方式。</p>
+<span class="heading-anchor" id="二、中间表示可以解耦训练和推理"></span><h3 id="_3_1">二、中间表示可以解耦训练和推理</h3>
+<p>中间表示是为了把模型从训练代码中抽离出来，只保留推理所需的信息：</p>
+<ol>
+<li><strong>计算图结构</strong>：模型前向计算怎么执行</li>
+<li><strong>模型权重</strong>：训练得到的参数</li>
+<li><strong>输入输出签名</strong>：输入输出名称、shape和类型</li>
+<li><strong>算子语义</strong>：每个节点对应什么计算操作</li>
+</ol>
+<p>这样训练侧和部署侧就可以分工：训练框架负责训练和导出，推理框架负责加载、优化和执行。</p>
+<span class="heading-anchor" id="三、中间表示更利于生产优化"></span><h3 id="_4_1">三、中间表示更利于生产优化</h3>
+<p>推理框架拿到中间表示后，可以在计算图层面做很多训练框架不一定默认做的优化，例如：</p>
+<ul>
+<li>常量折叠</li>
+<li>死节点消除</li>
+<li>Conv + BN + ReLU融合</li>
+<li>MatMul + Bias + Activation融合</li>
+<li>数据布局转换</li>
+<li>静态内存规划</li>
+<li>低精度量化</li>
+<li>针对目标硬件选择高性能kernel</li>
+</ul>
+<p>这些优化需要一个相对稳定、可分析的计算图，而不是任意Python动态图逻辑。</p>
+<span class="heading-anchor" id="四、中间表示降低部署依赖"></span><h3 id="_5_1">四、中间表示降低部署依赖</h3>
+<p>如果直接用训练框架上线，服务可能需要依赖完整PyTorch、TensorFlow、CUDA扩展、训练时代码结构和自定义Python逻辑。中间表示可以减少这类依赖，使部署包更轻、更稳定，也更容易在C++服务、边缘设备或专用推理平台中集成。</p>
+<p>可以总结为：<strong>模型中间表示的主要优势是解耦训练和推理，把灵活研发阶段的模型转换成更适合优化、迁移和上线的标准计算图。它让推理框架更容易做图优化、硬件适配和服务化部署。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L217">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb800de72e2b4"></a></p>
+<span class="heading-anchor" id="为什么用 LoRA，而不用全量微调"></span><h2 id="lora_3">为什么用 LoRA，而不用全量微调</h2>
+<p><strong>回答：</strong></p>
+<p>LoRA 冻结预训练权重 <span class="arithmatex">\(W_0\)</span>，把任务更新限制为低秩增量：</p>
+<div class="arithmatex">\[
+W=W_0+\Delta W,\qquad \Delta W=BA,
+\]</div>
+<p><a id="tencent-llm-collection-20260903-q96"></a></p>
+<p><strong>相关解释：</strong> <a href="n-359722c0c6ca.html#k64f41a408cc1">lora原理</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1298">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3ec16210e376"></a></p>
+<span class="heading-anchor" id="为什么要SFT"></span><h2 id="sft_2">为什么要SFT</h2>
+<p><strong>回答：</strong></p>
+<p>当基座已具备必要知识与能力，但在领域术语、结构化输出、工具选择或多轮行为上持续不稳定时，SFT 用示范数据调整条件输出分布，可能比持续堆长提示更稳定、更省 token。</p>
+<p>先尝试提示与工具 schema 改进并建立基线。动态商品库存等知识应由检索或业务系统提供，不适合靠 SFT 记住。训练需要高质量输入—目标配对与损失掩码，评测时同时检查任务成功、格式合法、幻觉和原能力退化。</p>
+<p>只有固定评测证明收益，才值得增加数据维护和模型版本成本。SFT 不保证模型自动获得训练数据中未体现的推理或权限能力。</p>
+<p><a id="jd-damodel-20251211-20260205-p3-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L426">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kac4cccf2ae42"></a></p>
+<span class="heading-anchor" id="为什么视频生成训练通常需要 progressive training？"></span><h2 id="progressive-training">为什么视频生成训练通常需要 progressive training？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>progressive training 是一种工程策略：先在成本较低、信号更容易学习的设定上形成稳定能力，再逐步增加分辨率、视频长度、条件复杂度或数据质量要求。它经常有效，但不是视频模型必须遵守的理论步骤。</p>
+<p><strong>分阶段主要解决两类问题。</strong> 一类是成本：低分辨率、短视频能用更大的有效 batch 和更快的迭代验证基础表示。另一类是优化：如果同时改变时长、分辨率、数据分布和任务条件，训练一旦退化，很难判断是哪项变化造成的。分阶段可以控制变量，也便于在阶段切换后回滚。</p>
+<p>常见的阶段关系如图5-2所示。它只是一种组织方式，实际项目可以从已有图像模型、已有视频基座或随机初始化开始，并不要求完整走过所有阶段。</p>
+<p><img alt="视频生成渐进式训练从图像初始化、低分辨率短视频到高分辨率长视频、精选微调和偏好后训练，并在阶段间设置门禁、回归检查、回滚点与可选路径" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/ch05/fig-5-02-progressive-training-stages.png" width="780"/></p>
+<p>图5-2 视频生成渐进式训练的阶段门禁与回滚路径</p>
+<p>阶段切换比阶段名称更重要，至少要处理下面几项：</p>
+<ul>
+<li><strong>形状变化</strong>：分辨率和时长提高后，token 规模、位置编码与 batch 组织都会变化，需要重新标定学习率、显存和吞吐；</li>
+<li><strong>分布变化</strong>：从大规模数据切到精选数据后，质量可能上升，但多样性和长尾能力也可能收缩；</li>
+<li><strong>优化状态</strong>：是否保留优化器状态、是否重做 warmup、哪些参数解冻，应按变化幅度决定，不能机械继承；</li>
+<li><strong>放行条件</strong>：阶段切换应依据分项验证是否稳定、目标能力是否达到门槛，而不是只看训练步数或整体 loss。</li>
+</ul>
+<p>progressive training 与 curriculum learning 也不完全相同。前者通常改变训练规格、数据阶段或可训练参数，后者更强调在同一目标下安排样本难度。二者可以组合，但不能把“先短后长”自动解释为课程学习有效。</p>
+<blockquote>
+<p><strong>面试速答</strong>：progressive training 通过分开引入分辨率、时长、数据质量和任务复杂度，降低早期训练成本，也让阶段退化更容易定位。它不是固定流水线；每次切换都要重新检查 token 规模、学习率、优化器状态和数据分布，并用固定分项验证集决定是否进入下一阶段。curriculum learning 侧重样本难度排序，与阶段化训练有关但不等同。</p>
+</blockquote>
+<p><strong>相关解释：</strong> <a href="n-84b6dfab1f70.html#k6e624a2512cd">训练视频生成模型时，数据管线最容易拖垮哪些环节？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/05_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%B7%A5%E7%A8%8B%E4%BC%98%E5%8C%96.md#L248">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2963db5a9ad6"></a></p>
+<span class="heading-anchor" id="为什么训练可以并行？"></span><h2 id="_1_25">为什么训练可以并行？</h2>
+<p>训练时整段正确序列已经存在。虽然位置 $<code>t</code>$ 不能看 $<code>t+1</code>$，但所有位置的 Q、K、V 和掩码矩阵可以在一次矩阵运算中同时计算。因此，<strong>依赖关系是因果的，不代表 GPU 必须逐 Token 串行训练</strong>。</p>
+<p>例如输入：</p>
+<pre><code class="language-text">[BOS] 我 喜欢 AI
+</code></pre>
+<p>模型可以在一次前向中同时构造：</p>
+<ul>
+<li><code>[BOS]</code> 的状态预测“我”；</li>
+<li>“我”的状态预测“喜欢”；</li>
+<li>“喜欢”的状态预测“AI”。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/02_%E6%A8%A1%E5%9E%8B%E6%9E%B6%E6%9E%84%E4%B8%8E%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86.md#L386">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7b4a501f8637"></a></p>
+<span class="heading-anchor" id="为什么训练好的模型不能直接用训练框架上线？"></span><h2 id="_1_26">为什么训练好的模型不能直接用训练框架上线？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>严格来说，训练框架也可以直接做推理，例如用 PyTorch 加载模型、调用 <code>model.eval()</code> 并关闭梯度计算。但在生产环境中，直接用训练框架上线通常不是最优选择，主要原因有四点：</p>
+<span class="heading-anchor" id="一、训练框架包含大量推理不需要的能力"></span><h3 id="_2_11">一、训练框架包含大量推理不需要的能力</h3>
+<p>训练框架为了支持训练，需要保留自动求导、动态图构建、梯度管理、优化器、调试接口和训练态算子等能力。这些能力在推理阶段大多用不上，却会带来额外依赖、运行时开销和部署复杂度。</p>
+<p>生产推理通常只需要稳定执行前向计算，因此会尽量裁剪训练相关逻辑，让执行路径更短、依赖更少、行为更可控。</p>
+<span class="heading-anchor" id="二、训练框架不一定能充分利用部署硬件"></span><h3 id="_3_2">二、训练框架不一定能充分利用部署硬件</h3>
+<p>线上推理往往运行在特定硬件上，例如 NVIDIA GPU、Intel CPU、移动端NPU、边缘AI芯片等。推理框架会针对这些硬件做专门优化，例如：</p>
+<ul>
+<li>TensorRT 针对 NVIDIA GPU 做 kernel 选择、算子融合、低精度推理和engine构建</li>
+<li>OpenVINO 针对 Intel CPU/iGPU/NPU 做图优化、算子优化和低精度执行</li>
+<li>NCNN、MNN、Core ML 针对移动端 CPU、GPU、NPU 做轻量化部署和硬件适配</li>
+</ul>
+<p>训练框架更重视通用性、灵活性和开发效率，不一定能在目标部署硬件上达到最优延迟、吞吐和资源利用率。</p>
+<span class="heading-anchor" id="三、生产服务需要更强的稳定性和服务化能力"></span><h3 id="_4_2">三、生产服务需要更强的稳定性和服务化能力</h3>
+<p>训练阶段通常是离线任务，慢一点可以接受；推理阶段面向真实用户请求，通常要满足延迟、吞吐、稳定性和成本要求。</p>
+<p>生产服务还需要处理：
+- 请求队列、batching、并发控制和超时控制
+- 资源隔离、限流熔断、健康检查和自动重启
+- 日志、指标监控、告警和链路追踪
+- 模型版本管理、灰度发布、回滚和热更新</p>
+<p>这些能力不是训练框架的核心目标，通常需要推理框架、模型服务框架或MLOps平台配合完成。</p>
+<span class="heading-anchor" id="四、模型格式和运行时需要适配生产约束"></span><h3 id="_5_2">四、模型格式和运行时需要适配生产约束</h3>
+<p>训练产物通常包含训练态结构、动态图逻辑或框架私有依赖，直接上线可能遇到启动慢、依赖重、跨平台困难、版本兼容复杂等问题。</p>
+<p>所以生产环境通常会把训练好的模型转换成 ONNX、TensorRT Engine、OpenVINO IR、Core ML、TFLite、GGUF 等更适合部署的格式，再交给推理框架或专用运行时执行。</p>
+<p>可以总结为：<strong>训练框架关注"把模型训练出来"，推理部署关注"把模型稳定、低成本、高性能地服务真实请求"。训练框架能做推理，但生产环境通常需要推理框架来补足性能优化、硬件适配和服务化能力。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L350">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k580bbc0e92ad"></a></p>
+<span class="heading-anchor" id="为什么训练瓶颈会随规模变化？"></span><h2 id="_1_27">为什么训练瓶颈会随规模变化？</h2>
+<p>大模型训练吞吐由最慢环节决定。不同规模下，瓶颈通常不同：</p>
+<ul>
+<li>小模型或单机训练中，模型能放进显存，主要瓶颈可能是 GPU 计算。</li>
+<li>模型变大后，参数、梯度、优化器状态和激活值快速增长，显存成为主要限制。</li>
+<li>多机多卡训练中，参数同步和梯度通信开销变大，通信瓶颈更明显。</li>
+<li>如果数据处理链路不够快，GPU 会等待 batch，数据管线就会成为瓶颈。</li>
+</ul>
+<p>因此，大模型优化不是单点优化，而是计算、显存、通信和数据管线之间的平衡。优化前必须先做性能分析，确认真正瓶颈在哪里，再选择对应优化策略。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L716">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5d621e9c49a7"></a></p>
+<span class="heading-anchor" id="为什么通常只对 assistant 回复计算损失？"></span><h2 id="assistant">为什么通常只对 assistant 回复计算损失？</h2>
+<p>对话 SFT 的目标不是让模型复述用户输入或系统提示，而是让模型学会在给定上下文后生成合适的助手回复。</p>
+<p>其训练目标可以看作：</p>
+<div class="arithmatex">\[
+P_\theta(\text{assistant answer} \mid \text{system}, \text{user}, \text{history})
+\]</div>
+<ul>
+<li><strong>system</strong>：提供角色、人设、安全规则和行为约束；</li>
+<li><strong>user</strong>：提供任务需求；</li>
+<li><strong>history</strong>：提供多轮对话上下文；</li>
+<li><strong>assistant answer</strong>：才是模型需要学习生成的目标。</li>
+<li></li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L302">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k883ac8149a2c"></a></p>
+<span class="heading-anchor" id="为什么非凸仍能训练成功？"></span><h2 id="_1_29">为什么非凸仍能训练成功？</h2>
+<ul>
+<li>过参数化：参数量远大于约束数量，存在大量可行低损失解。</li>
+<li>SGD 噪声：mini-batch 噪声有助于逃离部分尖锐区域。</li>
+<li>残差连接和归一化：改善梯度传播和损失地形。</li>
+<li>好的初始化：让网络从稳定区域开始训练。</li>
+<li>学习率调度：先探索后收敛。</li>
+<li>实践中更关心泛化好的低损失解，而不是严格全局最优。</li>
+</ul>
+<p><strong>面试易错点：</strong></p>
+<p>非凸不等于无法优化。现代深度网络的成功依赖模型结构、数据规模、优化器、归一化、初始化和训练技巧共同作用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%A6%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1275">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k266e1030ac0a"></a></p>
+<span class="heading-anchor" id="主流大模型训练框架如何组合并行策略？"></span><h2 id="_1_30">主流大模型训练框架如何组合并行策略？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5) | 考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>实际选型通常取决于模型是否单卡放得下、单层矩阵是否过宽、层数是否过深、优化器状态是否超显存、是否包含 MoE，以及跨节点网络是否足够快。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>框架 / 训练栈</th>
+<th>主要工程定位</th>
+<th>典型组合方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Megatron-LM / Megatron-Core</td>
+<td>适合超大稠密模型和 MoE 的高性能训练核心</td>
+<td>TP + PP + DP，进一步结合 SP / CP / EP</td>
+</tr>
+<tr>
+<td>DeepSpeed</td>
+<td>强在 ZeRO、Offload、显存分片和工程化训练</td>
+<td>DP + ZeRO，或 PP + ZeRO</td>
+</tr>
+<tr>
+<td>Megatron-DeepSpeed</td>
+<td>结合 Megatron 的模型切分与 DeepSpeed 的状态分片</td>
+<td>TP + PP + DP + ZeRO</td>
+</tr>
+<tr>
+<td>PyTorch FSDP</td>
+<td>PyTorch 原生分片训练，生态集成好</td>
+<td>FSDP + DP，必要时叠加 TP / PP</td>
+</tr>
+<tr>
+<td>Colossal-AI</td>
+<td>多维混合并行实验和教学友好</td>
+<td>DP + TP + PP + ZeRO / SP</td>
+</tr>
+<tr>
+<td>NVIDIA NeMo / Megatron-Core 生态</td>
+<td>Megatron-Core 的产品化封装和 NVIDIA 生态集成</td>
+<td>TP + PP + DP，进一步结合 SP / CP / EP</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>注</strong>：序列并行（SP）：在TP 组内把序列长度维度也切开，让 LayerNorm / Dropout 等按 token 独立操作的激活不再被每张卡重复保存，从而只解决“长序列导致激活显存翻倍”的问题，而不改变参数量和通信模式。 上下文并行（CP）：把极长的序列沿时间维（token 维）真正切分到不同设备上，每张卡只持有自己负责的那段 KV / 中间状态，配合环型或分布式的注意力计算，使上下文长度可以远远超过单卡显存上限——目标是“把单序列长度推到几十万甚至百万 token”。 专家并行（EP）：在 MoE 模型中不复制所有专家到每张卡，而是把不同的专家部署在不同设备上，由路由器（router）把每个 token 动态分发到它需要的专家所在的设备上，算完后再送回来。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L925">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kca6dec5c4a6b"></a></p>
+<span class="heading-anchor" id="了解哪些训练框架"></span><h2 id="_1_31">了解哪些训练框架</h2>
+<p><strong>回答：</strong></p>
+<p>训练框架可按职责理解：PyTorch/JAX 负责张量与自动微分，DeepSpeed/FSDP/ZeRO 负责分布式参数、梯度和优化器切分，Megatron 类系统负责大规模并行，TRL/自研框架负责 SFT、DPO、PPO/GRPO 等后训练，verl 一类系统负责 rollout 与训练协同。</p>
+<p>面试中应说明自己实际用过的版本、并行策略、数据接口、checkpoint、混合精度、监控和故障恢复，不要只背框架清单。</p>
+<p><a id="tencent-llm-collection-20260903-q108"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1416">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb40b861af52c"></a></p>
+<span class="heading-anchor" id="二、实际案例：GPT-3 训练"></span><h2 id="gpt-3">二、实际案例：GPT-3 训练</h2>
+<ul>
+<li><strong>模型规模</strong>：1750 亿参数，训练需数千块 A100 GPU。  </li>
+<li><strong>Megatron 配置</strong>：  </li>
+<li><strong>TP=8</strong>（单节点内切分矩阵），<strong>PP=16</strong>（跨节点流水线），<strong>DP=32</strong>（数据并行）。  </li>
+<li><strong>优化效果</strong>：  </li>
+<li>显存占用从单卡 <strong>&gt;8TB</strong> 降至 <strong>&lt;80GB/卡</strong>。  </li>
+<li>吞吐量提升 <strong>3 倍</strong>（对比纯数据并行）。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L2076">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf416642c8b7d"></a></p>
+<span class="heading-anchor" id="什么平台上训练的训练多久学习率多少为什么是这个学习率"></span><h2 id="_1_33">什么平台上训练的训练多久学习率多少为什么是这个学习率</h2>
+<p><strong>回答：</strong></p>
+<p>回答必须使用真实配置：模型规模、卡型与数量、有效 batch、梯度累积、序列长度、训练步数、学习率调度和验证频率。学习率由可训练参数规模、有效 batch、优化器和数据量共同决定，应通过小范围试验与 loss/任务指标选择，而不是背一个固定值。</p>
+<p>训练时记录吞吐、显存、梯度是否溢出、验证集曲线和 checkpoint；训练时间要说明是墙钟时间还是 GPU 小时。</p>
+<p>把配置串成可检查的计算链：设每个数据并行副本的 micro-batch 为 $<code>b</code>$，数据并行副本数为 $<code>D</code>$，梯度累积次数为 $<code>a</code>$，则每次优化器更新的全局样本数为 $<code>B=bDa</code>$。固定长度近似下，每步 token 数约为 $<code>BL</code>$；开启 packing 后应使用实际非 padding token 计数。总卡数可能还含张量并行、流水线并行，不能直接代入 $<code>D</code>$。</p>
+<p>学习率选择应报告探索范围和选择标准，例如短跑排除梯度爆炸与明显欠拟合，再比较完整训练的验证指标；不能把 LoRA 的学习率直接搬到全参训练。显存不足、梯度累积变化、训练总步数变化后，要重新检查 warmup 与调度长度。比较平台效率时同时报告训练吞吐、验证与保存开销，以及从提交到结束的墙钟时间。</p>
+<p><a id="jd-damodel-20251211-20260205-p3-q8"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L461">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kee1b89005e9d"></a></p>
+<span class="heading-anchor" id="什么时候微调？"></span><h2 id="_1_34">什么时候微调？</h2>
+<p>第一种情况：<strong>下游任务的视觉需求与预训练数据分布存在显著差距。</strong> 例如，在医学影像分析场景中，ViT通常是在自然图像上预训练的，其所学习的视觉特征以日常物体为主，缺乏对CT影像和X光片等医学图像的表征能力。此时若不对视觉编码器进行微调，其输出的特征对医学场景的适用性将大打折扣。类似的情况同样存在于遥感图像、工业质检等垂直领域。</p>
+<p>第二种情况：<strong>任务需要细粒度视觉理解能力。</strong> OCR、小目标检测、图像文字识别等任务对视觉细节的精度要求极高。通用预训练的ViT对文字、小型物体的特征提取能力可能不够精细，需要在相关数据上进行微调以增强这些能力。InternVL系列即选择了微调视觉编码器的策略，将InternViT与LLM进行端到端联合训练。</p>
+<p>第三种情况：<strong>可用数据规模足够大。</strong> 当具备数千万乃至上亿规模的高质量配对数据时，微调所带来的过拟合和遗忘风险将大幅降低，而性能收益则更为显著。</p>
+<p>此外还存在一种折中方案：<strong>部分微调</strong>。仅解冻ViT的最后若干层（高层特征偏向语义信息，微调对其影响较为可控），保持底层冻结（底层特征侧重纹理、边缘等通用信息，通常无需调整）。另一种高效方式是采用LoRA，仅在ViT的注意力模块上添加低秩适配器，以极少的可训练参数量实现接近全量微调的效果。</p>
+<p><img alt="05_介绍一下多模态训练过程中，视觉编码器冻结和微调的典型场场景_bw" height="1536" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/user-attachments/assets/2058461d-d50d-4722-9aca-c4df6943ad51" width="2752"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80.md#L303">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke09222870719"></a></p>
+<span class="heading-anchor" id="什么是多机器人、多任务、多具身形态训练？"></span><h2 id="_1_35">什么是多机器人、多任务、多具身形态训练？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>多机器人、多任务、多具身形态训练，也常被称为 <strong>cross-embodiment learning</strong> 或 <strong>X-embodiment learning</strong>。它的目标是让模型从不同机器人平台、不同动作空间、不同任务数据中学习可迁移的通用能力。</p>
+<p>问题在于，不同机器人之间差异很大：</p>
+<ul>
+<li>机械臂自由度不同。</li>
+<li>相机视角不同。</li>
+<li>末端执行器不同。</li>
+<li>动作空间定义不同。</li>
+<li>同一任务在不同硬件上的执行轨迹不同。</li>
+</ul>
+<p>解决思路通常包括：</p>
+<ol>
+<li><strong>统一数据格式</strong>：把不同机器人轨迹整理成统一 observation-action schema。</li>
+<li><strong>动作 token 化或标准化</strong>：把连续控制映射到通用动作表示。</li>
+<li><strong>语言作为任务桥梁</strong>：用自然语言描述任务目标，增强跨平台语义对齐。</li>
+<li><strong>共享视觉/语言 backbone</strong>：让不同机器人复用高层语义表示。</li>
+<li><strong>后训练/适配</strong>：在目标机器人上用少量数据微调。</li>
+</ol>
+<p>Open X-Embodiment/RT-X、Octo、OpenVLA、GR00T 都体现了这个趋势：<strong>机器人学习正在从单机器人单任务，走向跨平台通用策略。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E5%9F%BA%E7%A1%80/01_%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E6%A0%B8%E5%BF%83%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86.md#L457">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k27843c0df7aa"></a></p>
+<span class="heading-anchor" id="什么是大语言模型预训练？"></span><h2 id="_1_36">什么是大语言模型预训练？</h2>
+<p><strong>难度评分：⭐⭐ (2/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p><strong>大语言模型预训练，是在海量无标注文本上训练模型，使模型学习通用语言规律、世界知识、代码模式、基础推理能力和文本生成能力</strong>。它是模型获得通用能力的基础阶段，后训练和对齐通常是在这个基础上加强指令跟随、安全性和人类偏好。</p>
+<p>主流预训练目标是<strong>自回归语言建模</strong>，也就是给定前文预测下一个 token：</p>
+<div class="arithmatex">\[
+P(x_t \mid x_{\lt t}) 
+\]</div>
+<p>训练时最大化真实文本序列出现的概率，等价于最小化交叉熵损失：</p>
+<div class="arithmatex">\[
+\mathcal{L}(\theta)=-\sum_t \log P_\theta(x_t \mid x_{\lt t})
+\]</div>
+<p>虽然目标看起来只是“预测下一个词”，但为了预测准确，模型必须从上下文中学习语法、语义、事实、指代关系、代码结构和推理线索。因此，预训练可以看作用大规模自监督信号，让模型拟合自然语言和知识分布。</p>
+<p><a id="pretraining-section-19-question-02"></a></p>
+<p><strong>相关解释：</strong> <a href="n-4dd9f79d099c.html#kcf4c532957ce">什么是数据混合配比？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L403">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k661122dd3cee"></a></p>
+<span class="heading-anchor" id="什么是损失掩码？"></span><h2 id="_1_37">什么是损失掩码？</h2>
+<p><strong>损失掩码（Loss Mask）</strong> 用来控制哪些 token 参与损失计算，哪些 token 不参与损失计算，直接决定模型在 SFT 中到底学习什么。在对话 SFT 中，通常只让 <strong>assistant 回复部分</strong> 参与 loss，这也常被称为 <strong>assistant-only loss</strong> 或 completion-only loss；而 <strong>system、user、tool observation、padding</strong> 等部分作为条件上下文，不参与 loss。</p>
+<p>常见做法是：不参与训练目标的 token，其 <code>labels</code> 设置为 <code>-100</code>，交叉熵损失函数会忽略 <code>labels = -100</code> 的位置；参与训练目标的 assistant token，其 <code>labels</code> 保留为真实 token id。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/imgs/04-4.png"/> </p>
+<blockquote>
+<p><strong>注</strong>：<strong>loss mask 不等于 attention mask</strong>。  被 loss mask 掉的 user/system token 虽然不参与损失，但模型仍然可以通过 attention 看到它们，并把它们作为生成 assistant 回复的条件。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L292">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcf4c532957ce"></a></p>
+<span class="heading-anchor" id="什么是数据混合配比？"></span><h2 id="_1_38">什么是数据混合配比？</h2>
+<p>数据混合配比决定模型能力偏向。通用基座模型需要平衡网页、书籍、百科、论文、代码、数学、问答和对话数据；代码模型会提高代码仓库、技术文档和编程问答比例；行业模型会提高领域语料权重，同时保留通用数据，避免语言能力退化。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/imgs/03-4.png"/></p>
+<p>多源混合可以表示为：</p>
+<pre><code class="language-math">p_{\text{mix}} = \sum_i \alpha_i p_i
+</code></pre>
+<p>其中 <span class="arithmatex">\(p_i\)</span> 是第 <span class="arithmatex">\(i\)</span> 类数据分布， <span class="arithmatex">\(\alpha_i\)</span> 是采样权重。提高某类数据的权重，本质上就是提高它对梯度更新的贡献，使模型更倾向于学习该类数据中的知识、表达和推理方式。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型类型</th>
+<th>配比重点</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>通用基座模型</td>
+<td>网页、书籍、百科、论文、代码、数学均衡混合</td>
+<td>建立通用语言、知识和基础推理</td>
+</tr>
+<tr>
+<td>代码模型</td>
+<td>代码仓库、技术文档、编程问答、单元测试</td>
+<td>提升代码生成、调试和工具调用</td>
+</tr>
+<tr>
+<td>数学/推理模型</td>
+<td>数学题、证明过程、代码、可验证答案</td>
+<td>提升多步推理和答案正确率</td>
+</tr>
+<tr>
+<td>行业模型</td>
+<td>医疗、金融、法律等领域语料 + 通用数据</td>
+<td>增强专业性并避免通用能力退化</td>
+</tr>
+<tr>
+<td>对话助手模型</td>
+<td>指令、问答、多轮对话、偏好数据</td>
+<td>提升指令跟随、交互和安全性</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L297">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5b8e8835c1fe"></a></p>
+<span class="heading-anchor" id="介绍sft和dpo"></span><h2 id="sftdpo">介绍sft和dpo</h2>
+<p><strong>回答：</strong></p>
+<p>SFT 是监督微调，使用输入与期望输出训练模型，常用于学习任务格式、回答方式和领域操作流程。对输入 x 和目标回答 y，典型自回归损失为：</p>
+<pre><code class="language-math">\mathcal{L}_{\mathrm{SFT}}=-\mathbb{E}_{(x,y)}\sum_t
+\log\pi_\theta(y_t\mid x,y_{&lt;t}).
+</code></pre>
+<p>指令微调常只对需要学习的回答 token 计算损失，是否包含其他部分由具体数据与训练目标决定。数据需要正确标注、去重、隔离测试集，并覆盖正常、无答案、歧义与错误处理，不能只收集格式漂亮的成功案例。</p>
+<p>DPO 是直接偏好优化，数据通常为同一输入下的偏好回答 y_w 和较差回答 y_l。它相对于固定参考策略调整二者的相对概率，常见目标为：</p>
+<pre><code class="language-math">\mathcal{L}_{\mathrm{DPO}}=-\mathbb{E}_{(x,y_w,y_l)}
+\log\sigma\left(\beta\left[
+\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+-\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+\right]\right).
+</code></pre>
+<p>这里序列对数概率通常由回答 token 的条件对数概率求和，σ 是 sigmoid，β 控制该目标中的偏好尺度，并与其 KL 正则化推导相关。标准 DPO 不需要先单独训练显式奖励模型，也不需要 PPO 式的在线采样优化循环；数据生成和更新流程仍可能包含模型采样，不能据此说整个偏好学习系统永远不需要生成候选。</p>
+<p>SFT 告诉模型“期望怎么做”，DPO 利用比较信号告诉模型“两个行为中更偏好哪个”。常见实践先 SFT 再做偏好优化，但二者并非必须绑定，DPO 也不能凭空补足缺失的知识和基本任务能力。实体抽取可以用 SFT 学习结构化输出，再用可靠偏好对减少无证据关系或错误合并；偏好标注必须控制长度偏差、噪声和伪规律。</p>
+<p>评估应分别检查抽取精确率与召回率、格式合法率、证据支持、泛化及能力退化。优化损失下降或偏好胜率提高，不足以单独证明医学事实更正确。</p>
+<p><a id="01ai-kg-intern-20261021-de81855b-q08"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_39">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%9B%B6%E4%B8%80%E4%B8%87%E7%89%A9%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L136">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5b3f948293b5"></a></p>
+<span class="heading-anchor" id="介绍一下 grpo 训练流程、ppo loss 公式，新概率比老概率大很多且优势为负时被 clip 掉需要学习吗"></span><h2 id="grpo-ppo-loss-clip">介绍一下 grpo 训练流程、ppo loss 公式，新概率比老概率大很多且优势为负时被 clip 掉需要学习吗</h2>
+<p><strong>回答：</strong></p>
+<p>PPO 先用旧策略采样轨迹，计算回报、价值和优势，再多轮更新当前策略。核心 clipped objective 为：</p>
+<div class="arithmatex">\[
+L^{\mathrm{clip}}=\mathbb E\left[\min(r_tA_t,\mathrm{clip}(r_t,1-\epsilon,1+\epsilon)A_t)\right].
+\]</div>
+<p>还要训练 Critic 的价值损失，必要时加入熵奖励和参考策略 KL。若新旧概率比很大且优势为负，Clip 后该样本对目标的梯度可能被截断，不再继续推动策略朝这个坏动作方向更新；“被 clip”不等于样本被删除，而是当前约束下它不再提供额外的策略梯度。需要监控 KL、clip fraction、优势分布和价值误差。</p>
+<p><a id="tencent-llm-collection-20260903-q73"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_40">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1073">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k78d8bd0692b9"></a></p>
+<span class="heading-anchor" id="介绍一下Wan2.1视频大模型的数据处理策略和训练/推理优化策略"></span><h2 id="wan21">介绍一下Wan2.1视频大模型的数据处理策略和训练/推理优化策略</h2>
+<span class="heading-anchor" id="Wan2.1数据处理策略"></span><h3 id="wan21_1">Wan2.1数据处理策略</h3>
+<p>Wan2.1视频大模型的训练依赖于大规模、高质量的数据集，因此在预训练阶段，需要从庞大但嘈杂的初始数据集中选取高质量且多样化的数据，以促进有效的训练。</p>
+<p>如下图所示，Wan2.1设计了一个四步数据清洗流程，重点关注基础维度、视觉质量和运动质量。对应的整个预训练过程也分为四个阶段，每个阶段逐渐增加分辨率和视频时长，让模型在一定算力限制下得到更充分的训练。最终的SFT阶段，我们进行了更严格的数据过滤，保障模型稳定收敛到高质量视频输出。</p>
+<p><img alt="Wan2.1数据清洗流程" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/imgs/Wan2.1数据清洗流程.jpg"/></p>
+<span class="heading-anchor" id="Wan2.1训练和推理优化策略"></span><h3 id="wan21_2">Wan2.1训练和推理优化策略</h3>
+<p>在训练阶段，对于文本、视频编码模块，Wan2.1使用DP和FSDP组合的分布式策略；DiT模块，采用DP、FSDP、RingAttention、Ulysses混合的并行策略。</p>
+<p>基于Wan2.1模型参数量较小和长序列带来的计算量较大的特征，结合集群计算性能和通信带宽，采用FSDP切分模型，并在FSDP外嵌套DP提升多机拓展性，FSDP和DP的通信均能够完全被计算掩盖。为了切分长序列训练下的activation，DiT部分使用了Context Parallelism（CP）对sequence维度进行切分，并使用外层RingAttention、内层Ulysses的2DCP的方案减少CP通信开销。</p>
+<p>此外，为了提升端到端整体效率，Wan2.1在文本、视频编码和DiT模块间进行高效策略切换，避免计算冗余。具体来说，文本、视频编码模块每个device读不同数据，在进入DiT之前，通过循环广播不同device上的数据来保证CP组里的数据一样。</p>
+<p><img alt="Wan2.1的DiT并行策略" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/imgs/Wan2.1的DiT并行策略.jpg"/></p>
+<p>在显存优化方面，Wan2.1采用分层的显存优化策略，选择一些层进行offload，其他层根据不同算子计算量和显存占用的分析使用细粒度Gradient Checkpointing（GC）进一步优化activation显存。</p>
+<p>同时也利用PyTorch显存管理机制，解决显存碎片问题。训练稳定性方面借助于阿里云训练集群的智能化调度、慢机检测以及自愈能力，在训练过程中自动识别故障节点并快速重启任务，平均重启时间为39秒，重启成功率超过98.23％。</p>
+<p>在推理阶段，为了使用多卡减少生成单个视频的延迟，Wan2.1需要选择CP来进行分布式加速。此外，当模型较大时，还需要进行模型切分。</p>
+<p>模型切分策略：单卡显存不足时必须考虑模型切分。鉴于序列长度通常较长，与张量并行（TP）相比，FSDP的通信开销更小，并且可以被计算掩盖。因此，Wan2.1选择FSDP方法进行模型切分（注意：这里仅做切分权重，而不做数据并行）。﻿﻿序列并行策略：采用与训练阶段相同的2D CP方法，外层（跨机器） 使用RingAttention，内层（机器内）使用Ulysses。在Wan2.1 140亿参数模型上，使用FSDP和2D CP的组合方法，在多卡上具有如下图所示的近线性加速。</p>
+<p><img alt="Wan2.1模型推理多卡扩展性" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/imgs/Wan2.1模型推理多卡扩展性.jpeg"/></p>
+<p>为了减少DiT实际计算量，Wan2.1使用了效果无损的step间cache和CFG cache的方法，仅对若干关键去噪步骤进行实际计算并缓存结果，其他步骤则复用这些缓存，最终性能提升约61％。在推理过程中，Wan2.1也使用了量化方法，在部分层（qkvo projection和FFN）使用fp8gemm，同时实现了FlashAttention3 INT8和FP8混合算子进行attention部分的8bit 量化，在保证效果无损的情况下，端到端性能提升30%以上。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_41">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/03_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E5%85%B8%E5%9E%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E6%9E%B6%E6%9E%84.md#L317">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9c4e56b57435"></a></p>
+<span class="heading-anchor" id="介绍一下多模态中预训练和微调的区别"></span><h2 id="_1_42">介绍一下多模态中预训练和微调的区别</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>多模态大模型的训练遵循"先预训练、再微调"的两阶段范式，这一点与纯文本LLM一致。但多模态训练的特殊之处在于，"跨模态对齐"贯穿整个训练流程。</p>
+<p><strong>预训练阶段的核心目标是什么？</strong> 可以用一个词概括：<strong>对齐</strong>。即让模型学会将图像、文本、音频等不同模态的信息映射到同一语义空间中。预训练所使用的数据以大规模弱标注配对数据为主，例如LAION-5B包含约58亿组图文对，主要通过互联网爬取获得，标注质量参差不齐但规模庞大。同时会混入一定比例的纯文本语料，以维持模型的语言能力。</p>
+<p>预训练阶段主要包含三类训练任务：
+- <strong>跨模态对比学习（ITC）</strong>：采用InfoNCE损失函数，拉近匹配图文对的距离，推远不匹配对的距离。
+- <strong>图文匹配（ITM）</strong>：输入一组图文对，由模型判断二者是否匹配，本质上是一个二分类任务。
+- <strong>掩码建模</strong>：随机遮蔽图像中的部分Patch或文本中的部分Token，要求模型预测被遮蔽的内容，从而学习模态内的语义表示。</p>
+<p>预训练的计算代价十分高昂——需要对编码器、投影层、LLM基座进行全参数更新。千亿参数级别的模型，单次预训练成本可达数百万美元，训练周期通常为数周乃至数月。</p>
+<p><strong>微调阶段的核心目标是什么？</strong> 将通用基座模型适配到特定下游任务。例如，针对医疗影像检索任务，可使用10万条标注好的影像-报告配对数据进行微调。训练目标与下游任务直接对齐——视觉问答（VQA）优化问答损失，检索任务优化排序损失，图像描述任务优化语言模型的交叉熵损失。</p>
+<p>微调阶段注重计算效率：通常采用LoRA、Adapter等参数高效微调（PEFT）方法，仅更新不到1%的参数，甚至可以冻结LLM基座和编码器，仅更新投影层。微调成本约为预训练的千分之一到百分之一，训练周期通常为数小时至数天。</p>
+<p>两个阶段各有侧重：预训练产出的模型具备较强的通用能力，但在垂直领域难以达到工业部署标准；微调后的模型在目标任务上性能显著提升，但通用能力可能出现一定程度的退化（即"灾难性遗忘"现象）。</p>
+<p>附InfoNCE损失公式：</p>
+<p><img alt="ITC Loss" loading="lazy" referrerpolicy="no-referrer" src="https://latex.codecogs.com/svg.image?\mathcal{L}_{\text{ITC}}%20=%20-\frac{1}{2N}\sum_{i=1}^N%20\left[%20\log\frac{e^{\text{sim}(t_i,%20v_i)/\tau}}{\sum_{j=1}^N%20e^{\text{sim}(t_i,%20v_j)/\tau}}%20+%20\log\frac{e^{\text{sim}(t_i,%20v_i)/\tau}}{\sum_{j=1}^N%20e^{\text{sim}(t_j,%20v_i)/\tau}}%20\right]"/></p>
+<p>其中 <span class="arithmatex">\(\tau\)</span> 为温度系数，N 为批次内样本数。
+<img alt="03_介绍一下多模态中预训练和微调的区别_bw" height="1536" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/user-attachments/assets/3b86585f-7542-46cc-a422-10c7859edce3" width="2752"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80.md#L147">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k37ee5ae44204"></a></p>
+<span class="heading-anchor" id="介绍一下模型性能优化与模型部署之间的关系"></span><h2 id="_1_43">介绍一下模型性能优化与模型部署之间的关系</h2>
+<p>在AI行业中，模型性能优化与模型部署密切相关，两者相辅相成。<strong>性能优化旨在提高模型的训练效率、推理速度和整体性能</strong>，而<strong>成功的模型部署需要确保模型在实际应用环境中的高效运行</strong>。下面Rocky详细讨论一下模型性能优化和模型部署之间的关系。</p>
+<span class="heading-anchor" id="模型性能优化"></span><h3 id="_2_23">模型性能优化</h3>
+<p><strong>1. 训练阶段的性能优化</strong>
+- <strong>数据并行和模型并行</strong>：使用多个GPU或分布式计算来加速训练过程。
+- <strong>混合精度训练</strong>：使用16位浮点数（FP16）和32位浮点数（FP32）混合进行训练，减少显存占用并加速计算。
+- <strong>高效的优化算法</strong>：使用优化算法如Adam、LAMB等，加速模型的收敛速度。
+- <strong>自动化超参数调优</strong>：使用自动化工具（如Optuna、Hyperopt）调优超参数，提高模型性能。</p>
+<p><strong>2. 推理阶段的性能优化</strong>
+- <strong>模型剪枝</strong>：移除不重要的神经元或权重，减少模型的计算量。
+- <strong>量化</strong>：将模型权重和激活函数从浮点数转换为整数，减少计算和存储需求。
+- <strong>蒸馏</strong>：通过一个大模型（教师模型）指导一个小模型（学生模型）进行训练，从而在保持性能的前提下减少模型复杂度。
+- <strong>编译优化</strong>：使用深度学习编译器（如TensorRT、TVM）对模型进行底层优化，提高推理速度。</p>
+<span class="heading-anchor" id="模型部署"></span><h3 id="_3_3">模型部署</h3>
+<p><strong>1. 部署环境</strong>
+- <strong>云端部署</strong>：适用于需要大规模计算资源的应用，能够利用云计算的弹性和高性能。
+- <strong>边缘部署</strong>：适用于资源受限的设备，如移动设备、物联网设备等，需要特别的优化以确保高效运行。
+- <strong>本地部署</strong>：适用于隐私敏感或需要低延迟的应用，模型需要在本地设备上高效运行。</p>
+<p><strong>2. 部署过程中的挑战</strong>
+- <strong>计算资源受限</strong>：边缘设备和嵌入式设备的计算能力和存储资源有限，需要对模型进行优化。
+- <strong>实时性要求</strong>：许多应用要求低延迟和高吞吐量，模型必须能够快速响应。
+- <strong>能耗限制</strong>：移动设备和物联网设备对能耗有严格要求，模型需要在节能模式下高效运行。
+- <strong>兼容性</strong>：模型需要兼容不同的硬件和软件平台，如不同的操作系统、硬件加速器等。</p>
+<span class="heading-anchor" id="模型性能优化与部署的关系"></span><h3 id="_4_3">模型性能优化与部署的关系</h3>
+<ol>
+<li>
+<p><strong>模型性能优化助力部署</strong>：模型性能优化直接影响部署效果。通过剪枝、量化、蒸馏和编译优化等方法，可以大幅减少模型的计算量和存储需求，从而确保模型在边缘设备或嵌入式设备上的高效运行。</p>
+</li>
+<li>
+<p><strong>部署驱动模型性能优化</strong>：部署需求驱动性能优化。在决定部署环境和硬件平台时，需要根据实际应用场景进行针对性的性能优化。例如，在移动设备上部署模型时，需要重点考虑量化和低功耗优化；在云端部署时，则可以更多地利用分布式计算和高性能硬件。</p>
+</li>
+<li>
+<p><strong>互相迭代改进</strong>：性能优化和部署是一个迭代过程。在实际部署过程中，可能会遇到未预见的问题，如延迟高、内存不足等。这需要不断调整优化策略，重新训练和微调模型，确保部署效果满足应用需求。</p>
+</li>
+<li>
+<p><strong>硬件加速器的利用</strong>：优化策略应与部署硬件特性相匹配。对于GPU、TPU、FPGA等不同硬件加速器，需要采用相应的编译优化和模型调整策略，以充分利用硬件性能，提高推理效率。</p>
+</li>
+<li>
+<p><strong>自动化工具的使用</strong>：自动化工具在优化和部署中起到重要作用。自动化超参数调优、自动化编译和部署工具（如TensorFlow Serving、ONNX Runtime）可以显著简化工作流程，提高效率和部署效果。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="结论"></span><h3 id="_5_3">结论</h3>
+<p>Rocky认为，不管是在AIGC、传统深度学习还是自动驾驶领域，模型性能优化和模型部署之间存在紧密的联系，优化不仅提高了模型在训练和推理阶段的效率，还直接影响模型在实际应用中的部署效果。通过合理的优化策略和部署方法，可以确保AI模型在各种环境中高效、可靠地运行。随着技术的不断进步，模型性能优化和部署将变得更加智能化和自动化，为广泛应用AI技术提供更强有力的支持。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L1155">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k734c55cd388e"></a></p>
+<span class="heading-anchor" id="介绍一下音频表示编码器CLAP和AudioCLIP，说明模型结构、预训练目标"></span><h2 id="clapaudioclip">介绍一下音频表示编码器CLAP和AudioCLIP，说明模型结构、预训练目标</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<p>CLAP与AudioCLIP在本质上遵循相同的技术路线：<strong>将CLIP的对比学习思路从图文领域扩展到音频领域</strong>。CLIP致力于学习图像与文本之间的语义对齐，而CLAP和AudioCLIP则致力于学习音频与文本（或音频与图像）之间的语义对齐。</p>
+<p><strong>CLAP（Contrastive Language-Audio Pretraining）</strong> 的架构较为简洁，采用双编码器结构：一端为音频编码器，另一端为文本编码器。音频输入首先转换为梅尔频谱图，随后通过CNN或音频Transformer（如HTS-AT）进行编码；文本端则采用BERT或类似的文本编码器。两个编码器各自输出固定维度的嵌入向量，训练目标与CLIP完全一致——通过对比学习拉近匹配的音频-文本对，推远不匹配的配对。</p>
+<p>CLAP的训练数据主要由音频-文本描述对构成，例如"一只狗在叫"的文本描述与对应的狗叫声音频。训练完成后，CLAP即可实现零样本音频分类：输入一段音频信号，分别与一组文本标签计算相似度，相似度最高的标签即为分类结果，无需针对特定分类任务进行额外训练。</p>
+<p><strong>AudioCLIP</strong> 在CLAP的基础上进一步扩展：不仅对齐音频与文本，还将图像纳入统一的表示空间。其架构采用<strong>三编码器</strong>设计——音频编码器（ESResNeXt）、图像编码器（ViT）、文本编码器（GPT-based），三者的嵌入均投射到同一共享空间。预训练目标为三对对比学习的联合优化：音频-文本、图像-文本、音频-图像。</p>
+<p>AudioCLIP的优势在于支持跨三种模态的检索与理解——例如以音频检索图像、以图像检索音频，这些能力超出了CLAP的功能范围。但相应地，其训练复杂度也更高，需要同时具备图像、文本、音频三方配对的训练数据。</p>
+<p>在实际工业场景中，语音多模态大模型（如GPT-4o的语音能力）所采用的编码器通常并非CLAP或AudioCLIP，而是Whisper编码器或专门训练的语音Tokenizer。CLAP和AudioCLIP更多应用于环境音、音效等非语音音频的理解场景。</p>
+<p><img alt="03_介绍一下音频表示编码器CLAP和AudioCLIP，说明模型结构、预训练目标_bw" height="1536" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/user-attachments/assets/0cb086f8-0005-48d3-bbc3-bd4f7aca9bbe" width="2752"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_44">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80.md#L240">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k87440068bb95"></a></p>
+<span class="heading-anchor" id="优化模型端侧性能的一些方法"></span><h2 id="_1_45">优化模型端侧性能的一些方法</h2>
+<ol>
+<li>设计能最大限度挖掘AI协处理器性能的模型结构。</li>
+<li>多模型共享计算内存。</li>
+<li>减少模型分支结构，减少模型元素级操作。</li>
+<li>卷积层的输入和输出特征通道数相等时MAC最小，以提升模型Inference速度。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L381">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6f89d7507110"></a></p>
+<span class="heading-anchor" id="低秩近似如何解释 PCA、LoRA、模型压缩和推荐系统？"></span><h2 id="pcalora">低秩近似如何解释 PCA、LoRA、模型压缩和推荐系统？</h2>
+<p>若只保留最大的 <span class="arithmatex">\(r\)</span> 个奇异值：</p>
+<div class="arithmatex">\[
+A \approx U_r\Sigma_rV_r^T
+\]</div>
+<p>这是 Frobenius 范数和谱范数意义下最优的 rank-<span class="arithmatex">\(r\)</span> 近似。</p>
+<p><strong>PCA：</strong> 对中心化数据矩阵做 SVD，保留最大奇异值对应方向，相当于保留方差最大的低维子空间。</p>
+<p><strong>推荐系统：</strong> 用户-物品矩阵通常稀疏且低秩，可分解为用户隐向量和物品隐向量。</p>
+<p><strong>LoRA：</strong> 冻结原权重 <span class="arithmatex">\(W\)</span>，只学习低秩更新：</p>
+<div class="arithmatex">\[
+W' = W + \Delta W,\quad \Delta W = BA
+\]</div>
+<p>其中 <span class="arithmatex">\(B \in \mathbb{R}^{d \times r}\)</span>，<span class="arithmatex">\(A \in \mathbb{R}^{r \times k}\)</span>，且 <span class="arithmatex">\(r \ll \min(d,k)\)</span>。这假设微调所需的权重变化主要落在低维子空间中。</p>
+<p><strong>模型压缩：</strong> 对权重矩阵做低秩分解，可减少参数量和矩阵乘法开销，但可能损失表达能力。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%A6%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L335">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2c6ac2ee8e58"></a></p>
+<span class="heading-anchor" id="你刚才提到为了降低TTFT替换了豆包1.8 flash模型，还做了kv缓存优化。在平衡响应速度、回答准确性、调用成本这三者的时候，你们最终做了哪些关键取舍？"></span><h2 id="ttft18-flashkv">你刚才提到为了降低TTFT替换了豆包1.8 flash模型，还做了kv缓存优化。在平衡响应速度、回答准确性、调用成本这三者的时候，你们最终做了哪些关键取舍？</h2>
+<p><strong>回答：</strong></p>
+<p>这道题要用实际实验回答，不能仅凭“豆包1.8 flash”这个简称推断具体模型能力、价格或缓存机制。应明确真实 model ID、服务 endpoint、模型版本、输入输出 token 分布与缓存接口；模型名称的细小差异也可能对应不同服务能力。</p>
+<p>先定义 TTFT 的观测边界。用户感知的首 token 时间不仅包含模型 prefill，还可能包含网关、排队、检索、重排和网络：</p>
+<pre><code class="language-math">T_{\mathrm{TTFT}}\approx T_{\mathrm{network}}+T_{\mathrm{queue}}+
+T_{\mathrm{retrieval}}+T_{\mathrm{prefill}}+T_{\mathrm{first\ decode}}
+</code></pre>
+<p>这只是顺序链路的拆解，实际有并行与重叠，不能把所有阶段耗时机械相加。总回答时长还取决于输出长度与后续解码速度。更换快模型可能改善计算部分，却无法解决慢数据库或过长队列。</p>
+<p>区分三种缓存：单次生成中复用已计算 token 的 KV Cache；跨请求复用共同前缀的 prefix cache；直接复用答案的应用缓存。前缀缓存主要减少匹配前缀的 prefill 开销，不自动加速后续每一个 decode token。命中要求与具体引擎有关，模型、token 序列、适配器和多模态输入等必须兼容；用户权限与租户隔离也不能因缓存而省略。</p>
+<p>托管 API 用户通常不能直接修改服务端 KV 管理，只能使用供应商开放的缓存机制或调整可复用前缀；自部署才可能配置缓存引擎、KV 容量和调度。固定模板有助命中，但不能为了命中把过时规则或无关长文本永远放进前缀。</p>
+<p>取舍可以是：简单且可验证任务使用更快模型，困难和高风险任务升级；压缩重复上下文、控制输出长度，保留关键证据；在延迟预算内选择重排深度。用同一套独立任务测首 token、完整完成时间、质量、单次成功任务成本及 p95/p99，并分别统计冷缓存、热缓存和实际命中率。缓存越大还会占用显存、限制并发，速度、质量与成本应一起评估。</p>
+<p><a id="hengsheng-ai-dev-20260923-q24"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_47">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%81%92%E7%94%9F%E7%94%B5%E5%AD%90%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L450">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf01325c8465a"></a></p>
+<span class="heading-anchor" id="你刚才提到，当提示词工程、RAG优化到位仍达不到效果时，才考虑模型微调。那你认为微调会从根本上改变大模型的哪些固有能力边界？"></span><h2 id="rag">你刚才提到，当提示词工程、RAG优化到位仍达不到效果时，才考虑模型微调。那你认为微调会从根本上改变大模型的哪些固有能力边界？</h2>
+<p><strong>回答：</strong></p>
+<p>“提示和 RAG 到位才微调”是一种成本优先的排查策略，不是理论上的绝对顺序。若任务从一开始就需要稳定的领域分类、风格或工具路由，已有足够高质量监督数据，也可以较早评估微调。</p>
+<p>微调通过改变参数，调整给定输入下的输出分布：它可以强化领域术语理解、任务模式、格式遵循、工具选择和某类推理行为，也可能注入新知识或改善特定能力。其有效范围由基座表征、训练数据覆盖、优化目标和参数更新方式共同决定，并存在过拟合、遗忘与能力回退风险。</p>
+<p>它不会自动扩大架构设定的上下文上限，不会凭少量样本获得实时数据库访问，不会给文本模型凭空增加完整视觉输入通道，也不会让模型具备新的外部权限。长度扩展、增加模态或改变结构，需要相应架构、数据与训练设计，不能把普通 SFT 等同于这些改造。</p>
+<p>对推理和事实可靠性，更不能承诺微调后“不再幻觉”。训练集效果改善，需要在独立数据、分布外样本、长尾和旧能力保留集上验证。对规则必须百分之百成立的约束，依然应由解析器、规则引擎、权限系统或验证器执行。</p>
+<p>面试时可以概括为：微调能改变模型在已有系统条件下的能力分布和行为偏好，是否实质扩展某项能力要由实验说明；它不是突破任意固有边界的通行证。</p>
+<p><a id="hengsheng-ai-dev-20260923-q15"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_48">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%81%92%E7%94%9F%E7%94%B5%E5%AD%90%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L293">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2e9cfbcb8f35"></a></p>
+<span class="heading-anchor" id="你最初判断是切分太碎，导致漏召。在优化切分策略的过程中，有没有出现过你原本判断有效的调整方案，实际测试后发现效果不达预期被推翻的情况。"></span><h2 id="_1_49">你最初判断是切分太碎，导致漏召。在优化切分策略的过程中，有没有出现过你原本判断有效的调整方案，实际测试后发现效果不达预期被推翻的情况。</h2>
+<p><strong>回答：</strong></p>
+<p>应讲真实的反例与证据，没有经历时说明这是实验设计。一个合理但不保证有效的假设是：把 chunk 变大能保留上下文，所以召回和回答都会更好。它可能失败，因为更多无关主题稀释向量表示、增加截断和重排成本，并把相邻但不适用的规则带进生成上下文。</p>
+<p>另一个常见反例是不断增大 overlap。它可以缓解边界断裂，却也会产生大量相似候选，占满 TopK，减少独立证据覆盖。固定返回 20 块时，大块和小块的总 token 预算不同，若只比较 Recall@20，结论还可能受到预算不公平影响。</p>
+<p>可以做小规模受控实验：按标题、段落、表格结构切分；分别测试几档大小与 overlap；对同一问题同时比较证据覆盖、重排质量、固定 token 预算下的最终答案质量和延迟。跨文档重复内容应先治理，不能单靠调整 chunk 长度解决。</p>
+<p>对表格、步骤和条件规则，保留标题路径、表头、适用范围与父文档关系。可以采用小块检索、父级扩展，但扩展内容同样受权限、token 与相关性约束；父子索引不是无成本地“找得准又看得全”。</p>
+<p>最终保留业务指标更好的策略，并记录失败假设及样本。<strong>实验推翻直觉是正常结果，关键是比较条件公平、失败能被解释、改动可以回滚。</strong></p>
+<p><a id="hengsheng-ai-dev-20260923-q22"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%81%92%E7%94%9F%E7%94%B5%E5%AD%90%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L420">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4c9fc23d6c0c"></a></p>
+<span class="heading-anchor" id="你训练的时候主要调了哪些参数，最终比较适合的参数是多少？"></span><h2 id="_1_50">你训练的时候主要调了哪些参数，最终比较适合的参数是多少？</h2>
+<p><strong>回答：</strong></p>
+<p>调参先确定目标和预算，再做单变量或小规模正交实验。SFT/LoRA 关注学习率、batch/effective batch、序列长度、rank/alpha、目标层、dropout、Epoch 和数据混合；DPO 关注 beta、chosen/rejected 长度、参考模型和偏好质量；RL 关注 rollout 数、KL 系数、clip、学习率、优势归一化、温度、最大步数和奖励权重。</p>
+<p>所谓“最终参数”必须绑定模型、数据、硬件、评测集和随机种子；没有实验记录时不能给出普适最佳值。</p>
+<p><a id="tencent-llm-collection-20260903-q143"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1721">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc2c313749060"></a></p>
+<span class="heading-anchor" id="使用LoRA微调，在用LoRA时有没有遇到模型不收敛或指令输出格式损失不符合预期?"></span><h2 id="loralora">使用LoRA微调，在用LoRA时有没有遇到模型不收敛或指令输出格式损失不符合预期?</h2>
+<p><a id="batch3-p2-q5"></a></p>
+<p><strong>相关解释：</strong> <a href="n-050bc5a7d211.html#kb5dac5cbee62">LoRA落地场景、常用超参配置</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_51">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L204">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd8a13d1f4603"></a></p>
+<span class="heading-anchor" id="使用了多少张卡？SFT 训练多久？"></span><h2 id="sft_3">使用了多少张卡？SFT 训练多久？</h2>
+<p><strong>回答：</strong></p>
+<p>硬件与耗时只能按真实实验回答，题干没有提供具体数值。应报告卡型、卡数、显存、数据规模、有效序列长度、可训练模块、精度、分布式策略、全局 batch 和步数。</p>
+<p>固定 batch 时，全局 batch 约等于每卡微批大小乘数据并行副本数再乘梯度累积步数；注意张量并行的设备数不等于数据并行副本数。训练步数可用样本数、epoch 与全局 batch 估算，packing 或按 token 训练时还需对应实际实现。</p>
+<p>训练墙钟时间包含加载、计算、验证与 checkpoint；卡时通常是卡数乘墙钟时间。若拿不出日志，就给估算方法与范围，不凭模型大小猜一个精确小时数。</p>
+<p><a id="jd-damodel-20251211-20260205-p6-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_52">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L939">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc51cd58c011e"></a></p>
+<span class="heading-anchor" id="假设一个嵌入模型的训练语料主要由英文构成，在中文任务上表现不佳，如何用较低的继续预训练成本提升其中文能力？"></span><h2 id="_1_53">假设一个嵌入模型的训练语料主要由英文构成，在中文任务上表现不佳，如何用较低的继续预训练成本提升其中文能力？</h2>
+<p>用低成本提升英文主导嵌入模型的中文能力，可以：</p>
+<ol>
+<li>使用中文文本做领域小规模继续预训练，学习中文特征。</li>
+<li>混合中英文数据训练，防止通用能力丢失。</li>
+<li>利用多语言词表或添加中文词汇扩展词表。</li>
+<li>使用跨语言对齐任务（如翻译对、对比学习）增强中文语义。</li>
+<li>微调时重点加强中文下游任务，配合数据增强。</li>
+</ol>
+<p>这样在有限资源下，有效提升模型中文表现。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L505">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke3df4bdb0b60"></a></p>
+<span class="heading-anchor" id="假设现在我有一个训练集群，每个节点都有大量的mertics需要记录和分析，你怎么设计？"></span><h2 id="mertics">假设现在我有一个训练集群，每个节点都有大量的mertics需要记录和分析，你怎么设计？</h2>
+<p><strong>回答：</strong></p>
+<p>先按指标用途分层：节点与 GPU 基础设施指标、训练作业指标、模型训练质量指标、数据与通信指标。典型内容包括 GPU 利用率和显存、网络与磁盘、step time、吞吐、loss、梯度异常、checkpoint 耗时和分布式通信等待。</p>
+<p>节点侧用 exporter 或采集 Agent 汇聚数据，训练进程通过轻量 SDK 上报；避免在训练关键路径同步写远端存储。采集端批量发送、有界缓冲，关键链路启用本地持久化队列与重试。集群网关做身份校验、限额、预聚合和转发，指标落入时序存储，详细日志与大规模诊断数据进入日志或对象存储。</p>
+<p><strong>高基数是主要容量风险。</strong> <code>cluster、job、node、rank、device、metric</code> 的组合会放大时间序列数量；request ID、原始报错文本、样本 ID 等不应无界放入指标标签。训练作业标签也要控制生命周期和保留周期。trace ID 可以通过 exemplar 或日志关联，避免制造一条请求一条序列。</p>
+<p>设活跃序列数为 <span class="arithmatex">\(S\)</span>，采样间隔为 <span class="arithmatex">\(\Delta\)</span> 秒，每个样本有效写入字节为 <span class="arithmatex">\(b\)</span>，粗略输入速率为：</p>
+<pre><code class="language-math">R\approx\frac{Sb}{\Delta}.
+</code></pre>
+<p>估算还要乘上索引、复制、WAL、压缩与保留周期影响，不能只统计数值字段。热数据细粒度保留，冷数据降采样；告警使用业务阈值、持续时间和多指标关联，避免正常训练波动导致告警风暴。</p>
+<p>数据质量同样要监控：采集延迟、丢弃数、队列年龄、时钟偏移和缺失率。分布式作业的 step time 常由最慢 rank 决定，平均 GPU 利用率不能代替瓶颈诊断。</p>
+<p><a id="alibaba-qwen-20260916-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_54">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2006">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6864861a0099"></a></p>
+<span class="heading-anchor" id="全量微调有什么特点？"></span><h2 id="_1_55">全量微调有什么特点？</h2>
+<p>全量微调会更新模型所有权重，因此参数更新自由度最高，理论表达能力最强，可以让模型整体表示空间发生较大变化。适合：</p>
+<ul>
+<li>领域差异很大的任务；</li>
+<li>底座模型能力明显不足；</li>
+<li>数据量足够大且质量高；</li>
+<li>有充足训练算力和存储资源；</li>
+<li>需要深度改变模型行为或能力边界的场景。</li>
+</ul>
+<p>但全量微调成本高，主要体现在：</p>
+<ul>
+<li>需要保存全部参数的梯度；</li>
+<li>需要保存优化器状态；</li>
+<li>显存和存储成本高；</li>
+<li>训练时间更长；</li>
+<li>每个任务通常需要保存一套完整模型权重；</li>
+<li>更容易破坏预训练模型原有能力，产生灾难性遗忘。</li>
+</ul>
+<p>因此，全量微调适合高资源、高质量数据、强领域迁移的场景，不是大多数业务定制的首选。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L135">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kccb86483c5b5"></a></p>
+<span class="heading-anchor" id="全量微调的劣势是什么？既然容易灾难性遗忘，有什么方法能够保证能尽可能保留模型原始能力，并让其迁移到新任务上"></span><h2 id="_1_56">全量微调的劣势是什么？既然容易灾难性遗忘，有什么方法能够保证能尽可能保留模型原始能力，并让其迁移到新任务上</h2>
+<p><strong>回答：</strong></p>
+<p>全量微调显存、计算和通信成本高，容易过拟合与灾难性遗忘，多个任务难以独立切换，回滚和版本存储也更重。保留原能力可用较低学习率、混合通用数据、正则化、KL/蒸馏约束、冻结部分层、Adapter/LoRA、分阶段训练和能力回归集。</p>
+<p>但 LoRA 也不是绝对更好；当任务需要大范围表示改变或模型基础能力不足时，全量或部分解冻可能更合适。</p>
+<p><a id="tencent-llm-collection-20260903-q144"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1730">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke279da2facaa"></a></p>
+<span class="heading-anchor" id="关键优化技术"></span><h2 id="_1_57">关键优化技术</h2>
+<ul>
+<li><strong>通信优化</strong>：优先将 PP 分配到远距离 GPU，DP 分配到近距离 GPU，减少 <code>all-reduce</code> 通信开销。  </li>
+<li><strong>显存优化</strong>：  </li>
+<li><strong>激活卸载（Async Offload）</strong>：将中间激活值异步迁移到 CPU 内存，支持更大批次（如用 64 卡训练 235B 模型）。  </li>
+<li><strong>梯度检查点（Gradient Checkpointing）</strong>：牺牲计算换显存，仅保存部分层的激活值。  </li>
+<li><strong>计算加速</strong>：  </li>
+<li><strong>算子融合</strong>：将 GEMM + GeLU 等连续操作合并为单一内核，减少内存访问。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L2068">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k03a54f11692c"></a></p>
+<span class="heading-anchor" id="其他常见 LoRA 改进方法有哪些？"></span><h2 id="lora_4">其他常见 LoRA 改进方法有哪些？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>中文说明</th>
+<th>核心思想</th>
+<th>主要解决的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rsLoRA</td>
+<td>Rank-stabilized LoRA</td>
+<td>调整 LoRA scaling 方式</td>
+<td>大 rank 训练不稳定</td>
+</tr>
+<tr>
+<td>PiSSA</td>
+<td>主奇异方向初始化 LoRA</td>
+<td>用主奇异方向初始化低秩矩阵</td>
+<td>随机初始化收敛慢、量化误差较大</td>
+</tr>
+<tr>
+<td>OLoRA</td>
+<td>正交 LoRA</td>
+<td>使用正交初始化或权重平移</td>
+<td>初始化和优化稳定性问题</td>
+</tr>
+<tr>
+<td>LoftQ</td>
+<td>量化感知 LoRA 初始化</td>
+<td>联合考虑量化误差和 LoRA 初始化</td>
+<td>量化微调初始化误差</td>
+</tr>
+<tr>
+<td>LoHa</td>
+<td>Hadamard LoRA</td>
+<td>用逐元素乘积增强表达</td>
+<td>低秩表达受限</td>
+</tr>
+<tr>
+<td>LoKr</td>
+<td>Kronecker LoRA</td>
+<td>用克罗内克积提高参数效率</td>
+<td>参数效率与表达能力平衡</td>
+</tr>
+<tr>
+<td>MoLoRA</td>
+<td>混合专家 LoRA</td>
+<td>多个 LoRA 专家加路由选择</td>
+<td>多任务适配和任务干扰</td>
+</tr>
+<tr>
+<td>LongLoRA</td>
+<td>长上下文 LoRA</td>
+<td>结合长上下文训练策略</td>
+<td>长上下文扩展成本高</td>
+</tr>
+<tr>
+<td>Delta-LoRA</td>
+<td>增量增强 LoRA</td>
+<td>让 LoRA 增量更充分影响原权重</td>
+<td>缩小与全量微调差距</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_58">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/04_%E5%90%8E%E8%AE%AD%E7%BB%83%EF%BC%9A%E5%BE%AE%E8%B0%83%E4%B8%8E%E5%AF%B9%E9%BD%90.md#L720">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k49e5957aba6a"></a></p>
+<span class="heading-anchor" id="具身智能的硬件优化有哪些关键方向？"></span><h2 id="_1_59">具身智能的硬件优化有哪些关键方向？</h2>
+<p>核心是平衡性能、 latency 和能耗，关键方向：
+- 模型压缩：通过量化（降低比特宽度）、剪枝（去除冗余参数）减少计算量；
+- 编译器优化：通过算子融合、循环重排提升代码执行效率（如 TVM 工具链）；
+- 专用加速器：FPGA（灵活适配任务）、ASIC（高能耗比）、TPU（加速矩阵运算）；
+- 软硬件协同设计：联合优化模型结构与硬件架构（如根据硬件配置调整量化方案）。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E5%9F%BA%E7%A1%80/01_%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86.md#L264">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7c5ebf36a4ea"></a></p>
+<span class="heading-anchor" id="内存优化有哪些常用技术？"></span><h2 id="_1_60">内存优化有哪些常用技术？</h2>
+<blockquote>
+<p>推理中的内存优化主要围绕减少模型权重、中间激活、输入输出张量和KV Cache的内存占用展开，常见方法包括内存池、张量复用、内存规划、量化、算子融合、PagedAttention和KV Cache量化等。</p>
+</blockquote>
+<p><img alt="LLM推理显存组成与估算" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/llm-memory-breakdown.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1434">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1e455b13b382"></a></p>
+<span class="heading-anchor" id="再给一个上下文处理相关的场景题，如何优化 context 管理？"></span><h2 id="context">再给一个上下文处理相关的场景题，如何优化 context 管理？</h2>
+<p><strong>回答：</strong></p>
+<p>例如一个 Agent 需要处理数百页规范文档、几十轮对话和多次工具结果，但模型上下文预算有限。我会先定义当前任务真正需要的证据和状态，再做上下文分层，而不是简单截断末尾消息。</p>
+<ol>
+<li>把系统规则、当前目标、硬约束、已确认事实、待办状态、检索证据和历史对话分区；结构化状态优先于自然语言复述。</li>
+<li>对历史消息做摘要，但保留时间、参与者、结论、未决问题和证据引用；原始消息放在可检索存储中，需要时按 Query 召回。</li>
+<li>文档采用混合检索和 Rerank，按相关性、权威性、新鲜度和权限过滤；对相互矛盾的证据显式标注，不把所有候选拼进去。</li>
+<li>给每类信息设置 token 预算和优先级，保留当前约束、工具 schema 和关键证据，淘汰重复说明、已完成步骤和低置信度内容。</li>
+<li>输出前检查上下文是否包含必要字段、是否超过预算、引用是否支持结论；对证据不足触发澄清或拒答。</li>
+</ol>
+<p>评估要看长上下文下的关键信息召回率、任务成功率、引用忠实度、token 成本和延迟，并与简单截断、摘要、RAG 等方案做对照。上下文工程的本质是给模型构造“当前决策所需的最小充分状态”。</p>
+<p><a id="alibaba-agent-20260802-q14"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_61">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L970">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k68f707744f26"></a></p>
+<span class="heading-anchor" id="写出BCE损失公式，分析软标签能否直接参与训练"></span><h2 id="bce">写出BCE损失公式，分析软标签能否直接参与训练</h2>
+<p><strong>回答：</strong></p>
+<p>二分类交叉熵为：</p>
+<div class="arithmatex">\[
+\mathcal{L}_{BCE}=-\left[y\log p+(1-y)\log(1-p)\right]
+\]</div>
+<p>其中 <span class="arithmatex">\(y\in\{0,1\}\)</span> 是标签，<span class="arithmatex">\(p=\sigma(z)\)</span> 是正类概率。工程实现优先使用 <code>BCEWithLogitsLoss</code>，把 sigmoid 和 BCE 合并计算，避免概率接近 0 或 1 时的数值不稳定。</p>
+<p>软标签 <span class="arithmatex">\(y\in[0,1]\)</span> 可以直接参与 BCE，因为公式本身只要求目标落在概率区间内；它可以表达教师模型置信度、人工标注的平均意见或由点击/停留/转化融合出的相关概率。但“能计算”不等于“语义正确”：软标签必须有概率或期望意义，不能把任意分数未经校准地塞进去。</p>
+<p>例如教师分数应先做温度校准、Platt scaling 或分桶校准；不同数据源的标签尺度要统一。样本权重 <code>weight</code> 表示该样本对目标的可信度或重要程度，不能误当成软标签。还要处理类别不平衡、曝光偏差、标签泄露和同一 Query 内的相对排序需求，必要时引入 <code>pos_weight</code>、sample weight、pairwise loss 或 InfoNCE。</p>
+<p>软标签的收益要通过硬标签和软标签对照、校准误差、AUC/nDCG、分桶效果及线上实验验证。若软标签只是把噪声平滑了，可能降低梯度尖锐度，却不一定提升排序。</p>
+<p><a id="xiaohongshu-llm-algo-20260728-q14"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_62">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L781">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb34e818244aa"></a></p>
+<span class="heading-anchor" id="分析Vid-LLMs的多阶段训练策略设计，包括预训练对齐、指令微调、特定任务适配等阶段"></span><h2 id="vid-llms">分析Vid-LLMs的多阶段训练策略设计，包括预训练对齐、指令微调、特定任务适配等阶段</h2>
+<p>三阶段训练范式：
+- <strong>预训练对齐阶段</strong>：视频-文本对比学习，构建共享语义空间
+- <strong>指令微调阶段</strong>：使用指令数据优化对话和推理能力
+- <strong>特定任务适配</strong>：针对下游任务进行轻量微调</p>
+<p>高效训练技术：
+- <strong>梯度检查点</strong>：降低内存消耗，支持更长序列
+- <strong>混合精度训练</strong>：FP16/FP32混合，加速训练过程
+- <strong>数据并行</strong>：多GPU分布式训练，扩展批次大小</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_63">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/08_%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83%E6%8A%80%E6%9C%AF.md#L204">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0d8504c441af"></a></p>
+<span class="heading-anchor" id="分析指令微调（Instruction-Tuning）在Video-LLMs中的关键作用和技术实现方案"></span><h2 id="instruction-tuningvideo-llms">分析指令微调（Instruction-Tuning）在Video-LLMs中的关键作用和技术实现方案</h2>
+<p>指令模板设计：
+- 任务描述：明确指定模型需要执行的任务类型
+- 输入格式：统一视频和文本的输入表示
+- 输出规范：结构化响应格式要求
+- 示例设计：包含正例和负例的演示</p>
+<p>多任务指令数据构建：
+- 视频描述生成："请描述这个视频的主要内容"
+- 时序定位："找出视频中人物开门的时刻"
+- 问答任务："根据视频内容回答：主角做了什么动作？"
+- 推理任务："分析视频中事件的发展逻辑"</p>
+<p>训练策略优化：
+- 课程学习：从简单任务到复杂任务渐进训练
+- 多任务损失加权：根据不同任务难度动态调整权重
+- 抗噪训练：添加指令扰动增强鲁棒性</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_64">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/08_%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83%E6%8A%80%E6%9C%AF.md#L277">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8bc1b680dd29"></a></p>
+<span class="heading-anchor" id="分析时序建模中的训练技术挑战，包括长期依赖、计算效率、标注稀疏等问题"></span><h2 id="_1_65">分析时序建模中的训练技术挑战，包括长期依赖、计算效率、标注稀疏等问题</h2>
+<p>长期依赖解决方案：
+- 分层采样：关键帧采样 + 均匀采样结合
+- 记忆机制：外部记忆库存储长期信息
+- 滑动窗口：局部注意力 + 全局聚合</p>
+<p>计算效率优化：
+- 稀疏注意力：只计算关键位置的注意力权重
+- 线性注意力：近似计算，降低二次复杂度
+- 分块处理：将长序列分解为可管理块</p>
+<p>标注稀疏应对策略：
+- 弱监督学习：利用视频级标签进行片段级学习
+- 自监督预训练：大规模无标注数据预训练
+- 多任务学习：共享表示，相互促进</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80/08_%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83%E6%8A%80%E6%9C%AF.md#L354">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9b70c72cd889"></a></p>
+<span class="heading-anchor" id="分类场景下DPO效果优于GRPO的核心原因是什么，二者能否串行训练？"></span><h2 id="dpogrpo">分类场景下DPO效果优于GRPO的核心原因是什么，二者能否串行训练？</h2>
+<p><strong>回答：</strong></p>
+<p>分类场景中 DPO 可能优于 GRPO，核心原因是任务结构更接近“静态成对判别”，而不是“需要在线探索的序贯决策”。不过要先强调：对标签明确的常规分类，交叉熵监督学习通常仍是必须比较的强基线，不能默认 DPO 一定最优。</p>
+<p>DPO 直接使用正负偏好对，每个样本都提供方向明确的密集梯度，不需要在线生成多个候选，也不需要单独估计价值函数。分类输出空间小、正确标签清楚时，这种直接优化与评估目标更一致，训练方差小、样本利用率高。</p>
+<p>GRPO 则要让当前策略对同一输入采样一组结果，再依据组内相对奖励更新。如果分类只有少数标签，模型很快会让整组样本输出相同标签；此时组内奖励方差很小，优势接近零。即使强行提高温度，采样出来的多数变化也可能只是格式噪声，而不是有价值的决策探索。GRPO 的在线采样和奖励计算成本，在单步分类里往往得不到回报。</p>
+<p>GRPO 更适合以下情况：模型需要生成多步推理后再分类；最终指标不可微；存在多条可行推理路径；需要根据执行结果、规则校验器或环境反馈改进策略。此时结果奖励能够提供 DPO 数据中没有的新信息。</p>
+<p>二者可以串行训练，常见顺序是先用 SFT/DPO 建立稳定决策边界，再用 GRPO 优化复杂推理、规则一致性或最终业务指标。但必须控制 KL、采样熵和奖励质量；如果 GRPO 的奖励只是复述 DPO 标签，串行训练通常不会带来新能力，只会增加成本和不稳定性。</p>
+<p>一句话总结：DPO 擅长利用已有偏好，GRPO 擅长从在线结果中继续搜索。分类任务若没有值得搜索的轨迹空间，DPO 更占优势；若只需要预测标签，甚至应优先回到交叉熵基线。</p>
+<p><a id="alibaba-taotian-agent-20260722-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_66">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L589">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke11de09b48fc"></a></p>
+<span class="heading-anchor" id="分辨率和码率有什么区别？它们如何影响训练数据？"></span><h2 id="_1_67">分辨率和码率有什么区别？它们如何影响训练数据？</h2>
+<p><strong>难度评分：⭐⭐ (2/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>分辨率是单帧的宽、高及其像素数量；这里的码率指<strong>视频流</strong>编码后单位时间使用的比特数，通常以 bit/s 表示，也常用一段视频的平均码率描述。前者说画面有多少像素位置，后者说编码这些画面用了多少数据。它们不能互相确定，也都不能单独代表画质：高分辨率视频可能原本就失焦，高码率重编码也无法找回此前压缩丢掉的细节。</p>
+<p>两者进入训练管线后的作用见表1-1。</p>
+<p><strong>表1-1 分辨率与码率的作用边界</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>描述对象</th>
+<th>进入模型时的作用</th>
+<th>单看这个参数无法判断什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>源视频分辨率</td>
+<td>解码帧的宽、高与像素数量</td>
+<td>决定可供裁剪、缩放的空间信息；不必等于最终输入尺寸</td>
+<td>真实细节是否清楚、压缩损失有多大</td>
+</tr>
+<tr>
+<td>视频码率</td>
+<td>编码视频流单位时间使用的比特数</td>
+<td>不成为 Tensor 的一个维度；有损编码可能改变解码后的像素</td>
+<td>跨编码器、帧率和内容比较时，哪段视频画质更好</td>
+</tr>
+</tbody>
+</table></div>
+<p>训练时通常先解码，再裁剪或缩放到模型要求的尺寸。假如一段 4K 视频和一段 720p 视频最终都被裁剪、缩放为 <span class="arithmatex">\(256\times256\)</span>，它们的输入 Tensor 空间尺寸相同；采用同样的空间分块方式时，空间 token 数也相同。源分辨率的差别体现在预处理前可用的细节，而输入尺寸由预处理设定。<a href="https://docs.pytorch.org/vision/main/generated/torchvision.transforms.functional.resize.html">PyTorch <code>Resize</code></a> 便是按指定目标尺寸产生输出的例子。</p>
+<p>码率则通过编码后的画面影响训练。对同一段源视频，保持编码器和其他关键编码条件一致，提高分配的比特数通常能减轻有损压缩带来的失真；画质已接近源视频时，继续增加码率的收益可能很小。换了编码器、帧率、分辨率或画面内容，就不能只按码率给画质排序；快速运动和复杂纹理也会改变维持相近质量所需的数据量。编码器既可以按目标码率控制输出，也可以采用目标质量模式，二者不是同一个约束。<a href="https://ffmpeg.org/ffmpeg-codecs.html">FFmpeg 编码文档</a>列出了相应的码率控制和恒定质量设置。</p>
+<p>解码只把码流还原为像素帧，不会自动修复有损压缩造成的块效应、振铃或纹理涂抹；后续缩放可能减弱部分痕迹，也可能留下可见的失真。若某类标签或数据来源总对应特定的压缩风格，模型就可能把这些痕迹当作识别线索，生成模型也可能学着复现它们。</p>
+<p>因此，筛选训练视频时，除了记录分辨率和码率，还应抽查解码并完成预处理后的画面；比较不同来源时，最好在相同输入尺寸下观察细节与压缩痕迹，而不是用单一元数据阈值代替画质判断。</p>
+<blockquote>
+<p><strong>面试速答</strong>：分辨率说的是单帧有多少像素，码率说的是编码视频流每秒用了多少比特。模型实际输入的空间尺寸看裁剪、缩放后的结果；码率不占一个输入维度，但有损压缩可能把失真留在像素里。同码率不等于同画质，筛选训练数据最终还要看解码后的画面。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/01_AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L164">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5e0754dfd43c"></a></p>
+<span class="heading-anchor" id="单个视频耗时从三十分钟缩短到五分钟，你做了哪些优化？"></span><h2 id="_1_68">单个视频耗时从三十分钟缩短到五分钟，你做了哪些优化？</h2>
+<p><strong>回答：</strong></p>
+<p>耗时优化要先拆分链路，而不是泛泛说“并行”。视频生成链路通常包括模型生成、素材检索、TTS/ASR、视频处理、渲染导出和上传。要先做 trace，把每个节点耗时打出来，再针对瓶颈优化。</p>
+<p>第一类是并行化。文案生成后，素材检索、TTS、字幕预处理、封面生成可以并行；多个镜头的素材处理也可以并行。不要把所有步骤串成一条同步链。</p>
+<p>第二类是缓存。对常见风格模板、BGM、字体、转场、TTS 片段、素材检索结果、模型中间结果做缓存。尤其是用户反复改同一视频时，只重算变更节点，不重跑全链路。</p>
+<p>第三类是增量渲染。把视频拆成片段，修改某个镜头时只重新渲染对应 segment，再做 concat，而不是整片从头渲染。</p>
+<p>第四类是模型调用优化。短任务用小模型或本地模型，复杂规划用强模型；结构化输出减少反复修复；开启流式输出改善体感延迟；对失败节点做局部 retry。</p>
+<p>第五类是媒体工程优化。FFmpeg 参数预设、硬件编码、统一素材格式、避免反复转码、预生成代理文件、减少不必要的分辨率转换。</p>
+<p>如果从 30 分钟降到 5 分钟，我会强调这是系统性优化：通过 trace 定位瓶颈，通过 DAG 并行和节点缓存减少等待，通过增量渲染减少重复计算，通过模型分层降低调用成本。</p>
+<p><a id="xiaohongshu-ai-fullstack-20260702-q10"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L236">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka66920f01488"></a></p>
+<span class="heading-anchor" id="原生多模态预训练的数据配比与工程要点是什么？"></span><h2 id="_1_69">原生多模态预训练的数据配比与工程要点是什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>InternVL3 采用的联合继续预训练（论文称 Native Multimodal Pre-Training，语言主干由 Qwen2.5 等已有基座初始化）把语言预训练和多模态对齐合并进同一个预训练阶段[12]，工程上有三个要点：</p>
+<ol>
+<li>
+<p><strong>预训练阶段混合两类数据。</strong> 大规模纯文本语料和多样的多模态数据（图文对、视频-文本、图文交错序列）混在一起联合预训练，模型从一开始就同时学习语言能力和多模态能力。</p>
+</li>
+<li>
+<p><strong>数据配比是主要难点。</strong> 异构数据混合的最优采样比例不好定，InternVL3 分两步确定。先分别在纯多模态数据和纯语言数据上训练独立模型，各自找到最优的内部配比；再在固定的总预算下确定两类数据的相对比例。论文的结论是语言和多模态数据按 1:3 混合时整体最好，总训练量约 2000 亿 token，其中语言数据约 500 亿，多模态数据约 1500 亿[12]。</p>
+</li>
+<li>
+<p><strong>位置编码和后训练配套。</strong> 用 V2PE 支撑更长的多模态上下文（见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/4_AI%E5%A4%9A%E6%A8%A1%E6%80%81%E4%B8%BB%E6%B5%81%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E6%8A%80%E6%9C%AF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#q5-4-3-2">5.4.3.2</a>），后训练用 SFT 加 MPO（混合偏好优化）强化对话和推理能力[12,26]。</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>面试速答</strong>：做法是在同一个预训练阶段混合纯文本和图文、视频、交错数据联合训练。难点在配比，InternVL3 先分别找出语言和多模态数据各自的内部配比，再在固定预算下定两者比例，结论是 1:3，总量约 2000 亿 token。配套用 V2PE 支撑长上下文，后训练用 SFT 加 MPO。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/4_AI%E5%A4%9A%E6%A8%A1%E6%80%81%E4%B8%BB%E6%B5%81%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E6%8A%80%E6%9C%AF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L492">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-050bc5a7d211.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>预训练、微调与优化</strong></a><a class="page-next" href="n-99a2a67e81a2.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>预训练、微调与优化</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#_1_1">不同来源的数据有什么贡献和风险？</a></li><li class="outline-level-2"><a href="#bert">与 BERT 的掩蔽策略相比，掩码语言建模有何不同？这种预训练方式如何帮助模型在下游的文本分类任务中获得更好的性能？</a></li><li class="outline-level-2"><a href="#_1_3">中间表示如何帮助推理框架做图优化、硬件适配和跨平台部署？</a></li><li class="outline-level-2"><a href="#lora">为什么 LoRA 适合大语言模型参数高效微调？</a></li><li class="outline-level-2"><a href="#lora_1">为什么 LoRA 需要改进？</a></li><li class="outline-level-2"><a href="#sft">为什么 SFT 之后还要进行后训练</a></li><li class="outline-level-2"><a href="#sft_1">为什么 SFT 格式要和推理一致？</a></li><li class="outline-level-2"><a href="#token-budget">为什么 token budget 是视频生成训练的核心约束？</a></li><li class="outline-level-2"><a href="#lora_2">为什么LoRA不会增加额外的推理延迟？</a></li><li class="outline-level-2"><a href="#omniavatarlora-based">为什么OmniAvatar选择LoRA-based训练而不是全模型训练或部分层冻结？</a></li><li class="outline-level-2"><a href="#grpo-dpo">为什么不用 GRPO 训练，而是用 DPO 训练</a></li><li class="outline-level-2"><a href="#reward-score-ppodpogrpo">为什么不能只用 reward score 评估大语言模型偏好优化算法？PPO、DPO、GRPO 等方法应如何评估？</a></li><li class="outline-level-2"><a href="#llm">为什么主流 LLM 预训练通常采用自回归（下一词元预测）？</a></li><li class="outline-level-2"><a href="#_1_14">为什么低秩矩阵有效？</a></li><li class="outline-level-2"><a href="#_1_15">为什么使用强化学习会存在训练不稳定问题？为什么业界还在用？</a></li><li class="outline-level-2"><a href="#_1_16">为什么多模态模型需要大规模预训练？</a></li><li class="outline-level-2"><a href="#_1_17">为什么大语言模型与训练需要多来源数据？</a></li><li class="outline-level-2"><a href="#_1_18">为什么大语言模型训练需要多种并行策略？</a></li><li class="outline-level-2"><a href="#_1_19">为什么微调后必须分层评估？</a></li><li class="outline-level-2"><a href="#_1_20">为什么推理模型训练越来越重视过程奖励和可验证反馈？</a></li><li class="outline-level-2"><a href="#_1_21">为什么模型部署中常用中间表示而不是直接使用训练框架模型？</a></li><li class="outline-level-2"><a href="#lora_3">为什么用 LoRA，而不用全量微调</a></li><li class="outline-level-2"><a href="#sft_2">为什么要SFT</a></li><li class="outline-level-2"><a href="#progressive-training">为什么视频生成训练通常需要 progressive training？</a></li><li class="outline-level-2"><a href="#_1_25">为什么训练可以并行？</a></li><li class="outline-level-2"><a href="#_1_26">为什么训练好的模型不能直接用训练框架上线？</a></li><li class="outline-level-2"><a href="#_1_27">为什么训练瓶颈会随规模变化？</a></li><li class="outline-level-2"><a href="#assistant">为什么通常只对 assistant 回复计算损失？</a></li><li class="outline-level-2"><a href="#_1_29">为什么非凸仍能训练成功？</a></li><li class="outline-level-2"><a href="#_1_30">主流大模型训练框架如何组合并行策略？</a></li><li class="outline-level-2"><a href="#_1_31">了解哪些训练框架</a></li><li class="outline-level-2"><a href="#gpt-3">二、实际案例：GPT-3 训练</a></li><li class="outline-level-2"><a href="#_1_33">什么平台上训练的训练多久学习率多少为什么是这个学习率</a></li><li class="outline-level-2"><a href="#_1_34">什么时候微调？</a></li><li class="outline-level-2"><a href="#_1_35">什么是多机器人、多任务、多具身形态训练？</a></li><li class="outline-level-2"><a href="#_1_36">什么是大语言模型预训练？</a></li><li class="outline-level-2"><a href="#_1_37">什么是损失掩码？</a></li><li class="outline-level-2"><a href="#_1_38">什么是数据混合配比？</a></li><li class="outline-level-2"><a href="#sftdpo">介绍sft和dpo</a></li><li class="outline-level-2"><a href="#grpo-ppo-loss-clip">介绍一下 grpo 训练流程、ppo loss 公式，新概率比老概率大很多且优势为负时被 clip 掉需要学习吗</a></li><li class="outline-level-2"><a href="#wan21">介绍一下Wan2.1视频大模型的数据处理策略和训练/推理优化策略</a></li><li class="outline-level-2"><a href="#_1_42">介绍一下多模态中预训练和微调的区别</a></li><li class="outline-level-2"><a href="#_1_43">介绍一下模型性能优化与模型部署之间的关系</a></li><li class="outline-level-2"><a href="#clapaudioclip">介绍一下音频表示编码器CLAP和AudioCLIP，说明模型结构、预训练目标</a></li><li class="outline-level-2"><a href="#_1_45">优化模型端侧性能的一些方法</a></li><li class="outline-level-2"><a href="#pcalora">低秩近似如何解释 PCA、LoRA、模型压缩和推荐系统？</a></li><li class="outline-level-2"><a href="#ttft18-flashkv">你刚才提到为了降低TTFT替换了豆包1.8 flash模型，还做了kv缓存优化。在平衡响应速度、回答准确性、调用成本这三者的时候，你们最终做了哪些关键取舍？</a></li><li class="outline-level-2"><a href="#rag">你刚才提到，当提示词工程、RAG优化到位仍达不到效果时，才考虑模型微调。那你认为微调会从根本上改变大模型的哪些固有能力边界？</a></li><li class="outline-level-2"><a href="#_1_49">你最初判断是切分太碎，导致漏召。在优化切分策略的过程中，有没有出现过你原本判断有效的调整方案，实际测试后发现效果不达预期被推翻的情况。</a></li><li class="outline-level-2"><a href="#_1_50">你训练的时候主要调了哪些参数，最终比较适合的参数是多少？</a></li><li class="outline-level-2"><a href="#loralora">使用LoRA微调，在用LoRA时有没有遇到模型不收敛或指令输出格式损失不符合预期?</a></li><li class="outline-level-2"><a href="#sft_3">使用了多少张卡？SFT 训练多久？</a></li><li class="outline-level-2"><a href="#_1_53">假设一个嵌入模型的训练语料主要由英文构成，在中文任务上表现不佳，如何用较低的继续预训练成本提升其中文能力？</a></li><li class="outline-level-2"><a href="#mertics">假设现在我有一个训练集群，每个节点都有大量的mertics需要记录和分析，你怎么设计？</a></li><li class="outline-level-2"><a href="#_1_55">全量微调有什么特点？</a></li><li class="outline-level-2"><a href="#_1_56">全量微调的劣势是什么？既然容易灾难性遗忘，有什么方法能够保证能尽可能保留模型原始能力，并让其迁移到新任务上</a></li><li class="outline-level-2"><a href="#_1_57">关键优化技术</a></li><li class="outline-level-2"><a href="#lora_4">其他常见 LoRA 改进方法有哪些？</a></li><li class="outline-level-2"><a href="#_1_59">具身智能的硬件优化有哪些关键方向？</a></li><li class="outline-level-2"><a href="#_1_60">内存优化有哪些常用技术？</a></li><li class="outline-level-2"><a href="#context">再给一个上下文处理相关的场景题，如何优化 context 管理？</a></li><li class="outline-level-2"><a href="#bce">写出BCE损失公式，分析软标签能否直接参与训练</a></li><li class="outline-level-2"><a href="#vid-llms">分析Vid-LLMs的多阶段训练策略设计，包括预训练对齐、指令微调、特定任务适配等阶段</a></li><li class="outline-level-2"><a href="#instruction-tuningvideo-llms">分析指令微调（Instruction-Tuning）在Video-LLMs中的关键作用和技术实现方案</a></li><li class="outline-level-2"><a href="#_1_65">分析时序建模中的训练技术挑战，包括长期依赖、计算效率、标注稀疏等问题</a></li><li class="outline-level-2"><a href="#dpogrpo">分类场景下DPO效果优于GRPO的核心原因是什么，二者能否串行训练？</a></li><li class="outline-level-2"><a href="#_1_67">分辨率和码率有什么区别？它们如何影响训练数据？</a></li><li class="outline-level-2"><a href="#_1_68">单个视频耗时从三十分钟缩短到五分钟，你做了哪些优化？</a></li><li class="outline-level-2"><a href="#_1_69">原生多模态预训练的数据配比与工程要点是什么？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

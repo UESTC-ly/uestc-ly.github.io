@@ -1,0 +1,1368 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>推理服务与部署 · 李杨的学习笔记</title><meta name="description" content="温度 \(T\) 变大时，Softmax 分布变平滑，logits 对概率的影响被缩小。对 student logits 求导时，Softmax 中的 \(z/T\) 会带来一个 \(\frac{1}{T}\) 因子。">
+<meta property="og:type" content="website"><meta property="og:title" content="推理服务与部署 · 李杨的学习笔记"><meta property="og:description" content="温度 \(T\) 变大时，Softmax 分布变平滑，logits 对概率的影响被缩小。对 student logits 求导时，Softmax 中的 \(z/T\) 会带来一个 \(\frac{1}{T}\) 因子。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-4ff5efaa0dbf.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-4ff5efaa0dbf.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html" aria-current="page">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>推理服务与部署</h1><p class="article-question-meta">46 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E6%8E%A8%E7%90%86%E6%9C%8D%E5%8A%A1%E4%B8%8E%E9%83%A8%E7%BD%B2-07.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#t2">知识蒸馏中的温度系数为什么常配 \(T^2\) ？</a></li><li class="outline-level-2"><a href="#_1_2">知识蒸馏为什么比只学习真实标签更有效？</a></li><li class="outline-level-2"><a href="#svlm">知识蒸馏在sVLM中的作用及实现方式？</a></li><li class="outline-level-2"><a href="#_1_4">知识蒸馏有哪些常见方式？</a></li><li class="outline-level-2"><a href="#_1_5">知识蒸馏适合哪些场景？有哪些局限？</a></li><li class="outline-level-2"><a href="#offloading">磁盘缓存 Offloading</a></li><li class="outline-level-2"><a href="#tensorrt">示例(构建一个tensorrt镜像)</a></li><li class="outline-level-2"><a href="#_1_8">神经网络的显存占用分析</a></li><li class="outline-level-2"><a href="#_1_9">移动端/边缘端推理框架有哪些？部署限制与选型考量是什么？</a></li><li class="outline-level-2"><a href="#_1_10">端侧部署为什么是具身智能落地的关键？</a></li><li class="outline-level-2"><a href="#batchbatch">端侧静态多Batch和动态多Batch的区别</a></li><li class="outline-level-2"><a href="#_1_12">端序支持</a></li><li class="outline-level-2"><a href="#_1_13">简单介绍</a></li><li class="outline-level-2"><a href="#_1_14">结构化剪枝和非结构化剪枝有什么区别？</a></li><li class="outline-level-2"><a href="#_1_15">节点指定</a></li><li class="outline-level-2"><a href="#_1_16">视频生成推理加速有哪些工程路线？各自代价是什么？</a></li><li class="outline-level-2"><a href="#_1_17">视频生成线上推理为什么常常慢在不止一个地方？</a></li><li class="outline-level-2"><a href="#_1_18">解释上下文学习在多模态大模型中的原理，并举例说明其在数学推理任务中的应用?</a></li><li class="outline-level-2"><a href="#aiaiaiip">计算机中两个AI服务，一个AI服务调用另外一个AI服务时，该如何设置两者ip地址和端口号？</a></li><li class="outline-level-2"><a href="#_1_20">计算机中串行操作和并行操作有哪些区别？</a></li><li class="outline-level-2"><a href="#_1_21">计算瓶颈和访存瓶颈在推理中分别有哪些典型表现？</a></li><li class="outline-level-2"><a href="#_1_22">计算神经网络的参数量的基本原则</a></li><li class="outline-level-2"><a href="#_1_23">评估推理服务时为什么不能只看平均延迟？</a></li><li class="outline-level-2"><a href="#_1_24">评测模型性能好坏的指标?有没有什么量化指标?怎么评估输入和输出的?</a></li><li class="outline-level-2"><a href="#vllmsglangtensorrt-llm">请简要介绍一下vLLM、SGLang、TensorRT-LLM三个大模型推理框架？</a></li><li class="outline-level-2"><a href="#socket">调整 Socket 数量</a></li><li class="outline-level-2"><a href="#_1_27">轻量级模型部署经验分享</a></li><li class="outline-level-2"><a href="#_1_28">运行机制：</a></li><li class="outline-level-2"><a href="#ocr">这些演进如何提升模型在高分辨率、文档 OCR、复杂推理等任务上的能力？</a></li><li class="outline-level-2"><a href="#_1_30">通信模式</a></li><li class="outline-level-2"><a href="#tensor">避免小 Tensor 频繁通信</a></li><li class="outline-level-2"><a href="#qwen">部署Qwen为例</a></li><li class="outline-level-2"><a href="#_1_33">部署在客户本地的模型报错了怎么排查？</a></li><li class="outline-level-2"><a href="#_1_34">部署步骤</a></li><li class="outline-level-2"><a href="#_1_35">部署过什么模型、参数量多大</a></li><li class="outline-level-2"><a href="#_1_36">重要概念</a></li><li class="outline-level-2"><a href="#scale-zero-point">量化 scale 和 zero-point 如何计算？</a></li><li class="outline-level-2"><a href="#nf4">量化、反量化、对称/非对称量化、NF4 的核心数学是什么？</a></li><li class="outline-level-2"><a href="#awq">量化了解吗，AWQ原理</a></li><li class="outline-level-2"><a href="#_1_40">量化发挥作用的原理是什么</a></li><li class="outline-level-2"><a href="#_1_41">量化如何把浮点数映射成低精度数值？</a></li><li class="outline-level-2"><a href="#static-partitioning-offloading">静态分配（Static Partitioning Offloading）</a></li><li class="outline-level-2"><a href="#_1_43">静态批处理、动态批处理和连续批处理有什么区别？</a></li><li class="outline-level-2"><a href="#_1_44">静态批处理和动态批处理有什么区别？</a></li><li class="outline-level-2"><a href="#dspark">题目五：DSpark推理加速框架的核心机制推导</a></li><li class="outline-level-2"><a href="#nvidia-smi">默认输出（直接执行 nvidia-smi）</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="ke95b1ff30edc"></a></p>
+<span class="heading-anchor" id="知识蒸馏中的温度系数为什么常配 \(T^2\)？"></span><h2 id="t2">知识蒸馏中的温度系数为什么常配 <span class="arithmatex">\(T^2\)</span>？</h2>
+<p>蒸馏使用带温度 Softmax：</p>
+<div class="arithmatex">\[
+p_i^{(T)}=\frac{\exp(z_i/T)}{\sum_j\exp(z_j/T)}
+\]</div>
+<p>蒸馏损失：</p>
+<div class="arithmatex">\[
+L_{\text{KD}}=D_{KL}(p_T^{\text{teacher}}\|p_T^{\text{student}})
+\]</div>
+<p>温度 <span class="arithmatex">\(T\)</span> 变大时，Softmax 分布变平滑，logits 对概率的影响被缩小。对 student logits 求导时，Softmax 中的 <span class="arithmatex">\(z/T\)</span> 会带来一个 <span class="arithmatex">\(\frac{1}{T}\)</span> 因子。</p>
+<p>同时，当 <span class="arithmatex">\(T\)</span> 较大时，teacher 与 student 的概率差也近似随 <span class="arithmatex">\(\frac{1}{T}\)</span> 缩小。因此梯度量级大约会随：</p>
+<div class="arithmatex">\[
+\frac{1}{T^2}
+\]</div>
+<p>变小。</p>
+<p>为了让不同温度下蒸馏损失的梯度量级可比，常把 KL 损失乘以：</p>
+<div class="arithmatex">\[
+T^2
+\]</div>
+<p>即：</p>
+<div class="arithmatex">\[
+L_{\text{KD}}=T^2D_{KL}(p_T^{\text{teacher}}\|p_T^{\text{student}})
+\]</div>
+<p><strong>面试回答：</strong></p>
+<p><span class="arithmatex">\(T\)</span> 用来软化分布，暴露类别之间的暗知识；乘 <span class="arithmatex">\(T^2\)</span> 主要是补偿温度导致的梯度缩放，使蒸馏项和监督项在训练中保持合理权重。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<p>[1] Ian Goodfellow, Yoshua Bengio, Aaron Courville. <em>Deep Learning</em>. MIT Press, 2016.</p>
+<p>[2] Vaswani et al. <em>Attention Is All You Need</em>. NeurIPS, 2017. <a href="https://arxiv.org/abs/1706.03762">https://arxiv.org/abs/1706.03762</a></p>
+<p>[3] Ho et al. <em>Denoising Diffusion Probabilistic Models</em>. NeurIPS, 2020. <a href="https://arxiv.org/abs/2006.11239">https://arxiv.org/abs/2006.11239</a></p>
+<p>[4] Song et al. <em>Score-Based Generative Modeling through Stochastic Differential Equations</em>. ICLR, 2021. <a href="https://arxiv.org/abs/2011.13456">https://arxiv.org/abs/2011.13456</a></p>
+<p>[5] Rafailov et al. <em>Direct Preference Optimization: Your Language Model is Secretly a Reward Model</em>. NeurIPS, 2023. <a href="https://arxiv.org/abs/2305.18290">https://arxiv.org/abs/2305.18290</a></p>
+<p>[6] Hu et al. <em>LoRA: Low-Rank Adaptation of Large Language Models</em>. ICLR, 2022. <a href="https://arxiv.org/abs/2106.09685">https://arxiv.org/abs/2106.09685</a></p>
+<p>[7] Dao et al. <em>FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</em>. NeurIPS, 2022. <a href="https://arxiv.org/abs/2205.14135">https://arxiv.org/abs/2205.14135</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/02_AIGC%E6%95%B0%E5%AD%A6%E5%85%AC%E5%BC%8F%E6%8E%A8%E5%AF%BC%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1322">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0b11964a550d"></a></p>
+<span class="heading-anchor" id="知识蒸馏为什么比只学习真实标签更有效？"></span><h2 id="_1_2">知识蒸馏为什么比只学习真实标签更有效？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p><img alt="知识蒸馏示意" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/distillation.png"/></p>
+<span class="heading-anchor" id="一、基本思想"></span><h3 id="_2_1">一、基本思想</h3>
+<p>知识蒸馏可以理解为“老师教学生”：</p>
+<ul>
+<li><strong>老师模型</strong>：通常是一个大模型，参数多、效果好，但推理慢、成本高</li>
+<li><strong>学生模型</strong>：通常是一个小模型，参数少、推理快，但直接训练效果可能不如老师</li>
+</ul>
+<p>蒸馏的目标是让学生模型模仿老师模型，使学生模型在更小规模下尽量达到接近老师的效果。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L938">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k62f0557fc0f2"></a></p>
+<span class="heading-anchor" id="知识蒸馏在sVLM中的作用及实现方式？"></span><h2 id="svlm">知识蒸馏在sVLM中的作用及实现方式？</h2>
+<p><strong>作用</strong>：<br/>
+• 将大型教师模型（如CLIP-ViT-L）的知识迁移到轻量级模型，在保持92%精度的同时模型体积缩小76%。<br/>
+• 提升跨模态注意力对齐能力，减少因参数不足导致的模态鸿沟。  </p>
+<p><strong>实现方式</strong>：<br/>
+1. <strong>特征蒸馏</strong>（TinyViT）：<br/>
+   • 使用11层教师模型的中间层特征，通过对比损失将512维CLIP嵌入压缩至256维。<br/>
+   • <strong>效果</strong>：在ImageNet分类任务中，模型尺寸缩小76%，精度保持92%。<br/>
+2. <strong>注意力蒸馏</strong>（MiniGPT-4）：<br/>
+   • 冻结Vicuna语言模型，仅训练线性投影层对齐视觉特征。<br/>
+   • <strong>两阶段训练</strong>：500万图文对预训练投影层 → 3500条精标数据微调注意力头数（32→16）。<br/>
+3. <strong>动态蒸馏</strong>（FastViT）：<br/>
+   • 训练时用3×3深度卷积替代自注意力，推理时重构为1×1卷积。<br/>
+   • <strong>效果</strong>：ADE20K分割任务推理速度提升2.1倍，内存消耗降低58%。  </p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E6%A0%B8%E5%BF%83%E6%A8%A1%E5%9E%8B.md#L214">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5be370d442d2"></a></p>
+<span class="heading-anchor" id="知识蒸馏有哪些常见方式？"></span><h2 id="_1_4">知识蒸馏有哪些常见方式？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>常见蒸馏方式主要有三类。</p>
+<span class="heading-anchor" id="一、响应蒸馏：学习老师的最终输出"></span><h3 id="_2_2">一、响应蒸馏：学习老师的最终输出</h3>
+<p>响应蒸馏是最经典的蒸馏方式。学生模型学习老师模型最终输出的概率分布或logits。</p>
+<p>适合场景：
+- 图像分类
+- 文本分类
+- 语音识别
+- 大模型输出分布蒸馏</p>
+<p>优点是简单、通用；缺点是只利用了老师模型最后一层的信息。</p>
+<span class="heading-anchor" id="二、特征蒸馏：学习老师的中间表示"></span><h3 id="_3_1">二、特征蒸馏：学习老师的中间表示</h3>
+<p>特征蒸馏不仅看最终输出，还让学生学习老师模型中间层的特征表示。</p>
+<p>例如在视觉模型中，让学生的中间特征图接近老师；在Transformer中，让学生学习老师某些层的hidden states。</p>
+<p>适合场景：
+- 目标检测
+- 语义分割
+- BERT类模型压缩
+- 多层Transformer模型压缩</p>
+<span class="heading-anchor" id="三、关系蒸馏：学习样本或结构之间的关系"></span><h3 id="_4">三、关系蒸馏：学习样本或结构之间的关系</h3>
+<p>关系蒸馏关注的不是单个输出，而是样本之间、token之间或特征之间的关系。</p>
+<p>例如：
+- 学习不同样本之间的相似度关系
+- 学习attention map
+- 学习token之间的依赖关系</p>
+<p>这种方式更复杂，但有时能保留更多结构性知识。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L974">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1666fbba3b94"></a></p>
+<span class="heading-anchor" id="知识蒸馏适合哪些场景？有哪些局限？"></span><h2 id="_1_5">知识蒸馏适合哪些场景？有哪些局限？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、适合场景"></span><h3 id="_2_3">一、适合场景</h3>
+<p>知识蒸馏适合“老师模型效果好，但太大太慢”的场景。</p>
+<p>典型应用包括：</p>
+<ol>
+<li><strong>端侧部署</strong>：把大模型能力迁移到手机或嵌入式小模型上</li>
+<li><strong>在线服务降本</strong>：用小模型替代大模型处理高频请求</li>
+<li><strong>BERT类模型压缩</strong>：例如DistilBERT、TinyBERT等</li>
+<li><strong>大模型能力迁移</strong>：用强模型生成数据或监督信号，训练小模型</li>
+<li><strong>集成模型压缩</strong>：把多个模型ensemble的能力蒸馏到一个模型里</li>
+</ol>
+<span class="heading-anchor" id="二、局限性"></span><h3 id="_3_2">二、局限性</h3>
+<p>知识蒸馏也不是万能的，主要局限包括：</p>
+<ul>
+<li>需要一个效果足够好的老师模型</li>
+<li>通常需要额外训练，成本高于单纯量化</li>
+<li>学生模型容量太小时，可能学不动老师模型</li>
+<li>老师模型本身的错误也可能被学生学到</li>
+<li>蒸馏效果依赖数据质量、温度系数、损失权重等超参数</li>
+</ul>
+<p>可以总结为：<strong>蒸馏的优势是能让小模型继承大模型的部分能力，适合端侧部署和线上降本；局限是需要训练流程和老师模型，且学生模型容量太小或数据不好时，效果会受限。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1015">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k543fb6a8fb00"></a></p>
+<span class="heading-anchor" id="磁盘缓存 Offloading"></span><h2 id="offloading">磁盘缓存 Offloading</h2>
+<ul>
+<li><strong>方法</strong>：</li>
+<li>将极少使用的模型权重存储在磁盘中，仅在需要时加载到内存。</li>
+<li>通过异步预加载机制减少磁盘 I/O 的延迟。</li>
+<li><strong>优点</strong>：</li>
+<li>最大限度减少对内存和显存的需求。</li>
+<li><strong>缺点</strong>：</li>
+<li>磁盘 I/O 延迟较大，可能严重影响推理性能。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1969">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2e3a19cb5ece"></a></p>
+<span class="heading-anchor" id="示例(构建一个tensorrt镜像)"></span><h2 id="tensorrt">示例(构建一个tensorrt镜像)</h2>
+<pre><code>
+FROM nvcr.io/nvidia/tensorrt:22.10-py3
+
+# install opencv 
+RUN apt update &amp;&amp; apt install libopencv-dev -y 
+
+# install python essential dependencies
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 
+RUN pip3 install numpy pillow matplotlib pycocotools opencv-python onnx onnxruntime -i https://pypi.tuna.tsinghua.edu.cn/simple
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L515">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1910aff6b83c"></a></p>
+<span class="heading-anchor" id="神经网络的显存占用分析"></span><h2 id="_1_8">神经网络的显存占用分析</h2>
+<p>Float32 是在深度学习中最常用的数值类型，称为单精度浮点数，每一个单精度浮点数占用4Byte的显存。</p>
+<p>在整个神经网络训练周期中，在GPU上的显存占用主要包括：数据，模型参数，模型输出等。</p>
+<p>数据侧：举个🌰，一个32<em>3</em>128<em>128的四维矩阵，其占用的显存 = 32</em>3<em>128</em>128*4 /1000 / 1000 = 6.3M</p>
+<p>模型侧：占用显存的层包括卷积层，全连接层，BN层，梯度，优化器的参数等。</p>
+<p>输出侧：占用的显存包括网络每一层计算出来的feature map以及对应的梯度等。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L440">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5cbc8dfcdcda"></a></p>
+<span class="heading-anchor" id="移动端/边缘端推理框架有哪些？部署限制与选型考量是什么？"></span><h2 id="_1_9">移动端/边缘端推理框架有哪些？部署限制与选型考量是什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<ul>
+<li><strong>移动端/边缘端推理框架</strong>：主要面向<strong>手机、嵌入式设备、摄像头、IoT设备和边缘网关</strong>，硬件资源通常受限，目标是在<strong>算力、内存、功耗、包体和实时性</strong>约束下实现稳定可用的本地推理。</li>
+</ul>
+<span class="heading-anchor" id="三、选型考量"></span><h3 id="_2_5">三、选型考量</h3>
+<ol>
+<li>
+<p><strong>先看目标硬件和系统生态</strong>
+   - iOS / macOS：优先 Core ML
+   - Android：优先评估 TensorFlow Lite / LiteRT、NCNN、MNN
+   - ARM嵌入式或Linux边缘设备：优先评估 NCNN、MNN、ONNX Runtime Mobile
+   - 已有ONNX链路或多平台统一部署：优先 ONNX Runtime Mobile</p>
+</li>
+<li>
+<p><strong>再看资源约束</strong>
+   - 包体极敏感：优先轻量runtime或裁剪后的runtime
+   - 功耗敏感：优先选择能调用NPU/DSP delegate的方案
+   - 内存紧张：优先考虑量化、模型裁剪、静态内存规划和更小的输入分辨率</p>
+</li>
+<li>
+<p><strong>最后看工程落地成本</strong>
+   - 模型是否容易转换成功
+   - 关键算子是否被目标后端支持
+   - 精度和速度是否能在真实设备上复现
+   - 是否便于集成到App、SDK或边缘服务中</p>
+</li>
+</ol>
+<p>可以总结为：<strong>端侧选型的核心不是单纯追求最高算力，而是在真实设备上平衡模型效果、延迟、功耗、内存、包体和工程可维护性。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L225">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8f69ad88bbb8"></a></p>
+<span class="heading-anchor" id="端侧部署为什么是具身智能落地的关键？"></span><h2 id="_1_10">端侧部署为什么是具身智能落地的关键？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>端侧部署重要，是因为机器人必须在真实时间尺度中做决策。</p>
+<p>如果完全依赖云端大模型，会遇到：</p>
+<ul>
+<li>网络延迟影响控制闭环。</li>
+<li>断网时系统不可用。</li>
+<li>隐私数据需要上传。</li>
+<li>成本和带宽压力大。</li>
+<li>安全关键动作不能等待远程响应。</li>
+</ul>
+<p>因此实际落地常采用混合架构：</p>
+<pre><code class="language-text">端侧小模型/控制器：实时感知、避障、低层控制、安全停机
+边缘/本地 VLA：常用任务策略和快速动作生成
+云端大模型：复杂推理、长程规划、知识检索、离线学习
+</code></pre>
+<p>Google DeepMind 发布 Gemini Robotics On-Device，NVIDIA 推动 Jetson/GR00T/Cosmos 工作流，本质上都指向同一个趋势：<strong>物理 AI 需要把足够多的智能放到机器人本体或近端计算设备上。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E5%9F%BA%E7%A1%80/01_%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E6%A0%B8%E5%BF%83%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86.md#L607">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5fcbb47661c8"></a></p>
+<span class="heading-anchor" id="端侧静态多Batch和动态多Batch的区别"></span><h2 id="batchbatch">端侧静态多Batch和动态多Batch的区别</h2>
+<p>当设置静态多Batch后，如Batch=6，那么之后不管是输入2Batch还是4Batch，都会按照6Batch的预设开始申请资源。</p>
+<p>而动态多Batch不用预设Batch数，会根据实际场景中的真实输入Batch数来优化资源的申请，提高端侧实际效率。</p>
+<p>由于动态多Batch的高性能，通常Inference耗时和内存占用会比静态多Batch时要大。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L581">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k949a44b7e6fc"></a></p>
+<span class="heading-anchor" id="端序支持"></span><h2 id="_1_12">端序支持</h2>
+<p>GGUF支持小端和大端格式，确保了其在不同计算平台上的可用性。端序（Endianness）是指数据在计算机内存中的字节顺序排列方式，主要有两种类型：大端（Big-Endian）和小端（Little-Endian）。不同的计算平台可能采用不同的端序。例如，Intel的x86架构是小端的，而某些旧的IBM和网络协议通常是大端的。因此，文件格式如果能支持这两种端序，就可以确保数据在不同架构的计算机上正确读取和解释。</p>
+<ol>
+<li>文件头 (Header)</li>
+</ol>
+<ul>
+<li>作用：包含用于识别文件类型和版本的基本信息。</li>
+<li>内容：<ul>
+<li><code>Magic Number</code>：一个特定的数字或字符序列，用于标识文件格式。</li>
+<li><code>Version</code>：文件格式的版本号，指明了文件遵循的具体规范或标准。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>元数据键值对 (Metadata Key-Value Pairs)</li>
+</ol>
+<ul>
+<li>作用：存储关于模型的额外信息，如作者、训练信息、模型描述等。</li>
+<li>内容：<ul>
+<li><code>Key</code>：一个字符串，标识元数据的名称。</li>
+<li><code>Value Type</code>：数据类型，指明值的格式（如整数、浮点数、字符串等）。</li>
+<li><code>Value</code>：具体的元数据内容。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>张量计数 (Tensor Count)</li>
+</ol>
+<ul>
+<li>作用：标识文件中包含的张量（Tensor）数量。</li>
+<li>内容：<ul>
+<li><code>Count</code>：一个整数，表示文件中张量的总数。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>张量信息 (Tensor Info)</li>
+</ol>
+<ul>
+<li>作用：描述每个张量的具体信息，包括形状、类型和数据位置。</li>
+<li>内容：<ul>
+<li><code>Name</code>：张量的名称。</li>
+<li><code>Dimensions</code>：张量的维度信息。</li>
+<li><code>Type</code>：张量数据的类型（如浮点数、整数等）。</li>
+<li><code>Offset</code>：指明张量数据在文件中的位置。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>对齐填充 (Alignment Padding)</li>
+</ol>
+<ul>
+<li>作用：确保数据块在内存中正确对齐，有助于提高访问效率。</li>
+<li>内容：<ul>
+<li>通常是一些填充字节，用于保证后续数据的内存对齐。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>张量数据 (Tensor Data)</li>
+</ol>
+<ul>
+<li>作用：存储模型的实际权重和参数。</li>
+<li>内容：<ul>
+<li><code>Binary Data</code>：模型的权重和参数的二进制表示。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>端序标识 (Endianness)</li>
+</ol>
+<ul>
+<li>作用：指示文件中数值数据的字节顺序（大端或小端）。</li>
+<li>内容：<ul>
+<li>通常是一个标记，表明文件遵循的端序。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>扩展信息 (Extension Information)</li>
+</ol>
+<ul>
+<li>作用：允许文件格式未来扩展，以包含新的数据类型或结构。</li>
+<li>内容：<ul>
+<li>可以是新加入的任何额外信息，为将来的格式升级预留空间。</li>
+</ul>
+</li>
+</ul>
+<p>整体来看，GGUF文件格式通过这些结构化的组件提供了一种高效、灵活且可扩展的方式来存储和处理机器学习模型。这种设计不仅有助于快速加载和处理模型，而且还支持未来技术的发展和新功能的添加。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L1389">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4999f447317b"></a></p>
+<span class="heading-anchor" id="简单介绍"></span><h2 id="_1_13">简单介绍</h2>
+<p>LightLLM 是一种轻量级 LLM 推理服务框架，LightLLM 引入了一种更细粒度的kvCache管理算法，称为TokenAttention， 并设计了一个与TokenAttention高效配合的Efficient Router调度算法。通过 TokenAttention 和 Efficient Router 的配合，LightLLM在大多数场景下实现了比vLLM和Text Generation Inference更高的吞吐量，甚至在某些情况下性能提升了4倍左右。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L798">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6a7151e1281c"></a></p>
+<span class="heading-anchor" id="结构化剪枝和非结构化剪枝有什么区别？"></span><h2 id="_1_14">结构化剪枝和非结构化剪枝有什么区别？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<span class="heading-anchor" id="一、非结构化剪枝"></span><h3 id="_2_9">一、非结构化剪枝</h3>
+<p>非结构化剪枝是剪掉单个权重。例如一个权重矩阵中，某些数值较小的元素被置为0。</p>
+<p>优点：
+- 粒度细，压缩空间大
+- 可以得到很高的稀疏率
+- 对模型结构改动小</p>
+<p>缺点：
+- 权重矩阵变成不规则稀疏矩阵
+- 普通CPU/GPU不一定能直接加速
+- 需要稀疏算子库或专用硬件支持，否则可能只是模型文件变小，推理不一定更快</p>
+<span class="heading-anchor" id="二、结构化剪枝"></span><h3 id="_3_4">二、结构化剪枝</h3>
+<p>结构化剪枝是删除完整结构，例如整个通道、卷积核、attention head、MLP中间维度或网络层。</p>
+<p>优点：
+- 删除后模型结构仍然规则
+- 更容易被普通推理框架和硬件加速
+- 工程部署更友好</p>
+<p>缺点：
+- 粒度粗，压缩空间相对小
+- 剪得太多容易明显掉精度
+- 需要处理前后层维度匹配问题</p>
+<span class="heading-anchor" id="三、面试对比总结"></span><h3 id="_4_2">三、面试对比总结</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比维度</th>
+<th>非结构化剪枝</th>
+<th>结构化剪枝</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>剪枝对象</td>
+<td>单个权重</td>
+<td>通道、卷积核、层、注意力头等完整结构</td>
+</tr>
+<tr>
+<td>稀疏形式</td>
+<td>不规则稀疏</td>
+<td>规则结构变小</td>
+</tr>
+<tr>
+<td>压缩率</td>
+<td>通常更高</td>
+<td>通常较低</td>
+</tr>
+<tr>
+<td>实际加速</td>
+<td>依赖稀疏算子/硬件</td>
+<td>更容易在通用硬件上加速</td>
+</tr>
+<tr>
+<td>部署难度</td>
+<td>较高</td>
+<td>较低</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>非结构化剪枝更像“把矩阵里的很多元素变成0”，压缩率高但不一定真实加速；结构化剪枝更像“直接删掉一些通道或层”，压缩率可能没那么极致，但更容易在真实推理部署中获得加速。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_5_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L891">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdaf9de0c3600"></a></p>
+<span class="heading-anchor" id="节点指定"></span><h2 id="_1_15">节点指定</h2>
+<ul>
+<li><strong><code>--host &lt;host_list&gt;</code></strong>：手动指定节点及进程数，格式为 <code>node1:proc1,node2:proc2,...</code><br/>
+  示例：<code>mpirun -np 6 --host node1:2,node2:2,node3:2 ./program</code>。  </li>
+<li><strong><code>--hostfile/-f &lt;file&gt;</code></strong>：通过文件定义节点列表，每行一个节点（可重复），例如：  </li>
+</ul>
+<pre><code class="language-plaintext">  node1 slots=4
+  node2 slots=4
+</code></pre>
+<p>命令：<code>mpirun --hostfile nodes.txt -np 8 ./program</code>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1611">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1f742a50ceef"></a></p>
+<span class="heading-anchor" id="视频生成推理加速有哪些工程路线？各自代价是什么？"></span><h2 id="_1_16">视频生成推理加速有哪些工程路线？各自代价是什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>推理加速要先确定瓶颈发生在哪个阶段，再选择对应手段。减少去噪步数、加快单步计算、降低解码成本和提高并发吞吐是不同目标，不能只比较一个“加速倍数”。各路线的作用位置和代价见表5-5。</p>
+<p>表5-5 视频生成推理加速路线及其适用边界</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>主要改善</th>
+<th>代价或适用边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>更合适的 sampler 或 solver、减少步数</td>
+<td>减少主干调用次数，直接降低去噪延迟</td>
+<td>原模型未针对极少步训练时，细节、运动和条件遵循可能退化；采样器要与训练参数化匹配</td>
+</tr>
+<tr>
+<td>蒸馏或 consistency 训练</td>
+<td>把多步教师压缩为少步学生</td>
+<td>需要额外训练与数据，可能改变多样性、CFG 响应和不同任务上的质量分布</td>
+</tr>
+<tr>
+<td>BF16/FP16/FP8、优化 attention kernel、编译与算子融合</td>
+<td>降低每一步的计算、访存或调度开销</td>
+<td>收益依赖硬件、输入形状和算子覆盖；低精度还要验证数值与质量</td>
+</tr>
+<tr>
+<td>条件编码缓存、跨去噪步特征复用</td>
+<td>避免重复条件计算或近邻步骤中的部分重复计算</td>
+<td>固定条件的编码结果通常可以精确复用；跨步中间特征复用多为近似方法，受架构和缓存间隔影响</td>
+</tr>
+<tr>
+<td>VAE 专用解码优化、并行、分块或时间切片</td>
+<td>专用优化与合理并行可缩短解码时间；分块和切片主要降低峰值显存</td>
+<td>分块和切片常以更多调度换显存，可能降低速度；还要检查接缝、时间边界和通信成本</td>
+</tr>
+<tr>
+<td>多 GPU 模型、序列或空间并行</td>
+<td>让单卡放不下的模型或长视频运行，并尝试降低单请求延迟</td>
+<td>通信可能抵消计算收益，并行度越高不代表延迟越低</td>
+</tr>
+<tr>
+<td>按形状分桶和动态 batching</td>
+<td>提高设备占用与整体吞吐</td>
+<td>等待组 batch 会增加排队时间；帧数、分辨率或采样配置不一致时，还会产生 padding 浪费或无法直接合批</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>优化顺序从可测量的瓶颈开始。</strong> 先建立逐阶段基线，再处理无需改变模型目标的低风险项，例如匹配硬件的精度、attention kernel、编译和条件缓存；随后评估少步采样、蒸馏或跨步特征复用等会改变生成分布的方案。显存不足时，VAE 分块、offload 或多卡并行可能让任务跑起来，但它们不一定降低延迟。</p>
+<p>验证时应固定 prompt 与 seed 集合、帧数、分辨率和并发压力，同时比较端到端 p50/p95、吞吐、峰值显存、单位成本、失败率以及画质、运动和条件遵循。详细的质量评估方法见 4.5.7；本题只负责判断加速收益是否建立在可接受的质量代价上。</p>
+<blockquote>
+<p><strong>面试速答</strong>：推理加速分为减少去噪次数、降低单步成本、优化 VAE、使用缓存或并行，以及通过 batching 提高吞吐。条件编码缓存可以精确复用，跨去噪步特征缓存通常是近似加速；VAE 分块主要解决显存，也可能变慢。所有方案都要回到端到端延迟、吞吐、峰值显存、失败率和分项质量上比较。</p>
+</blockquote>
+<p>参考资料：<a href="https://arxiv.org/abs/2202.00512">Progressive Distillation for Fast Sampling of Diffusion Models</a>、<a href="https://arxiv.org/abs/2310.04378">Latent Consistency Models</a>、<a href="https://arxiv.org/abs/2205.14135">FlashAttention</a>、<a href="https://arxiv.org/abs/2312.00858">DeepCache</a>、<a href="https://arxiv.org/abs/2506.13497">DDiT</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/05_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%B7%A5%E7%A8%8B%E4%BC%98%E5%8C%96.md#L534">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k80d3c3650741"></a></p>
+<span class="heading-anchor" id="视频生成线上推理为什么常常慢在不止一个地方？"></span><h2 id="_1_17">视频生成线上推理为什么常常慢在不止一个地方？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>线上延迟由排队时间和一次请求经过的执行链路共同决定。对于典型的 latent 视频生成系统，可近似写成：</p>
+<pre><code class="language-math">L_{\mathrm{e2e}}\approx
+L_{\mathrm{queue}}
++L_{\mathrm{condition}}
++\sum_{s=1}^{S}L_{\mathrm{denoise}}^{(s)}
++L_{\mathrm{VAE}}
++L_{\mathrm{post}}
++L_{\mathrm{encode/transfer}}
+</code></pre>
+<p>其中 <span class="arithmatex">\(S\)</span> 是去噪步数。该式按串行链路近似；如果安全检查、编码或传输存在并行，端到端时间应按实际关键路径统计，不能简单相加。</p>
+<p><strong>排队和请求准备。</strong> 请求进入模型前，可能经历限流、规格校验、prompt 处理、参考图上传以及文本或图像条件编码。高并发下，队列等待可能超过模型执行时间；条件编码若与 DiT、VAE 共用同一组 GPU，也可能因阶段负载不均造成设备空转。</p>
+<p><strong>重复去噪。</strong> DiT 会对整段时空 latent 重复执行 <span class="arithmatex">\(S\)</span> 次，单步成本受帧数、分辨率、patch 大小、attention 形式和并行通信影响。启用 CFG 时，条件与无条件分支通常还会增加模型计算；合并进同一次 batched forward 可以提高并行度，但不会消除额外的计算量和显存占用。</p>
+<p><strong>解码和结果交付。</strong> 3D VAE 解码、高分辨率后处理、安全检查、视频编码以及上传下载都可能进入关键路径。分块解码能降低显存峰值，但会增加调度和边界处理；主干加速以后，瓶颈还可能转移到 VAE 或视频编码。</p>
+<p><strong>定位时按阶段打点。</strong> 固定模型、输出规格、采样配置和并发量，分别记录 queue、condition、单步及总去噪、VAE、后处理、编码与传输的 p50/p95，配合 GPU timeline、显存峰值、batch 填充率和失败原因定位长尾。若支持预览或流式返回，再单独记录首个可用结果时间；它不适合替代完整视频交付时间。</p>
+<blockquote>
+<p><strong>面试速答</strong>：视频生成的端到端延迟包含排队、条件编码、多步去噪、VAE 解码、后处理、视频编码和传输。去噪通常占大头，但高并发、长视频或主干加速后，瓶颈可能转移到队列、VAE 和编码。排查时要固定请求规格，对每个阶段记录 p50/p95、显存和失败原因，不能用 GPU 利用率或单步耗时代表整条链路。</p>
+</blockquote>
+<p>参考资料：<a href="https://arxiv.org/abs/2408.06072">CogVideoX</a>、<a href="https://arxiv.org/abs/2506.13497">DDiT</a>、<a href="https://docs.pytorch.org/docs/stable/profiler.html">PyTorch Profiler</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/05_%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%B7%A5%E7%A8%8B%E4%BC%98%E5%8C%96.md#L504">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k59f33c7ff28e"></a></p>
+<span class="heading-anchor" id="解释上下文学习在多模态大模型中的原理，并举例说明其在数学推理任务中的应用?"></span><h2 id="_1_18">解释上下文学习在多模态大模型中的原理，并举例说明其在数学推理任务中的应用?</h2>
+<p>上下文学习 是指模型能够根据输入的上下文信息来调整其输出的能力。在多模态大模型中，上下文学习原理如下：
+●多模态融合：模型能够同时处理文本、图像等多种模态的信息，并将这些信息融合在一起以形成更丰富的上下文表示。
+●动态调整：根据输入的上下文信息，模型能够动态地调整其内部参数和输出策略，以适应不同的任务和场景。
+数学推理任务中的应用：在数学推理任务中，上下文学习可以帮助模型理解问题的背景和已知条件，从而更准确地推导出答案。例如，当模型遇到一个涉及几何图形的问题时，它可以利用图像模态的信息来辅助理解问题，并结合文本模态的信息进行推理和解答。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E8%AE%AD%E7%BB%83%E4%B8%8E%E5%BE%AE%E8%B0%83.md#L85">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc0d6d6806e66"></a></p>
+<span class="heading-anchor" id="计算机中两个AI服务，一个AI服务调用另外一个AI服务时，该如何设置两者ip地址和端口号？"></span><h2 id="aiaiaiip">计算机中两个AI服务，一个AI服务调用另外一个AI服务时，该如何设置两者ip地址和端口号？</h2>
+<p>在AIGC、传统深度学习以及自动驾驶领域，进行AI服务的互相调用与支持，是非常常见的一种AI算法服务构建形式。</p>
+<p>在计算机中运行两个 AI 服务，并使用一个服务调用另一个服务，设置 IP 地址和端口号的方式取决于服务的运行环境和通信模式。</p>
+<p>我们需要根据AI业务的实际情况，进行灵活的IP 地址和端口号设置，来增强AI服务的鲁棒性与稳定性，特别是在网络存在波动的情况下。</p>
+<span class="heading-anchor" id="1. 场景假设"></span><h3 id="1"><strong>1. 场景假设</strong></h3>
+<ul>
+<li><strong>服务 A</strong>：被调用的服务（提供 API 或接口）。</li>
+<li><strong>服务 B</strong>：调用服务 A 的服务。</li>
+</ul>
+<span class="heading-anchor" id="2.1 确定通信方式"></span><h3 id="21"><strong>2.1 确定通信方式</strong></h3>
+<ul>
+<li><strong>本地通信（单机部署）</strong>：</li>
+<li>服务 A 和服务 B 在同一台计算机上运行。</li>
+<li>可使用 <code>localhost</code>（或 <code>127.0.0.1</code>）作为 IP 地址。</li>
+<li><strong>跨网络通信（多机部署）</strong>：</li>
+<li>服务 A 和服务 B 分别运行在不同的计算机上。</li>
+<li>服务 A 需要绑定其计算机的实际 IP 地址（如局域网 IP <code>192.168.x.x</code> 或公网 IP）。</li>
+</ul>
+<span class="heading-anchor" id="2.3 服务 B 的配置"></span><h3 id="23-b"><strong>2.3 服务 B 的配置</strong></h3>
+<ul>
+<li><strong>调用服务 A</strong>：</li>
+<li>服务 B 调用服务 A 的 API 时，需要知道服务 A 的 IP 和端口。</li>
+<li>
+<p>根据通信方式：</p>
+<ul>
+<li><strong>本地通信</strong>：服务 A 的地址为 <code>http://127.0.0.1:5000</code> 或 <code>http://localhost:5000</code>。</li>
+<li><strong>跨网络通信</strong>：服务 A 的地址为 <code>http://&lt;服务A的实际IP&gt;:5000</code>（如 <code>http://192.168.1.100:5000</code>）。</li>
+</ul>
+</li>
+<li>
+<p>示例（服务 B 使用 Python 调用服务 A 的 API）：</p>
+</li>
+</ul>
+<pre><code class="language-python">    import requests
+
+    # 服务 A 的地址
+    SERVICE_A_URL = "http://127.0.0.1:5000"
+
+    def call_service_a():
+        try:
+            response = requests.get(SERVICE_A_URL)
+            print("Response from Service A:", response.text)
+        except Exception as e:
+            print("Failed to call Service A:", e)
+
+    if __name__ == '__main__':
+        call_service_a()
+</code></pre>
+<span class="heading-anchor" id="2.4 确保网络配置无冲突"></span><h3 id="24"><strong>2.4 确保网络配置无冲突</strong></h3>
+<ul>
+<li>如果两个服务运行在同一台计算机上：</li>
+<li>确保每个服务绑定的端口号不同（例如，服务 A 使用 <code>5000</code>，服务 B 使用 <code>6000</code>）。</li>
+<li>示例启动服务 B：</li>
+</ul>
+<pre><code class="language-python">    app.run(host='0.0.0.0', port=6000)
+</code></pre>
+<ul>
+<li>如果两个服务运行在不同计算机上：</li>
+<li>服务 A 和服务 B 的端口号可以相同，但绑定的 IP 地址需要分别对应各自所在的计算机。</li>
+<li>确保服务 A 所在计算机的防火墙或网络配置允许服务 B 访问。</li>
+</ul>
+<span class="heading-anchor" id="服务 B：调用服务 A"></span><h3 id="b-a"><strong>服务 B：调用服务 A</strong></h3>
+<pre><code class="language-python">import requests
+
+SERVICE_A_URL = "http://127.0.0.1:5000/api"
+
+def call_service_a():
+    response = requests.get(SERVICE_A_URL)
+    print("Response from Service A:", response.json())
+
+if __name__ == '__main__':
+    call_service_a()
+</code></pre>
+<ul>
+<li>启动服务 A 后，运行服务 B。</li>
+<li>服务 B 会通过 <code>http://127.0.0.1:5000/api</code> 调用服务 A。</li>
+</ul>
+<span class="heading-anchor" id="服务 B：调用局域网的服务 A"></span><h3 id="b-a_1"><strong>服务 B：调用局域网的服务 A</strong></h3>
+<pre><code class="language-python">SERVICE_A_URL = "http://192.168.1.100:5000/api"
+</code></pre>
+<ul>
+<li>确保两台计算机在同一个局域网，服务 B 可以通过 <code>192.168.1.100</code> 访问服务 A。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1729">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4211dc2a629b"></a></p>
+<span class="heading-anchor" id="计算机中串行操作和并行操作有哪些区别？"></span><h2 id="_1_20">计算机中串行操作和并行操作有哪些区别？</h2>
+<p>计算机中的串行和并行操作是两种处理任务的方式，它们在任务执行的顺序、效率和应用场景上有显著的区别。Rocky认为我们理解这两种操作模式有助于设计和优化计算机程序，以提高性能和效率。</p>
+<span class="heading-anchor" id="示例"></span><h3 id="_2_14">示例</h3>
+<p>假设我们有三个任务：Task 1、Task 2 和 Task 3，它们必须按顺序执行。</p>
+<pre><code class="language-python">def task1():
+    print("Executing Task 1")
+
+def task2():
+    print("Executing Task 2")
+
+def task3():
+    print("Executing Task 3")
+
+# 串行执行
+task1()
+task2()
+task3()
+</code></pre>
+<p>在上述代码中，Task 1 完成后才会开始 Task 2，然后是 Task 3。</p>
+<span class="heading-anchor" id="优缺点"></span><h3 id="_3_5">优缺点</h3>
+<ul>
+<li><strong>优点</strong>：</li>
+<li>实现简单，逻辑清晰。</li>
+<li>
+<p>易于调试和维护。</p>
+</li>
+<li>
+<p><strong>缺点</strong>：</p>
+</li>
+<li>处理大量任务时效率低。</li>
+<li>不能充分利用多核处理器的计算能力。</li>
+</ul>
+<span class="heading-anchor" id="示例"></span><h3 id="_4_3">示例</h3>
+<p>假设我们有三个任务：Task 1、Task 2 和 Task 3，它们可以同时执行。我们可以使用 Python 的 <code>concurrent.futures</code> 模块来实现并行操作。</p>
+<pre><code class="language-python">import concurrent.futures
+
+def task1():
+    print("Executing Task 1")
+
+def task2():
+    print("Executing Task 2")
+
+def task3():
+    print("Executing Task 3")
+
+# 并行执行
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    futures = [executor.submit(task) for task in [task1, task2, task3]]
+    for future in concurrent.futures.as_completed(futures):
+        future.result()
+</code></pre>
+<p>在上述代码中，Task 1、Task 2 和 Task 3 会同时开始执行，利用线程池实现并行处理。</p>
+<span class="heading-anchor" id="优缺点"></span><h3 id="_5_2">优缺点</h3>
+<ul>
+<li><strong>优点</strong>：</li>
+<li>高效处理大量任务。</li>
+<li>
+<p>能充分利用多核处理器和分布式计算资源，提高整体性能。</p>
+</li>
+<li>
+<p><strong>缺点</strong>：</p>
+</li>
+<li>实现复杂，需要处理同步和资源共享问题。</li>
+<li>存在资源竞争和死锁风险。</li>
+</ul>
+<span class="heading-anchor" id="总结"></span><h3 id="_6">总结</h3>
+<p>串行操作和并行操作在计算机科学中不仅代表了两种不同的技术实现方式，更深层次上反映了不同的哲学思想：
+- <strong>时间观念</strong>：线性 vs 非线性。
+- <strong>资源利用</strong>：单任务专注 vs 多任务并行。
+- <strong>复杂性</strong>：秩序和简单 vs 复杂性管理。
+- <strong>任务关系</strong>：协作和依赖 vs 竞争和协同。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L676">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd2f526ddebc8"></a></p>
+<span class="heading-anchor" id="计算瓶颈和访存瓶颈在推理中分别有哪些典型表现？"></span><h2 id="_1_21">计算瓶颈和访存瓶颈在推理中分别有哪些典型表现？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、计算瓶颈"></span><h3 id="_2_15">一、计算瓶颈</h3>
+<p>计算瓶颈指的是程序主要受硬件计算能力限制。也就是说，计算单元已经很忙，性能主要取决于CPU、GPU或NPU能提供多少FLOPS。</p>
+<p>常见计算瓶颈算子：
+- 大矩阵乘法
+- 大卷积
+- 大batch下的GEMM
+- Prefill阶段的大规模Attention和MLP计算</p>
+<p>优化方向通常是低精度计算、Tensor Core利用、更高效kernel和更强硬件。</p>
+<span class="heading-anchor" id="二、访存瓶颈"></span><h3 id="_3_6">二、访存瓶颈</h3>
+<p>访存瓶颈指的是程序主要受内存或显存带宽限制。计算单元没有完全忙起来，而是在等待数据从内存或显存中读出来。</p>
+<p>常见访存瓶颈场景：
+- 小算子频繁读写中间张量
+- 大模型Decode阶段频繁读取KV Cache
+- Elementwise算子计算少但读写多
+- 数据布局不连续导致访存效率低</p>
+<p>优化方向通常是算子融合、减少中间结果、优化数据布局、使用缓存和降低数据精度。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1346">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kefbaba5074af"></a></p>
+<span class="heading-anchor" id="计算神经网络的参数量的基本原则"></span><h2 id="_1_22">计算神经网络的参数量的基本原则</h2>
+<ul>
+<li><strong>权重参数</strong>：每一层的神经元与下一层的神经元之间的连接权重。</li>
+<li><strong>偏置参数</strong>：每个神经元（节点）对应的偏置值（bias）。</li>
+</ul>
+<p>一般公式为：</p>
+<div class="arithmatex">\[
+\text{参数量} = \text{输入特征数} \times \text{输出特征数} + \text{输出特征数}
+\]</div>
+<p>其中：
+- <strong>输入特征数</strong>：上一层的输出通道或神经元数。
+- <strong>输出特征数</strong>：当前层的通道或神经元数。
+- <span class="arithmatex">\( + \text{输出特征数} \)</span>：是因为每个输出单元都有一个对应的偏置参数。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L265">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8492a3235947"></a></p>
+<span class="heading-anchor" id="评估推理服务时为什么不能只看平均延迟？"></span><h2 id="_1_23">评估推理服务时为什么不能只看平均延迟？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p><img alt="延迟分布与P50/P95/P99示意" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/latency-distribution.png"/></p>
+<span class="heading-anchor" id="一、延迟指标"></span><h3 id="_2_17">一、延迟指标</h3>
+<p>常见延迟指标包括：</p>
+<ul>
+<li><strong>平均延迟</strong>：整体平均响应时间</li>
+<li><strong>P50延迟</strong>：一半请求低于该延迟</li>
+<li><strong>P95/P99延迟</strong>：长尾延迟，反映线上用户最差体验</li>
+<li><strong>端到端延迟</strong>：包括预处理、排队、推理、后处理和网络时间</li>
+</ul>
+<p>线上服务通常更关注P95/P99，而不是只看平均值。</p>
+<span class="heading-anchor" id="二、吞吐量指标"></span><h3 id="_3_7">二、吞吐量指标</h3>
+<p>常见吞吐量指标包括：</p>
+<ul>
+<li>QPS：每秒请求数</li>
+<li>images/s：图像模型每秒处理图片数</li>
+<li>samples/s：通用样本吞吐</li>
+<li>tokens/s：大模型每秒生成或处理token数</li>
+</ul>
+<p>常见计算口径如下：</p>
+<pre><code class="language-text">QPS = 完成请求数 / 测试时间
+tokens/s = 处理或生成token总数 / 测试时间
+单请求成本 ≈ 单位时间资源成本 / QPS
+</code></pre>
+<p>比较不同系统时，要保证压测时间、输入输出长度、并发数和统计口径一致。</p>
+<span class="heading-anchor" id="三、资源指标"></span><h3 id="_4_5">三、资源指标</h3>
+<p>包括：</p>
+<ul>
+<li>CPU利用率</li>
+<li>GPU/NPU利用率</li>
+<li>显存/内存占用</li>
+<li>显存带宽</li>
+<li>batch大小和队列长度</li>
+</ul>
+<span class="heading-anchor" id="四、成本指标"></span><h3 id="_5_3">四、成本指标</h3>
+<p>工程中还会关注：</p>
+<ul>
+<li>单请求成本</li>
+<li>每千token成本</li>
+<li>单卡吞吐</li>
+<li>单机承载能力</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1728">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k13fb9cc3e7cd"></a></p>
+<span class="heading-anchor" id="评测模型性能好坏的指标?有没有什么量化指标?怎么评估输入和输出的?"></span><h2 id="_1_24">评测模型性能好坏的指标?有没有什么量化指标?怎么评估输入和输出的?</h2>
+<p><a id="batch3-p2-q7"></a></p>
+<p><strong>相关解释：</strong> <a href="n-904330a6a1c5.html#k368923a16174">复杂查询 / 多意图查询如何做准确率评估？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L216">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka0bb8541b624"></a></p>
+<span class="heading-anchor" id="请简要介绍一下vLLM、SGLang、TensorRT-LLM三个大模型推理框架？"></span><h2 id="vllmsglangtensorrt-llm">请简要介绍一下vLLM、SGLang、TensorRT-LLM三个大模型推理框架？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<span class="heading-anchor" id="一、vLLM"></span><h3 id="vllm">一、vLLM</h3>
+<ul>
+<li><strong>PagedAttention</strong>：将KV Cache分页管理，类似操作系统的虚拟内存，减少预留浪费和碎片化，提升显存利用率</li>
+<li><strong>Continuous Batching</strong>：请求到达和完成时动态加入/移出批次，无需等待整批完成</li>
+<li><strong>高吞吐</strong>：在合适的硬件、模型和负载条件下，吞吐量通常明显高于原生HuggingFace推理</li>
+<li><strong>Prefix Caching</strong>：自动复用相同Prompt前缀的KV Cache</li>
+<li><strong>生态支持广</strong>：覆盖Llama、Mistral、Qwen、DeepSeek等常见开源模型，具体兼容性仍需以版本和模型实现为准</li>
+<li><strong>多GPU支持</strong>：内置张量并行和流水线并行</li>
+</ul>
+<span class="heading-anchor" id="二、SGLang"></span><h3 id="sglang">二、SGLang</h3>
+<ul>
+<li><strong>RadixAttention</strong>：基于Radix Tree（基数树）的KV Cache前缀复用，自动匹配共享前缀；其底层同样采用分页KV Cache（PagedAttention-style）管理，差异主要在前缀复用层。与vLLM的Block哈希式Prefix Caching相比匹配粒度更细，更适合有大量共享Prompt的场景（如多轮对话、少样本提示）</li>
+<li><strong>前端DSL</strong>：提供gen、select、fork等高级编程语法，简化复杂调用链的编写</li>
+<li><strong>约束解码</strong>：支持JSON Schema、正则表达式等约束生成，保证输出格式符合要求</li>
+<li><strong>结构化输出</strong>：原生支持Agent调用链、工具调用等复杂生成逻辑</li>
+</ul>
+<span class="heading-anchor" id="三、TensorRT-LLM"></span><h3 id="tensorrt-llm">三、TensorRT-LLM</h3>
+<ul>
+<li><strong>In-Flight Batching</strong>：类似Continuous Batching，支持动态批处理</li>
+<li><strong>极致优化</strong>：与TensorRT生态深度集成，kernel融合、FP8量化、KV Cache压缩等极致优化</li>
+<li><strong>最低延迟</strong>：TTFT和TPOT均能做到极低水平</li>
+<li><strong>Triton集成</strong>：可与Triton Inference Server深度集成，支持多模型服务化管理</li>
+<li><strong>C++ Executor</strong>：提供 C++ 语言运行时接口，进一步降低 Python 解释器开销，适合对延迟敏感的生产部署</li>
+</ul>
+<span class="heading-anchor" id="六、框架对比总结表"></span><h3 id="_1_25">六、框架对比总结表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>vLLM</th>
+<th>SGLang</th>
+<th>TensorRT-LLM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>吞吐量</td>
+<td>⭐⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐⭐</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐⭐</td>
+</tr>
+<tr>
+<td>易用性</td>
+<td>⭐⭐⭐</td>
+<td>⭐⭐⭐</td>
+<td>⭐⭐</td>
+</tr>
+<tr>
+<td>量化支持</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐</td>
+<td>⭐⭐⭐⭐⭐</td>
+</tr>
+<tr>
+<td>GPU利用率</td>
+<td>⭐⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐⭐</td>
+</tr>
+<tr>
+<td>前缀复用</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+</tr>
+<tr>
+<td>生态/模型支持</td>
+<td>⭐⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+<td>⭐⭐⭐⭐</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L244">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3ff53850f38e"></a></p>
+<span class="heading-anchor" id="调整 Socket 数量"></span><h2 id="socket">调整 Socket 数量</h2>
+<p>增加 Socket 提升吞吐量（需更多内存）：</p>
+<pre><code class="language-python">dist.init_process_group(
+    backend="gloo",
+    init_method="tcp://...",
+    # 每个进程使用 2 个 Socket
+    rdzv_endpoint="...?socket_num=2"  
+)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1450">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kac0e65452ca8"></a></p>
+<span class="heading-anchor" id="轻量级模型部署经验分享"></span><h2 id="_1_27">轻量级模型部署经验分享</h2>
+<p>经典的轻量级模型包括mobilenet系列、MobileDets系列、shufflenet系列、cspnet系列、vovnet系列以及repvgg系列等，以下是一些部署经验：</p>
+<ol>
+<li>低算力设备：比如手机移动端 cpu 硬件，可以考虑使用mobilenetv1(深度可分离卷机架构低 FLOPs)、低 FLOPs 和 低MAC的shuffletnetv2（channel_shuffle 算子在推理框架上可能不支持）。</li>
+<li>专用 asic 硬件设备：比如npu 芯片（地平线 x3/x4 等、海思 3519、安霸cv22 等），目标检测问题可以考虑使用 cspnet 网络(减少重复梯度信息)、repvgg（直连架构部署简单，网络并行度高有利于发挥 GPU 算力，但量化后有精度下降的风险） 。</li>
+<li>英伟达 gpu 硬件：比如 t4 芯片，可以考虑使用 repvgg 网络（类 vgg 卷积架构高并行度能带来高速度、单路架构省显存/内存）。</li>
+<li>MobileNet block (深度可分离卷积 block, depthwise separable convolution block)在有加速功能的硬件（比如 NPU 芯片）上比较没有效率。除非芯片厂商做了定制优化来提高深度可分离卷积 block 的计算效率，比如地平线机器人 x3 芯片对深度可分离卷积 block 做了定制优化。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L572">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7e714097eec7"></a></p>
+<span class="heading-anchor" id="运行机制："></span><h2 id="_1_28">运行机制：</h2>
+<p>模型初始化时，根据用户设置的 max_total_token_num 预先分配 KV 缓存，并创建 Token Table 来记录输入 token 的实际存储位置。</p>
+<p>当处理新请求时，系统首先检查预分配的Token缓存中是否有可用的连续空间用于存储键值（KV）缓存。 TokenAttention 倾向于为请求分配连续的图形内存空间，以最大限度地减少推理过程中的内存访问。仅当连续空间不足时，才会为请求分配非连续显存。由于内存管理是逐个令牌进行的，因此 TokenAttention 几乎实现了零浪费，与 vllm 相比，产生了更高的吞吐量。</p>
+<p>我们使用 OpenAI Triton 实现了一个高效的 TokenAttention 运算符。当提供查询向量时，该算子可以根据Token Table高效地检索相应的KV缓存并进行注意力计算。</p>
+<p>请求完成后，可以通过删除令牌表上的记录来快速释放相应的显存，从而为调度新的请求让路。由于 TokenAttention 在模型初始化时预先分配了所有 KV 缓存空间，因此可以为已完成的请求高效释放内存，并在动态调度时合并不同批次的请求，从而有效最大化 GPU 利用率。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L862">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k70525bb37222"></a></p>
+<span class="heading-anchor" id="这些演进如何提升模型在高分辨率、文档 OCR、复杂推理等任务上的能力？"></span><h2 id="ocr">这些演进如何提升模型在高分辨率、文档 OCR、复杂推理等任务上的能力？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<p>LLaVA 系列的演进可以归纳为三个方向，即提高输入分辨率、补充 OCR 与区域级数据、增强推理数据与语言基座，分别对应高分辨率、OCR 与文档、复杂推理三类任务：</p>
+<ol>
+<li>
+<p><strong>提高输入分辨率。</strong> LLaVA-1.0 的 224×224 输入只有 256 个视觉 token[21]。密集文本的文档图压缩到这一规模后，单个字符只占几个像素，难以辨认。LLaVA-NeXT 的 AnyRes 把高分辨率图切成多个块分别用 CLIP 编码，有效分辨率成倍提升，文字、表格、图表的细节得以保留。OCR、DocVQA、ChartQA 等任务的提升主要来自这一改动，输入分辨率不足时，更强的推理能力也无法弥补缺失的细节。</p>
+</li>
+<li>
+<p><strong>补充 OCR 与区域级数据。</strong> 提高分辨率之后，还需要让模型学会识读文字。LLaVA-1.5 和 LLaVA-NeXT 在指令数据里加入 OCR 文本、文档问答、区域级标注（目标框加文本）数据，教模型把视觉细节和文字符号对应起来。高分辨率输入与 OCR 数据配合，文档理解才具备可用性。</p>
+</li>
+<li>
+<p><strong>增强推理数据与语言基座。</strong> 一方面持续扩充、提升复杂推理类指令数据，另一方面换用推理更强的 LLM，多模态推理能力随之提升。LLaVA-1.5 论文里把 LLM 从 7B 换到 13B，MM-Vet 提升最明显[22]，说明认知能力的上限很大程度由 LLM 决定。</p>
+</li>
+</ol>
+<p>三个方向互相配合。高分辨率让模型获得细粒度信息，OCR 数据让模型把这些信息对应到语言，强基座加推理数据让模型利用这些信息推理，任何一环缺失都会成为短板，LLaVA 的大版本升级因此同时在分辨率、数据和基座上推进。</p>
+<p>落地时，要构建一个能读财报、看流程图、做多步推理的视觉助手，可沿这三个方向推进：提高分辨率、补充 OCR 与推理数据、选用更强的基座。提高分辨率有两种做法，LLaVA-NeXT 和 InternVL 系列用动态分块[28,29]，Qwen3-VL 用原生动态分辨率[33]，分别见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/2_AI多模态核心组件高频考点.md#q5-2-4-2">5.2.4.2</a> 和 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/2_AI多模态核心组件高频考点.md#q5-2-4-3">5.2.4.3</a>。</p>
+<blockquote>
+<p><strong>面试速答</strong>：提高输入分辨率使模型获得细粒度信息，AnyRes 分块后文字和图表细节得以保留；OCR、文档问答和区域级数据使模型把视觉细节对应到文字；复杂推理数据和更强的基座 LLM 提升推理能力。三者需要同时推进，LLaVA 每次升级都在分辨率、数据和基座上同步改进。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/3_AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%9F%B3%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E6%8A%80%E6%9C%AF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L714">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4c82f990eba8"></a></p>
+<span class="heading-anchor" id="通信模式"></span><h2 id="_1_30">通信模式</h2>
+<ul>
+<li><strong>集合通信（Collective Communication）</strong>：</li>
+<li><code>all_reduce</code>：所有进程的 Tensor 求和后广播回每个进程（用于梯度同步）。</li>
+<li><code>broadcast</code>：将根进程的 Tensor 广播到所有进程（用于初始化参数）。</li>
+<li><code>all_gather</code>：所有进程的 Tensor 拼接后返回给每个进程。</li>
+<li><code>barrier</code>：进程同步等待。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1394">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k535608f80f26"></a></p>
+<span class="heading-anchor" id="避免小 Tensor 频繁通信"></span><h2 id="tensor">避免小 Tensor 频繁通信</h2>
+<p>合并小 Tensor 减少通信次数：</p>
+<pre><code class="language-python"># 不推荐：多次 all_reduce
+for param in model.parameters():
+    dist.all_reduce(param.grad)
+
+# 推荐：梯度拼接后单次通信
+grad_buffer = torch.cat([p.grad.view(-1) for p in model.parameters()])
+dist.all_reduce(grad_buffer)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1461">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k08536cd456d5"></a></p>
+<span class="heading-anchor" id="部署Qwen为例"></span><h2 id="qwen">部署Qwen为例</h2>
+<pre><code>from vllm import LLM, SamplingParams
+
+prompts = [
+    "Hello, my name is",
+    "The president of the United States is",
+    "The capital of France is",
+    "The future of AI is",
+]
+sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+
+llm = LLM(model="qwen/Qwen-7B-Chat", revision="v1.1.8", trust_remote_code=True)
+
+outputs = llm.generate(prompts, sampling_params)
+
+for output in outputs:
+    prompt = output.prompt
+    generated_text = output.outputs[0].text
+    print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L613">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k148f0b01bc01"></a></p>
+<span class="heading-anchor" id="部署在客户本地的模型报错了怎么排查？"></span><h2 id="_1_33">部署在客户本地的模型报错了怎么排查？</h2>
+<p><strong>回答：</strong></p>
+<p>客户本地部署的问题要先区分是模型本身错误、环境问题、资源问题、网络问题，还是业务数据问题。不要一上来重启服务。</p>
+<p>第一层看部署环境：GPU 型号、驱动版本、CUDA/cuDNN、Python 依赖、模型推理框架、容器镜像、模型权重 checksum 是否一致。很多问题来自客户环境和研发环境不一致。第二层看资源：显存是否 OOM、KV cache 是否过大、并发是否超过限额、磁盘是否满、CPU/内存是否瓶颈。第三层看服务：模型服务是否正常启动，健康检查是否通过，端口是否监听，日志里是加载失败、推理失败还是请求超时。</p>
+<p>第四层看请求链路：客户系统到模型服务之间是否有代理、鉴权、网关、证书、DNS、跨域或防火墙问题。可以用 <code>curl</code> 在本机和客户服务机分别打接口，用 trace id 串起调用。第五层看输入数据：prompt 是否过长、图片/文件格式是否不合法、工具参数是否缺字段、RAG 索引是否为空、权限是否不允许访问某些数据。</p>
+<p>排查时要建立最小可复现 case：用固定输入直接调用模型服务，如果可用，再逐层接回业务系统。客户现场最忌讳“猜”，要用日志、指标和复现实验把锅从模型、环境、网络、数据、业务代码中拆开。</p>
+<p><a id="bytedance-ai-fde-20260712-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L817">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke756c76e953c"></a></p>
+<span class="heading-anchor" id="部署步骤"></span><h2 id="_1_34">部署步骤</h2>
+<ol>
+<li><strong>安装 Ollama</strong> </li>
+</ol>
+<pre><code class="language-bash">   # Linux/macOS 一键安装
+   curl -fsSL https://ollama.com/install.sh | sh
+   # Windows 通过 Docker 部署
+   docker run -d -p 11434:11434 --name ollama ollama/ollama
+</code></pre>
+<ol>
+<li><strong>下载 DeepSeek-R1 模型</strong> </li>
+</ol>
+<pre><code class="language-bash">   ollama pull deepseek-r1:7b  # 自动下载模型权重
+</code></pre>
+<ol>
+<li><strong>启动 Open WebUI</strong>（Docker 方式）  </li>
+</ol>
+<pre><code class="language-bash">   docker run -d -p 3000:8080 --gpus all -v open-webui:/app/backend/data --name open-webui ghcr.io/open-webui/open-webui:main
+</code></pre>
+<ol>
+<li><strong>配置与使用</strong><br/>
+   - 访问 <code>http://localhost:3000</code>，注册管理员账号。<br/>
+   - 在 Open WebUI 中自动识别本地 DeepSeek 模型，支持对话、文件上传、知识库管理。  </li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1396">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="keecd8da38d33"></a></p>
+<span class="heading-anchor" id="部署过什么模型、参数量多大"></span><h2 id="_1_35">部署过什么模型、参数量多大</h2>
+<p><strong>回答：</strong></p>
+<p>据实说明自己部署过的具体模型及版本、参数规模、结构、精度和服务方式。稠密模型要给总参数量；MoE 还应区分总参数与每 token 激活参数，不能用激活参数估算全部常驻权重。</p>
+<p>可用下面的口述框架：“我实际部署的是【模型版本】，总参数【规模】，采用【BF16/FP16/具体量化格式】，在【卡型、卡数】上使用【推理引擎及版本】。主要输入长度【范围】，并发【范围】，工作包括【自己的职责】，以【TTFT、TPOT、吞吐与质量】验收。”未独立部署过则说明参与或实验范围。</p>
+<p>显存预算至少包含权重、KV cache、激活/临时 workspace 和框架预留。仅作数量级估算，7B 稠密模型的 16 位权重大约是 $<code>7\times10^9\times2=14\times10^9</code>$ 字节，约 13.0 GiB；这不是完整服务的显存占用。量化还需计入 scale、zero point、打包和对齐开销。</p>
+<p>对常见标准注意力，未考虑并行切分与特殊压缩时，KV cache 字节量近似为：</p>
+<pre><code class="language-math">M_{KV}=2L\left(\sum_{i=1}^{B}S_i\right)H_{KV}d_hb
+</code></pre>
+<p>其中 2 对应 K/V，$<code>L</code>$ 为层数，$<code>S_i</code>$ 为请求已缓存 token 数，$<code>H_{KV}</code>$ 为 KV 头数，$<code>d_h</code>$ 为头维度，$<code>b</code>$ 为每元素字节数。GQA、MLA、滑窗和混合架构要按真实状态布局重算。部署经验应能落到这个预算和实际测量的差异。</p>
+<p><a id="kuaishou-ai-infra-20260928-0511386c-q03"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L362">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4ec26b5e9f1d"></a></p>
+<span class="heading-anchor" id="重要概念"></span><h2 id="_1_36">重要概念</h2>
+<p>Ray中有两个重要的概念：任务(Task)和行动器(Actor)。Ray编程模型是指Ray框架基于任务和行动器这两个重要需求所向用户提供的一套API及其编程范式。下表展示了Ray提供的核心API。
+| 代码 | 说明 |
+|------|------|
+| futures = f.remote(args) | 远程地执行函数f。f.remote()以普通对象或future对象作为输入，返回一个或多个future对象，非阻塞执行。 |
+| objects = ray.get(futures) | 返回与一个或多个future对象相关联的真实值，阻塞执行 |
+| ready_futures = ray.wait(futures, k, timeout) | 当futures中有k个future完成时，或执行时间超过timeout时，返回futures中已经执行完的future |
+| actor = Class.remote(args) <br/>futures = actor.method.remote(args) | 将一个类实例化为一个远程的行动器，并返回它的一个句柄。然后调用这个行动器的method方法，并返回一个或多个future. 两个过程均为非阻塞的。 |</p>
+<p>任务是指在无状态的工作器中执行的远程函数。远程函数被调用时会立即返回一个future对象，而真正的返回值可以通过ray.get()的方式来获取。这样的编程模型既允许用户编写并行计算代码，同时又提醒用户要关注数据之间的依赖性。</p>
+<p>任务的编程范式如下：</p>
+<ol>
+<li>注册任务：在需要注册为任务的函数上加上@ray.remote装饰器</li>
+<li>提交任务：在调用具有@ray.remote装饰器的函数时，需要带上.remote()而不是直接调用</li>
+<li>非阻塞提交：无论任务的运行需要多少时间，在提交任务后都会立即返回一个ObjectRef对象</li>
+<li>按需阻塞获取结果：在你需要函数的返回值时，可以通过ray.get来获取</li>
+</ol>
+<p>任务是无状态的，任务所操作的对象都可以看作不可变对象(Immutable Objects)，或者任务调用可以看作一个无副作用的(Side-effect Free)表达式，任务的输出（返回值）仅与输入（实参）有关。</p>
+<p>这样设计的优点是能在函数执行出错时自动重新执行函数（因为不依赖于其他任务，可以在任意时候独立地执行），以提高容错性；缺点是限制了函数对全局变量或内存引用的访问。任务的设计使得Ray具备以下能力：</p>
+<p>细粒度负载均衡：利用任务级粒度的负载感知调度来进行细粒度的负载均衡
+输入数据本地化：每个任务可以在存有它所需要的数据的节点上调度
+较低的恢复开销：无需记录检查点或恢复到中间状态
+行动器用来表达有状态的计算任务。每个行动器都会暴露一些可供远程调用的方法，类似于任务中的远程函数，不同的是，使用f.remote顺序地提交若干个远程函数后，这些函数是并行执行的，但在同一个actor下使用actor.method.remote顺序地提交若干个远程方法后，这些方法将串行地执行。但是，不同actor之间的调用是可以并行的。</p>
+<p>行动器方法的调用可能会修改行动器的状态，而这一状态可能会影响后续方法的调用，因此同一行动器下的方法需要按照提交顺序串行地调用。</p>
+<p>行动器的编程范式如下：</p>
+<p>注册行动器：在需要注册为行动器的类上加上@ray.remote装饰器
+实例化行动器：相比于普通Python类的实例化，需要在类名后加上.remote
+提交方法调用：调用行动器的方法时，同样需要带上.remote()而不是直接调用
+非阻塞提交：无论方法的运行需要多少时间，在提交任务后都会立即返回一个ObjectRef对象（同一行动器实例下，方法会按照提交顺序串行地运行）
+按需阻塞获取结果：在需要方法运行的返回值时，可以通过ray.get来获取</p>
+<p>行动器的设计使得Ray具备更高效的细粒度更新能力。因为行动器是一种高内聚的设计，状态与可能改变状态的操作被设计在一个类中，使得这些操作不依赖于外界的状态，从而在更新状态时省去了许多序列化和反序列化的开销。一个例子是使用行动器来实现参数服务器，在这个应用中，参数是状态，基于状态的操作便是训练. 在传统的分布式训练框架，如PyTorch中，分布式训练的每个训练进程都维护了一份参数信息，并且都各自计算出一个梯度，进程之间需要交换梯度信息以计算出总梯度和更新后的参数，这就意味着梯度需要被序列化和反序列化以便在进程间传递。使用行动器的架构可以使整个系统中只维护一份参数信息，并且对于同一份参数的更新操作都是串行的。另外，提交参数更新的请求是非阻塞的，参数更新是GPU密集型的任务，因此在提交完后还可以并行地去做CPU密集型的任务，这也是Ray框架异构性的体现。、</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1832">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc7bd9ed627da"></a></p>
+<span class="heading-anchor" id="量化 scale 和 zero-point 如何计算？"></span><h2 id="scale-zero-point">量化 scale 和 zero-point 如何计算？</h2>
+<p>量化把浮点数 <span class="arithmatex">\(x\)</span> 映射到整数 <span class="arithmatex">\(q\)</span>。</p>
+<p>非对称均匀量化设浮点范围为：</p>
+<div class="arithmatex">\[
+[x_{\min},x_{\max}]
+\]</div>
+<p>整数范围为：</p>
+<div class="arithmatex">\[
+[q_{\min},q_{\max}]
+\]</div>
+<p>scale：</p>
+<div class="arithmatex">\[
+s=\frac{x_{\max}-x_{\min}}{q_{\max}-q_{\min}}
+\]</div>
+<p>zero-point：</p>
+<div class="arithmatex">\[
+z=q_{\min}-\text{round}\left(\frac{x_{\min}}{s}\right)
+\]</div>
+<p>量化：</p>
+<div class="arithmatex">\[
+q=\text{clip}\left(\text{round}\left(\frac{x}{s}\right)+z,q_{\min},q_{\max}\right)
+\]</div>
+<p>反量化：</p>
+<div class="arithmatex">\[
+\hat{x}=s(q-z)
+\]</div>
+<p>对称量化通常令 zero-point 为 0：</p>
+<div class="arithmatex">\[
+q=\text{round}\left(\frac{x}{s}\right)
+\]</div>
+<div class="arithmatex">\[
+\hat{x}=sq
+\]</div>
+<p><strong>误差来源：</strong></p>
+<div class="arithmatex">\[
+e=x-\hat{x}
+\]</div>
+<p>均匀量化中，未裁剪情况下误差通常被限制在半个量化间隔附近：</p>
+<div class="arithmatex">\[
+|e|\le \frac{s}{2}
+\]</div>
+<p><strong>LLM 量化要点：</strong></p>
+<ul>
+<li>per-channel 或 group-wise scale 通常比 per-tensor 更准。</li>
+<li>outlier channel 会显著影响 scale，导致大多数普通值量化精度下降。</li>
+<li>NF4 使用非均匀码本，更适合近似正态分布的权重。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/02_AIGC%E6%95%B0%E5%AD%A6%E5%85%AC%E5%BC%8F%E6%8E%A8%E5%AF%BC%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1252">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k32522266e7ff"></a></p>
+<span class="heading-anchor" id="量化、反量化、对称/非对称量化、NF4 的核心数学是什么？"></span><h2 id="nf4">量化、反量化、对称/非对称量化、NF4 的核心数学是什么？</h2>
+<p>量化把高精度浮点数映射为低比特整数或离散码本值。</p>
+<p>对称量化：</p>
+<div class="arithmatex">\[
+q=\text{round}\left(\frac{x}{s}\right)
+\]</div>
+<div class="arithmatex">\[
+\hat{x}=s q
+\]</div>
+<p>其中 <span class="arithmatex">\(s\)</span> 是 scale。</p>
+<p>非对称量化加入 zero point：</p>
+<div class="arithmatex">\[
+q=\text{round}\left(\frac{x}{s}+z\right)
+\]</div>
+<div class="arithmatex">\[
+\hat{x}=s(q-z)
+\]</div>
+<p>量化误差：</p>
+<div class="arithmatex">\[
+e=x-\hat{x}
+\]</div>
+<p><strong>常见粒度：</strong></p>
+<ul>
+<li>per-tensor：整个张量一个 scale，简单但误差大。</li>
+<li>per-channel：每个通道一个 scale，更精确。</li>
+<li>group-wise：按组量化，是 LLM 权重量化常见折中。</li>
+</ul>
+<p>NF4 是 QLoRA 中常用的 4-bit NormalFloat 格式，针对近似正态分布的权重设计非均匀量化码本，相比均匀 int4 更适合神经网络权重分布。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%95%B0%E5%AD%A6%26%E7%89%A9%E7%90%86%E6%9C%AC%E8%B4%A8%E5%8E%9F%E7%90%86%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3%E6%95%B0%E5%AD%A6%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1761">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k82d51eb253bb"></a></p>
+<span class="heading-anchor" id="量化了解吗，AWQ原理"></span><h2 id="awq">量化了解吗，AWQ原理</h2>
+<p><strong>回答：</strong></p>
+<p>量化把连续或高精度表示映射到有限离散值。需要区分权重与激活量化、对称与非对称、per-tensor/per-channel/group-wise、PTQ 与 QAT；bit 数相同，误差和执行性能也可能很不同。</p>
+<p>AWQ（Activation-aware Weight Quantization）是一种利用校准激活信息的低比特权重量化方法，常用于 W4A16 场景。关键观察是：某些输入通道上的激活对输出误差更敏感，保护相应权重通道的量化精度可以显著改善效果。它不是简单把最大的权重挑出来，也不必把所谓关键权重永久单独存成 FP16。</p>
+<p>若线性层按 $<code>Y=XW</code>$ 记，令 S 为输入通道上的正对角缩放矩阵，浮点条件下有：</p>
+<pre><code class="language-math">XW=(XS^{-1})(SW)
+</code></pre>
+<p>AWQ 用校准数据引导通道缩放及相关搜索，再量化缩放后的权重，近似输出为：</p>
+<pre><code class="language-math">\hat Y=(XS^{-1})\,\mathcal Q(SW)
+</code></pre>
+<p>这里 $<code>\mathcal Q</code>$ 表示量化再按实际格式解释的近似权重；采用 PyTorch 的转置权重存储时，需要相应调整轴。缩放在未量化时是等价变换，但量化具有非线性，改变尺度可以重新分配误差。工程上应尽可能把补偿融入相邻层或 kernel，避免额外开销。</p>
+<p>校准集应代表实际输入、长度和领域，评估困惑度及业务任务，不可只测量化前后权重误差。收益受 group size、bit 数、异常值、模型结构和 kernel 支持影响。AWQ 解决的是量化误差与可部署性问题；真正加速还需要匹配硬件和布局的低比特计算实现。</p>
+<p>为什么缩放有效，却不是越大越好？量化后的误差可写成：</p>
+<pre><code class="language-math">E=XW-\hat Y=(XS^{-1})\left(SW-\mathcal Q(SW)\right)
+</code></pre>
+<p>放大某个输入通道对应的权重，同时缩小激活，可以改变该通道量化扰动传到输出的幅度；但同一量化 group 共用尺度，一个通道过大也可能增大整个 group 的量化步长，损害其他通道。因而需要利用校准激活及输出误差选择缩放，而非简单把所有异常通道无限放大。</p>
+<p>“不做反向传播优化权重”也不等于“不比较重建误差”。公开实现会搜索缩放候选，并比较量化前后的模块输出误差；这与用梯度迭代重构权重是不同过程。若将尺度吸收到相邻归一化或线性层，还要核对分支与所有消费者是否获得一致补偿，不能跨非线性或残差连接随意移动缩放。</p>
+<p><a id="kuaishou-ai-infra-20260928-0511386c-q20"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_39">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L695">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3a5645643d43"></a></p>
+<span class="heading-anchor" id="量化发挥作用的原理是什么"></span><h2 id="_1_40">量化发挥作用的原理是什么</h2>
+<p><strong>回答：</strong></p>
+<p><a id="tencent-llm-collection-20260903-q116"></a></p>
+<p><strong>相关解释：</strong> <a href="n-a6fd9e8bc6c7.html#kb539896a42e0">了解哪些量化技术</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1486">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k361b44ba871f"></a></p>
+<span class="heading-anchor" id="量化如何把浮点数映射成低精度数值？"></span><h2 id="_1_41">量化如何把浮点数映射成低精度数值？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p><img alt="量化映射示意" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/quantization-mapping.png"/></p>
+<span class="heading-anchor" id="一、基本思想"></span><h3 id="_2_28">一、基本思想</h3>
+<p>神经网络中的权重和激活通常是浮点数，例如FP32或FP16。量化就是用更少的bit来表示这些数。</p>
+<p>例如：
+- FP32：每个数占32 bit
+- FP16/BF16：每个数占16 bit
+- INT8：每个数占8 bit
+- INT4：每个数占4 bit</p>
+<p>位宽越低，模型越小，内存访问越少，但数值表示能力也越弱，可能带来精度损失。</p>
+<span class="heading-anchor" id="二、量化映射过程"></span><h3 id="_3_8">二、量化映射过程</h3>
+<p>常见INT8量化可以理解为：把浮点数范围映射到整数范围。</p>
+<p>例如，某层权重的浮点范围是 <code>[-1.0, 1.0]</code>，可以映射到INT8的 <code>[-128, 127]</code>。推理时用整数进行存储和计算，必要时再反量化回浮点。</p>
+<p>量化中常见两个参数：</p>
+<ul>
+<li><strong>scale</strong>：缩放系数，表示整数和浮点数之间的比例</li>
+<li><strong>zero point</strong>：零点，用于表示浮点数0对应的整数值</li>
+</ul>
+<p>常见线性量化公式可以写成：</p>
+<pre><code class="language-text">q = round(x / scale) + zero_point
+x ≈ (q - zero_point) × scale
+</code></pre>
+<p>其中 <code>x</code> 是原始浮点数，<code>q</code> 是量化后的整数值。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1047">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k289fc9812465"></a></p>
+<span class="heading-anchor" id="静态分配（Static Partitioning Offloading）"></span><h2 id="static-partitioning-offloading">静态分配（Static Partitioning Offloading）</h2>
+<ul>
+<li><strong>方法</strong>：</li>
+<li>根据硬件配置，将模型权重按固定规则分配到 CPU 和 GPU。例如：<ul>
+<li>经常使用的权重存储在 GPU 中。</li>
+<li>不常用的权重（如首尾层或低频模块）存储在 CPU 或磁盘中。</li>
+</ul>
+</li>
+<li><strong>优点</strong>：</li>
+<li>减少频繁的数据传输，适合推理任务。</li>
+<li><strong>缺点</strong>：</li>
+<li>对训练不友好，因为训练阶段需要频繁访问所有权重。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_42">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1950">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka6a7a73f1571"></a></p>
+<span class="heading-anchor" id="静态批处理、动态批处理和连续批处理有什么区别？"></span><h2 id="_1_43">静态批处理、动态批处理和连续批处理有什么区别？</h2>
+<blockquote>
+<p>Batching的核心思想是把多个请求合并执行，以提高硬件利用率。静态批处理提前固定batch，动态批处理在服务端短暂等待并合并请求，连续批处理则主要用于大模型推理，在每个解码step动态加入新请求、移除完成请求，从而提高GPU利用率。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1501">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7c444a517664"></a></p>
+<span class="heading-anchor" id="静态批处理和动态批处理有什么区别？"></span><h2 id="_1_44">静态批处理和动态批处理有什么区别？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比维度</th>
+<th>静态批处理</th>
+<th>动态批处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>批次大小</td>
+<td>提前固定（如 batch=8/16）</td>
+<td>短时间窗口内动态合并</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>低</td>
+<td>中，需要调度器控制等待时间和最大 batch</td>
+</tr>
+<tr>
+<td>性能稳定性</td>
+<td>稳定，编译优化容易</td>
+<td>依赖请求到达模式和窗口策略</td>
+</tr>
+<tr>
+<td>流量适应性</td>
+<td>差，请求不足需等待凑 batch</td>
+<td>好，适应波动流量</td>
+</tr>
+<tr>
+<td>输入差异处理</td>
+<td>形状差异大时浪费计算</td>
+<td>需 padding、分桶或分组，否则补齐浪费影响吞吐</td>
+</tr>
+<tr>
+<td>延迟影响</td>
+<td>凑 batch 等待增加延迟</td>
+<td>过度等待会增加延迟，需在延迟和吞吐间权衡</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>离线推理、输入形状稳定</td>
+<td>在线服务、流量波动</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1505">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1377e3133ba5"></a></p>
+<span class="heading-anchor" id="题目五：DSpark推理加速框架的核心机制推导"></span><h2 id="dspark">题目五：DSpark推理加速框架的核心机制推导</h2>
+<p><strong>回答：</strong></p>
+<p>DSpark 这类方法可以按“更强的草稿器 + 接受率感知的验证调度”来理解。题目中给出的版本名和基准数字应以对应正式论文、代码和硬件配置为准；面试回答的重点是把机制和可计算的收益说清楚。</p>
+<p>传统自回归草稿器逐 token 生成，候选长度为 <span class="arithmatex">\(\gamma\)</span> 时草稿成本近似随 <span class="arithmatex">\(\gamma\)</span> 增长；完全并行的草稿器虽然一次预测多个位置，却缺少块内前缀依赖，后面位置的接受率容易下降。半自回归设计通常将两者折中：并行主干先产生各位置的候选表示，再由轻量顺序模块注入前缀依赖。顺序模块可以是只依赖前一位置的 Markov head，也可以通过循环状态累积更长前缀信息。</p>
+<p>对每个候选位置，草稿器不仅输出 token，还输出一个接受置信度 <span class="arithmatex">\(p_i\)</span>。它应表示在前面候选已经被目标模型接受的条件下，该位置继续被接受的概率，而不是未经校准的 softmax 最大值。可以用独立验证集做逐位置温度缩放或其他校准，使预测置信度与经验接受率一致。</p>
+<p>若一次最多验证 <span class="arithmatex">\(\gamma\)</span> 个 token，接受长度的近似期望为：</p>
+<div class="arithmatex">\[
+\mathbb{E}[L(\gamma)]\approx\sum_{j=1}^{\gamma}\prod_{i=1}^{j}p_i
+\]</div>
+<p>在并发服务中，验证长度还受目标模型 batch、KV Cache、SM 利用率和通信路径影响。因此调度器不是对每个请求独立选择一个固定 <span class="arithmatex">\(\gamma\)</span>，而是根据当前 batch 的置信度序列和实测吞吐曲线，近似求解：</p>
+<div class="arithmatex">\[
+\max_{\gamma_1,\ldots,\gamma_N}
+\frac{\sum_{r=1}^{N}\left(1+\mathbb{E}[L_r(\gamma_r)]\right)}
+{T_{verify}(\gamma_1,\ldots,\gamma_N)+T_{draft}+T_{overhead}}
+\]</div>
+<p>因此“置信度调度”真正优化的是单位时间确认 token 数，而不是盲目把候选块做长。结构化代码和数学文本往往具有更强的局部可预测性，接受率可能高于开放式对话，但这只是数据分布现象，不能当成所有任务的保证。</p>
+<p>要讲清正确性边界：只要最终由目标模型验证，并在随机采样场景使用正确的拒绝采样修正，草稿器可以是近似的，目标分布仍可保持；置信度调度只影响效率，不应改变目标模型的输出分布。工程上还要做接受长度、草稿开销、ITL、吞吐、P99 延迟、显存和不同并发度的联合评测。只有在这些指标上稳定胜出，才算真正的推理加速，而不是单用户生成速度的局部提升。</p>
+<p><a id="deepseek-llm-algo-20260726-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_45">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L265">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5e776df211f3"></a></p>
+<span class="heading-anchor" id="默认输出（直接执行 nvidia-smi）"></span><h2 id="nvidia-smi">默认输出（直接执行 nvidia-smi）</h2>
+<pre><code class="language-bash">+-----------------------------------------------------------------------------+
+| NVIDIA-SMI 535.161.07   Driver Version: 535.161.07   CUDA Version: 12.2     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|===============================+======================+======================|
+|   0  NVIDIA RTX 4090    On   | 00000000:01:00.0 Off |                  Off |
+|  0%   42C    P8    22W / 450W |      0MiB / 24576MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+</code></pre>
+<p><strong>关键字段说明：</strong>
+- <strong>GPU</strong>：显卡索引号（多卡系统关键标识）
+- <strong>Temp</strong>：GPU核心温度（警戒线通常为 <strong>90-95°C</strong>）
+- <strong>Perf</strong>：性能状态（<code>P0</code>=最高性能，<code>P12</code>=最低功耗）
+- <strong>Pwr:Usage/Cap</strong>：实时功耗/最大设计功耗
+- <strong>Memory-Usage</strong>：显存使用量/总量（<strong>MiB</strong>单位）
+- <strong>GPU-Util</strong>：GPU计算核心利用率（3D渲染或CUDA计算负载）
+- <strong>Compute M.</strong>：计算模式（<code>Default</code>/<code>Exclusive_Process</code>等）</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1658">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-5891a10c7310.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a><a class="page-next" href="n-a027b11d8166.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>模型应用与工程实践</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#t2">知识蒸馏中的温度系数为什么常配 \(T^2\) ？</a></li><li class="outline-level-2"><a href="#_1_2">知识蒸馏为什么比只学习真实标签更有效？</a></li><li class="outline-level-2"><a href="#svlm">知识蒸馏在sVLM中的作用及实现方式？</a></li><li class="outline-level-2"><a href="#_1_4">知识蒸馏有哪些常见方式？</a></li><li class="outline-level-2"><a href="#_1_5">知识蒸馏适合哪些场景？有哪些局限？</a></li><li class="outline-level-2"><a href="#offloading">磁盘缓存 Offloading</a></li><li class="outline-level-2"><a href="#tensorrt">示例(构建一个tensorrt镜像)</a></li><li class="outline-level-2"><a href="#_1_8">神经网络的显存占用分析</a></li><li class="outline-level-2"><a href="#_1_9">移动端/边缘端推理框架有哪些？部署限制与选型考量是什么？</a></li><li class="outline-level-2"><a href="#_1_10">端侧部署为什么是具身智能落地的关键？</a></li><li class="outline-level-2"><a href="#batchbatch">端侧静态多Batch和动态多Batch的区别</a></li><li class="outline-level-2"><a href="#_1_12">端序支持</a></li><li class="outline-level-2"><a href="#_1_13">简单介绍</a></li><li class="outline-level-2"><a href="#_1_14">结构化剪枝和非结构化剪枝有什么区别？</a></li><li class="outline-level-2"><a href="#_1_15">节点指定</a></li><li class="outline-level-2"><a href="#_1_16">视频生成推理加速有哪些工程路线？各自代价是什么？</a></li><li class="outline-level-2"><a href="#_1_17">视频生成线上推理为什么常常慢在不止一个地方？</a></li><li class="outline-level-2"><a href="#_1_18">解释上下文学习在多模态大模型中的原理，并举例说明其在数学推理任务中的应用?</a></li><li class="outline-level-2"><a href="#aiaiaiip">计算机中两个AI服务，一个AI服务调用另外一个AI服务时，该如何设置两者ip地址和端口号？</a></li><li class="outline-level-2"><a href="#_1_20">计算机中串行操作和并行操作有哪些区别？</a></li><li class="outline-level-2"><a href="#_1_21">计算瓶颈和访存瓶颈在推理中分别有哪些典型表现？</a></li><li class="outline-level-2"><a href="#_1_22">计算神经网络的参数量的基本原则</a></li><li class="outline-level-2"><a href="#_1_23">评估推理服务时为什么不能只看平均延迟？</a></li><li class="outline-level-2"><a href="#_1_24">评测模型性能好坏的指标?有没有什么量化指标?怎么评估输入和输出的?</a></li><li class="outline-level-2"><a href="#vllmsglangtensorrt-llm">请简要介绍一下vLLM、SGLang、TensorRT-LLM三个大模型推理框架？</a></li><li class="outline-level-2"><a href="#socket">调整 Socket 数量</a></li><li class="outline-level-2"><a href="#_1_27">轻量级模型部署经验分享</a></li><li class="outline-level-2"><a href="#_1_28">运行机制：</a></li><li class="outline-level-2"><a href="#ocr">这些演进如何提升模型在高分辨率、文档 OCR、复杂推理等任务上的能力？</a></li><li class="outline-level-2"><a href="#_1_30">通信模式</a></li><li class="outline-level-2"><a href="#tensor">避免小 Tensor 频繁通信</a></li><li class="outline-level-2"><a href="#qwen">部署Qwen为例</a></li><li class="outline-level-2"><a href="#_1_33">部署在客户本地的模型报错了怎么排查？</a></li><li class="outline-level-2"><a href="#_1_34">部署步骤</a></li><li class="outline-level-2"><a href="#_1_35">部署过什么模型、参数量多大</a></li><li class="outline-level-2"><a href="#_1_36">重要概念</a></li><li class="outline-level-2"><a href="#scale-zero-point">量化 scale 和 zero-point 如何计算？</a></li><li class="outline-level-2"><a href="#nf4">量化、反量化、对称/非对称量化、NF4 的核心数学是什么？</a></li><li class="outline-level-2"><a href="#awq">量化了解吗，AWQ原理</a></li><li class="outline-level-2"><a href="#_1_40">量化发挥作用的原理是什么</a></li><li class="outline-level-2"><a href="#_1_41">量化如何把浮点数映射成低精度数值？</a></li><li class="outline-level-2"><a href="#static-partitioning-offloading">静态分配（Static Partitioning Offloading）</a></li><li class="outline-level-2"><a href="#_1_43">静态批处理、动态批处理和连续批处理有什么区别？</a></li><li class="outline-level-2"><a href="#_1_44">静态批处理和动态批处理有什么区别？</a></li><li class="outline-level-2"><a href="#dspark">题目五：DSpark推理加速框架的核心机制推导</a></li><li class="outline-level-2"><a href="#nvidia-smi">默认输出（直接执行 nvidia-smi）</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

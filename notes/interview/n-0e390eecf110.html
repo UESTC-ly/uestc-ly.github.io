@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>并发与线程 · 李杨的学习笔记</title><meta name="description" content="AQS（ AbstractQueuedSynchronizer ，抽象队列同步器）是从 JDK1.5 开始提供的 Java 并发核心组件。">
+<meta property="og:type" content="website"><meta property="og:title" content="并发与线程 · 李杨的学习笔记"><meta property="og:description" content="AQS（ AbstractQueuedSynchronizer ，抽象队列同步器）是从 JDK1.5 开始提供的 Java 并发核心组件。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-0e390eecf110.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-0e390eecf110.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html" aria-current="page">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">04-Java与JVM</p><h1>并发与线程</h1><p class="article-question-meta">35 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9d8eee222e98">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/04-Java%E4%B8%8EJVM/%E5%B9%B6%E5%8F%91%E4%B8%8E%E7%BA%BF%E7%A8%8B.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#aqs">AQS 是什么？</a></li><li class="outline-level-2"><a href="#inheritablethreadlocal">InheritableThreadLocal 的值存储在哪里？</a></li><li class="outline-level-2"><a href="#inheritablethreadlocal_1">InheritableThreadLocal 的方案有什么问题？</a></li><li class="outline-level-2"><a href="#java">Java 中如何设计一个不会产生大量锁竞争的任务调度器？</a></li><li class="outline-level-2"><a href="#java-happens-before">Java 内存模型中的 happens-before 规则解决了什么问题？</a></li><li class="outline-level-2"><a href="#javacas">Java乐观锁机制，CAS思想？缺点？是否原子性？</a></li><li class="outline-level-2"><a href="#reentrantlock-synchronized">ReenTrantLock 使用方法？底层实现？和 synchronized 区别？</a></li><li class="outline-level-2"><a href="#reentrantlocksynchronized">ReenTrantLock和synchronized 的区别</a></li><li class="outline-level-2"><a href="#synchronized-jdk16-synchronized">synchronized 关键字：JDK1.6 之后的 synchronized 底层做了哪些优化？锁升级原理了解吗？</a></li><li class="outline-level-2"><a href="#synchronized-volatile">synchronized 和 volatile 有什么区别？</a></li><li class="outline-level-2"><a href="#synchronized">synchronized 底层原理了解吗？</a></li><li class="outline-level-2"><a href="#synchronized_3">synchronized 是什么？有什么用？</a></li><li class="outline-level-2"><a href="#synchronized_4">synchronized 的偏向锁为什么被废弃了？</a></li><li class="outline-level-2"><a href="#threadsleep-objectwait">Thread#sleep() 方法和 Object#wait() 方法对比</a></li><li class="outline-level-2"><a href="#threadlocal">ThreadLocal 内存泄露问题是怎么导致的？</a></li><li class="outline-level-2"><a href="#threadlocal_1">ThreadLocal 有什么用？</a></li><li class="outline-level-2"><a href="#volatile">volatile</a></li><li class="outline-level-2"><a href="#volatile-volatile">volatile 作用？底层实现？单例模式中 volatile 的作用？</a></li><li class="outline-level-2"><a href="#volatile_2">volatile 可以保证原子性么？</a></li><li class="outline-level-2"><a href="#threadlocal_2">为什么 ThreadLocal 在异步场景下会失效？</a></li><li class="outline-level-2"><a href="#wait-thread">为什么 wait() 方法不定义在 Thread 中？</a></li><li class="outline-level-2"><a href="#_1_22">什么是乐观锁？</a></li><li class="outline-level-2"><a href="#_1_23">什么是悲观锁？</a></li><li class="outline-level-2"><a href="#_1_24">公平锁和非公平锁有什么区别？</a></li><li class="outline-level-2"><a href="#_1_25">可中断锁和不可中断锁有什么区别？</a></li><li class="outline-level-2"><a href="#thread-run">可以直接调用 Thread 类的 run 方法吗？</a></li><li class="outline-level-2"><a href="#_1_27">同步刷盘和异步刷盘</a></li><li class="outline-level-2"><a href="#_1_28">同步复制和异步复制</a></li><li class="outline-level-2"><a href="#_1_29">同步控制</a></li><li class="outline-level-2"><a href="#synchronized_5">如何使用 synchronized？</a></li><li class="outline-level-2"><a href="#threadlocal_3">如何完成 ThreadLocal 值的传递？</a></li><li class="outline-level-2"><a href="#_1_32">如何实现乐观锁？</a></li><li class="outline-level-2"><a href="#synchronized_6">构造方法可以用 synchronized 修饰么？</a></li><li class="outline-level-2"><a href="#volatile-gpu-util">英伟达显卡中Volatile-GPU-Util代表什么含义？</a></li><li class="outline-level-2"><a href="#_1_35">读锁为什么不能升级为写锁？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k1b2813f79b8a"></a></p>
+<span class="heading-anchor" id="AQS 是什么？"></span><h2 id="aqs">AQS 是什么？</h2>
+<p>AQS（<code>AbstractQueuedSynchronizer</code>，抽象队列同步器）是从 JDK1.5 开始提供的 Java 并发核心组件。</p>
+<p>AQS 解决了开发者在实现同步器时的复杂性问题。它提供了一个通用框架，用于实现各种同步器，例如 <strong>可重入锁</strong>（<code>ReentrantLock</code>）、<strong>信号量</strong>（<code>Semaphore</code>）和 <strong>倒计时器</strong>（<code>CountDownLatch</code>）。通过封装底层的线程同步机制，AQS 将复杂的线程管理逻辑隐藏起来，使开发者只需专注于具体的同步逻辑。</p>
+<p>简单来说，AQS 是一个抽象类，为同步器提供了通用的 <strong>执行框架</strong>。它定义了 <strong>资源获取和释放的通用流程</strong>，而具体的资源获取逻辑则由具体同步器通过重写模板方法来实现。 因此，可以将 AQS 看作是同步器的 <strong>基础“底座”</strong>，而同步器则是基于 AQS 实现的 <strong>具体“应用”</strong>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L1211">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kdcb7bada4dc9"></a></p>
+<span class="heading-anchor" id="InheritableThreadLocal 的值存储在哪里？"></span><h2 id="inheritablethreadlocal">InheritableThreadLocal 的值存储在哪里？</h2>
+<p>在 <code>Thread</code> 类中添加了一个新的 <code>ThreadLocalMap</code>，命名为 <code>inheritableThreadLocals</code>，该变量用于存储需要跨线程传递的 <code>ThreadLocal</code> 值。如下：</p>
+<pre><code class="language-JAVA">class Thread implements Runnable {
+    ThreadLocal.ThreadLocalMap threadLocals = null;
+    ThreadLocal.ThreadLocalMap inheritableThreadLocals = null;
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L264">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k3e419400b7ab"></a></p>
+<span class="heading-anchor" id="InheritableThreadLocal 的方案有什么问题？"></span><h2 id="inheritablethreadlocal_1">InheritableThreadLocal 的方案有什么问题？</h2>
+<p>这个方案的缺陷在于它的<strong>一次性</strong>，也就是它只在线程创建时发生一次复制。然而，现在的开发中，我们会大量使用线程池，但线程池里的线程是被复用的。</p>
+<p>想象一下，任务 A 在线程 1 中执行，把它的 <code>ThreadLocal</code> 值传给了线程池里的子线程 2。任务 A 结束后，线程 1 去休息了。接着，任务 B 来了，它在线程 3 中执行，线程池又复用了刚才那个子线程 2 来执行任务 B 的一部分。此时，子线程 2 的 <code>ThreadLocal</code> 里还残留着任务 A 传给它的脏数据，而任务 B（在线程 3 里）的上下文却完全没有传递过来。这就导致了数据污染和上下文丢失。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L291">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k8c8627821a64"></a></p>
+<span class="heading-anchor" id="Java 中如何设计一个不会产生大量锁竞争的任务调度器？"></span><h2 id="java">Java 中如何设计一个不会产生大量锁竞争的任务调度器？</h2>
+<p><strong>回答：</strong></p>
+<p>先明确约束：任务是否要求全局顺序、同一租户顺序、优先级、公平性和至少一次执行。锁竞争常常源于大量线程同时修改同一个队列或状态表，优化重点是减少共享写入，以及缩短必须串行的临界区。</p>
+<p>可以采用“接入与准入控制 → 分片队列 → 执行器 → 结果持久化”的架构。按 <code>tenant_id</code> 或业务键稳定分片，让同一键进入同一队列；生产者只提交任务，消费者批量取出任务，耗时计算和网络调用放在锁外。分片只能保持分片内顺序，不能同时免费获得全局严格优先级。单一热点租户仍可能成为瓶颈，需要租户配额和公平调度。</p>
+<p>CPU 密集型任务使用受限的计算并行度；阻塞 IO 任务可以用独立线程池或适合该 JDK 的虚拟线程，但数据库连接、外部接口和内存仍要通过信号量或并发上限保护。工作窃取适合可拆分计算，不宜把大量不可控阻塞 IO 直接塞进公共 ForkJoinPool。</p>
+<p>队列必须有容量与超时约束。在稳定系统中，Little 定律给出：</p>
+<div class="arithmatex">\[
+L=\lambda W
+\]</div>
+<p>其中 <span class="arithmatex">\(L\)</span> 是平均在途任务数，<span class="arithmatex">\(\lambda\)</span> 是平均到达率，<span class="arithmatex">\(W\)</span> 是平均逗留时间。这是容量估算起点，突发流量仍需压测与余量。<code>CallerRunsPolicy</code> 能形成背压，但会占用提交线程，若提交线程是事件循环或承担低延迟请求，就可能放大故障，不能直接套用。</p>
+<p>对于不能丢失的任务，采用持久化任务表或消息队列，配合领取租约、幂等键、重试队列和死信处理；内存线程池无法保证进程崩溃后的可靠执行。最后用锁等待、队列长度、排队 p95/p99、吞吐、失败率及租户公平性验证设计。<strong>更少的锁只是手段，稳定完成任务才是目标。</strong></p>
+<p><a id="baidu-agent-20260922-r1-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L783">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9cd23af2bbe1"></a></p>
+<span class="heading-anchor" id="Java 内存模型中的 happens-before 规则解决了什么问题？"></span><h2 id="java-happens-before">Java 内存模型中的 happens-before 规则解决了什么问题？</h2>
+<p><strong>回答：</strong></p>
+<p>happens-before 是 Java 内存模型定义的可见性与顺序保证关系。若操作 A happens-before 操作 B，A 的相关效果必须按规范对 B 可见；编译器和处理器仍可重排，只要不破坏这些可观察保证。它不是墙上时钟意义上的“先执行”，也不自动把一组操作变成原子事务。</p>
+<p>关键规则包括线程内程序顺序、同一监视器的解锁与后续加锁、同一 <code>volatile</code> 变量的写与后续读、线程 <code>start()</code> 与被启动线程的操作，以及线程中的操作与其他线程成功 <code>join()</code> 返回之间的关系。关系具有传递性，因此一次正确同步可以安全发布此前写入的普通字段。</p>
+<pre><code class="language-java">class Holder {
+    int value;
+    volatile boolean ready;
+}
+
+// Thread A
+holder.value = 42;
+holder.ready = true;
+
+// Thread B
+if (holder.ready) {
+    System.out.println(holder.value);
+}
+</code></pre>
+<p>在 <code>holder</code> 本身已安全共享、<code>ready</code> 从初始 <code>false</code> 被 A 一次性写为 <code>true</code>、且 <code>value</code> 没有其他竞争写入的条件下，B 观察到 <code>ready == true</code> 时应看到 <code>value == 42</code>。链路是普通字段写入 → volatile 写 → volatile 读 → 普通字段读取。</p>
+<p>但 <code>volatile int count</code> 上的 <code>count++</code> 仍包含读取、加一、写回，不具备整体原子性，需要原子类或锁。<code>Thread.sleep()</code> 不建立线程间 happens-before；“等一会儿应该就能看到”没有规范保证。多个字段的联合不变量也不能靠分别声明 <code>volatile</code> 自动保持。</p>
+<p><a id="baidu-agent-20260922-r1-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L804">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf8830cacc23e"></a></p>
+<span class="heading-anchor" id="Java乐观锁机制，CAS思想？缺点？是否原子性？"></span><h2 id="javacas">Java乐观锁机制，CAS思想？缺点？是否原子性？</h2>
+<span class="heading-anchor" id="Java乐观锁机制"></span><h3 id="java_1"><code>Java</code>乐观锁机制</h3>
+<p>乐观锁体现的是悲观锁的反面。它是一种积极的思想，它总是认为数据是不会被修改的，所以是不会对数据上锁的。但是乐观锁在更新的时候会去判断数据是否被更新过。乐观锁的实现方案一般有两种（版本号机制和 <code>CAS</code>）。乐观锁适用于读多写少的场景，这样可以提高系统的并发量。在 <code>Java</code> 中 <code>java.util.concurrent.atomic</code>下的原子变量类就是使用了乐观锁的一种实现方式 <code>CAS</code> 实现的。</p>
+<p>乐观锁，大多是基于数据版本 (<code>Version</code>)记录机制实现。即为数据增加一个版本标识，在基于数据库表的版本解决方案中，一般是通过为数据库表增加一个 <code>“version”</code> 字段来 实现。 读取出数据时，将此版本号一同读出，之后更新时，对此版本号加一。此时，将提 交数据的版本数据与数据库表对应记录的当前版本信息进行比对，如果提交的数据 版本号大于数据库表当前版本号，则予以更新，否则认为是过期数据。</p>
+<span class="heading-anchor" id="CAS思想"></span><h3 id="cas"><code>CAS</code>思想</h3>
+<p><code>CAS</code> 就是 <code>compare and swap</code>（比较交换），是一种很出名的无锁的算法，就是可以不使用锁机制实现线程间的同步。使用CAS线程是不会被阻塞的，所以又称为非阻塞同步。<code>CAS</code> 算法涉及到三个操作：需要读写内存值 <code>V</code>； 进行比较的值 <code>A</code>； 准备写入的值 <code>B</code>。当且仅当 <code>V</code> 的值等于 <code>A</code> 的值等于 <code>V</code> 的值的时候，才用 <code>B</code> 的值去更新 <code>V</code> 的值，否则不会执行任何操作（比较和替换是一个原子操作 <code>A</code> 和 <code>V</code> 比较，<code>V</code> 和 <code>B</code> 替换），一般情况下是一个自旋操作，即不断重试。缺点：高并发的情况下，很容易发生并发冲突，如果 <code>CAS</code> 一直失败，那么就会一直重试，浪费 <code>CPU</code> 资源。</p>
+<span class="heading-anchor" id="原子性"></span><h3 id="_1_6">原子性</h3>
+<p>功能限制 <code>CAS</code> 是能保证单个变量的操作是原子性的，在 <code>Java</code> 中要配合使用 <code>volatile</code> 关键字来保证线程的安全；当涉及到多个变量的时候 <code>CAS</code> 无能为力；除此之外 <code>CAS</code> 实现需要硬件层面的支持，在 <code>Java</code> 的普通用户中无法直接使用，只能借助 <code>atomic</code> 包下的原子类实现，灵活性受到了限制。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L92">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kad45ca743dbf"></a></p>
+<span class="heading-anchor" id="ReenTrantLock 使用方法？底层实现？和 synchronized 区别？"></span><h2 id="reentrantlock-synchronized">ReenTrantLock 使用方法？底层实现？和 synchronized 区别？</h2>
+<p>由于 <code>ReentrantLock</code> 是 <code>java.util.concurrent</code> 包下提供的一套互斥锁，相比 <code>Synchronized</code>，<code>ReentrantLock</code>类提供了一些高级功能，主要有以下三项：</p>
+<ul>
+<li>等待可中断，持有锁的线程长期不释放的时候，正在等待的线程可以选择放弃等待，这相当于 <code>Synchronized</code> 来说可以避免出现死锁的情况。通过 <code>lock.lockInterruptibly()</code>来实现这个机制</li>
+<li>公平锁，多个线程等待同一个锁时，必须按照申请锁的时间顺序获得锁，<code>Synchronized</code> 锁非公平锁，<code>ReentrantLock</code> 默认的构造函数是创建的非公平锁，可以通过参数 <code>true</code> 设为公平锁，但公平锁表现的性能不是很好</li>
+<li>锁绑定多个条件，一个 <code>ReentrantLock</code> 对象可以同时绑定对个对象。<code>ReenTrantLock</code> 提供了一个 <code>Condition</code>（条件）类，用来实现分组唤醒需要唤醒的线程们，而不是像 <code>synchronized</code> 要么随机唤醒一个线程要么唤醒全部线程</li>
+</ul>
+<span class="heading-anchor" id="使用方法"></span><h3 id="_1_7">使用方法</h3>
+<p>基于 <code>API</code> 层面的互斥锁，需要 <code>lock()</code> 和 <code>unlock()</code> 方法配合 <code>try/finally</code> 语句块来完成</p>
+<span class="heading-anchor" id="底层实现"></span><h3 id="_2_1">底层实现</h3>
+<p><code>ReenTrantLock</code> 的实现是一种自旋锁，通过循环调用 <code>CAS</code> 操作来实现加锁。它的性能比较好也是因为避免了使线程进入内核态的阻塞状态。想尽办法避免线程进入内核的阻塞状态是我们去分析和理解锁设计的关键钥匙</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L108">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke5580fc68666"></a></p>
+<span class="heading-anchor" id="ReenTrantLock和synchronized 的区别"></span><h2 id="reentrantlocksynchronized">ReenTrantLock和synchronized 的区别</h2>
+<p>1、<strong>底层实现</strong>上来说，<code>synchronized</code> 是 <code>JVM</code> 层面的锁，是 <code>Java</code> 关键字，通过 <code>monitor</code> 对象来完成（<code>monitorenter与monitorexit</code>），对象只有在同步块或同步方法中才能调用 <code>wait/notify</code> 方法；<code>ReentrantLock</code> 是从 <code>jdk1.5</code> 以来（<code>java.util.concurrent.locks.Lock</code>）提供的 <code>API</code> 层面的锁。<code>synchronized</code> 的实现涉及到锁的升级，具体为无锁、偏向锁、自旋锁、向OS申请重量级锁；<code>ReentrantLock</code> 实现则是通过利用 <code>CAS</code> （<code>CompareAndSwap</code>）自旋机制保证线程操作的原子性和 <code>volatile</code> 保证数据可见性以实现锁的功能</p>
+<p>2、**是否可手动释放：<code>**synchronized</code> 不需要用户去手动释放锁，<code>synchronized</code> 代码执行完后系统会自动让线程释放对锁的占用； <code>ReentrantLock</code> 则需要用户去手动释放锁，如果没有手动释放锁，就可能导致死锁现象。一般通过<code>lock()</code> 和 <code>unlock()</code> 方法配合 <code>try/finally</code> 语句块来完成，使用释放更加灵活</p>
+<p>3、<strong>是否可中断</strong> <code>synchronized</code> 是不可中断类型的锁，除非加锁的代码中出现异常或正常执行完成； <code>ReentrantLock</code> 则可以中断，可通过 <code>trylock(long timeout,TimeUnit unit)</code> 设置超时方法或者将 <code>lockInterruptibly()</code> 放到代码块中，调用 <code>interrupt</code> 方法进行中断。</p>
+<p>4、<strong>是否公平锁 </strong><code>synchronized</code> 为非公平锁 <code>ReentrantLock</code> 则即可以选公平锁也可以选非公平锁，通过构造方法<code>new ReentrantLock</code> 时传入 <code>boolean</code> 值进行选择，为空默认 <code>false</code> 非公平锁，<code>true</code> 为公平锁</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L124">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4a5ac9889865"></a></p>
+<span class="heading-anchor" id="synchronized 关键字：JDK1.6 之后的 synchronized 底层做了哪些优化？锁升级原理了解吗？"></span><h2 id="synchronized-jdk16-synchronized">synchronized 关键字：JDK1.6 之后的 synchronized 底层做了哪些优化？锁升级原理了解吗？</h2>
+<p>在 Java 6 之后， <code>synchronized</code> 引入了大量的优化如自旋锁、适应性自旋锁、锁消除、锁粗化、偏向锁、轻量级锁等技术来减少锁操作的开销，这些优化让 <code>synchronized</code> 锁的效率提升了很多（JDK18 中，偏向锁已经被彻底废弃，前面已经提到过了）。</p>
+<p>锁主要存在四种状态，依次是：无锁状态、偏向锁状态、轻量级锁状态、重量级锁状态，他们会随着竞争的激烈而逐渐升级。注意锁可以升级不可降级，这种策略是为了提高获得锁和释放锁的效率。</p>
+<p><code>synchronized</code> 锁升级是一个比较复杂的过程，面试也很少问到，如果你想要详细了解的话，可以看看这篇文章：<a href="https://www.cnblogs.com/star95/p/17542850.html">浅析 synchronized 锁升级的原理与实现</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L683">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf6ffb4121de4"></a></p>
+<span class="heading-anchor" id="synchronized 和 volatile 有什么区别？"></span><h2 id="synchronized-volatile">synchronized 和 volatile 有什么区别？</h2>
+<p><code>synchronized</code> 关键字和 <code>volatile</code> 关键字是两个互补的存在，而不是对立的存在！</p>
+<ul>
+<li><code>volatile</code> 关键字是线程同步的轻量级实现，所以 <code>volatile</code> 性能肯定比 <code>synchronized</code> 关键字要好。但是 <code>volatile</code> 关键字只能用于变量而 <code>synchronized</code> 关键字可以修饰方法以及代码块。</li>
+<li><code>volatile</code> 关键字能保证数据的可见性，但不能保证数据的原子性。<code>synchronized</code> 关键字两者都能保证。</li>
+<li><code>volatile</code> 关键字主要用于解决变量在多个线程之间的可见性，而 <code>synchronized</code> 关键字解决的是多个线程之间访问资源的同步性。</li>
+</ul>
+<span class="heading-anchor" id="volatile 与 synchronized 的性能对比"></span><h3 id="volatile-synchronized">volatile 与 synchronized 的性能对比</h3>
+<p>上面提到 <code>volatile</code> 是线程同步的轻量级实现，性能比 <code>synchronized</code> 要好。下面从底层原理的角度分析为什么 <code>volatile</code> 性能更好，以及在什么情况下应该选择哪个。</p>
+<p>周志明在《深入理解 Java 虚拟机》中指出：</p>
+<blockquote>
+<p>volatile 变量的读操作的性能消耗与普通变量几乎没有什么差别，但是写操作则可能会慢上一些，因为它需要在本地代码中插入许多内存屏障指令来保证处理器不发生乱序执行。不过即便如此，大多数场景下 volatile 的总开销仍然要比锁来得更低。</p>
+</blockquote>
+<p>二者性能差异的根本原因在于底层实现机制不同：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比维度</th>
+<th><code>volatile</code></th>
+<th><code>synchronized</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>实现层面</strong></td>
+<td>通过插入内存屏障指令实现，不涉及线程阻塞和上下文切换</td>
+<td>依赖操作系统的互斥锁（Mutex Lock），涉及用户态与内核态的切换</td>
+</tr>
+<tr>
+<td><strong>读操作开销</strong></td>
+<td>与普通变量几乎相同</td>
+<td>需要获取 monitor 锁，即使无竞争也有一定开销（偏向锁/轻量级锁 CAS）</td>
+</tr>
+<tr>
+<td><strong>写操作开销</strong></td>
+<td>需要插入 <code>StoreStore</code> + <code>StoreLoad</code> 内存屏障，有一定开销但不会导致线程阻塞</td>
+<td>需要获取和释放 monitor 锁，有竞争时会导致线程阻塞和上下文切换</td>
+</tr>
+<tr>
+<td><strong>竞争时的表现</strong></td>
+<td>不会导致线程阻塞，始终是非阻塞的</td>
+<td>线程竞争激烈时，会频繁发生阻塞和唤醒，上下文切换开销大</td>
+</tr>
+<tr>
+<td><strong>功能范围</strong></td>
+<td>只能修饰变量，只保证可见性和有序性</td>
+<td>可以修饰方法和代码块，同时保证可见性、有序性和原子性</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>选择建议：</strong></p>
+<ul>
+<li>如果只需要保证变量的可见性（如状态标志位、DCL 单例中的实例引用），优先使用 <code>volatile</code>，因为它的开销更小。</li>
+<li>如果需要保证复合操作的原子性（如 <code>i++</code>、先检查后执行等），则必须使用 <code>synchronized</code>、<code>Lock</code> 或原子类，<code>volatile</code> 无法胜任。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L715">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k08922bcfbe2f"></a></p>
+<span class="heading-anchor" id="synchronized 底层原理了解吗？"></span><h2 id="synchronized">synchronized 底层原理了解吗？</h2>
+<p>synchronized 关键字底层原理属于 JVM 层面的东西。</p>
+<span class="heading-anchor" id="synchronized 同步语句块的情况"></span><h3 id="synchronized_1">synchronized 同步语句块的情况</h3>
+<pre><code class="language-java">public class SynchronizedDemo {
+    public void method() {
+        synchronized (this) {
+            System.out.println("synchronized 代码块");
+        }
+    }
+}
+</code></pre>
+<p>通过 JDK 自带的 <code>javap</code> 命令查看 <code>SynchronizedDemo</code> 类的相关字节码信息：首先切换到类的对应目录执行 <code>javac SynchronizedDemo.java</code> 命令生成编译后的 .class 文件，然后执行 <code>javap -c -s -v -l SynchronizedDemo.class</code>。</p>
+<p><img alt="synchronized关键字原理" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/concurrent/synchronized-principle.png"/></p>
+<p>从上面我们可以看出：<strong><code>synchronized</code> 同步语句块的实现使用的是 <code>monitorenter</code> 和 <code>monitorexit</code> 指令，其中 <code>monitorenter</code> 指令指向同步代码块的开始位置，<code>monitorexit</code> 指令则指明同步代码块的结束位置。</strong></p>
+<p>上面的字节码中包含一个 <code>monitorenter</code> 指令以及两个 <code>monitorexit</code> 指令，这是为了保证锁在同步代码块代码正常执行以及出现异常的这两种情况下都能被正确释放。</p>
+<p>当执行 <code>monitorenter</code> 指令时，线程试图获取锁也就是获取 <strong>对象监视器 <code>monitor</code></strong> 的持有权。</p>
+<blockquote>
+<p>在 Java 虚拟机(HotSpot)中，Monitor 是基于 C++实现的，由<a href="https://github.com/openjdk-mirror/jdk7u-hotspot/blob/50bdefc3afe944ca74c3093e7448d6b889cd20d1/src/share/vm/runtime/objectMonitor.cpp">ObjectMonitor</a>实现的。每个对象中都内置了一个 <code>ObjectMonitor</code> 对象。</p>
+<p>另外，<code>wait/notify</code> 等方法也依赖于 <code>monitor</code> 对象，这就是为什么只有在同步的块或者方法中才能调用 <code>wait/notify</code> 等方法，否则会抛出 <code>java.lang.IllegalMonitorStateException</code> 的异常的原因。</p>
+</blockquote>
+<p>在执行 <code>monitorenter</code> 时，会尝试获取对象的锁，如果锁的计数器为 0 则表示锁可以被获取，获取后将锁计数器设为 1 也就是加 1。</p>
+<p><img alt="执行 monitorenter 获取锁" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/concurrent/synchronized-get-lock-code-block.png"/></p>
+<p>对象锁的拥有者线程才可以执行 <code>monitorexit</code> 指令来释放锁。在执行 <code>monitorexit</code> 指令后，将锁计数器设为 0，表明锁被释放，其他线程可以尝试获取锁。</p>
+<p><img alt="执行 monitorexit 释放锁" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/concurrent/synchronized-release-lock-block.png"/></p>
+<p>如果获取对象锁失败，那当前线程就要阻塞等待，直到锁被另外一个线程释放为止。</p>
+<span class="heading-anchor" id="synchronized 修饰方法的情况"></span><h3 id="synchronized_2">synchronized 修饰方法的情况</h3>
+<pre><code class="language-java">public class SynchronizedDemo2 {
+    public synchronized void method() {
+        System.out.println("synchronized 方法");
+    }
+}
+
+</code></pre>
+<p><img alt="synchronized关键字原理" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/synchronized%E5%85%B3%E9%94%AE%E5%AD%97%E5%8E%9F%E7%90%862.png"/></p>
+<p><code>synchronized</code> 修饰的方法并没有 <code>monitorenter</code> 指令和 <code>monitorexit</code> 指令，取而代之的是 <code>ACC_SYNCHRONIZED</code> 标识，该标识指明了该方法是一个同步方法。JVM 通过该 <code>ACC_SYNCHRONIZED</code> 访问标志来辨别一个方法是否声明为同步方法，从而执行相应的同步调用。</p>
+<p>如果是实例方法，JVM 会尝试获取实例对象的锁。如果是静态方法，JVM 会尝试获取当前 class 的锁。</p>
+<span class="heading-anchor" id="总结"></span><h3 id="_1_11">总结</h3>
+<p><code>synchronized</code> 同步语句块的实现使用的是 <code>monitorenter</code> 和 <code>monitorexit</code> 指令，其中 <code>monitorenter</code> 指令指向同步代码块的开始位置，<code>monitorexit</code> 指令则指明同步代码块的结束位置。</p>
+<p><code>synchronized</code> 修饰的方法并没有 <code>monitorenter</code> 指令和 <code>monitorexit</code> 指令，取而代之的是 <code>ACC_SYNCHRONIZED</code> 标识，该标识指明了该方法是一个同步方法。</p>
+<p><strong>不过，两者的本质都是对对象监视器 monitor 的获取。</strong></p>
+<p>相关推荐：<a href="https://tech.youzan.com/javasuo-yu-xian-cheng-de-na-xie-shi/">Java 锁与线程的那些事 - 有赞技术团队</a>。</p>
+<p>🧗🏻 进阶一下：学有余力的小伙伴可以抽时间详细研究一下对象监视器 <code>monitor</code>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L614">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k3a9471ae757a"></a></p>
+<span class="heading-anchor" id="synchronized 是什么？有什么用？"></span><h2 id="synchronized_3">synchronized 是什么？有什么用？</h2>
+<p><code>synchronized</code> 是 Java 中的一个关键字，翻译成中文是同步的意思，主要解决的是多个线程之间访问资源的同步性，可以保证被它修饰的方法或者代码块在任意时刻只能有一个线程执行。</p>
+<p>在 Java 早期版本中，<code>synchronized</code> 属于 <strong>重量级锁</strong>，效率低下。这是因为监视器锁（monitor）是依赖于底层的操作系统的 <code>Mutex Lock</code> 来实现的，Java 的线程是映射到操作系统的原生线程之上的。如果要挂起或者唤醒一个线程，都需要操作系统帮忙完成，而操作系统实现线程之间的切换时需要从用户态转换到内核态，这个状态之间的转换需要相对比较长的时间，时间成本相对较高。</p>
+<p>不过，在 Java 6 之后， <code>synchronized</code> 引入了大量的优化如自旋锁、适应性自旋锁、锁消除、锁粗化、偏向锁、轻量级锁等技术来减少锁操作的开销，这些优化让 <code>synchronized</code> 锁的效率提升了很多。因此， <code>synchronized</code> 还是可以在实际项目中使用的，像 JDK 源码、很多开源框架都大量使用了 <code>synchronized</code>。</p>
+<p>关于偏向锁多补充一点：由于偏向锁增加了 JVM 的复杂性，同时也并没有为所有应用都带来性能提升。因此，在 JDK15 中，偏向锁被默认关闭（仍然可以使用 <code>-XX:+UseBiasedLocking</code> 启用偏向锁），在 JDK18 中，偏向锁已经被彻底废弃（无法通过命令行打开）。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L547">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kc70f4f006197"></a></p>
+<span class="heading-anchor" id="synchronized 的偏向锁为什么被废弃了？"></span><h2 id="synchronized_4">synchronized 的偏向锁为什么被废弃了？</h2>
+<p>Open JDK 官方声明：<a href="https://openjdk.org/jeps/374">JEP 374: Deprecate and Disable Biased Locking</a></p>
+<p>在 JDK15 中，偏向锁被默认关闭（仍然可以使用 <code>-XX:+UseBiasedLocking</code> 启用偏向锁），在 JDK18 中，偏向锁已经被彻底废弃（无法通过命令行打开）。</p>
+<p>在官方声明中，主要原因有两个方面：</p>
+<ul>
+<li><strong>性能收益不明显：</strong></li>
+</ul>
+<p>偏向锁是 HotSpot 虚拟机的一项优化技术，可以提升单线程对同步代码块的访问性能。</p>
+<p>受益于偏向锁的应用程序通常使用了早期的 Java 集合 API，例如 HashTable、Vector，在这些集合类中通过 synchronized 来控制同步，这样在单线程频繁访问时，通过偏向锁会减少同步开销。</p>
+<p>随着 JDK 的发展，出现了 ConcurrentHashMap 高性能的集合类，在集合类内部进行了许多性能优化，此时偏向锁带来的性能收益就不明显了。</p>
+<p>偏向锁仅仅在单线程访问同步代码块的场景中可以获得性能收益。</p>
+<p>如果存在多线程竞争，就需要 <strong>撤销偏向锁</strong>，这个操作的性能开销是比较昂贵的。偏向锁的撤销需要等待进入到全局安全点（safe point），该状态下所有线程都是暂停的，此时去检查线程状态并进行偏向锁的撤销。</p>
+<ul>
+<li><strong>JVM 内部代码维护成本太高：</strong></li>
+</ul>
+<p>偏向锁将许多复杂代码引入到同步子系统，并且对其他的 HotSpot 组件也具有侵入性。这种复杂性为理解代码、系统重构带来了困难，因此， OpenJDK 官方希望禁用、废弃并删除偏向锁。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L691">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ked53dbc05096"></a></p>
+<span class="heading-anchor" id="Thread#sleep() 方法和 Object#wait() 方法对比"></span><h2 id="threadsleep-objectwait">Thread#sleep() 方法和 Object#wait() 方法对比</h2>
+<p><strong>共同点</strong>：两者都可以暂停线程的执行。</p>
+<p><strong>区别</strong>：</p>
+<ul>
+<li><strong><code>sleep()</code> 方法没有释放锁，而 <code>wait()</code> 方法释放了锁</strong>。</li>
+<li><code>wait()</code> 通常被用于线程间交互/通信，<code>sleep()</code> 通常被用于暂停执行。</li>
+<li><code>wait()</code> 方法被调用后，线程不会自动苏醒，需要别的线程调用同一个对象上的 <code>notify()</code> 或者 <code>notifyAll()</code> 方法。<code>sleep()</code> 方法执行完成后，线程会自动苏醒，或者也可以使用 <code>wait(long timeout)</code> 超时后线程会自动苏醒。</li>
+<li><code>sleep()</code> 是 <code>Thread</code> 类的静态本地方法，<code>wait()</code> 则是 <code>Object</code> 类的本地方法。为什么这样设计呢？下一个问题就会聊到。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L170">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k805f6bb0c4f2"></a></p>
+<span class="heading-anchor" id="ThreadLocal 内存泄露问题是怎么导致的？"></span><h2 id="threadlocal">ThreadLocal 内存泄露问题是怎么导致的？</h2>
+<p><code>ThreadLocal</code> 内存泄漏的根本原因在于其内部实现机制。</p>
+<p>通过上面的内容我们已经知道：每个线程维护一个名为 <code>ThreadLocalMap</code> 的 map。 当你使用 <code>ThreadLocal</code> 存储值时，实际上是将值存储在当前线程的 <code>ThreadLocalMap</code> 中，其中 <code>ThreadLocal</code> 实例本身作为 key，而你要存储的值作为 value。</p>
+<p><code>ThreadLocal</code> 的 <code>set()</code> 方法源码如下：</p>
+<pre><code class="language-java">public void set(T value) {
+    Thread t = Thread.currentThread(); // 获取当前线程
+    ThreadLocalMap map = getMap(t);   // 获取当前线程的 ThreadLocalMap
+    if (map != null) {
+        map.set(this, value);         // 设置值
+    } else {
+        createMap(t, value);          // 创建新的 ThreadLocalMap
+    }
+}
+</code></pre>
+<p><code>ThreadLocalMap</code> 的 <code>set()</code> 和 <code>createMap()</code> 方法中，并没有直接存储 <code>ThreadLocal</code> 对象本身，而是使用 <code>ThreadLocal</code> 的哈希值计算数组索引，最终存储于类型为 <code>static class Entry extends WeakReference&lt;ThreadLocal&lt;?&gt;&gt;</code> 的数组中。</p>
+<pre><code class="language-java">int i = key.threadLocalHashCode &amp; (len-1);
+</code></pre>
+<p><code>ThreadLocalMap</code> 的 <code>Entry</code> 定义如下：</p>
+<pre><code class="language-java">static class Entry extends WeakReference&lt;ThreadLocal&lt;?&gt;&gt; {
+    Object value;
+
+    Entry(ThreadLocal&lt;?&gt; k, Object v) {
+        super(k);
+        value = v;
+    }
+}
+</code></pre>
+<p><code>ThreadLocalMap</code> 的 <code>key</code> 和 <code>value</code> 引用机制：</p>
+<ul>
+<li><strong>key 是弱引用</strong>：<code>ThreadLocalMap</code> 中的 key 是 <code>ThreadLocal</code> 的弱引用 (<code>WeakReference&lt;ThreadLocal&lt;?&gt;&gt;</code>)。 这意味着，如果 <code>ThreadLocal</code> 实例不再被任何强引用指向，垃圾回收器会在下次 GC 时回收该实例，导致 <code>ThreadLocalMap</code> 中对应的 key 变为 <code>null</code>。</li>
+<li><strong>value 是强引用</strong>：即使 <code>key</code> 被 GC 回收，<code>value</code> 仍然被 <code>ThreadLocalMap.Entry</code> 强引用存在，无法被 GC 回收。</li>
+</ul>
+<p>当 <code>ThreadLocal</code> 实例失去强引用后，其对应的 value 仍然存在于 <code>ThreadLocalMap</code> 中，因为 <code>Entry</code> 对象强引用了它。如果线程持续存活（例如线程池中的线程），<code>ThreadLocalMap</code> 也会一直存在，导致 key 为 <code>null</code> 的 entry 无法被垃圾回收，即会造成内存泄漏。</p>
+<p>也就是说，内存泄漏的发生需要同时满足两个条件：</p>
+<ol>
+<li><code>ThreadLocal</code> 实例不再被强引用；</li>
+<li>线程持续存活，导致 <code>ThreadLocalMap</code> 长期存在。</li>
+</ol>
+<p>虽然 <code>ThreadLocalMap</code> 在 <code>get()</code>, <code>set()</code> 和 <code>remove()</code> 操作时会尝试清理 key 为 null 的 entry，但这种清理机制是被动的，并不完全可靠。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L105">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf095c490fb4d"></a></p>
+<span class="heading-anchor" id="ThreadLocal 有什么用？"></span><h2 id="threadlocal_1">ThreadLocal 有什么用？</h2>
+<p>通常情况下，我们创建的变量可以被任何一个线程访问和修改。这在多线程环境中可能导致数据竞争和线程安全问题。那么，<strong>如果想让每个线程都有自己的专属本地变量，该如何实现呢？</strong></p>
+<p>JDK 中提供的 <code>ThreadLocal</code> 类正是为了解决这个问题。<strong><code>ThreadLocal</code> 类允许每个线程绑定自己的值</strong>，可以将其形象地比喻为一个“存放数据的盒子”。每个线程都有自己独立的盒子，用于存储私有数据，确保不同线程之间的数据互不干扰。</p>
+<p>当你创建一个 <code>ThreadLocal</code> 变量时，每个访问该变量的线程都会拥有一个独立的副本。这也是 <code>ThreadLocal</code> 名称的由来。线程可以通过 <code>get()</code> 方法获取自己线程的本地副本，或通过 <code>set()</code> 方法修改该副本的值，从而避免了线程安全问题。</p>
+<p>举个简单的例子：假设有两个人去宝屋收集宝物。如果他们共用一个袋子，必然会产生争执；但如果每个人都有一个独立的袋子，就不会有这个问题。如果将这两个人比作线程，那么 <code>ThreadLocal</code> 就是用来避免这两个线程竞争同一个资源的方法。</p>
+<pre><code class="language-java">public class ThreadLocalExample {
+    private static ThreadLocal&lt;Integer&gt; threadLocal = ThreadLocal.withInitial(() -&gt; 0);
+
+    public static void main(String[] args) {
+        Runnable task = () -&gt; {
+            int value = threadLocal.get();
+            value += 1;
+            threadLocal.set(value);
+            System.out.println(Thread.currentThread().getName() + " Value: " + threadLocal.get());
+        };
+
+        Thread thread1 = new Thread(task, "Thread-1");
+        Thread thread2 = new Thread(task, "Thread-2");
+
+        thread1.start(); // 输出: Thread-1 Value: 1
+        thread2.start(); // 输出: Thread-2 Value: 1
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L17">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k8a858f674f90"></a></p>
+<h2 id="volatile">volatile</h2>
+<pre><code class="language-cpp">volatile int i = 10; 
+</code></pre>
+<ul>
+<li>volatile 关键字是一种类型修饰符，用它声明的类型变量表示可以被某些编译器未知的因素（操作系统、硬件、其它线程等）更改。所以使用 volatile 告诉编译器不应对这样的对象进行优化。</li>
+<li>volatile 关键字声明的变量，每次访问时都必须从内存中取出值（没有被 volatile 修饰的变量，可能由于编译器的优化，从 CPU 寄存器中取值）</li>
+<li>const 可以是 volatile （如只读的状态寄存器）</li>
+<li>指针可以是 volatile</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/huihut/interview/blob/7a7166804a0ffc8f156e906bf4c1a94bb9f6a94b/README.md#L264">huihut/interview</a>，来源许可：CC-BY-NC-SA-4.0。</li>
+</ul>
+<p><a id="k175372357395"></a></p>
+<span class="heading-anchor" id="volatile 作用？底层实现？单例模式中 volatile 的作用？"></span><h2 id="volatile-volatile">volatile 作用？底层实现？单例模式中 volatile 的作用？</h2>
+<span class="heading-anchor" id="作用"></span><h3 id="_1_18">作用</h3>
+<p>保证数据的“可见性”：被 <code>volatile</code> 修饰的变量能够保证每个线程能够获取该变量的最新值，从而避免出现数据脏读的现象。 禁止指令重排：在多线程操作情况下，指令重排会导致计算结果不一致。</p>
+<span class="heading-anchor" id="底层实现"></span><h3 id="_2_3">底层实现</h3>
+<p>观察加入 <code>volatile</code> 关键字和没有加入 <code>volatile</code> 关键字时所生成的汇编代码发现，加入 <code>volatile</code> 关键字时，会多出一个 <code>lock</code> 前缀指令， <code>lock</code> 前缀指令实际上相当于一个内存屏障（也成内存栅栏），内存屏障会提供3个功能：</p>
+<ul>
+<li>它确保指令重排序时不会把其后面的指令排到内存屏障之前的位置，也不会把前面的指令排到内存屏障的后面；即在执行到内存屏障这句指令时，在它前面的操作已经全部完成</li>
+<li>它会强制将对缓存的修改操作立即写入主存</li>
+<li>如果是写操作，它会导致其他 <code>CPU</code> 中对应的缓存行无效</li>
+</ul>
+<span class="heading-anchor" id="单例模式中 volatile 的作用"></span><h3 id="volatile_1">单例模式中 <code>volatile</code> 的作用</h3>
+<p>防止代码读取到 <code>instance</code> 不为 <code>null</code> 时，<code>instance</code> 引用的对象有可能还没有完成初始化</p>
+<pre><code class="language-java">class Singleton{
+    private volatile static Singleton instance = null;   //禁止指令重排
+    private Singleton() {        
+    }
+    public static Singleton getInstance() {
+        if(instance==null) {
+            synchronized (Singleton.class) {
+                if(instance==null)
+                    instance = new Singleton();
+            }
+        }
+        return instance;
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L142">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k372a6340759f"></a></p>
+<span class="heading-anchor" id="volatile 可以保证原子性么？"></span><h2 id="volatile_2">volatile 可以保证原子性么？</h2>
+<p><strong><code>volatile</code> 关键字能保证变量的可见性，但不能保证对变量的操作是原子性的。</strong></p>
+<p>我们通过下面的代码即可证明：</p>
+<pre><code class="language-java">/**
+ * 微信搜 JavaGuide 回复"面试突击"即可免费领取个人原创的 Java 面试手册
+ *
+ * @author Guide哥
+ * @date 2022/08/03 13:40
+ **/
+public class VolatileAtomicityDemo {
+    public volatile static int inc = 0;
+
+    public void increase() {
+        inc++;
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        ExecutorService threadPool = Executors.newFixedThreadPool(5);
+        VolatileAtomicityDemo volatileAtomicityDemo = new VolatileAtomicityDemo();
+        for (int i = 0; i &lt; 5; i++) {
+            threadPool.execute(() -&gt; {
+                for (int j = 0; j &lt; 500; j++) {
+                    volatileAtomicityDemo.increase();
+                }
+            });
+        }
+        // 等待1.5秒，保证上面程序执行完成
+        Thread.sleep(1500);
+        System.out.println(inc);
+        threadPool.shutdown();
+    }
+}
+</code></pre>
+<p>正常情况下，运行上面的代码理应输出 <code>2500</code>。但你真正运行了上面的代码之后，你会发现每次输出结果都小于 <code>2500</code>。</p>
+<p>为什么会出现这种情况呢？不是说好了，<code>volatile</code> 可以保证变量的可见性嘛！</p>
+<p>也就是说，如果 <code>volatile</code> 能保证 <code>inc++</code> 操作的原子性的话。每个线程中对 <code>inc</code> 变量自增完之后，其他线程可以立即看到修改后的值。5 个线程分别进行了 500 次操作，那么最终 inc 的值应该是 5*500=2500。</p>
+<p>很多人会误认为自增操作 <code>inc++</code> 是原子性的，实际上，<code>inc++</code> 其实是一个复合操作，包括三步：</p>
+<ol>
+<li>读取 inc 的值。</li>
+<li>对 inc 加 1。</li>
+<li>将 inc 的值写回内存。</li>
+</ol>
+<p><code>volatile</code> 是无法保证这三个操作是具有原子性的，有可能导致下面这种情况出现：</p>
+<ol>
+<li>线程 1 对 <code>inc</code> 进行读取操作之后，还未对其进行修改。线程 2 又读取了 <code>inc</code> 的值并对其进行修改（+1），再将 <code>inc</code> 的值写回内存。</li>
+<li>线程 2 操作完毕后，线程 1 对 <code>inc</code> 的值进行修改（+1），再将 <code>inc</code> 的值写回内存。</li>
+</ol>
+<p>这也就导致两个线程分别对 <code>inc</code> 进行了一次自增操作后，<code>inc</code> 实际上只增加了 1。</p>
+<p>其实，如果想要保证上面的代码运行正确也非常简单，利用 <code>synchronized</code>、<code>Lock</code> 或者 <code>AtomicInteger</code> 都可以。</p>
+<p>使用 <code>synchronized</code> 改进：</p>
+<pre><code class="language-java">public synchronized void increase() {
+    inc++;
+}
+</code></pre>
+<p>使用 <code>AtomicInteger</code> 改进：</p>
+<pre><code class="language-java">public AtomicInteger inc = new AtomicInteger();
+
+public void increase() {
+    inc.getAndIncrement();
+}
+</code></pre>
+<p>使用 <code>ReentrantLock</code> 改进：</p>
+<pre><code class="language-java">Lock lock = new ReentrantLock();
+public void increase() {
+    lock.lock();
+    try {
+        inc++;
+    } finally {
+        lock.unlock();
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L188">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k97341d638467"></a></p>
+<span class="heading-anchor" id="为什么 ThreadLocal 在异步场景下会失效？"></span><h2 id="threadlocal_2">为什么 ThreadLocal 在异步场景下会失效？</h2>
+<p><code>ThreadLocal</code> 的值不在 <code>ThreadLocal</code> 对象中，而是存储在 <code>Thread</code> 里：</p>
+<pre><code class="language-java">Thread → ThreadLocalMap → Entry(ThreadLocal, value)
+</code></pre>
+<p><code>ThreadLocal</code> 数据结构如下图所示：</p>
+<p><img alt="ThreadLocal 数据结构" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/concurrent/threadlocal-data-structure.png"/></p>
+<p>异步执行往往意味着任务会从当前线程切换到另一个线程（例如线程池中的工作线程）执行。由于不同线程各自维护独立的 <code>ThreadLocalMap</code>，默认情况下 <code>ThreadLocal</code> 的上下文无法在异步执行中自动传递。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L239">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k08366d6e3b53"></a></p>
+<span class="heading-anchor" id="为什么 wait() 方法不定义在 Thread 中？"></span><h2 id="wait-thread">为什么 wait() 方法不定义在 Thread 中？</h2>
+<p><code>wait()</code> 是让获得对象锁的线程实现等待，会自动释放当前线程占有的对象锁。每个对象（<code>Object</code>）都拥有对象锁，既然要释放当前线程占有的对象锁并让其进入 WAITING 状态，自然是要操作对应的对象（<code>Object</code>）而非当前的线程（<code>Thread</code>）。</p>
+<p>类似的问题：<strong>为什么 <code>sleep()</code> 方法定义在 <code>Thread</code> 中？</strong></p>
+<p>因为 <code>sleep()</code> 是让当前线程暂停执行，不涉及到对象类，也不需要获得对象锁。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L181">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kcc4938d5ee8d"></a></p>
+<span class="heading-anchor" id="什么是乐观锁？"></span><h2 id="_1_22">什么是乐观锁？</h2>
+<p>乐观锁总是假设最好的情况，认为共享资源每次被访问的时候不会出现问题，线程可以不停地执行，无需加锁也无需等待，只是在提交修改的时候去验证对应的资源（也就是数据）是否被其它线程修改了（具体方法可以使用版本号机制或 CAS 算法）。</p>
+<p>在 Java 中 <code>java.util.concurrent.atomic</code> 包下面的原子变量类（比如 <code>AtomicInteger</code>、<code>LongAdder</code>）就是使用了乐观锁的一种实现方式 <strong>CAS</strong> 实现的。
+<img alt="JUC原子类概览" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/JUC%E5%8E%9F%E5%AD%90%E7%B1%BB%E6%A6%82%E8%A7%88-20230814005211968.png"/></p>
+<pre><code class="language-java">// LongAdder 在高并发场景下会比 AtomicInteger 和 AtomicLong 的性能更好
+// 代价就是会消耗更多的内存空间（空间换时间）
+LongAdder sum = new LongAdder();
+sum.increment();
+</code></pre>
+<p>高并发的场景下，乐观锁相比悲观锁来说，不存在锁竞争造成线程阻塞，也不会有死锁的问题，在性能上往往会更胜一筹。但是，如果冲突频繁发生（写占比非常多的情况），会频繁失败和重试，这样同样会非常影响性能，导致 CPU 飙升。</p>
+<p>不过，大量失败重试的问题也是可以解决的，像我们前面提到的 <code>LongAdder</code> 以空间换时间的方式就解决了这个问题。</p>
+<p>理论上来说：</p>
+<ul>
+<li>悲观锁通常多用于写比较多的情况（多写场景，竞争激烈），这样可以避免频繁失败和重试影响性能，悲观锁的开销是固定的。不过，如果乐观锁解决了频繁失败和重试这个问题的话（比如 <code>LongAdder</code>），也是可以考虑使用乐观锁的，要视实际情况而定。</li>
+<li>乐观锁通常多用于写比较少的情况（多读场景，竞争较少），这样可以避免频繁加锁影响性能。不过，乐观锁主要针对的对象是单个共享变量（参考 <code>java.util.concurrent.atomic</code> 包下面的原子变量类）。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L305">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k29f0aeb1e50d"></a></p>
+<span class="heading-anchor" id="什么是悲观锁？"></span><h2 id="_1_23">什么是悲观锁？</h2>
+<p>悲观锁总是假设最坏的情况，认为共享资源每次被访问的时候就会出现问题（比如共享数据被修改），所以每次在获取资源操作的时候都会上锁，这样其他线程想拿到这个资源就会阻塞直到锁被上一个持有者释放。也就是说，<strong>共享资源每次只给一个线程使用，其它线程阻塞，用完后再把资源转让给其它线程</strong>。</p>
+<p>像 Java 中 <code>synchronized</code> 和 <code>ReentrantLock</code> 等独占锁就是悲观锁思想的实现。</p>
+<pre><code class="language-java">public void performSynchronisedTask() {
+    synchronized (this) {
+        // 需要同步的操作
+    }
+}
+
+private Lock lock = new ReentrantLock();
+lock.lock();
+try {
+   // 需要同步的操作
+} finally {
+    lock.unlock();
+}
+</code></pre>
+<p>高并发的场景下，激烈的锁竞争会造成线程阻塞，大量阻塞线程会导致系统的上下文切换，增加系统的性能开销。并且，悲观锁还可能会存在死锁问题，影响代码的正常运行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L281">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k50e1f5326841"></a></p>
+<span class="heading-anchor" id="公平锁和非公平锁有什么区别？"></span><h2 id="_1_24">公平锁和非公平锁有什么区别？</h2>
+<ul>
+<li><strong>公平锁</strong> : 在存在竞争时，通常优先让等待时间最长的线程获得锁，但不保证操作系统的线程调度严格按时间顺序进行；<code>ReentrantLock</code> 的无参 <code>tryLock()</code> 也不会遵守公平设置。</li>
+<li><strong>非公平锁</strong>：锁被释放之后，后申请的线程可能会先获取到锁，是随机或者按照其他优先级排序的。性能更好，但可能会导致某些线程永远无法获取到锁。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L771">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd8b3cfccf4e4"></a></p>
+<span class="heading-anchor" id="可中断锁和不可中断锁有什么区别？"></span><h2 id="_1_25">可中断锁和不可中断锁有什么区别？</h2>
+<p>它们的区别在于：<strong>线程在获取锁的过程中被阻塞时，是否能够因为中断而提前放弃等待。</strong></p>
+<ul>
+<li><strong>不可中断锁</strong>：线程在等待锁期间即使收到中断信号，也不会退出阻塞状态，而是一直等待直到获得锁。中断状态会被保留，但不会影响锁的获取过程。</li>
+<li><code>synchronized</code> 属于典型的不可中断锁。</li>
+<li><code>ReentrantLock#lock()</code> 也是不可中断的。</li>
+<li><strong>可中断锁</strong>：线程在等待锁的过程中如果收到中断信号，会立即停止等待并抛出 <code>InterruptedException</code>，从而有机会进行取消或错误处理。</li>
+<li><code>ReentrantLock#lockInterruptibly()</code> 实现了可中断锁。</li>
+<li><code>ReentrantLock#tryLock(long time, TimeUnit unit)</code>（带超时的尝试获取）也是可中断的。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L901">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kfc3d156f6dc1"></a></p>
+<span class="heading-anchor" id="可以直接调用 Thread 类的 run 方法吗？"></span><h2 id="thread-run">可以直接调用 Thread 类的 run 方法吗？</h2>
+<p>这是另一个非常经典的 Java 多线程面试问题，而且在面试中会经常被问到。很简单，但是很多人都会答不上来！</p>
+<p>new 一个 <code>Thread</code>，线程进入了新建状态。调用 <code>start()</code> 方法，会启动一个线程并使线程进入了就绪状态，当分配到时间片后就可以开始运行了。 <code>start()</code> 会执行线程的相应准备工作，然后自动执行 <code>run()</code> 方法的内容，这是真正的多线程工作。 但是，直接执行 <code>run()</code> 方法，会把 <code>run()</code> 方法当成一个普通方法在调用该方法的线程去执行，所以这并不是多线程工作。</p>
+<p><strong>总结：调用 <code>start()</code> 方法方可启动线程并使线程进入就绪状态，直接执行 <code>run()</code> 方法的话不会以多线程的方式执行。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L189">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kca0f03f52782"></a></p>
+<span class="heading-anchor" id="同步刷盘和异步刷盘"></span><h2 id="_1_27">同步刷盘和异步刷盘</h2>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-performance/message-queue/16ef387fba311cda-20230814005009889.jpg"/></p>
+<p>如上图所示，在同步刷盘中需要等待一个刷盘成功的 ACK ，同步刷盘对 <code>MQ</code> 消息可靠性来说是一种不错的保障，但是 <strong>性能上会有较大影响</strong> ，一般地适用于金融等特定业务场景。</p>
+<p>而异步刷盘往往是开启一个线程去异步地执行刷盘操作。消息刷盘采用后台异步线程提交的方式进行， <strong>降低了读写延迟</strong> ，提高了 <code>MQ</code> 的性能和吞吐量，一般适用于如发验证码等对于消息保证要求不太高的业务场景。</p>
+<p>一般地，<strong>异步刷盘只有在 Broker 意外宕机的时候会丢失部分数据</strong>，你可以设置 Broker 的参数 <code>FlushDiskType</code> 来调整你的刷盘策略(ASYNC_FLUSH 或者 SYNC_FLUSH)。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/message-queue/rocketmq-questions.md#L1731">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kfc7a3272f83e"></a></p>
+<span class="heading-anchor" id="同步复制和异步复制"></span><h2 id="_1_28">同步复制和异步复制</h2>
+<p>上面的同步刷盘和异步刷盘是在单个节点层面的，而同步复制和异步复制主要是指 <code>Broker</code> 主从模式下，主节点返回消息给客户端的时候是否需要同步从节点。</p>
+<ul>
+<li>同步复制：也叫 “同步双写”，也就是说，<strong>只有消息同步双写到主从节点上时才返回写入成功</strong> 。</li>
+<li>异步复制：<strong>消息写入主节点之后就直接返回写入成功</strong> 。</li>
+</ul>
+<p>然而，很多事情是没有完美的方案的，就比如我们进行消息写入的节点越多就更能保证消息的可靠性，但是随之的性能也会下降，所以需要程序员根据特定业务场景去选择适应的主从复制方案。</p>
+<p>那么，<strong>异步复制会不会也像异步刷盘那样影响消息的可靠性呢？</strong></p>
+<p>答案是会影响。刷盘策略决定消息是否落到本机磁盘，复制策略决定消息是否已经同步到副本。异步复制下，主节点返回成功时消息可能还没有复制到从节点；如果主节点此时宕机且数据无法恢复，从节点就可能缺少这部分消息。因此，要求更高可靠性时，通常会选择同步刷盘 + 同步复制，或者使用 DLedger 这类多数派复制方案。</p>
+<p>比如采用异步复制时，主节点已经向生产者返回成功，但这部分消息还没来得及同步到从节点。如果主节点只是短暂不可用，恢复后仍可能继续补齐复制；如果主节点数据丢失或发生不可逆故障，从节点就可能永远少这部分消息。这里影响的不只是可用性，也包括可靠性。</p>
+<p>在单主从架构中，如果一个主节点挂掉了，那么整个系统就不能再生产消息了。那么这个可用性的问题能否解决呢？<strong>可以通过多主从架构来解决</strong>，在最初的架构图中，每个 Topic 是分布在不同 Broker 中的。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-performance/message-queue/16ef38687488a5asadasfg4.jpg"/></p>
+<p>但是这种复制方式同样也会带来一个问题，那就是无法保证 <strong>严格顺序</strong> 。在上文中我们提到了如何保证的消息顺序性是通过将一个语义的消息发送在同一个队列中，使用 Topic 下的队列来保证顺序性的。如果此时我们主节点 A 负责的是订单 A 的一系列语义消息，然后它挂了，这样其他节点是无法代替主节点 A 的，如果我们任意节点都可以存入任何消息，那就没有顺序性可言了。</p>
+<p>而在 RocketMQ 中采用了 DLedger 解决这个问题。DLedger 要求在写入消息的时候，<strong>至少消息复制到半数以上的节点之后</strong>，才给客户端返回写入成功，并且支持通过选举来动态切换主节点。</p>
+<blockquote>
+<p>DLedger 也不是完美的方案：在选举过程中是无法提供服务的；必须使用三个节点或以上；如果多数节点同时挂掉也无法保证可用性；要求消息复制到半数以上节点的效率和直接异步复制还是有一定差距的。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/message-queue/rocketmq-questions.md#L1741">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k55302ca4ae52"></a></p>
+<span class="heading-anchor" id="同步控制"></span><h2 id="_1_29">同步控制</h2>
+<p><code>Collections</code> 提供了多个 <code>synchronizedXxx()</code> 方法·，该方法可以将指定集合包装成线程同步的集合，从而解决多线程并发访问集合时的线程安全问题。</p>
+<p>所有访问都应当通过返回的包装器进行；使用 <code>Iterator</code>、<code>Spliterator</code> 或 <code>Stream</code> 遍历时，还需要手动同步该包装器。</p>
+<p>我们知道 <code>HashSet</code>，<code>TreeSet</code>，<code>ArrayList</code>,<code>LinkedList</code>,<code>HashMap</code>,<code>TreeMap</code> 都是线程不安全的。<code>Collections</code> 提供了多个静态方法可以把他们包装成线程同步的集合。</p>
+<p><strong>最好不要用下面这些方法，效率非常低，需要线程安全的集合类型时请考虑使用 JUC 包下的并发集合。</strong></p>
+<p>方法如下：</p>
+<pre><code class="language-java">synchronizedCollection(Collection&lt;T&gt;  c) //返回指定 collection 支持的同步（线程安全的）collection。
+synchronizedList(List&lt;T&gt; list)//返回指定列表支持的同步（线程安全的）List。
+synchronizedMap(Map&lt;K,V&gt; m) //返回由指定映射支持的同步（线程安全的）Map。
+synchronizedSet(Set&lt;T&gt; s) //返回指定 set 支持的同步（线程安全的）set。
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/collection/java-collection-questions-02.md#L644">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k24c645d0848d"></a></p>
+<span class="heading-anchor" id="如何使用 synchronized？"></span><h2 id="synchronized_5">如何使用 synchronized？</h2>
+<p><code>synchronized</code> 关键字的使用方式主要有下面 3 种：</p>
+<ol>
+<li>修饰实例方法</li>
+<li>修饰静态方法</li>
+<li>修饰代码块</li>
+</ol>
+<p><strong>1、修饰实例方法</strong>（锁当前对象实例）</p>
+<p>给当前对象实例加锁，进入同步代码前要获得 <strong>当前对象实例的锁</strong>。</p>
+<pre><code class="language-java">synchronized void method() {
+    //业务代码
+}
+</code></pre>
+<p><strong>2、修饰静态方法</strong>（锁当前类）</p>
+<p>给当前类加锁，会作用于类的所有对象实例，进入同步代码前要获得 <strong>当前 class 的锁</strong>。</p>
+<p>这是因为静态成员不属于任何一个实例对象，归整个类所有，不依赖于类的特定实例，被类的所有实例共享。</p>
+<pre><code class="language-java">synchronized static void method() {
+    //业务代码
+}
+</code></pre>
+<p>静态 <code>synchronized</code> 方法和非静态 <code>synchronized</code> 方法之间的调用互斥么？不互斥！如果一个线程 A 调用一个实例对象的非静态 <code>synchronized</code> 方法，而线程 B 需要调用这个实例对象所属类的静态 <code>synchronized</code> 方法，是允许的，不会发生互斥现象，因为访问静态 <code>synchronized</code> 方法占用的锁是当前类的锁，而访问非静态 <code>synchronized</code> 方法占用的锁是当前实例对象锁。</p>
+<p><strong>3、修饰代码块</strong>（锁指定对象/类）</p>
+<p>对括号里指定的对象/类加锁：</p>
+<ul>
+<li><code>synchronized(object)</code> 表示进入同步代码块前要获得 <strong>给定对象的锁</strong>。</li>
+<li><code>synchronized(类.class)</code> 表示进入同步代码块前要获得 <strong>给定 Class 的锁</strong></li>
+</ul>
+<pre><code class="language-java">synchronized(this) {
+    //业务代码
+}
+</code></pre>
+<p><strong>总结：</strong></p>
+<ul>
+<li><code>synchronized</code> 关键字加到 <code>static</code> 静态方法和 <code>synchronized(class)</code> 代码块上都是是给 Class 类上锁；</li>
+<li><code>synchronized</code> 关键字加到实例方法上是给对象实例上锁；</li>
+<li>尽量不要使用 <code>synchronized(String a)</code> 因为 JVM 中，字符串常量池具有缓存功能。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L557">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kee1c729efbd6"></a></p>
+<span class="heading-anchor" id="如何完成 ThreadLocal 值的传递？"></span><h2 id="threadlocal_3">如何完成 ThreadLocal 值的传递？</h2>
+<p>通过改造 <code>Thread</code> 类的构造方法来实现，在创建 <code>Thread</code> 线程时，拿到父线程的 <code>inheritableThreadLocals</code> 变量赋值给子线程即可。相关代码如下：</p>
+<pre><code class="language-JAVA">// Thread 的构造方法会调用 init() 方法
+private void init(/* ... */) {
+    // 1、获取父线程
+    Thread parent = currentThread();
+    // 2、将父线程的 inheritableThreadLocals 赋值给子线程
+    if (inheritThreadLocals &amp;&amp; parent.inheritableThreadLocals != null)
+        this.inheritableThreadLocals =
+            ThreadLocal.createInheritedMap(parent.inheritableThreadLocals);
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L275">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k864ddbe30f34"></a></p>
+<span class="heading-anchor" id="如何实现乐观锁？"></span><h2 id="_1_32">如何实现乐观锁？</h2>
+<p>乐观锁一般会使用版本号机制或 CAS 算法实现，CAS 算法相对来说更多一些，这里需要格外注意。</p>
+<span class="heading-anchor" id="版本号机制"></span><h3 id="_2_11">版本号机制</h3>
+<p>一般是在数据表中加上一个数据版本号 <code>version</code> 字段，表示数据被修改的次数。当数据被修改时，<code>version</code> 值会加一。当线程 A 要更新数据值时，在读取数据的同时也会读取 <code>version</code> 值，在提交更新时，若刚才读取到的 version 值为当前数据库中的 <code>version</code> 值相等时才更新，否则重试更新操作，直到更新成功。</p>
+<p><strong>举一个简单的例子</strong>：假设数据库中帐户信息表中有一个 version 字段，当前值为 1；而当前帐户余额字段（<code>balance</code>）为 $100。</p>
+<ol>
+<li>操作员 A 此时将其读出（<code>version</code>=1），并从其帐户余额中扣除 <span class="arithmatex">\(50（\)</span>100-$50）。</li>
+<li>在操作员 A 操作的过程中，操作员 B 也读入此用户信息（<code>version</code>=1），并从其帐户余额中扣除 <span class="arithmatex">\(20（\)</span>100-$20）。</li>
+<li>操作员 A 完成了修改工作，将数据版本号（<code>version</code>=1），连同帐户扣除后余额（<code>balance</code>=$50），提交至数据库更新，此时由于提交数据版本等于数据库记录当前版本，数据被更新，数据库记录 <code>version</code> 更新为 2。</li>
+<li>操作员 B 完成了操作，也将版本号（<code>version</code>=1）试图向数据库提交数据（<code>balance</code>=$80），但此时比对数据库记录版本时发现，操作员 B 提交的数据版本号为 1，数据库记录当前版本也为 2，不满足 “ 提交版本必须等于当前版本才能执行更新 ” 的乐观锁策略，因此，操作员 B 的提交被驳回。</li>
+</ol>
+<p>这样就避免了操作员 B 用基于 <code>version</code>=1 的旧数据修改的结果覆盖操作员 A 的操作结果的可能。</p>
+<span class="heading-anchor" id="CAS 算法"></span><h3 id="cas_1">CAS 算法</h3>
+<p>CAS 的全称是 <strong>Compare And Swap（比较与交换）</strong>，用于实现乐观锁，被广泛应用于各大框架中。CAS 的思想很简单，就是用一个预期值和要更新的变量值进行比较，两值相等才会进行更新。</p>
+<p>CAS 是一个原子操作，底层依赖于一条 CPU 的原子指令。</p>
+<blockquote>
+<p><strong>原子操作</strong> 即最小不可拆分的操作，也就是说操作一旦开始，就不能被打断，直到操作完成。</p>
+</blockquote>
+<p>CAS 涉及到三个操作数：</p>
+<ul>
+<li><strong>V</strong>：要更新的变量值(Var)</li>
+<li><strong>E</strong>：预期值(Expected)</li>
+<li><strong>N</strong>：拟写入的新值(New)</li>
+</ul>
+<p>当且仅当 V 的值等于 E 时，CAS 通过原子方式用新值 N 来更新 V 的值。如果不等，说明已经有其它线程更新了 V，则当前线程放弃更新。</p>
+<p><strong>举一个简单的例子</strong>：线程 A 要修改变量 i 的值为 6，i 原值为 1（V = 1，E=1，N=6，假设不存在 ABA 问题）。</p>
+<ol>
+<li>i 与 1 进行比较，如果相等， 则说明没被其他线程修改，可以被设置为 6。</li>
+<li>i 与 1 进行比较，如果不相等，则说明被其他线程修改，当前线程放弃更新，CAS 操作失败。</li>
+</ol>
+<p>当多个线程同时使用 CAS 操作一个变量时，只有一个会胜出，并成功更新，其余均会失败，但失败的线程并不会被挂起，仅是被告知失败，并且允许再次尝试，当然也允许失败的线程放弃操作。</p>
+<p>Java 代码可以通过原子类、<code>VarHandle</code> 等 API 表达 CAS 语义。HotSpot 通常会把相关调用识别为 JVM 内部函数，再映射为目标处理器支持的原子指令或等价实现；这并不是 Java 规范固定要求的“JNI 调用 C++ 内联汇编”。</p>
+<pre><code class="language-java">/**
+  *  CAS
+  * @param o         包含要修改field的对象
+  * @param offset    对象中某field的偏移量
+  * @param expected  期望值
+  * @param update    更新值
+  * @return          true | false
+  */
+public final native boolean compareAndSwapObject(Object o, long offset,  Object expected, Object update);
+
+public final native boolean compareAndSwapInt(Object o, long offset, int expected,int update);
+
+public final native boolean compareAndSwapLong(Object o, long offset, long expected, long update);
+</code></pre>
+<p>关于 <code>Unsafe</code> 类的详细介绍可以看这篇文章：<a href="https://javaguide.cn/java/basis/unsafe.html">Java 魔法类 Unsafe 详解 - JavaGuide - 2022</a>。</p>
+<p><strong>相关解释：</strong> <a href="n-a6daca9c45c6.html#kaf220eb43f81">Java 中 CAS 是如何实现的？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L328">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k57f9de929992"></a></p>
+<span class="heading-anchor" id="构造方法可以用 synchronized 修饰么？"></span><h2 id="synchronized_6">构造方法可以用 synchronized 修饰么？</h2>
+<p>构造方法不能使用 synchronized 关键字修饰。不过，可以在构造方法内部使用 synchronized 代码块。</p>
+<p>另外，构造方法本身是线程安全的，但如果在构造方法中涉及到共享资源的操作，就需要采取适当的同步措施来保证整个构造过程的线程安全。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L608">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ke9263b1b7e27"></a></p>
+<span class="heading-anchor" id="英伟达显卡中Volatile-GPU-Util代表什么含义？"></span><h2 id="volatile-gpu-util">英伟达显卡中Volatile-GPU-Util代表什么含义？</h2>
+<p>在英伟达的显卡监控工具中，<strong>Volatile GPU Util</strong> 是一个重要的指标，用于显示GPU利用率的波动情况。<strong>它反映了在一个采样周期内GPU的使用百分比，这个百分比指示了GPU在这段时间内忙于执行计算任务的时间占比</strong>。</p>
+<p>这个指标在AIGC、传统深度学习、自动驾驶领域都很重要，能够方便我们查看GPU的使用情况，测试排查GPU问题，筛选出高性能GPU来提升AI模型的训练推理效率，增强AI系统的整体性能。下面Rocky再给大家讲解一下Volatile GPU Util详细含义和用途：</p>
+<span class="heading-anchor" id="含义"></span><h3 id="_1_34">含义</h3>
+<ol>
+<li>
+<p><strong>瞬时利用率</strong>：
+   - Volatile GPU Util表示的是在特定采样周期内GPU的利用率，这个采样周期通常是非常短的（例如几秒钟），因此这个值是瞬时的而非累积的。<strong>GPU的利用率不等于GPU内计算单元干活的比例，GPU Util本质上只是反应了在采样时间段内，一个或多个内核（kernel）在GPU上执行的时间百分比，采样时间段取值1/6s~1s</strong>。</p>
+</li>
+<li>
+<p><strong>活动时间百分比</strong>：
+   - 这个值表示GPU在采样周期内有多少时间在执行计算任务。例如，<strong>50%的Volatile GPU Util表示在采样周期的一半时间里GPU是忙于计算任务的</strong>。</p>
+</li>
+<li>
+<p><strong>动态变化</strong>：
+   - 因为这个指标是瞬时的，它会随着时间的变化而波动，反映GPU利用率的动态变化情况。这对于实时监控GPU负载非常有帮助。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="用途"></span><h3 id="_2_12">用途</h3>
+<ol>
+<li>
+<p><strong>性能监控</strong>：
+   - AI行业开发者可以使用Volatile GPU Util来监控GPU的实时负载情况，以确定当前的计算任务是否充分利用了GPU资源。</p>
+</li>
+<li>
+<p><strong>瓶颈识别</strong>：
+   - 通过观察Volatile GPU Util，我们可以识别出是否存在GPU资源不足的问题。例如，如果利用率一直接近100%，说明GPU可能成为AI系统的瓶颈，任务可能受限于GPU的计算能力。</p>
+</li>
+<li>
+<p><strong>资源分配</strong>：
+   - 管理多个AI任务和资源的调度时，Volatile GPU Util可以帮助确定哪个AI任务在消耗大量GPU资源，从而更好地分配计算资源和优化性能。</p>
+</li>
+<li>
+<p><strong>优化和调试</strong>：
+   - AI行业开发者可以根据这个指标来优化代码和算法，以提高GPU的利用率。低利用率可能表明存在性能瓶颈或资源浪费的情况，需要进行优化。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="示例"></span><h3 id="_3_3">示例</h3>
+<p>在使用英伟达提供的 <code>nvidia-smi</code> 命令工具后，我们可以看到Volatile GPU Util的输出。例如：</p>
+<pre><code class="language-bash">$ nvidia-smi
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 470.57.02    Driver Version: 470.57.02    CUDA Version: 11.4     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |            MIG M.    |
+|===============================+======================+======================|
+|   0  GeForce GTX 1080    Off  | 00000000:01:00.0 Off |                  N/A |
+| 30%   58C    P2    42W / 180W |   0MiB /  8119MiB |      28%      Default |
++-------------------------------+----------------------+----------------------+
+</code></pre>
+<p>在这个示例中，<code>GPU-Util</code> 一栏显示 <code>28%</code>，这表示在当前采样周期内，这个GPU的利用率是28%。通过理解和监控Volatile GPU Util，我们可以更好地管理和优化GPU资源，确保AI系统的高效运行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L110">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k96fb1016bf0b"></a></p>
+<span class="heading-anchor" id="读锁为什么不能升级为写锁？"></span><h2 id="_1_35">读锁为什么不能升级为写锁？</h2>
+<p>写锁可以降级为读锁，但是 <code>ReentrantReadWriteLock</code> 不支持直接把读锁升级为写锁。关键原因是多个线程可能同时持有读锁：如果它们都在不释放读锁的情况下等待写锁，就会彼此等待而无法满足写锁的独占条件。需要升级时，应先释放读锁，再获取写锁，并在获得写锁后重新检查共享状态。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L966">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-5faa230adba4.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Spring与应用框架</strong></a><a class="page-next" href="n-5bf5dca47d37.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>语言基础与对象</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#aqs">AQS 是什么？</a></li><li class="outline-level-2"><a href="#inheritablethreadlocal">InheritableThreadLocal 的值存储在哪里？</a></li><li class="outline-level-2"><a href="#inheritablethreadlocal_1">InheritableThreadLocal 的方案有什么问题？</a></li><li class="outline-level-2"><a href="#java">Java 中如何设计一个不会产生大量锁竞争的任务调度器？</a></li><li class="outline-level-2"><a href="#java-happens-before">Java 内存模型中的 happens-before 规则解决了什么问题？</a></li><li class="outline-level-2"><a href="#javacas">Java乐观锁机制，CAS思想？缺点？是否原子性？</a></li><li class="outline-level-2"><a href="#reentrantlock-synchronized">ReenTrantLock 使用方法？底层实现？和 synchronized 区别？</a></li><li class="outline-level-2"><a href="#reentrantlocksynchronized">ReenTrantLock和synchronized 的区别</a></li><li class="outline-level-2"><a href="#synchronized-jdk16-synchronized">synchronized 关键字：JDK1.6 之后的 synchronized 底层做了哪些优化？锁升级原理了解吗？</a></li><li class="outline-level-2"><a href="#synchronized-volatile">synchronized 和 volatile 有什么区别？</a></li><li class="outline-level-2"><a href="#synchronized">synchronized 底层原理了解吗？</a></li><li class="outline-level-2"><a href="#synchronized_3">synchronized 是什么？有什么用？</a></li><li class="outline-level-2"><a href="#synchronized_4">synchronized 的偏向锁为什么被废弃了？</a></li><li class="outline-level-2"><a href="#threadsleep-objectwait">Thread#sleep() 方法和 Object#wait() 方法对比</a></li><li class="outline-level-2"><a href="#threadlocal">ThreadLocal 内存泄露问题是怎么导致的？</a></li><li class="outline-level-2"><a href="#threadlocal_1">ThreadLocal 有什么用？</a></li><li class="outline-level-2"><a href="#volatile">volatile</a></li><li class="outline-level-2"><a href="#volatile-volatile">volatile 作用？底层实现？单例模式中 volatile 的作用？</a></li><li class="outline-level-2"><a href="#volatile_2">volatile 可以保证原子性么？</a></li><li class="outline-level-2"><a href="#threadlocal_2">为什么 ThreadLocal 在异步场景下会失效？</a></li><li class="outline-level-2"><a href="#wait-thread">为什么 wait() 方法不定义在 Thread 中？</a></li><li class="outline-level-2"><a href="#_1_22">什么是乐观锁？</a></li><li class="outline-level-2"><a href="#_1_23">什么是悲观锁？</a></li><li class="outline-level-2"><a href="#_1_24">公平锁和非公平锁有什么区别？</a></li><li class="outline-level-2"><a href="#_1_25">可中断锁和不可中断锁有什么区别？</a></li><li class="outline-level-2"><a href="#thread-run">可以直接调用 Thread 类的 run 方法吗？</a></li><li class="outline-level-2"><a href="#_1_27">同步刷盘和异步刷盘</a></li><li class="outline-level-2"><a href="#_1_28">同步复制和异步复制</a></li><li class="outline-level-2"><a href="#_1_29">同步控制</a></li><li class="outline-level-2"><a href="#synchronized_5">如何使用 synchronized？</a></li><li class="outline-level-2"><a href="#threadlocal_3">如何完成 ThreadLocal 值的传递？</a></li><li class="outline-level-2"><a href="#_1_32">如何实现乐观锁？</a></li><li class="outline-level-2"><a href="#synchronized_6">构造方法可以用 synchronized 修饰么？</a></li><li class="outline-level-2"><a href="#volatile-gpu-util">英伟达显卡中Volatile-GPU-Util代表什么含义？</a></li><li class="outline-level-2"><a href="#_1_35">读锁为什么不能升级为写锁？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

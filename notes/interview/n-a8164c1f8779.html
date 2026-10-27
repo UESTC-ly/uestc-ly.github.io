@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>存储、日志与复制 · 李杨的学习笔记</title><meta name="description" content="binlog 用于记录数据库执行的写入性操作(不包括查询)信息，以二进制的形式保存在磁盘中。 binlog 是 mysql 的逻辑日志，并且由 Server 层进行记录，使用任何存储引擎的 mysql 数据库都会记录 binlog 日志">
+<meta property="og:type" content="website"><meta property="og:title" content="存储、日志与复制 · 李杨的学习笔记"><meta property="og:description" content="binlog 用于记录数据库执行的写入性操作(不包括查询)信息，以二进制的形式保存在磁盘中。 binlog 是 mysql 的逻辑日志，并且由 Server 层进行记录，使用任何存储引擎的 mysql 数据库都会记录 binlog 日志"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-a8164c1f8779.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-a8164c1f8779.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html" aria-current="page">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">05-数据库与SQL</p><h1>存储、日志与复制</h1><p class="article-question-meta">29 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-a86b91355ce3">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/05-%E6%95%B0%E6%8D%AE%E5%BA%93%E4%B8%8ESQL/%E5%AD%98%E5%82%A8%E3%80%81%E6%97%A5%E5%BF%97%E4%B8%8E%E5%A4%8D%E5%88%B6.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#binlog">binlog</a></li><li class="outline-level-2"><a href="#innodbid">Innodb为什么要用自增id作为主键？</a></li><li class="outline-level-2"><a href="#mongodb">MongoDB 支持哪些存储引擎？</a></li><li class="outline-level-2"><a href="#myisam-innodb">MyISAM 和 InnoDB 如何选择？</a></li><li class="outline-level-2"><a href="#myisam-innodb_1">MyISAM 和 InnoDB 有什么区别？</a></li><li class="outline-level-2"><a href="#mysql">MySQL 主从复制原理的是啥？</a></li><li class="outline-level-2"><a href="#mysql_1">MySQL 存储引擎架构了解吗？</a></li><li class="outline-level-2"><a href="#mysql_2">MySQL 支持哪些存储引擎？默认使用哪个？</a></li><li class="outline-level-2"><a href="#mysqlundo-logredo-logbinlog">MySQL中的undo log、redo log和binlog分别解决什么问题？它们之间有什么区别？</a></li><li class="outline-level-2"><a href="#mysqlinnodbmyisam">MySQL常见的存储引擎InnoDB、MyISAM的区别？适用场景分别是？</a></li><li class="outline-level-2"><a href="#mysql-innodb-myisam">MySQL的两种存储引擎 InnoDB 和 MyISAM 的区别？</a></li><li class="outline-level-2"><a href="#mysqlinnodb-myisam">MySQL的引擎了解吗？默认的是哪个？InnoDB 和 myISAM 的区别？</a></li><li class="outline-level-2"><a href="#redo-log">redo log</a></li><li class="outline-level-2"><a href="#undo-log">undo log</a></li><li class="outline-level-2"><a href="#walbinlogcheckpoint">WAL、binlog、checkpoint和恢复机制为什么重要？</a></li><li class="outline-level-2"><a href="#_1_14">为什么要主从复制？</a></li><li class="outline-level-2"><a href="#_1_15">为什么要分库分表？（设计高并发系统的时候，数据库层面该如何设计？）</a></li><li class="outline-level-2"><a href="#_1_16">为什么要分库分表？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_17">为什么要用复制集群？</a></li><li class="outline-level-2"><a href="#_1_18">什么是复制集群？</a></li><li class="outline-level-2"><a href="#_1_19">分库分表如何平滑过渡？</a></li><li class="outline-level-2"><a href="#_1_20">分库分表如何平滑过渡？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_21">挖掘数据库交易日志</a></li><li class="outline-level-2"><a href="#_1_22">数据库为什么要进行分库和分表呢？都放在一个库或者一张表中不可以吗？</a></li><li class="outline-level-2"><a href="#innodbmyisam">数据库引擎InnoDB与MyISAM的区别</a></li><li class="outline-level-2"><a href="#_1_24">数据库恢复</a></li><li class="outline-level-2"><a href="#ai">数据库高可用、备份恢复和数据一致性在AI服务中如何理解？</a></li><li class="outline-level-2"><a href="#_1_26">用过哪些分库分表中间件？不同的分库分表中间件都有什么优点和缺点？</a></li><li class="outline-level-2"><a href="#redo-log_1">采用redo log的好处？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k88e6c58b714d"></a></p>
+<h2 id="binlog">binlog</h2>
+<p><code>binlog</code>用于记录数据库执行的写入性操作(不包括查询)信息，以二进制的形式保存在磁盘中。<code>binlog</code>是<code>mysql</code>的逻辑日志，并且由<code>Server</code>层进行记录，使用任何存储引擎的<code>mysql</code>数据库都会记录<code>binlog</code>日志</p>
+<p><strong>使用场景：</strong></p>
+<ol>
+<li><strong>主从复制</strong>：在<code>Master</code>端开启<code>binlog</code>，然后将<code>binlog</code>发送到各个<code>Slave</code>端，<code>Slave</code>端重放<code>binlog</code>从而达到主从数据一致</li>
+<li><strong>数据恢复</strong>：通过使用<code>mysqlbinlog</code>工具来恢复数据</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L314">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8f12bc68b6ee"></a></p>
+<span class="heading-anchor" id="Innodb为什么要用自增id作为主键？"></span><h2 id="innodbid">Innodb为什么要用自增id作为主键？</h2>
+<p>如果表使用自增主键，那么每次插入新的记录，记录就会顺序添加到当前索引节点的后续位置，当一页写满，就会自动开辟一个新的页。
+如果使用非自增主键（如果身份证号或学号等），由于每次插入主键的值近似于随机，因此每次新纪录都要被插到现有索引页得中间某个位置， 频繁的移动、分页操作造成了大量的碎片，得到了不够紧凑的索引结构，后续不得不通过OPTIMIZE TABLE（optimize table）来重建表并优化填充页面。</p>
+<p id="实现逼树索引方式的区别是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L86)，来源许可：Apache-2.0。</p>
+<p><a id="kb8b050c5d427"></a></p>
+<span class="heading-anchor" id="MongoDB 支持哪些存储引擎？"></span><h2 id="mongodb">MongoDB 支持哪些存储引擎？</h2>
+<p>存储引擎（Storage Engine）是数据库的核心组件，负责管理数据在内存和磁盘中的存储方式。</p>
+<p>与 MySQL 一样，MongoDB 采用的也是 <strong>插件式的存储引擎架构</strong> ，支持不同类型的存储引擎，不同的存储引擎解决不同场景的问题。在创建数据库或集合时，可以指定存储引擎。</p>
+<blockquote>
+<p>插件式的存储引擎架构可以实现 Server 层和存储引擎层的解耦，可以支持多种存储引擎，如 MySQL 既可以支持 B-Tree 结构的 InnoDB 存储引擎，还可以支持 LSM 结构的 RocksDB 存储引擎。</p>
+</blockquote>
+<p>在存储引擎刚出来的时候，默认是使用 MMAPV1 存储引擎，MongoDB4.x 版本不再支持 MMAPv1 存储引擎。</p>
+<p>现在主要有下面这两种存储引擎：</p>
+<ul>
+<li><strong>WiredTiger 存储引擎</strong>：自 MongoDB 3.2 以后，默认的存储引擎为 <a href="https://www.mongodb.com/docs/manual/core/wiredtiger/">WiredTiger 存储引擎</a> 。非常适合大多数工作负载，建议用于新部署。WiredTiger 提供文档级并发模型、检查点和数据压缩（后文会介绍到）等功能。</li>
+<li><strong>In-Memory 存储引擎</strong>：<a href="https://www.mongodb.com/docs/manual/core/inmemory/">In-Memory 存储引擎</a>在 MongoDB Enterprise 中可用。它不是将文档存储在磁盘上，而是将它们保留在内存中以获得更可预测的数据延迟。</li>
+</ul>
+<p>此外，MongoDB 3.0 提供了 <strong>可插拔的存储引擎 API</strong> ，允许第三方为 MongoDB 开发存储引擎，这点和 MySQL 也比较类似。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mongodb/mongodb-questions-01.md#L128">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k628faeb27a01"></a></p>
+<span class="heading-anchor" id="MyISAM 和 InnoDB 如何选择？"></span><h2 id="myisam-innodb">MyISAM 和 InnoDB 如何选择？</h2>
+<p>大多数时候我们使用的都是 InnoDB 存储引擎，在某些读密集的情况下，使用 MyISAM 也是合适的。不过，前提是你的项目不介意 MyISAM 不支持事务、崩溃恢复等缺点（可是~我们一般都会介意啊）。</p>
+<p>《MySQL 高性能》上面有一句话这样写到:</p>
+<blockquote>
+<p>不要轻易相信“MyISAM 比 InnoDB 快”之类的经验之谈，这个结论往往不是绝对的。在很多我们已知场景中，InnoDB 的速度都可以让 MyISAM 望尘莫及，尤其是用到了聚簇索引，或者需要访问的数据都可以放入内存的应用。</p>
+</blockquote>
+<p>因此，对于咱们日常开发的业务系统来说，你几乎找不到什么理由使用 MyISAM 了，老老实实用默认的 InnoDB 就可以了！</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L392">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2af88fd80caf"></a></p>
+<span class="heading-anchor" id="MyISAM 和 InnoDB 有什么区别？"></span><h2 id="myisam-innodb_1">MyISAM 和 InnoDB 有什么区别？</h2>
+<p>MySQL 5.5 之前，MyISAM 引擎是 MySQL 的默认存储引擎，可谓是风光一时。</p>
+<p>虽然，MyISAM 的性能还行，各种特性也还不错（比如全文索引、压缩、空间函数等）。但是，MyISAM 不支持事务和行级锁，而且最大的缺陷就是崩溃后无法安全恢复。</p>
+<p>MySQL 5.5 版本之后，InnoDB 是 MySQL 的默认存储引擎。</p>
+<p>言归正传！咱们下面还是来简单对比一下两者：</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L310">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kb194ca146170"></a></p>
+<span class="heading-anchor" id="MySQL 主从复制原理的是啥？"></span><h2 id="mysql">MySQL 主从复制原理的是啥？</h2>
+<p>主库将变更写入 binlog 日志，然后从库连接到主库之后，从库有一个 IO 线程，将主库的 binlog 日志拷贝到自己本地，写入一个 relay 中继日志中。接着从库中有一个 SQL 线程会从中继日志读取 binlog，然后执行 binlog 日志中的内容，也就是在自己本地再次执行一遍 SQL，这样就可以保证自己跟主库的数据是一样的。</p>
+<p><img alt="mysql-master-slave" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/mysql-master-slave.png"/></p>
+<p>这里有一个非常重要的一点，就是从库同步主库数据的过程是串行化的，也就是说主库上并行的操作，在从库上会串行执行。所以这就是一个非常重要的点了，由于从库从主库拷贝日志以及串行执行 SQL 的特点，在高并发场景下，从库的数据一定会比主库慢一些，是<strong>有延时</strong>的。所以经常出现，刚写入主库的数据可能是读不到的，要过几十毫秒，甚至几百毫秒才能读取到。</p>
+<p>而且这里还有另外一个问题，就是如果主库突然宕机，然后恰好数据还没同步到从库，那么有些数据可能在从库上是没有的，有些数据可能就丢失了。</p>
+<p>所以 MySQL 实际上在这一块有两个机制，一个是<strong>半同步复制</strong>，用来解决主库数据丢失问题；一个是<strong>并行复制</strong>，用来解决主从同步延时问题。</p>
+<p>这个所谓<strong>半同步复制</strong>，也叫 <code>semi-sync</code> 复制，指的就是主库写入 binlog 日志之后，就会将<strong>强制</strong>此时立即将数据同步到从库，从库将日志写入自己本地的 relay log 之后，接着会返回一个 ack 给主库，主库接收到<strong>至少一个从库</strong>的 ack 之后才会认为写操作完成了。</p>
+<p>所谓<strong>并行复制</strong>，指的是从库开启多个线程，并行读取 relay log 中不同库的日志，然后<strong>并行重放不同库的日志</strong>，这是库级别的并行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/mysql-read-write-separation.md#L17">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k66dd4b6a7159"></a></p>
+<span class="heading-anchor" id="MySQL 存储引擎架构了解吗？"></span><h2 id="mysql_1">MySQL 存储引擎架构了解吗？</h2>
+<p>MySQL 存储引擎采用的是 <strong>插件式架构</strong> ，支持多种存储引擎，我们甚至可以为不同的数据库表设置不同的存储引擎以适应不同场景的需要。<strong>存储引擎是基于表的，而不是数据库。</strong></p>
+<p>下图展示了具有可插拔存储引擎的 MySQL 架构：</p>
+<p><img alt="MySQL architecture diagram showing connectors, interfaces, pluggable storage engines, the file system with files and logs." loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/mysql-architecture.png"/></p>
+<p>你还可以根据 MySQL 定义的存储引擎实现标准接口来编写一个属于自己的存储引擎。这些非官方提供的存储引擎可以称为第三方存储引擎，区别于官方存储引擎。像目前最常用的 InnoDB 其实刚开始就是一个第三方存储引擎，后面由于过于优秀，其被 Oracle 直接收购了。</p>
+<p>MySQL 官方文档也有介绍到如何编写一个自定义存储引擎，地址：<a href="https://dev.mysql.com/doc/internals/en/custom-engine.html">https://dev.mysql.com/doc/internals/en/custom-engine.html</a> 。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L298">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1a28d54d1a56"></a></p>
+<span class="heading-anchor" id="MySQL 支持哪些存储引擎？默认使用哪个？"></span><h2 id="mysql_2">MySQL 支持哪些存储引擎？默认使用哪个？</h2>
+<p>MySQL 支持多种存储引擎，你可以通过 <code>SHOW ENGINES</code> 命令来查看 MySQL 支持的所有存储引擎。</p>
+<p><img alt="查看 MySQL 提供的所有存储引擎" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/image-20220510105408703.png"/></p>
+<p>从上图我们可以查看出， MySQL 当前默认的存储引擎是 InnoDB。并且，所有的存储引擎中只有 InnoDB 是事务性存储引擎，也就是说只有 InnoDB 支持事务。</p>
+<p>我这里使用的 MySQL 版本是 8.x，不同的 MySQL 版本之间可能会有差别。</p>
+<p>MySQL 5.5.5 之前，MyISAM 是 MySQL 的默认存储引擎。5.5.5 版本之后，InnoDB 是 MySQL 的默认存储引擎。</p>
+<p>你可以通过 <code>SELECT VERSION()</code> 命令查看你的 MySQL 版本。</p>
+<pre><code class="language-bash">mysql&gt; SELECT VERSION();
++-----------+
+| VERSION() |
++-----------+
+| 8.0.27    |
++-----------+
+1 row in set (0.00 sec)
+</code></pre>
+<p>你也可以通过 <code>SHOW VARIABLES LIKE '%storage_engine%'</code> 命令直接查看 MySQL 当前默认的存储引擎。</p>
+<pre><code class="language-bash">mysql&gt; SHOW VARIABLES  LIKE '%storage_engine%';
++---------------------------------+-----------+
+| Variable_name                   | Value     |
++---------------------------------+-----------+
+| default_storage_engine          | InnoDB    |
+| default_tmp_storage_engine      | InnoDB    |
+| disabled_storage_engines        |           |
+| internal_tmp_mem_storage_engine | TempTable |
++---------------------------------+-----------+
+4 rows in set (0.00 sec)
+</code></pre>
+<p>如果你想要深入了解每个存储引擎以及它们之间的区别，推荐你去阅读以下 MySQL 官方文档对应的介绍(面试不会问这么细，了解即可)：</p>
+<ul>
+<li>InnoDB 存储引擎详细介绍：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-storage-engine.html">https://dev.mysql.com/doc/refman/8.0/en/innodb-storage-engine.html</a> 。</li>
+<li>其他存储引擎详细介绍：<a href="https://dev.mysql.com/doc/refman/8.0/en/storage-engines.html">https://dev.mysql.com/doc/refman/8.0/en/storage-engines.html</a> 。</li>
+</ul>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/image-20220510155143458.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L252">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k9fc80f056ef5"></a></p>
+<span class="heading-anchor" id="MySQL中的undo log、redo log和binlog分别解决什么问题？它们之间有什么区别？"></span><h2 id="mysqlundo-logredo-logbinlog">MySQL中的undo log、redo log和binlog分别解决什么问题？它们之间有什么区别？</h2>
+<p><strong>回答：</strong></p>
+<p>三者都叫日志，但层次、内容和用途不同：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>日志</th>
+<th>所属层次</th>
+<th>核心作用</th>
+<th>典型内容与生命周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>undo log</code></td>
+<td>InnoDB</td>
+<td>事务回滚与 MVCC 旧版本读取</td>
+<td>记录足以恢复旧值的信息；版本不再被活跃 ReadView 需要后由 purge 清理</td>
+</tr>
+<tr>
+<td><code>redo log</code></td>
+<td>InnoDB</td>
+<td>WAL 与崩溃恢复，保证已提交修改可重做</td>
+<td>物理/页级的重做信息；循环或归档式管理，写入 log buffer 后按策略刷盘</td>
+</tr>
+<tr>
+<td><code>binlog</code></td>
+<td>MySQL Server 层</td>
+<td>复制、基于时间点恢复、审计/CDC</td>
+<td>记录逻辑变更事件，按文件追加和轮转，支持 statement/row/mixed 等格式</td>
+</tr>
+</tbody>
+</table></div>
+<p>更新一行时，InnoDB 会生成 undo 以保留旧版本，在 buffer pool 修改数据页并产生 redo；数据页可以稍后刷盘，因为 redo 先行持久化后能在崩溃时重放。事务提交还会写 binlog，使副本和增量恢复能够重现逻辑变更。</p>
+<p>需要纠正常见简化：原子性不能只归结为 undo，持久性也不能只看 redo。事务正确性由 undo、redo、锁/MVCC、刷盘策略、约束和恢复协议共同实现。<code>innodb_flush_log_at_trx_commit</code> 与 <code>sync_binlog</code> 的配置会影响掉电时的持久性边界。</p>
+<p>redo 与 binlog 的差异最关键：redo 是 InnoDB 自己的恢复日志，关注数据页如何恢复；binlog 是 Server 层的逻辑变更序列，关注如何复制或重放事务。为了避免二者在崩溃后一个有事务、另一个没有，MySQL 使用内部两阶段提交协调它们。</p>
+<p><a id="insta360-agent-20260809-q19"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BD%B1%E7%9F%B3%E5%88%9B%E6%96%B0%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L371">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k17f5c5f4620c"></a></p>
+<span class="heading-anchor" id="MySQL常见的存储引擎InnoDB、MyISAM的区别？适用场景分别是？"></span><h2 id="mysqlinnodbmyisam">MySQL常见的存储引擎InnoDB、MyISAM的区别？适用场景分别是？</h2>
+<p><strong>区别：</strong></p>
+<p>1）事务：MyISAM不支持，InnoDB支持</p>
+<p>2）锁级别： MyISAM 表级锁，InnoDB 行级锁及外键约束</p>
+<p>3）MyISAM存储表的总行数；InnoDB不存储总行数；</p>
+<p>4）MyISAM采用非聚集索引，B+树叶子存储指向数据文件的指针。InnoDB主键索引采用聚集索引，B+树叶子存储数据</p>
+<p><strong>适用场景</strong>：</p>
+<p>MyISAM适合： 插入不频繁，查询非常频繁，如果执行大量的SELECT，MyISAM是更好的选择， 没有事务。</p>
+<p>InnoDB适合： 可靠性要求比较高，或者要求事务； 表更新和查询都相当的频繁， 大量的INSERT或UPDATE</p>
+<p id="事务四大特性原子性一致性隔离性持久性">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-02-MySQL.md#L212)，来源许可：Apache-2.0。</p>
+<p><a id="k7ade8bc0d5b4"></a></p>
+<span class="heading-anchor" id="MySQL的两种存储引擎 InnoDB 和 MyISAM 的区别？"></span><h2 id="mysql-innodb-myisam">MySQL的两种存储引擎 InnoDB 和 MyISAM 的区别？</h2>
+<ul>
+<li>InnoDB<strong>支持事务</strong>，可以进行Commit和Rollback；</li>
+<li>MyISAM 只支持表级锁，而 InnoDB 还<strong>支持行级锁</strong>，提高了并发操作的性能；</li>
+<li>InnoDB <strong>支持外键</strong>；</li>
+<li>MyISAM <strong>崩溃</strong>后发生损坏的概率比 InnoDB 高很多，而且<strong>恢复的速度</strong>也更慢；</li>
+<li>MyISAM 支持<strong>压缩</strong>表和空间数据索引，InnoDB需要更多的内存和存储；</li>
+<li>InnoDB 支持在线<strong>热备份</strong></li>
+</ul>
+<p>应用场景</p>
+<ul>
+<li><strong>MyISAM</strong> 管理非事务表。它提供高速存储和检索（MyISAM强调的是性能，每次查询具有原子性，其执行速度比InnoDB更快），以及全文搜索能力。如果表比较小，或者是只读数据（有大量的SELECT），还是可以使用MyISAM；</li>
+<li><strong>InnoDB</strong> 支持事务，并发情况下有很好的性能，基本可以替代MyISAM</li>
+</ul>
+<p>热备份和冷备份</p>
+<ul>
+<li>热备份：在数据库运行的情况下备份的方法。优点：可按表或用户备份，备份时数据库仍可使用，可恢复至任一时间点。但是不能出错</li>
+<li>冷备份：数据库正常关闭后，将关键性文件复制到另一位置的备份方式。优点：操作简单快速，恢复简单</li>
+</ul>
+<p>更详细的可以参考：<a href="https://imageslr.github.io/2020/db-engine.html">MySQL 数据库的存储引擎与适用场景 - Images</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L308">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kae972da24a1f"></a></p>
+<span class="heading-anchor" id="MySQL的引擎了解吗？默认的是哪个？InnoDB 和 myISAM 的区别？"></span><h2 id="mysqlinnodb-myisam">MySQL的引擎了解吗？默认的是哪个？InnoDB 和 myISAM 的区别？</h2>
+<p><code>myISAM</code>:  支持表锁，适合读密集的场景，不支持外键，不支持事务，索引与数据在不同的文件，非聚簇索引</p>
+<p><code>InnoDB</code>:支持行、表锁，默认为行锁，适合并发场景，支持外键，支持事务，索引与数据同一文件，聚簇索引</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L211">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k325ae406db0b"></a></p>
+<span class="heading-anchor" id="redo log"></span><h2 id="redo-log">redo log</h2>
+<p><code>redo log</code>包括两部分：一个是内存中的日志缓冲(<code>redo log buffer</code>)，另一个是磁盘上的日志文件(<code>redo log file</code>)。<code>mysql</code>每执行一条<code>DML</code>语句，先将记录写入<code>redo log buffer</code>，后续某个时间点再一次性将多个操作记录写到<code>redo log file</code>。这种<strong>先写日志，再写磁盘</strong>的技术就是<code>MySQL</code>里经常说到的<code>WAL(Write-Ahead Logging)</code> 技术</p>
+<p><strong>区别</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>redo log</th>
+<th>binlog</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文件大小</td>
+<td><code>redo log</code>的大小是固定的。</td>
+<td><code>binlog</code>可通过配置参数<code>max_binlog_size</code>设置每个<code>binlog</code>文件的大小。</td>
+</tr>
+<tr>
+<td>实现方式</td>
+<td><code>redo log</code>是<code>InnoDB</code>引擎层实现的，并不是所有引擎都有。</td>
+<td><code>binlog</code>是<code>Server</code>层实现的，所有引擎都可以使用 <code>binlog</code>日志</td>
+</tr>
+<tr>
+<td>记录方式</td>
+<td>redo log 采用循环写的方式记录，当写到结尾时，会回到开头循环写日志。</td>
+<td>binlog 通过追加的方式记录，当文件大小大于给定值后，后续的日志会记录到新的文件上</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td><code>redo log</code>适用于崩溃恢复(crash-safe)</td>
+<td><code>binlog</code>适用于主从复制和数据恢复</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L323">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k140229c9869d"></a></p>
+<span class="heading-anchor" id="undo log"></span><h2 id="undo-log">undo log</h2>
+<p><code>undo log</code> 主要有两个作用：<code>回滚</code>和<code>多版本控制(MVCC)</code> 。在数据修改的时候，不仅记录了 <code>redo log</code>，还记录 <code>undo log</code>，如果因为某些原因导致事务失败或回滚了，可以用 <code>undo log</code> 进行回滚（保证了原子性） 。<code>undo log</code> 主要存储的是<code>逻辑日志</code>，用来回滚的<code>相反操作日志</code>。比如我们要 <code>insert</code> 一条数据了，那 <code>undo log</code> 会记录的一条对应的 <code>delete</code> 日志。我们要 <code>update</code> 一条记录时，它会记录一条对应相反的 <code>update</code> 记录。因为 <code>undo log</code> 存储着修改之前的数据，相当于一个前版本，<code>`MVCC</code> 实现的是读写不阻塞，读的时候只要返回前一个版本的数据就行了</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L336">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k534024120a67"></a></p>
+<span class="heading-anchor" id="WAL、binlog、checkpoint和恢复机制为什么重要？"></span><h2 id="walbinlogcheckpoint">WAL、binlog、checkpoint和恢复机制为什么重要？</h2>
+<p>数据库恢复机制解决的问题是：系统宕机后，哪些事务应该保留，哪些事务应该回滚，如何尽快恢复到一致状态。</p>
+<p>核心概念：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+<th>价值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WAL</td>
+<td>Write-Ahead Logging，先写日志再写数据页</td>
+<td>保证崩溃恢复能力</td>
+</tr>
+<tr>
+<td>binlog</td>
+<td>记录数据库变更逻辑或语句</td>
+<td>主从复制、增量恢复、审计</td>
+</tr>
+<tr>
+<td>redo log</td>
+<td>重做日志</td>
+<td>已提交事务在崩溃后可以重做</td>
+</tr>
+<tr>
+<td>undo log</td>
+<td>回滚日志</td>
+<td>未提交事务可以回滚，支持MVCC</td>
+</tr>
+<tr>
+<td>checkpoint</td>
+<td>将内存中的脏页逐步刷盘并记录恢复点</td>
+<td>缩短崩溃恢复时间</td>
+</tr>
+</tbody>
+</table></div>
+<p>在AIGC和Agent系统中，这些机制的意义非常直接：</p>
+<ol>
+<li>任务状态不能因为服务重启而丢失。</li>
+<li>工具调用审计日志需要可追溯。</li>
+<li>用户扣费、配额、token用量必须能恢复。</li>
+<li>RAG知识库索引构建过程需要支持断点恢复。</li>
+<li>线上误操作需要通过备份和日志恢复到指定时间点。</li>
+</ol>
+<p>面试金句：数据库可靠性不是“数据写进表里”这么简单，而是通过日志、刷盘、快照、复制和恢复演练，确保崩溃后仍能回到一致状态。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L267">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb6bc891e1f3a"></a></p>
+<span class="heading-anchor" id="为什么要主从复制？"></span><h2 id="_1_14">为什么要主从复制？</h2>
+<ul>
+<li>读写分离：主服务器负责写，从服务器负责读</li>
+<li>缓解了锁的争用，即使主服务器中加了锁，依然可以进行读操作；</li>
+<li>从服务器可以使用 MyISAM，提升查询性能以及节约系统开销；</li>
+<li>增加冗余，提高可用性</li>
+<li>数据实时备份，当系统中某个节点发生故障时，可以方便的故障切换</li>
+<li>降低单个服务器磁盘I/O访问的频率，提高单个机器的I/O性能</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L398">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k13f36027438f"></a></p>
+<span class="heading-anchor" id="为什么要分库分表？（设计高并发系统的时候，数据库层面该如何设计？）"></span><h2 id="_1_15">为什么要分库分表？（设计高并发系统的时候，数据库层面该如何设计？）</h2>
+<p>说白了，分库分表是两回事儿，大家可别搞混了，可能是光分库不分表，也可能是光分表不分库，都有可能。</p>
+<p>我先给大家抛出来一个场景。</p>
+<p>假如我们现在是一个小创业公司（或者是一个 BAT 公司刚兴起的一个新部门），现在注册用户就 20 万，每天活跃用户就 1 万，每天单表数据量就 1000，然后高峰期每秒钟并发请求最多就 10 个。我的天，就这种系统，随便找一个有几年工作经验的，然后带几个刚培训出来的，随便干干都可以。</p>
+<p>结果没想到我们运气居然这么好，碰上个 CEO 带着我们走上了康庄大道，业务发展迅猛，过了几个月，注册用户数达到了 2000 万！每天活跃用户数 100 万！每天单表数据量 10 万条！高峰期每秒最大请求达到 1000！同时公司还顺带着融资了两轮，进账了几个亿人民币啊！公司估值达到了惊人的几亿美金！这是小独角兽的节奏！</p>
+<p>好吧，没事，现在大家感觉压力已经有点大了，为啥呢？因为每天多 10 万条数据，一个月就多 300 万条数据，现在咱们单表已经几百万数据了，马上就破千万了。但是勉强还能撑着。高峰期请求现在是 1000，咱们线上部署了几台机器，负载均衡搞了一下，数据库撑 1000QPS 也还凑合。但是大家现在开始感觉有点担心了，接下来咋整呢......</p>
+<p>再接下来几个月，我的天，CEO 太牛逼了，公司用户数已经达到 1 亿，公司继续融资几十亿人民币啊！公司估值达到了惊人的几十亿美金，成为了国内今年最牛逼的明星创业公司！天，我们太幸运了。</p>
+<p>但是我们同时也是不幸的，因为此时每天活跃用户数上千万，每天单表新增数据多达 50 万，目前一个表总数据量都已经达到了两三千万了！扛不住啊！数据库磁盘容量不断消耗掉！高峰期并发达到惊人的 <code>5000~8000</code> ！别开玩笑了，哥。我跟你保证，你的系统支撑不到现在，已经挂掉了！</p>
+<p>好吧，所以你看到这里差不多就理解分库分表是怎么回事儿了，实际上这是跟着你的公司业务发展走的，你公司业务发展越好，用户就越多，数据量越大，请求量越大，那你单个数据库一定扛不住。</p>
+<span class="heading-anchor" id="分表"></span><h3 id="_2_1">分表</h3>
+<p>比如你单表都几千万数据了，你确定你能扛住么？绝对不行，<strong>单表数据量太大</strong>，会极大影响你的 sql <strong>执行的性能</strong>，到了后面你的 sql 可能就跑的很慢了。一般来说，就以我的经验来看，单表到几百万的时候，性能就会相对差一些了，你就得分表了。</p>
+<p>分表是啥意思？就是把一个表的数据放到多个表中，然后查询的时候你就查一个表。比如按照用户 id 来分表，将一个用户的数据就放在一个表中。然后操作的时候你对一个用户就操作那个表就好了。这样可以控制每个表的数据量在可控的范围内，比如每个表就固定在 200 万以内。</p>
+<span class="heading-anchor" id="分库"></span><h3 id="_3">分库</h3>
+<p>分库是啥意思？就是你一个库一般我们经验而言，最多支撑到并发 2000，一定要扩容了，而且一个健康的单库并发值你最好保持在每秒 1000 左右，不要太大。那么你可以将一个库的数据拆分到多个库中，访问的时候就访问一个库好了。</p>
+<p>这就是所谓的<strong>分库分表</strong>，为啥要分库分表？你明白了吧。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>分库分表前</th>
+<th>分库分表后</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>并发支撑情况</td>
+<td>MySQL 单机部署，扛不住高并发</td>
+<td>MySQL 从单机到多机，能承受的并发增加了多倍</td>
+</tr>
+<tr>
+<td>磁盘使用情况</td>
+<td>MySQL 单机磁盘容量几乎撑满</td>
+<td>拆分为多个库，数据库服务器磁盘使用率大大降低</td>
+</tr>
+<tr>
+<td>SQL 执行性能</td>
+<td>单表数据量太大，SQL 越跑越慢</td>
+<td>单表数据量减少，SQL 执行效率明显提升</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/database-shard.md#L13">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k184bb4ff36fa"></a></p>
+<span class="heading-anchor" id="为什么要分库分表？：面试官心理分析"></span><h2 id="_1_16">为什么要分库分表？：面试官心理分析</h2>
+<p>其实这块肯定是扯到<strong>高并发</strong>了，因为分库分表一定是为了<strong>支撑高并发、数据量大</strong>两个问题的。而且现在说实话，尤其是互联网类的公司面试，基本上都会来这么一下，分库分表如此普遍的技术问题，不问实在是不行，而如果你不知道那也实在是说不过去！</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/database-shard.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k97a1b7f98b2a"></a></p>
+<span class="heading-anchor" id="为什么要用复制集群？"></span><h2 id="_1_17">为什么要用复制集群？</h2>
+<ul>
+<li><strong>实现 failover</strong>：提供自动故障恢复的功能，主节点发生故障时，自动从从节点中选举出一个新的主节点，确保集群的正常使用，这对于客户端来说是无感知的。</li>
+<li><strong>实现读写分离</strong>：我们可以设置从节点上可以读取数据，主节点负责写入数据，这样的话就实现了读写分离，减轻了主节点读写压力过大的问题。MongoDB 4.0 之前版本如果主库压力不大,不建议读写分离，因为写会阻塞读，除非业务对响应时间不是非常关注以及读取历史数据接受一定时间延迟。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mongodb/mongodb-questions-02.md#L157">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k38222b83ec7b"></a></p>
+<span class="heading-anchor" id="什么是复制集群？"></span><h2 id="_1_18">什么是复制集群？</h2>
+<p>MongoDB 的复制集群又称为副本集群，是一组维护相同数据集合的 mongod 进程。</p>
+<p>客户端连接到整个 Mongodb 复制集群，主节点机负责整个复制集群的写，从节点可以进行读操作，但默认还是主节点负责整个复制集群的读。主节点发生故障时，自动从从节点中选举出一个新的主节点，确保集群的正常使用，这对于客户端来说是无感知的。</p>
+<p>通常来说，一个复制集群包含 1 个主节点（Primary），多个从节点（Secondary）以及零个或 1 个仲裁节点（Arbiter）。</p>
+<ul>
+<li><strong>主节点</strong>：整个集群的写操作入口，接收所有的写操作，并将集合所有的变化记录到操作日志中，即 oplog。主节点挂掉之后会自动选出新的主节点。</li>
+<li><strong>从节点</strong>：从主节点同步数据，在主节点挂掉之后选举新节点。不过，从节点可以配置成 0 优先级，阻止它在选举中成为主节点。</li>
+<li><strong>仲裁节点</strong>：这个是为了节约资源或者多机房容灾用，只负责主节点选举时投票不存数据，保证能有节点获得多数赞成票。</li>
+</ul>
+<p>下图是一个典型的三成员副本集群：</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mongodb/replica-set-read-write-operations-primary.png"/></p>
+<p>主节点与备节点之间是通过 <strong>oplog（操作日志）</strong> 来同步数据的。oplog 是 local 库下的一个特殊的 <strong>上限集合(Capped Collection)</strong> ，用来保存写操作所产生的增量日志，类似于 MySQL 中 的 Binlog。</p>
+<blockquote>
+<p>上限集合类似于定长的循环队列，数据顺序追加到集合的尾部，当集合空间达到上限时，它会覆盖集合中最旧的文档。上限集合的数据将会被顺序写入到磁盘的固定空间内，所以，I/O 速度非常快，如果不建立索引，性能更好。</p>
+</blockquote>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mongodb/replica-set-primary-with-two-secondaries.png"/></p>
+<p>当主节点上的一个写操作完成后，会向 oplog 集合写入一条对应的日志，而从节点则通过这个 oplog 不断拉取到新的日志，在本地进行回放以达到数据同步的目的。</p>
+<p>副本集最多有一个主节点。 如果当前主节点不可用，一个选举会抉择出新的主节点。MongoDB 的节点选举规则能够保证在 Primary 挂掉之后选取的新节点一定是集群中数据最全的一个。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mongodb/mongodb-questions-02.md#L131">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k02e0d0583306"></a></p>
+<span class="heading-anchor" id="分库分表如何平滑过渡？"></span><h2 id="_1_19">分库分表如何平滑过渡？</h2>
+<span class="heading-anchor" id="面试题"></span><h3 id="_2_5">面试题</h3>
+<p>现在有一个未分库分表的系统，未来要分库分表，如何设计才可以让系统从未分库分表<strong>动态切换</strong>到分库分表上？</p>
+<span class="heading-anchor" id="面试官心理分析"></span><h3 id="_3_1">面试官心理分析</h3>
+<p>你看看，你现在已经明白为啥要分库分表了，你也知道常用的分库分表中间件了，你也设计好你们如何分库分表的方案了（水平拆分、垂直拆分、分表），那问题来了，你接下来该怎么把你那个单库单表的系统给迁移到分库分表上去？</p>
+<p>所以这都是一环扣一环的，就是看你有没有全流程经历过这个过程。</p>
+<span class="heading-anchor" id="面试题剖析"></span><h3 id="_4_1">面试题剖析</h3>
+<p>这个其实从 low 到高大上有好几种方案，我们都玩儿过，我都给你说一下。</p>
+<span class="heading-anchor" id="停机迁移方案"></span><h3 id="_5">停机迁移方案</h3>
+<p>我先给你说一个最 low 的方案，就是很简单，大家伙儿凌晨 12 点开始运维，网站或者 app 挂个公告，说 0 点到早上 6 点进行运维，无法访问。</p>
+<p>接着到 0 点停机，系统停掉，没有流量写入了，此时老的单库单表数据库静止了。然后你之前得写好一个<strong>导数的一次性工具</strong>，此时直接跑起来，然后将单库单表的数据哗哗哗读出来，写到分库分表里面去。</p>
+<p>导数完了之后，就 ok 了，修改系统的数据库连接配置啥的，包括可能代码和 SQL 也许有修改，那你就用最新的代码，然后直接启动连到新的分库分表上去。</p>
+<p>验证一下，ok 了，完美，大家伸个懒腰，看看看凌晨 4 点钟的北京夜景，打个滴滴回家吧。</p>
+<p>但是这个方案比较 low，谁都能干，我们来看看高大上一点的方案。</p>
+<p><img alt="database-shard-method-1" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/database-shard-method-1.png"/></p>
+<span class="heading-anchor" id="双写迁移方案"></span><h3 id="_6">双写迁移方案</h3>
+<p>这个是我们常用的一种迁移方案，比较靠谱一些，不用停机，不用看北京凌晨 4 点的风景。</p>
+<p>简单来说，就是在线上系统里面，之前所有写库的地方，增删改操作，<strong>除了对老库增删改，都加上对新库的增删改</strong>，这就是所谓的<strong>双写</strong>，同时写俩库，老库和新库。</p>
+<p>然后<strong>系统部署</strong>之后，新库数据差太远，用之前说的导数工具，跑起来读老库数据写新库，写的时候要根据 gmt_modified 这类字段判断这条数据最后修改的时间，除非是读出来的数据在新库里没有，或者是比新库的数据新才会写。简单来说，就是不允许用老数据覆盖新数据。</p>
+<p>导完一轮之后，有可能数据还是存在不一致，那么就程序自动做一轮校验，比对新老库每个表的每条数据，接着如果有不一样的，就针对那些不一样的，从老库读数据再次写。反复循环，直到两个库每个表的数据都完全一致为止。</p>
+<p>接着当数据完全一致了，就 ok 了，基于仅仅使用分库分表的最新代码，重新部署一次，不就仅仅基于分库分表在操作了么，还没有几个小时的停机时间，很稳。所以现在基本玩儿数据迁移之类的，都是这么干的。</p>
+<p><img alt="database-shard-method-2" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/database-shard-method-2.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/database-shard-method.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k031a966163c8"></a></p>
+<span class="heading-anchor" id="分库分表如何平滑过渡？：面试官心理分析"></span><h2 id="_1_20">分库分表如何平滑过渡？：面试官心理分析</h2>
+<p>所以这都是一环扣一环的，就是看你有没有全流程经历过这个过程。</p>
+<p><strong>相关解释：</strong> <a href="n-a8164c1f8779.html#k02e0d0583306">分库分表如何平滑过渡？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/database-shard-method.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k60af792ae8a8"></a></p>
+<span class="heading-anchor" id="挖掘数据库交易日志"></span><h2 id="_1_21">挖掘数据库交易日志</h2>
+<p>另外一种不需要 2PC 而获得线程或者进程发布事件原子性的方式就是挖掘数据库交易或者提交日志。应用更新数据库，在数据库交易日志中产生变化，交易日志挖掘进程或者线程读这些交易日志，将日志发布给消息代理。如下图所见：</p>
+<p><img alt="No-2PC-required" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/micro-services/images/No-2PC-required.png"/></p>
+<p>此方法的例子如 LinkedIn Databus 项目，Databus 挖掘 Oracle 交易日志，根据变化发布事件，LinkedIn 使用 Databus 来保证系统内各记录之间的一致性。</p>
+<p>另外的例子如：AWS 的 streams mechanism in AWS DynamoDB，是一个可管理的 NoSQL 数据库，一个 DynamoDB 流是由过去 24 小时对数据库表基于时序的变化（创建，更新和删除操作），应用可以从流中读取这些变化，然后以事件方式发布这些变化。</p>
+<p>交易日志挖掘也是优缺点并存。优点是确保每次更新发布事件不依赖于 2PC。交易日志挖掘可以通过将发布事件和应用业务逻辑分离开得到简化；而主要缺点在于交易日志对不同数据库有不同格式，甚至不同数据库版本也有不同格式；而且很难从底层交易日志更新记录转换为高层业务事件。</p>
+<p>交易日志挖掘方法通过应用直接更新数据库而不需要 2PC 介入。下面我们再看一种完全不同的方法：不需要更新只依赖事件的方法。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/micro-services/event-driven-data-management-for-microservices.md#L78">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka91e07d11144"></a></p>
+<span class="heading-anchor" id="数据库为什么要进行分库和分表呢？都放在一个库或者一张表中不可以吗？"></span><h2 id="_1_22">数据库为什么要进行分库和分表呢？都放在一个库或者一张表中不可以吗？</h2>
+<p>分库与分表的目的在于，减小数据库的单库单表负担，提高查询性能，缩短查询时间。</p>
+<p><strong>通过分表</strong>，可以减少数据库的单表负担，将压力分散到不同的表上，同时因为不同的表上的数据量少了，起到提高查询性能，缩短查询时间的作用，此外，可以很大的缓解表锁的问题。</p>
+<p>分表策略可以归纳为垂直拆分和水平拆分：</p>
+<p>1、<strong>水平分表</strong>：取模分表就属于随机分表，而时间维度分表则属于连续分表。
+如何设计好垂直拆分，我的建议：将不常用的字段单独拆分到另外一张扩展表. 将大文本的字段单独拆分到另外一张扩展表, 将不经常修改的字段放在同一张表中，将经常改变的字段放在另一张表中。
+对于海量用户场景，可以考虑取模分表，数据相对比较均匀，不容易出现热点和并发访问的瓶颈。</p>
+<p>2、<strong>库内分表</strong>，仅仅是解决了单表数据过大的问题，但并没有把单表的数据分散到不同的物理机上，因此并不能减轻 MySQL 服务器的压力，仍然存在同一个物理机上的资源竞争和瓶颈，包括 CPU、内存、磁盘 IO、网络带宽等。</p>
+<p><strong>补充</strong>：分库与分表带来的分布式困境与应对之策有哪些？</p>
+<p>数据迁移与扩容问题----一般做法是通过程序先读出数据，然后按照指定的分表策略再将数据写入到各个分表中。
+分页与排序问题----需要在不同的分表中将数据进行排序并返回，并将不同分表返回的结果集进行汇总和再次排序，最后再返回给用户。</p>
+<p id="不可重复读和幻读区别是什么可以举个例子吗">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L352)，来源许可：Apache-2.0。</p>
+<p><a id="k2da03141c973"></a></p>
+<span class="heading-anchor" id="数据库引擎InnoDB与MyISAM的区别"></span><h2 id="innodbmyisam">数据库引擎InnoDB与MyISAM的区别</h2>
+<span class="heading-anchor" id="InnoDB"></span><h3 id="innodb"><strong>InnoDB</strong></h3>
+<ul>
+<li>是 MySQL 默认的事务型存储引擎，只有在需要它不支持的特性时，才考虑使用其它存储引擎。</li>
+<li>实现了四个标准的隔离级别，默认级别是可重复读(REPEATABLE READ)。在可重复读隔离级别下，通过多版本并发控制(MVCC)+ 间隙锁(Next-Key Locking)防止幻影读。</li>
+<li>主索引是聚簇索引，在索引中保存了数据，从而避免直接读取磁盘，因此对查询性能有很大的提升。</li>
+<li>内部做了很多优化，包括从磁盘读取数据时采用的可预测性读、能够加快读操作并且自动创建的自适应哈希索引、能够加速插入操作的插入缓冲区等。</li>
+<li>支持真正的在线热备份。其它存储引擎不支持在线热备份，要获取一致性视图需要停止对所有表的写入，而在读写混合场景中，停止写入可能也意味着停止读取。</li>
+</ul>
+<span class="heading-anchor" id="MyISAM"></span><h3 id="myisam"><strong>MyISAM</strong></h3>
+<ul>
+<li>设计简单，数据以紧密格式存储。对于只读数据，或者表比较小、可以容忍修复操作，则依然可以使用它。</li>
+<li>提供了大量的特性，包括压缩表、空间数据索引等。</li>
+<li>不支持事务。</li>
+<li>不支持行级锁，只能对整张表加锁，读取时会对需要读到的所有表加共享锁，写入时则对表加排它锁。但在表有读取操作的同时，也可以往表中插入新的记录，这被称为并发插入(CONCURRENT INSERT)。</li>
+</ul>
+<span class="heading-anchor" id="总结"></span><h3 id="_1_23"><strong>总结</strong></h3>
+<ul>
+<li>事务: InnoDB 是事务型的，可以使用 <code>Commit</code> 和 <code>Rollback</code> 语句。</li>
+<li>并发: MyISAM 只支持表级锁，而 InnoDB 还支持行级锁。</li>
+<li>外键: InnoDB 支持外键。</li>
+<li>备份: InnoDB 支持在线热备份。</li>
+<li>崩溃恢复: MyISAM 崩溃后发生损坏的概率比 InnoDB 高很多，而且恢复的速度也更慢。</li>
+<li>其它特性: MyISAM 支持压缩表和空间数据索引。</li>
+</ul>
+<p id="数据库并发事务会带来哪些问题">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L264)，来源许可：Apache-2.0。</p>
+<p><a id="k73d3a59837fa"></a></p>
+<span class="heading-anchor" id="数据库恢复"></span><h2 id="_1_24">数据库恢复</h2>
+<ul>
+<li>事务：是用户定义的一个数据库操作序列，这些操作要么全做，要么全不做，是一个不可分割的工作单位。</li>
+<li>事务的 ACID 特性：原子性、一致性、隔离性、持续性。</li>
+<li>恢复的实现技术：建立冗余数据 -&gt; 利用冗余数据实施数据库恢复。</li>
+<li>建立冗余数据常用技术：数据转储（动态海量转储、动态增量转储、静态海量转储、静态增量转储）、登记日志文件。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/huihut/interview/blob/7a7166804a0ffc8f156e906bf4c1a94bb9f6a94b/README.md#L2672">huihut/interview</a>，来源许可：CC-BY-NC-SA-4.0。</li>
+</ul>
+<p><a id="k1bcd0397f7ea"></a></p>
+<span class="heading-anchor" id="数据库高可用、备份恢复和数据一致性在AI服务中如何理解？"></span><h2 id="ai">数据库高可用、备份恢复和数据一致性在AI服务中如何理解？</h2>
+<p>AI服务的数据故障通常比模型故障更难恢复。模型可以重新加载，状态、任务、日志、用户数据一旦丢失，影响会更大。</p>
+<p>高可用常见手段：</p>
+<ol>
+<li>主从复制：读写分离，提高读取能力和容灾能力。</li>
+<li>自动故障转移：主库故障时切换到从库。</li>
+<li>分库分表：应对超大规模数据和高并发写入。</li>
+<li>多副本存储：避免单点磁盘或节点故障。</li>
+</ol>
+<p>备份恢复常见手段：</p>
+<ol>
+<li>全量备份：定期备份完整数据。</li>
+<li>增量备份：只备份变化部分。</li>
+<li>日志恢复：通过binlog/WAL恢复到某个时间点。</li>
+<li>恢复演练：定期验证备份是否真的可用。</li>
+</ol>
+<p>在Agent系统中，一致性尤其重要。例如任务状态、扣费记录、工具调用审计不能只写一半。对于生成结果文件，通常使用“数据库记录 + 对象存储文件”的组合，需要设计补偿机制：文件上传成功但数据库写入失败，或数据库写入成功但文件上传失败，都要能清理或重试。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L205">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd267b167371a"></a></p>
+<span class="heading-anchor" id="用过哪些分库分表中间件？不同的分库分表中间件都有什么优点和缺点？"></span><h2 id="_1_26">用过哪些分库分表中间件？不同的分库分表中间件都有什么优点和缺点？</h2>
+<p>这个其实就是看看你了解哪些分库分表的中间件，各个中间件的优缺点是啥？然后你用过哪些分库分表的中间件。</p>
+<p>比较常见的包括：</p>
+<ul>
+<li>Cobar</li>
+<li>TDDL</li>
+<li>Atlas</li>
+<li>Sharding-jdbc</li>
+<li>Mycat</li>
+</ul>
+<span class="heading-anchor" id="Cobar"></span><h3 id="cobar">Cobar</h3>
+<p>阿里 b2b 团队开发和开源的，属于 proxy 层方案，就是介于应用服务器和数据库服务器之间。应用程序通过 JDBC 驱动访问 Cobar 集群，Cobar 根据 SQL 和分库规则对 SQL 做分解，然后分发到 MySQL 集群不同的数据库实例上执行。早些年还可以用，但是最近几年都没更新了，基本没啥人用，差不多算是被抛弃的状态吧。而且不支持读写分离、存储过程、跨库 join 和分页等操作。</p>
+<span class="heading-anchor" id="TDDL"></span><h3 id="tddl">TDDL</h3>
+<p>淘宝团队开发的，属于 client 层方案。支持基本的 crud 语法和读写分离，但不支持 join、多表查询等语法。目前使用的也不多，因为还依赖淘宝的 diamond 配置管理系统。</p>
+<span class="heading-anchor" id="Atlas"></span><h3 id="atlas">Atlas</h3>
+<p>360 开源的，属于 proxy 层方案，以前是有一些公司在用的，但是确实有一个很大的问题就是社区最新的维护都在 5 年前了。所以，现在用的公司基本也很少了。</p>
+<span class="heading-anchor" id="Sharding-jdbc"></span><h3 id="sharding-jdbc">Sharding-jdbc</h3>
+<p>当当开源的，属于 client 层方案，是<a href="https://shardingsphere.apache.org"> <code>ShardingSphere</code> </a>的 client 层方案，<a href="https://shardingsphere.apache.org"> <code>ShardingSphere</code> </a>还提供 proxy 层的方案 Sharding-Proxy。确实之前用的还比较多一些，因为 SQL 语法支持也比较多，没有太多限制，而且截至 2019.4，已经推出到了 <code>4.0.0-RC1</code> 版本，支持分库分表、读写分离、分布式 id 生成、柔性事务（最大努力送达型事务、TCC 事务）。而且确实之前使用的公司会比较多一些（这个在官网有登记使用的公司，可以看到从 2017 年一直到现在，是有不少公司在用的），目前社区也还一直在开发和维护，还算是比较活跃，个人认为算是一个现在也<strong>可以选择的方案</strong>。</p>
+<span class="heading-anchor" id="Mycat"></span><h3 id="mycat">Mycat</h3>
+<p>基于 Cobar 改造的，属于 proxy 层方案，支持的功能非常完善，而且目前应该是非常火的而且不断流行的数据库中间件，社区很活跃，也有一些公司开始在用了。但是确实相比于 Sharding jdbc 来说，年轻一些，经历的锤炼少一些。</p>
+<span class="heading-anchor" id="总结"></span><h3 id="_2_9">总结</h3>
+<p>综上，现在其实建议考量的，就是 Sharding-jdbc 和 Mycat，这两个都可以去考虑使用。</p>
+<p>Sharding-jdbc 这种 client 层方案的<strong>优点在于不用部署，运维成本低，不需要代理层的二次转发请求，性能很高</strong>，但是如果遇到升级啥的需要各个系统都重新升级版本再发布，各个系统都需要<strong>耦合</strong> Sharding-jdbc 的依赖；</p>
+<p>Mycat 这种 proxy 层方案的<strong>缺点在于需要部署</strong>，自己运维一套中间件，运维成本高，但是<strong>好处在于对于各个项目是透明的</strong>，如果遇到升级之类的都是自己中间件那里搞就行了。</p>
+<p>通常来说，这两个方案其实都可以选用，但是我个人建议中小型公司选用 Sharding-jdbc，client 层方案轻便，而且维护成本低，不需要额外增派人手，而且中小型公司系统复杂度会低一些，项目也没那么多；但是中大型公司最好还是选用 Mycat 这类 proxy 层方案，因为可能大公司系统和项目非常多，团队很大，人员充足，那么最好是专门弄个人来研究和维护 Mycat，然后大量项目直接透明使用即可。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/database-shard.md#L49">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k151db3a84c49"></a></p>
+<span class="heading-anchor" id="采用redo log的好处？"></span><h2 id="redo-log_1">采用redo log的好处？</h2>
+<p>其实好处就是将<strong>redo log</strong>进行刷盘比对数据页刷盘效率高，具体表现如下：</p>
+<ul>
+<li><strong>redo log</strong>体积小，毕竟只记录了哪一页修改了啥，因此体积小，刷盘快。</li>
+<li><strong>redo log</strong>是一直往末尾进行追加，属于顺序IO。效率显然比随机IO来的快。</li>
+</ul>
+<p id="数据库高并发是我们经常会遇到的你有什么好的解决方案吗">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-03-MySQL.md#L313)，来源许可：Apache-2.0。</p></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-a72ad4495cae.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>事务、锁与MVCC</strong></a><a class="page-next" href="n-0a000ef9c3ed.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>数据库综合问答</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#binlog">binlog</a></li><li class="outline-level-2"><a href="#innodbid">Innodb为什么要用自增id作为主键？</a></li><li class="outline-level-2"><a href="#mongodb">MongoDB 支持哪些存储引擎？</a></li><li class="outline-level-2"><a href="#myisam-innodb">MyISAM 和 InnoDB 如何选择？</a></li><li class="outline-level-2"><a href="#myisam-innodb_1">MyISAM 和 InnoDB 有什么区别？</a></li><li class="outline-level-2"><a href="#mysql">MySQL 主从复制原理的是啥？</a></li><li class="outline-level-2"><a href="#mysql_1">MySQL 存储引擎架构了解吗？</a></li><li class="outline-level-2"><a href="#mysql_2">MySQL 支持哪些存储引擎？默认使用哪个？</a></li><li class="outline-level-2"><a href="#mysqlundo-logredo-logbinlog">MySQL中的undo log、redo log和binlog分别解决什么问题？它们之间有什么区别？</a></li><li class="outline-level-2"><a href="#mysqlinnodbmyisam">MySQL常见的存储引擎InnoDB、MyISAM的区别？适用场景分别是？</a></li><li class="outline-level-2"><a href="#mysql-innodb-myisam">MySQL的两种存储引擎 InnoDB 和 MyISAM 的区别？</a></li><li class="outline-level-2"><a href="#mysqlinnodb-myisam">MySQL的引擎了解吗？默认的是哪个？InnoDB 和 myISAM 的区别？</a></li><li class="outline-level-2"><a href="#redo-log">redo log</a></li><li class="outline-level-2"><a href="#undo-log">undo log</a></li><li class="outline-level-2"><a href="#walbinlogcheckpoint">WAL、binlog、checkpoint和恢复机制为什么重要？</a></li><li class="outline-level-2"><a href="#_1_14">为什么要主从复制？</a></li><li class="outline-level-2"><a href="#_1_15">为什么要分库分表？（设计高并发系统的时候，数据库层面该如何设计？）</a></li><li class="outline-level-2"><a href="#_1_16">为什么要分库分表？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_17">为什么要用复制集群？</a></li><li class="outline-level-2"><a href="#_1_18">什么是复制集群？</a></li><li class="outline-level-2"><a href="#_1_19">分库分表如何平滑过渡？</a></li><li class="outline-level-2"><a href="#_1_20">分库分表如何平滑过渡？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_21">挖掘数据库交易日志</a></li><li class="outline-level-2"><a href="#_1_22">数据库为什么要进行分库和分表呢？都放在一个库或者一张表中不可以吗？</a></li><li class="outline-level-2"><a href="#innodbmyisam">数据库引擎InnoDB与MyISAM的区别</a></li><li class="outline-level-2"><a href="#_1_24">数据库恢复</a></li><li class="outline-level-2"><a href="#ai">数据库高可用、备份恢复和数据一致性在AI服务中如何理解？</a></li><li class="outline-level-2"><a href="#_1_26">用过哪些分库分表中间件？不同的分库分表中间件都有什么优点和缺点？</a></li><li class="outline-level-2"><a href="#redo-log_1">采用redo log的好处？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

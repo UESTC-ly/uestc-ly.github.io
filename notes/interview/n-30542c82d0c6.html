@@ -1,0 +1,1805 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>推理服务与部署 · 李杨的学习笔记</title><meta name="description" content="大模型 Decode 阶段的特点：
+- 每次只处理 1 个 Token，计算量极小
+- 但模型全层都要执行一遍（如 Llama-70B 有 80 层）
+- 每层包含多个 Attention、MLP、LayerNorm 等计算，产生大量小 Kernel">
+<meta property="og:type" content="website"><meta property="og:title" content="推理服务与部署 · 李杨的学习笔记"><meta property="og:description" content="大模型 Decode 阶段的特点：
+- 每次只处理 1 个 Token，计算量极小
+- 但模型全层都要执行一遍（如 Llama-70B 有 80 层）
+- 每层包含多个 Attention、MLP、LayerNorm 等计算，产生大量小 Kernel"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-30542c82d0c6.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-30542c82d0c6.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script src="../render-diagrams.js" type="module"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html" aria-current="page">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>推理服务与部署</h1><p class="article-question-meta">73 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E6%8E%A8%E7%90%86%E6%9C%8D%E5%8A%A1%E4%B8%8E%E9%83%A8%E7%BD%B2-04.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#fp8">二、与普通FP8的区别</a></li><li class="outline-level-2"><a href="#decode-launch-overhead">二、为什么 Decode 阶段 Launch Overhead 突出</a></li><li class="outline-level-2"><a href="#opset">二、为什么Opset会影响兼容性？</a></li><li class="outline-level-2"><a href="#_1_4">二、为什么不只学习真实标签？</a></li><li class="outline-level-2"><a href="#_1_5">二、为什么不能只用模型文件直接部署？</a></li><li class="outline-level-2"><a href="#_1_6">二、为什么推理部署中需要模型压缩？</a></li><li class="outline-level-2"><a href="#_1_7">二、为什么融合能加速？</a></li><li class="outline-level-2"><a href="#kv-cache">二、为什么要单独量化KV Cache？</a></li><li class="outline-level-2"><a href="#_1_9">二、为什么重要？</a></li><li class="outline-level-2"><a href="#_1_10">二、为什么需要推理框架</a></li><li class="outline-level-2"><a href="#roce">二、为何需要“RoCE高网”？</a></li><li class="outline-level-2"><a href="#_1_12">二、如何理解？</a></li><li class="outline-level-2"><a href="#_1_13">二、如何采集命中率数据</a></li><li class="outline-level-2"><a href="#_1_14">二、计算瓶颈怎么看？</a></li><li class="outline-level-2"><a href="#_1_15">二、通俗案例解析：智能旅行规划系统</a></li><li class="outline-level-2"><a href="#_1_16">五、关键特性与生态支持</a></li><li class="outline-level-2"><a href="#_1_17">五、如何选择并行策略？</a></li><li class="outline-level-2"><a href="#all-gather">什么是All-gather操作？</a></li><li class="outline-level-2"><a href="#cuda-graphlaunch-overhead">什么是CUDA Graph？为什么它能降低大模型推理中的Launch Overhead？</a></li><li class="outline-level-2"><a href="#cuda-graph_3">什么是cuda-graph？</a></li><li class="outline-level-2"><a href="#diffusers">什么是diffusers?</a></li><li class="outline-level-2"><a href="#encoder-decoderseq2seq">什么是Encoder-Decoder(Seq2seq)模型?</a></li><li class="outline-level-2"><a href="#fsdp">什么是FSDP？</a></li><li class="outline-level-2"><a href="#gpu">什么是GPU内存带宽？</a></li><li class="outline-level-2"><a href="#gstreamer">什么是Gstreamer</a></li><li class="outline-level-2"><a href="#h264">什么是H.264</a></li><li class="outline-level-2"><a href="#h265">什么是H.265</a></li><li class="outline-level-2"><a href="#infiniband">什么是InfiniBand网卡？</a></li><li class="outline-level-2"><a href="#jenkins">什么是Jenkins？</a></li><li class="outline-level-2"><a href="#nccl-test">什么是nccl-test？</a></li><li class="outline-level-2"><a href="#onnx">什么是ONNX？它有什么作用？</a></li><li class="outline-level-2"><a href="#reduce-scatter">什么是Reduce-Scatter操作？</a></li><li class="outline-level-2"><a href="#yuv">什么是YUV</a></li><li class="outline-level-2"><a href="#zero">什么是ZeRO？</a></li><li class="outline-level-2"><a href="#zigzag">什么是Zigzag（锯齿形或之字形）顺序模式？</a></li><li class="outline-level-2"><a href="#_1_36">什么是异构计算？</a></li><li class="outline-level-2"><a href="#_1_37">什么是推理框架，它有哪些核心功能？</a></li><li class="outline-level-2"><a href="#_1_38">什么是模型剪枝？</a></li><li class="outline-level-2"><a href="#_1_39">什么是模型蒸馏？</a></li><li class="outline-level-2"><a href="#_1_40">什么是模型量化？</a></li><li class="outline-level-2"><a href="#_1_41">什么是流媒体</a></li><li class="outline-level-2"><a href="#_1_42">什么是自定义算子？</a></li><li class="outline-level-2"><a href="#_1_43">什么是计算强度？它为什么重要？</a></li><li class="outline-level-2"><a href="#aiaishell">介绍一下AI行业中规范的AI服务启动Shell脚本</a></li><li class="outline-level-2"><a href="#ddpfsdp">介绍一下DDP和FSDP的原理与区别</a></li><li class="outline-level-2"><a href="#group-convolution">介绍一下Group convolution的作用</a></li><li class="outline-level-2"><a href="#nf4">介绍一下NF4精度的特点</a></li><li class="outline-level-2"><a href="#nvlink">介绍一下NVLink的概念</a></li><li class="outline-level-2"><a href="#torchtorchvisioncudacudnn">介绍一下torch、torchvision、CUDA、cuDNN之间的关系</a></li><li class="outline-level-2"><a href="#xpumlumusa">介绍一下XPU、MLU、MUSA各自的特点</a></li><li class="outline-level-2"><a href="#_1_51">介绍一下模型部署领域自定义算子的概念</a></li><li class="outline-level-2"><a href="#_1_52">代价与权衡</a></li><li class="outline-level-2"><a href="#_1_53">企业私有化部署需要考虑哪些问题？</a></li><li class="outline-level-2"><a href="#docker">使用Docker部署模型服务时常见问题有哪些？</a></li><li class="outline-level-2"><a href="#gpu_2">使用哪款大模型、为什么，部署 GPU 环境，是否考虑高参数量并量化</a></li><li class="outline-level-2"><a href="#fully-connected-layer">全连接层（Fully Connected Layer）</a></li><li class="outline-level-2"><a href="#rdma">六、RDMA部署要求</a></li><li class="outline-level-2"><a href="#_1_58">具体步骤：</a></li><li class="outline-level-2"><a href="#_1_59">内存池、张量复用和算子融合分别如何降低内存开销？</a></li><li class="outline-level-2"><a href="#memory-registration">内存注册（Memory Registration）</a></li><li class="outline-level-2"><a href="#layer-by-layer-offloading">分阶段加载与卸载（Layer-by-Layer Offloading）</a></li><li class="outline-level-2"><a href="#_1_62">剪枝的基本流程和重要性判断方法是什么？</a></li><li class="outline-level-2"><a href="#shapeonnx">动态Shape、控制流和自定义算子为什么容易导致ONNX部署问题？</a></li><li class="outline-level-2"><a href="#dynamic-offloading">动态迁移（Dynamic Offloading）</a></li><li class="outline-level-2"><a href="#_1_65">参数介绍</a></li><li class="outline-level-2"><a href="#_1_66">同步调用</a></li><li class="outline-level-2"><a href="#_1_67">哪些业务场景对推理加速最敏感？</a></li><li class="outline-level-2"><a href="#aotjit">哪些场景更适合使用AOT或JIT编译？</a></li><li class="outline-level-2"><a href="#tritontensorrt">四、Triton和TensorRT是什么关系？</a></li><li class="outline-level-2"><a href="#_1_70">四、三者区别总结</a></li><li class="outline-level-2"><a href="#langchain">四、与LangChain等框架的区别</a></li><li class="outline-level-2"><a href="#pd">四、为什么PD分离是顺势而为</a></li><li class="outline-level-2"><a href="#mxfp8">四、为什么需要MXFP8？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k98ff4ad1c4a7"></a></p>
+<span class="heading-anchor" id="二、与普通FP8的区别"></span><h2 id="fp8">二、与普通FP8的区别</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>普通FP8</th>
+<th>MXFP8</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>元素格式</td>
+<td>E4M3 / E5M2</td>
+<td>E4M3 / E5M2</td>
+</tr>
+<tr>
+<td>缩放粒度</td>
+<td>per-tensor / per-channel</td>
+<td>每32个元素一个block scale</td>
+</tr>
+<tr>
+<td>scale格式</td>
+<td>FP32/FP16等</td>
+<td>E8M0（2的整数次幂）</td>
+</tr>
+<tr>
+<td>异常值处理</td>
+<td>受全局scale限制</td>
+<td>局部scale自适应，outlier影响局限在block内</td>
+</tr>
+<tr>
+<td>存储开销</td>
+<td>几乎可忽略</td>
+<td>每32个元素多1字节scale（约3%）</td>
+</tr>
+<tr>
+<td>硬件支持</td>
+<td>Hopper及更新架构</td>
+<td>Blackwell原生支持MX Tensor Core</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1473">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbb7dea855602"></a></p>
+<span class="heading-anchor" id="二、为什么 Decode 阶段 Launch Overhead 突出"></span><h2 id="decode-launch-overhead">二、为什么 Decode 阶段 Launch Overhead 突出</h2>
+<p>大模型 Decode 阶段的特点：
+- 每次只处理 1 个 Token，计算量极小
+- 但模型全层都要执行一遍（如 Llama-70B 有 80 层）
+- 每层包含多个 Attention、MLP、LayerNorm 等计算，产生大量小 Kernel</p>
+<pre><code>Prefill 阶段（batch=1, seq_len=1024）：
+  单个 MatMul Kernel ≈ 500 μs
+  Launch Overhead 占比 ≈ 10 μs / 500 μs = 2%（可忽略）
+
+Decode 阶段（batch=1, seq_len=1）：
+  单个 MatMul Kernel ≈ 15 μs
+  Launch Overhead 占比 ≈ 10 μs / 15 μs = 40%（严重！）
+</code></pre>
+<p>在 Decode 阶段，可能有上千个微小的 Kernel，每个耗时 10-50 μs，但总 Launch Overhead 可能高达毫秒级。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1603">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k34bbc9381099"></a></p>
+<span class="heading-anchor" id="二、为什么Opset会影响兼容性？"></span><h2 id="opset">二、为什么Opset会影响兼容性？</h2>
+<p>兼容性问题主要来自三个方面。</p>
+<ol>
+<li>推理框架支持的Opset版本有限</li>
+</ol>
+<p>不同推理引擎支持的Opset版本范围不同。如果导出的ONNX模型使用了较新的Opset，而目标推理框架版本较旧，就可能出现解析失败或算子不支持。</p>
+<p>例如，ONNX Runtime通常对ONNX标准支持较全面，但某些硬件Execution Provider、TensorRT Parser或端侧推理框架可能只支持部分Opset和部分算子。</p>
+<ol>
+<li>同一算子在不同Opset中语义可能变化</li>
+</ol>
+<p>有些算子在不同Opset版本中输入格式、属性字段或行为细节会变化。例如Resize、Slice、Pad、Upsample等算子历史上就经历过多次定义调整。</p>
+<p>如果训练框架导出和推理框架解析时对算子语义理解不一致，就可能导致推理结果不正确。</p>
+<ol>
+<li>新模型结构可能依赖新算子</li>
+</ol>
+<p>一些新模型结构会使用较新的算子或更复杂的组合。如果Opset版本过低，可能无法表达这些操作；如果Opset版本过高，目标推理框架又可能还没支持。</p>
+<p>所以导出ONNX时不是Opset越新越好，而是要选择训练框架、模型结构和目标推理框架都支持的版本。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L179">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kde3af4635383"></a></p>
+<span class="heading-anchor" id="二、为什么不只学习真实标签？"></span><h2 id="_1_4">二、为什么不只学习真实标签？</h2>
+<p>真实标签通常是硬标签，例如一张图片的标签是“猫”。但老师模型的输出是一个概率分布，例如：</p>
+<ul>
+<li>猫：0.85</li>
+<li>狐狸：0.10</li>
+<li>狗：0.03</li>
+<li>车：0.01</li>
+</ul>
+<p>这个分布包含了类别之间的相似性信息。学生模型学习这个分布，比只学习“猫”这个硬标签能获得更多知识。</p>
+<p>这种来自老师模型的概率分布通常叫做<strong>软标签（soft label）</strong>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L953">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k86a6fcde8ed6"></a></p>
+<span class="heading-anchor" id="二、为什么不能只用模型文件直接部署？"></span><h2 id="_1_5">二、为什么不能只用模型文件直接部署？</h2>
+<p>单个模型文件只能说明“模型怎么计算”，但生产推理还需要解决很多服务化问题：</p>
+<ol>
+<li><strong>如何对外提供HTTP/gRPC接口</strong></li>
+<li><strong>如何同时部署多个模型和多个版本</strong></li>
+<li><strong>如何管理GPU上的多个模型实例</strong></li>
+<li><strong>如何处理高并发请求</strong></li>
+<li><strong>如何把小请求合并成batch提高吞吐</strong></li>
+<li><strong>如何监控延迟、吞吐、错误率和GPU利用率</strong></li>
+<li><strong>如何热加载、卸载或更新模型</strong></li>
+<li><strong>如何在不同推理后端之间统一接口</strong></li>
+</ol>
+<p>Triton就是为这些工程问题设计的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L1672">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfd669127aee7"></a></p>
+<span class="heading-anchor" id="二、为什么推理部署中需要模型压缩？"></span><h2 id="_1_6">二、为什么推理部署中需要模型压缩？</h2>
+<p>训练阶段通常更关注模型效果，可以使用很大的模型和充足的训练资源；但部署阶段要面对真实业务约束。</p>
+<p>常见约束包括：</p>
+<ul>
+<li><strong>延迟约束</strong>：用户请求需要快速返回</li>
+<li><strong>吞吐约束</strong>：线上服务要同时处理大量请求</li>
+<li><strong>成本约束</strong>：GPU、CPU、显存和电力成本都很高</li>
+<li><strong>端侧约束</strong>：手机、摄像头、IoT设备算力和内存有限</li>
+<li><strong>包体约束</strong>：移动端App或嵌入式固件不能太大</li>
+</ul>
+<p>所以模型压缩的核心价值是：<strong>让效果好的模型真正能上线、能跑快、能跑便宜。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L761">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb186e7bead15"></a></p>
+<span class="heading-anchor" id="二、为什么融合能加速？"></span><h2 id="_1_7">二、为什么融合能加速？</h2>
+<p>深度学习推理中，很多算子的计算量不大，但会产生中间张量。如果每个算子都单独执行，就会带来：</p>
+<ul>
+<li>多次读取和写入显存/内存</li>
+<li>多次kernel launch</li>
+<li>多次中间张量分配和释放</li>
+<li>算子之间的调度开销</li>
+</ul>
+<p>融合后，中间结果可以保存在寄存器、共享内存或缓存中，减少对全局内存的访问，从而提升性能。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1295">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcbf988604051"></a></p>
+<span class="heading-anchor" id="二、为什么要单独量化KV Cache？"></span><h2 id="kv-cache">二、为什么要单独量化KV Cache？</h2>
+<p><strong>1. KV Cache是显存的最大消耗者</strong></p>
+<p>在长上下文或多并发场景中，KV Cache往往比模型权重占用更多显存。例如：
+- 100个并发请求 × 4096上下文 × 7B模型的KV Cache ≈ 数十GB
+- 同等条件下模型权重可能只有14GB</p>
+<p><strong>2. K Cache和V Cache的量化敏感度不同</strong></p>
+<p>研究发现K Cache和V Cache对量化的敏感度不同：
+- V Cache通常对量化更鲁棒（可以量化到更低位宽）
+- K Cache用于计算Attention Score，对精度更敏感（通常需要保留较高精度）</p>
+<p>因此很多实现对K和V采用不同的量化策略：K→INT8，V→INT4或K→FP16，V→INT8。</p>
+<p><strong>3. Decode阶段是访存瓶颈</strong></p>
+<p>Decode阶段每次都需要读取全部KV Cache来与当前Token计算注意力。量化KV Cache可以：
+- 减少每次Decode的访存量（如INT8查表比FP16少一半带宽）
+- 提高有效HBM带宽利用率
+- 间接提高Decode速度</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1308">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc11ae189bff0"></a></p>
+<span class="heading-anchor" id="二、为什么重要？"></span><h2 id="_1_9">二、为什么重要？</h2>
+<p>计算强度可以帮助判断程序更可能受什么限制：</p>
+<ul>
+<li><strong>计算强度高</strong>：更可能是计算瓶颈</li>
+<li><strong>计算强度低</strong>：更可能是访存瓶颈</li>
+</ul>
+<p>例如，大矩阵乘法通常计算强度较高，适合GPU充分发挥算力；而ReLU、Add、LayerNorm等算子计算量较少、读写较多，容易受访存限制。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1388">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k63639fa69a8a"></a></p>
+<span class="heading-anchor" id="二、为什么需要推理框架"></span><h2 id="_1_10">二、为什么需要推理框架</h2>
+<p>训练框架可以把模型训练出来，但生产环境还需要解决性能、硬件适配和服务稳定性问题。推理框架的价值主要体现在：
+1. <strong>让模型跑得更快</strong>：通过图优化、算子融合、量化、编译优化等方式降低推理延迟
+2. <strong>让硬件利用率更高</strong>：充分利用CPU/GPU/NPU等硬件的算力和内存带宽
+3. <strong>让部署成本更低</strong>：减少显存、内存、机器数量和电力成本
+4. <strong>让线上服务更稳定</strong>：配合batching、并发调度、监控、热更新等能力支撑生产请求</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L98">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbd613cc45b13"></a></p>
+<span class="heading-anchor" id="二、为何需要“RoCE高网”？"></span><h2 id="roce">二、为何需要“RoCE高网”？</h2>
+<ol>
+<li>
+<p><strong>极致性能</strong><br/>
+   - <strong>低延迟</strong>：应用层时延可降至5μs（InfiniBand约2μs），远超TCP/IP的50μs。
+   - <strong>高吞吐</strong>：支持400G/800G以太网带宽，满足AI训练、分布式存储的密集型流量需求。
+   - <strong>无损传输</strong>：通过PFC（优先级流控）和ECN（显式拥塞通知）实现零丢包，避免重传开销。</p>
+</li>
+<li>
+<p><strong>成本与生态优势</strong><br/>
+   - <strong>兼容以太网</strong>：无需专用硬件（如InfiniBand交换机），复用现有以太网基础设施，部署成本降低50%以上。
+   - <strong>开放生态</strong>：支持多厂商设备互联，运维与传统以太网一致。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1309">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke10132c78c9e"></a></p>
+<span class="heading-anchor" id="二、如何理解？"></span><h2 id="_1_12">二、如何理解？</h2>
+<p>可以用下面的公式理解：</p>
+<pre><code class="language-text">可达到性能 = min(硬件峰值算力, 内存带宽 × 计算强度)
+</code></pre>
+<p>如果一个算子的计算强度很低，那么即使硬件峰值算力很高，也会因为内存带宽不足而跑不满，这就是访存瓶颈。</p>
+<p>如果一个算子的计算强度很高，已经越过带宽限制区间，性能更接近硬件峰值算力，这时就是计算瓶颈。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1412">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd6f1d4a6239a"></a></p>
+<span class="heading-anchor" id="二、如何采集命中率数据"></span><h2 id="_1_13">二、如何采集命中率数据</h2>
+<p><strong>vLLM 方式</strong>：</p>
+<pre><code class="language-python"># vLLM 启动时开启 prometheus 指标
+# vllm serve ... --enable-metrics
+
+# 新版本 vLLM 直接暴露缓存命中率
+# vllm:cache_hit_rate                        # 命中缓存的 Token 占比
+# 也可用请求指标反推：
+# vllm:prompt_tokens_total                   # 请求携带的总 Prompt Token 数
+# 实际 Prefill 的 Token 数（从 request metrics / 日志统计）
+# 命中缓存数 ≈ prompt_tokens_total - 实际 prefill token 数
+</code></pre>
+<p><strong>SGLang 方式</strong>：
+SGLang 的 RadixAttention 基于 Radix Tree 管理缓存，可以直接查询：</p>
+<pre><code class="language-python"># 通过 server_args 配置后，查看日志或 metrics
+# cache_hit_rate: 0.85  表示 85% 的 Prompt Token 命中了缓存
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1956">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k69bba05ca67d"></a></p>
+<span class="heading-anchor" id="二、计算瓶颈怎么看？"></span><h2 id="_1_14">二、计算瓶颈怎么看？</h2>
+<p>如果模型中大矩阵乘法、卷积、Attention计算占主要时间，并且GPU计算单元利用率很高，就可能是计算瓶颈。</p>
+<p>常见现象：
+- GPU算力利用率高
+- Tensor Core利用率高
+- 主要耗时集中在GEMM、Conv、Attention等计算密集算子
+- 降低精度后速度明显提升，例如FP32改FP16/INT8后明显变快</p>
+<p>常见优化方式：
+- 使用FP16/BF16/INT8/FP8等低精度
+- 使用更高效的算子库
+- 算子融合
+- 选择更适合硬件的模型结构</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L681">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcd6347af040d"></a></p>
+<span class="heading-anchor" id="二、通俗案例解析：智能旅行规划系统"></span><h2 id="_1_15">二、通俗案例解析：智能旅行规划系统</h2>
+<p>假设用户输入："帮我规划北京三日游，要包含故宫和环球影城，预算5000元"</p>
+<p><strong>传统方式</strong>需要工程师编写：
+- 高德API调用（路线规划）
+- 美团API接入（餐饮推荐）
+- 天气预报接口（行程调整）
+- 预算计算逻辑</p>
+<p><strong>基于MCP的实现</strong>：</p>
+<pre><code class="language-python"># MCP服务注册（伪代码）
+register_tool("高德地图", type="navigation", params={"city": "北京"})
+register_tool("美团餐饮", type="poi", params={"budget": 5000})
+register_tool("天气预报", type="environment")
+
+# LLM直接生成指令链
+plan = llm.generate(
+   "用户需求：北京三日游，故宫+环球影城，预算5000",
+   allowed_tools=["高德地图", "美团餐饮", "天气预报"] 
+)
+
+# 输出结构化指令
+{
+  "day1": [
+    {"tool": "高德地图", "action": "path_plan", 
+     "params": {"start": "故宫", "end": "酒店"}},
+    {"tool": "美团餐饮", "action": "recommend",
+     "params": {"location": "故宫周边", "price_range": "人均100-150"}}
+  ]
+}
+</code></pre>
+<p>开发效率从<strong>3人周</strong>降至<strong>2小时</strong>，且后续可无缝替换同类服务（如将高德替换为百度地图）</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1448">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kca2fab8d4c81"></a></p>
+<span class="heading-anchor" id="五、关键特性与生态支持"></span><h2 id="_1_16">五、关键特性与生态支持</h2>
+<ul>
+<li><strong>硬件设计</strong>：全模块化系统（SoM），集成GPU、CPU、内存和电源管理，支持紧凑集成。  </li>
+<li><strong>软件生态</strong>：JetPack SDK提供CUDA、TensorRT等工具链，支持TensorFlow、PyTorch等框架，优化AI推理效率。  </li>
+<li><strong>应用场景</strong>：覆盖机器人、自动驾驶、工业视觉、智慧城市等领域，支持实时数据处理与边缘AI部署。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L336">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k11210abc5d0d"></a></p>
+<span class="heading-anchor" id="五、如何选择并行策略？"></span><h2 id="_1_17">五、如何选择并行策略？</h2>
+<p><strong>决策树：</strong></p>
+<pre><code>模型能否放入单卡？
+├── 能 → 使用数据并行（多卡多副本，提高吞吐）
+└── 不能 → 模型多大？
+    ├── 2-4张卡能放下 → 张量并行（TP=2/4/8）
+    │   - 同节点内使用NVLink连接
+    │   - 通常适合70B以下或能在单节点内切分的模型
+    └── 需要更多卡 → 张量并行 + 流水线并行
+        - 节点内用TP，跨节点用PP
+        - 如Llama-405B需要TP=8+PP=2（16卡）
+</code></pre>
+<p><strong>vLLM中的典型配置：</strong></p>
+<pre><code class="language-bash"># 单节点4卡，TP=4（适合70B模型）
+vllm serve model --tensor-parallel-size 4
+
+# 多节点：节点内TP=4，跨2个节点PP=2（适合超大模型）
+vllm serve model --tensor-parallel-size 4 --pipeline-parallel-size 2
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L2353">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kebb8de96d868"></a></p>
+<span class="heading-anchor" id="什么是All-gather操作？"></span><h2 id="all-gather">什么是All-gather操作？</h2>
+<p><strong>All Gather</strong> 是一种<strong>集合通信操作</strong>（Collective Communication），常见于并行计算和分布式系统中（如MPI、深度学习框架）。它的核心功能是让<strong>所有参与进程</strong>都收集到其他进程的数据副本，最终每个进程都拥有一份完整的全局数据集合。</p>
+<span class="heading-anchor" id="示例"></span><h3 id="_1_18"><strong>示例</strong></h3>
+<p>假设有2个进程：
+- <strong>进程0</strong> 数据：<code>A</code>
+- <strong>进程1</strong> 数据：<code>B</code></p>
+<p>执行 <code>All Gather</code> 后，每个进程的结果为 <code>[A, B]</code>。</p>
+<span class="heading-anchor" id="实现与优化"></span><h3 id="_2_12"><strong>实现与优化</strong></h3>
+<ul>
+<li><strong>MPI中的实现</strong>：通过 <code>MPI_Allgather</code> 函数实现，数据按进程ID顺序拼接。</li>
+<li><strong>通信优化</strong>：采用树形或环形拓扑减少带宽消耗，避免单点瓶颈。</li>
+</ul>
+<p>通过All Gather，分布式系统中的节点能够高效共享全局信息，是许多并行算法和框架的基础操作。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L520">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6250116ede3a"></a></p>
+<span class="heading-anchor" id="什么是CUDA Graph？为什么它能降低大模型推理中的Launch Overhead？"></span><h2 id="cuda-graphlaunch-overhead">什么是CUDA Graph？为什么它能降低大模型推理中的Launch Overhead？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、大模型推理中的Launch Overhead问题"></span><h3 id="launch-overhead">一、大模型推理中的Launch Overhead问题</h3>
+<p>大模型推理（尤其是Decode阶段）涉及大量细碎的CUDA Kernel调用。以7B模型一次Decode为例：</p>
+<ul>
+<li>几十个线性层（QKV投影、FFN等）</li>
+<li>多个注意力计算Kernel</li>
+<li>LayerNorm、激活函数等小算子</li>
+</ul>
+<p>每个Kernel从CPU端Launch到GPU执行，都涉及：
+- CPU→GPU的命令队列写入
+- GPU调度器解析命令
+- Kernel启动前的准备工作</p>
+<p>当每个Kernel的计算量很小时（如Decode阶段单Token的矩阵乘法），Kernel Launch的开销可能占据总延迟的明显比例。这就是<strong>Launch Overhead</strong>。</p>
+<span class="heading-anchor" id="二、CUDA Graph的解决思路"></span><h3 id="cuda-graph">二、CUDA Graph的解决思路</h3>
+<p>CUDA Graph（CUDA图）允许将一系列CUDA操作<strong>预先录制</strong>为一个静态图，然后<strong>一次性回放</strong>：</p>
+<p><strong>1. 捕获阶段（Capture）</strong></p>
+<pre><code>cudaStreamBeginCapture(stream)
+// 执行一系列CUDA操作（Kernel launches, memcpy等）
+kernel_A&lt;&lt;&lt;...&gt;&gt;&gt;(...)
+kernel_B&lt;&lt;&lt;...&gt;&gt;&gt;(...)
+kernel_C&lt;&lt;&lt;...&gt;&gt;&gt;(...)
+cudaStreamEndCapture(stream, &amp;graph)
+// 得到一个cudaGraph对象
+</code></pre>
+<p><strong>2. 实例化阶段（Instantiate）</strong></p>
+<pre><code>cudaGraphInstantiate(&amp;instance, graph)
+// 编译图形为可执行的高效实例
+</code></pre>
+<p><strong>3. 执行阶段（Launch/Replay）</strong></p>
+<pre><code>cudaGraphLaunch(instance, stream)
+// 一次性回放所有操作，只需要一次CPU→GPU提交
+</code></pre>
+<span class="heading-anchor" id="三、CUDA Graph在大模型推理中的应用"></span><h3 id="cuda-graph_1">三、CUDA Graph在大模型推理中的应用</h3>
+<p>在Decode阶段，每次迭代的计算模式相对固定（主要是输入数据不同），因此适合评估CUDA Graph：</p>
+<pre><code>vLLM/SGLang的做法：
+1. 预热Warmup阶段：执行几步Decode，同时捕获CUDA Graph
+2. 日常推理阶段：直接Replay预录制的CUDA Graph
+3. 每个Decode步骤 → 一次cudaGraphLaunch → 数百个Kernel一次性提交执行
+</code></pre>
+<p><strong>与直接Launch的对比：</strong>
+- 传统方式：100个Kernel → 100次CPU→GPU Launch提交 → 大量CPU开销和GPU调度延迟
+- CUDA Graph：100个Kernel → 1次cudaGraphLaunch → 减少CPU提交开销，并让GPU调度更稳定</p>
+<span class="heading-anchor" id="四、CUDA Graph的限制"></span><h3 id="cuda-graph_2">四、CUDA Graph的限制</h3>
+<ol>
+<li><strong>输入尺寸固定</strong>：Graph的Kernel配置在捕获时确定，不能动态变化。因此适用于固定shape的Decode阶段，不太适合可变长输入的Prefill阶段</li>
+<li><strong>动态控制流不支持</strong>：不能在Graph中使用条件分支和循环</li>
+<li><strong>调试困难</strong>：Graph内的Kernel出错时难以定位具体位置</li>
+<li><strong>内存地址固定</strong>：KV Cache等数据的内存地址不能变化（这也是PagedAttention物理Block固定后配合CUDA Graph的重要原因）</li>
+</ol>
+<span class="heading-anchor" id="五、实际收益"></span><h3 id="_1_19">五、实际收益</h3>
+<p>使用CUDA Graph后，Decode阶段每Token延迟通常会下降，尤其在batch size较小、Kernel Launch Overhead占比较高时更明显；具体收益取决于模型结构、batch形态、硬件和框架实现。</p>
+<p>可以总结为：<strong>CUDA Graph通过预录制→一次性回放的方式，减少Decode迭代中大量细小CUDA Kernel的Launch Overhead。它适合固定计算模式的Decode阶段，配合PagedAttention的固定物理Block地址，可在batch size较小时带来更稳定的延迟表现。vLLM和SGLang等框架都在合适场景中使用这类优化。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1696">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k03b8e424aa91"></a></p>
+<span class="heading-anchor" id="什么是cuda-graph？"></span><h2 id="cuda-graph_3">什么是cuda-graph？</h2>
+<p><strong>CUDA Graph</strong> 是 NVIDIA 在 CUDA 10 中引入的一种<strong>高性能 GPU 执行优化技术</strong>。其核心思想是将一系列 CUDA 操作（如内核启动、内存复制等）预编译为一个可复用的“执行图”，从而大幅减少 CPU 与 GPU 之间的交互开销，尤其适用于<strong>频繁执行相同计算流程的场景</strong>。</p>
+<span class="heading-anchor" id="七、最佳实践建议"></span><h3 id="_1_20">七、最佳实践建议</h3>
+<ol>
+<li><strong>适用场景选择</strong>：
+   - 仅在<strong>相同操作序列重复执行 ≥100 次</strong>时启用</li>
+<li><strong>渐进式优化</strong>：</li>
+</ol>
+<pre class="mermaid">   graph LR
+   A["分析nsys报告"] --&gt; B{存在高CPU调用开销?}
+   B --&gt;|是| C["尝试捕获子图"]
+   B --&gt;|否| D["保持传统流"]
+   C --&gt; E["验证正确性"]
+   E --&gt; F["性能对比测试"]
+</pre>
+<ol>
+<li><strong>内存策略</strong>：
+   - 使用 <code>cudaMallocAsync</code> 分配图内内存
+   - 避免在图中捕获主机端内存操作</li>
+</ol>
+<blockquote>
+<p>⚠️ <strong>警告</strong>：错误使用可能导致隐蔽的数值错误（如未同步的内存写入），建议在非关键路径验证后再部署。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1092">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k706b67e080ea"></a></p>
+<span class="heading-anchor" id="什么是diffusers?"></span><h2 id="diffusers">什么是diffusers?</h2>
+<p>Diffusers是一个功能强大的工具箱，旨在帮助用户更加方便地操作扩散模型。通过使用Diffusers，用户可以轻松地生成图像、音频等多种类型的数据，同时可以使用各种噪声调度器来调整模型推理的速度和质量。</p>
+<span class="heading-anchor" id="功能和用途"></span><h3 id="_1_21">功能和用途</h3>
+<p>Diffusers提供了一系列功能，可以帮助用户更好地使用扩散模型。以下是一些主要功能和用途：</p>
+<span class="heading-anchor" id="1. 生成图像和音频"></span><h3 id="1">1. 生成图像和音频</h3>
+<p>Diffusers使用户能够使用扩散模型生成高质量的图像和音频数据。无论是生成逼真的图像，还是合成自然的音频，Diffusers都能提供便捷的操作方式，帮助用户轻松实现他们的创意和需求。</p>
+<span class="heading-anchor" id="2. 噪声调度器"></span><h3 id="2">2. 噪声调度器</h3>
+<p>在模型推理过程中，噪声调度器是非常重要的工具。它可以帮助用户调整模型的速度和质量，以满足不同的需求。Diffusers提供了多种类型的噪声调度器，用户可以根据自己的需求选择合适的调度策略，从而获得最佳的结果。</p>
+<span class="heading-anchor" id="3. 支持多种类型的模型"></span><h3 id="3">3. 支持多种类型的模型</h3>
+<p>Diffusers不仅兼容一种类型的模型，还支持多种类型的模型。无论您使用的是图像生成模型、音频生成模型还是其他类型的模型，Diffusers都能提供相应的支持和便利。</p>
+<p>​   通过Huggingface Diffusers，用户可以更加方便地操作扩散模型，生成高质量的图像和音频数据。同时，噪声调度器功能也能帮助用户调整模型的速度和质量，以满足不同的需求。无论您是在进行研究、开发还是其他应用场景，Diffusers都是一个非常实用的工具箱。</p>
+<p>下面是官方文档的链接：</p>
+<p><a href="https://huggingface.co/docs/diffusers/zh/index">🧨 Diffusers (huggingface.co)</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1797">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k610f430d9866"></a></p>
+<span class="heading-anchor" id="什么是Encoder-Decoder(Seq2seq)模型?"></span><h2 id="encoder-decoderseq2seq">什么是Encoder-Decoder(Seq2seq)模型?</h2>
+<p>Encoder-Decoder（序列到序列，Seq2seq）模型是一种广泛应用于序列到序列转换任务的经典架构，特别适用于处理输入和输出均为序列数据的复杂任务。该模型由两个主要组件构成：编码器（Encoder）和解码器（Decoder）。</p>
+<p>编码器的核心功能是将输入序列（如源语言句子）转换成一个固定长度的上下文向量（Context Vector），该向量旨在捕获输入序列中的关键信息和语义内容。这一转换过程通常通过多层神经网络实现，确保输入序列的深层特征得以有效提取和压缩。</p>
+<p>解码器则负责利用编码器生成的上下文向量，逐步生成输出序列（如目标语言句子）。在生成过程中，解码器不仅依赖于上下文向量，还可能考虑已生成的部分输出序列，以确保输出序列在语义和语法上的连贯性。</p>
+<p>T5（Text-to-Text Transfer Transformer）模型是Seq2seq架构的一个杰出代表，它将多种自然语言处理（NLP）任务统一为文本到文本的转换形式。T5模型通过预训练和微调策略，在各种NLP任务中均展现出卓越的性能，包括但不限于机器翻译、文本摘要、问答系统等。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E4%B8%BB%E5%B9%B2.md#L36">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1adee5f37c26"></a></p>
+<span class="heading-anchor" id="什么是FSDP？"></span><h2 id="fsdp">什么是FSDP？</h2>
+<p><strong>常见问法：</strong> 什么是 FSDP？</p>
+<span class="heading-anchor" id="核心原理"></span><h3 id="_1_23"><strong>核心原理</strong></h3>
+<ol>
+<li>
+<p><strong>参数分片（Parameter Sharding）</strong><br/>
+   - 模型参数被均匀切分成多个分片，每个GPU仅存储其中一部分。
+   - <strong>前向传播</strong>时，按需通过 <strong>All Gather</strong> 收集当前计算所需的完整参数。
+   - <strong>计算完成后</strong>立即释放非本地的参数分片，回收显存。</p>
+</li>
+<li>
+<p><strong>梯度与优化器状态分片</strong><br/>
+   - 梯度计算后，通过 <strong>Reduce-Scatter</strong> 将全局梯度聚合并分片到对应GPU。
+   - 优化器状态（如动量、方差）仅维护本地参数分片相关的部分，进一步节省显存。</p>
+</li>
+<li>
+<p><strong>通信优化</strong><br/>
+   - 仅在使用参数时触发通信（如All Gather），避免冗余数据传输。
+   - 支持异步通信与计算重叠，减少训练速度损失。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="FSDP 的优势"></span><h3 id="fsdp_1"><strong>FSDP 的优势</strong></h3>
+<ol>
+<li>
+<p><strong>显存节省</strong><br/>
+   - 参数、梯度、优化器状态均分片，显存占用降至约 <code>1/N</code>（N为GPU数）。
+   - 支持训练数十亿至万亿参数规模的模型（如GPT-3、LLaMA）。</p>
+</li>
+<li>
+<p><strong>计算效率</strong><br/>
+   - 通信与计算重叠，避免GPU空闲。
+   - 分片策略灵活，适配不同硬件拓扑。</p>
+</li>
+<li>
+<p><strong>易用性</strong><br/>
+   - PyTorch原生支持（<code>torch.distributed.fsdp</code>），无需复杂代码修改。
+   - 与混合精度训练（AMP）、激活检查点（Checkpointing）无缝兼容。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="注意事项"></span><h3 id="_2_16"><strong>注意事项</strong></h3>
+<ul>
+<li><strong>通信开销</strong>：分片过多可能导致通信时间增加，需平衡分片粒度。</li>
+<li><strong>配置复杂性</strong>：需合理设置分片策略（如按层分片或均匀分片）。</li>
+<li><strong>调试工具</strong>：使用<code>torch.distributed</code>日志和NCCL调试工具排查通信问题。</li>
+</ul>
+<p>通过 <strong>FSDP</strong>，开发者能够以较低硬件成本训练超大规模模型，突破了传统数据并行和模型并行的显存限制，成为当前大模型训练的核心技术之一。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_3_1">补充说明</h3>
+<p>FSDP（Fully Sharded Data Parallel）可以看作 PyTorch 原生的全分片数据并行方案。它会将参数、梯度和优化器状态按 rank 分片保存。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/imgs/03-11.png"/></p>
+<p>训练时大致流程是：</p>
+<pre><code class="language-text">前向传播前：all-gather 当前层参数
+前向计算：使用完整参数计算
+前向后：释放非本地参数
+反向传播前：all-gather 当前层参数
+反向计算：计算梯度
+反向后：reduce-scatter 梯度并释放参数
+优化器更新：只更新本 rank 持有的参数分片
+</code></pre>
+<p>这样，每张 GPU 不需要长期持有完整模型参数，而是在计算某一层或某个模块时临时聚合所需参数。计算完成后释放非本地参数，用通信换显存。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L873">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L793">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k23eb70cef347"></a></p>
+<span class="heading-anchor" id="什么是GPU内存带宽？"></span><h2 id="gpu">什么是GPU内存带宽？</h2>
+<p><strong>GPU内存带宽（Memory Bandwidth）是指GPU从其内存 (vRAM)中读取或写入数据的速度，通常以每秒千兆字节（GB/s）为单位。这一指标非常重要，因为它直接影响到GPU在处理复杂计算任务时的数据传输效率，进而影响整体性能。</strong></p>
+<span class="heading-anchor" id="内存带宽的组成"></span><h3 id="_1_24">内存带宽的组成</h3>
+<p>GPU内存带宽由以下几个部分组成：</p>
+<ol>
+<li><strong>时钟频率</strong>：内存的工作频率，通常以MHz或GHz为单位。更高的频率意味着更快的数据传输速度。</li>
+<li><strong>内存总线宽度</strong>：内存总线的宽度，通常以位（bits）为单位。常见的总线宽度有256位、384位等。总线越宽，数据传输能力越强。</li>
+<li><strong>内存类型</strong>：不同类型的显存（如GDDR5、GDDR6、HBM等）具有不同的性能和效率。新型内存通常具有更高的频率和更宽的总线。</li>
+</ol>
+<span class="heading-anchor" id="计算公式"></span><h3 id="_2_17">计算公式</h3>
+<p>内存带宽的计算公式为：</p>
+<div class="arithmatex">\[\text{内存带宽} = \text{内存频率} \times \text{总线宽度} \times \text{数据传输速率}\]</div>
+<p>对于双倍数据速率（DDR）的内存，每个时钟周期传输两次数据，因此数据传输速率为2。</p>
+<p>举个例子，如果一个GPU使用GDDR6显存，频率为1750 MHz，总线宽度为256位，那么它的内存带宽计算如下：</p>
+<div class="arithmatex">\[\text{内存带宽} = 1750 \, \text{MHz} \times 256 \, \text{bits} \times 2 / 8 \, \text{(bits to bytes)} = 112 \, \text{GB/s}\]</div>
+<span class="heading-anchor" id="内存带宽的重要性"></span><h3 id="_3_2">内存带宽的重要性</h3>
+<p>内存带宽对于GPU的性能至关重要，尤其是在以下应用场景中：</p>
+<ol>
+<li><strong>高性能计算（HPC）</strong>：在进行科学计算、金融建模等高性能计算任务时，内存带宽影响数据的快速传输和处理。</li>
+<li><strong>图形渲染</strong>：复杂的图形渲染任务，如实时光线追踪（Ray Tracing），需要高带宽来处理大量的纹理和图像数据。</li>
+<li><strong>AI领域（AIGC、传统深度学习、自动驾驶）</strong>：训练和推理AI模型需要频繁访问大量数据，高内存带宽可以提高训练速度和推理效率。</li>
+</ol>
+<p>Rocky认为我们通过理解和优化GPU内存带宽，可以显著提升计算任务的效率和性能，尤其在高要求的AI模型训练与推理任务中尤为重要。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L217">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8095ce27f6c7"></a></p>
+<span class="heading-anchor" id="什么是Gstreamer"></span><h2 id="gstreamer">什么是Gstreamer</h2>
+<p>Gstreamer是一个媒体框架，可以实现采集，编码，解码，渲染，滤镜等一条龙的媒体解决方案。
+1) Gstreamer有命令行工具进行测试验证。同时还可以通过代码框架直接封装命令来做工程开发，gstreamer只要知道的命令行实现方式，就可以马上命令行集成到代码中进行使用
+2) Gstreamer是glib实现的，跨平台的实现，windows,linux,androd,ios，macos官方原生支持，而且官方发布了windows,linux,androd,ios包，如果没有特别需求，可以直接拿发布包集成使用。
+3) Gstreamer采用插件实现方式，根据业务需要可以灵活裁剪插件，可以将发布包做的非常小，适合在嵌入式和移动端等应用领域。
+4) Gstreamer采用插件管理各个模块，软件框架比较复杂，采用了异步，协程编程模型</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L171">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1f9a1682de0a"></a></p>
+<span class="heading-anchor" id="什么是H.264"></span><h2 id="h264">什么是H.264</h2>
+<p>H.264，同时也是MPEG-4第十部分，是由ITU-T视频编码专家组（VCEG）和ISO/IEC动态图像专家组（MPEG）联合组成的联合视频组（JVT，Joint Video Team）提出的高度压缩数字视频编解码器标准。这个标准通常被称之为H.264/AVC（或者AVC/H.264或者H.264/MPEG-4AVC或MPEG-4/H.264 AVC）而明确的说明它两方面的开发者。</p>
+<p>H.264最大的优势是具有很高的数据压缩比率，在同等图像质量的条件下，H.264的压缩比是MPEG-2的2倍以上，是MPEG-4的1.5～2倍。举个例子，原始文件的大小如果为88GB，采用MPEG-2压缩标准压缩后变成3.5GB，压缩比为25∶1，而采用H.264压缩标准压缩后变为879MB，从88GB到879MB，H.264的压缩比达到惊人的102∶1。低码率（Low Bit Rate）对H.264的高的压缩比起到了重要的作用，和MPEG-2和MPEG-4ASP等压缩技术相比，H.264压缩技术将大大节省用户的下载时间和数据流量收费。尤其值得一提的是，H.264在具有高压缩比的同时还拥有高质量流畅的图像，正因为如此，经过H.264压缩的视频数据，在网络传输过程中所需要的带宽更少，也更加经济。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L200">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3cc118789849"></a></p>
+<span class="heading-anchor" id="什么是H.265"></span><h2 id="h265">什么是H.265</h2>
+<p>H.265是ITU-TVCEG继H.264之后所制定的新的视频编码标准。H.265标准围绕着现有的视频编码标准H.264，保留原来的某些技术，同时对一些相关的技术加以改进。</p>
+<p>新技术使用先进的技术用以改善码流、编码质量、延时和算法复杂度之间的关系，达到最优化设置。具体的研究内容包括：提高压缩效率、提高鲁棒性和错误恢复能力、减少实时的时延、减少信道获取时间和随机接入时延、降低复杂度等。H264由于算法优化，可以低于1Mbps的速度实现标清数字图像传送；H265则可以实现利用1~2Mbps的传输速度传送720P（分辨率1280*720）普通高清音视频传送。</p>
+<p>H.265旨在在有限带宽下传输更高质量的网络视频，仅需原先的一半带宽即可播放相同质量的视频。这也意味着，我们的智能手机、平板机等移动设备将能够直接在线播放1080p的全高清视频。H.265标准也同时支持4K(4096×2160)和8K(8192×4320)超高清视频。可以说，H.265标准让网络视频跟上了显示屏“高分辨率化”的脚步。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L205">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k894d8e63906d"></a></p>
+<span class="heading-anchor" id="什么是InfiniBand网卡？"></span><h2 id="infiniband">什么是InfiniBand网卡？</h2>
+<p>InfiniBand网卡（也称为<strong>主机通道适配器，HCA</strong>）是InfiniBand高性能网络的核心组件，负责在服务器、存储设备与InfiniBand交换机之间实现高速数据传输。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1341">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k17ecda53120b"></a></p>
+<span class="heading-anchor" id="什么是Jenkins？"></span><h2 id="jenkins">什么是Jenkins？</h2>
+<p>Jenkins，原名为Hudson，是一个自由及开源的自动化工具，用于支持软件开发中的持续集成与持续部署。</p>
+<p>开源的自动化工具: Jenkins是一个开放源代码软件，意味着任何人都可以查看它的源代码、对其进行修改和贡献。开源使得Jenkins能够免费提供，并确保其长期的发展和维护。</p>
+<p>持续集成与持续部署的核心组件: Jenkins为开发团队提供了一个平台，使其能够自动化各种任务，例如代码构建、测试、部署等。这种自动化使得开发流程更为流畅，可以快速地发现和修复问题，从而加快软件的发布速度。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L1140">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9844d620cc04"></a></p>
+<span class="heading-anchor" id="什么是nccl-test？"></span><h2 id="nccl-test">什么是nccl-test？</h2>
+<p><strong>NCCL-Test</strong> 是 NVIDIA 官方提供的用于测试和验证 <strong>NCCL（NVIDIA Collective Communications Library）</strong> 库性能与正确性的工具集。NCCL 本身是优化多 GPU/多节点间通信（如 AllReduce、Broadcast 等集合操作）的核心库，广泛应用于分布式 AI 训练和 HPC 场景。以下是对 <code>nccl-tests</code> 的核心概述：</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1223">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k072efb1fa0cb"></a></p>
+<span class="heading-anchor" id="什么是ONNX？它有什么作用？"></span><h2 id="onnx">什么是ONNX？它有什么作用？</h2>
+<blockquote>
+<p>ONNX是一种开放的模型中间表示格式，用来描述神经网络的计算图、算子、参数和输入输出信息。它的作用是在PyTorch、TensorFlow等训练框架和ONNX Runtime、TensorRT、OpenVINO等推理框架之间建立统一交换格式，降低模型迁移和部署成本。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L47">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf6498b191c7a"></a></p>
+<span class="heading-anchor" id="什么是Reduce-Scatter操作？"></span><h2 id="reduce-scatter">什么是Reduce-Scatter操作？</h2>
+<p><strong>Reduce-Scatter</strong> 是一种<strong>集合通信操作</strong>（Collective Communication），常用于并行计算和分布式系统（如MPI、深度学习框架）。它的核心功能是<strong>先对所有进程的数据进行聚合（Reduce），再将结果分块分发给所有进程</strong>，每个进程最终仅保留聚合后的部分数据。</p>
+<span class="heading-anchor" id="示例"></span><h3 id="_1_32"><strong>示例</strong></h3>
+<p>假设有2个进程，每个进程的本地数据为数组：
+- <strong>进程0</strong> 数据：<code>[1, 2]</code>
+- <strong>进程1</strong> 数据：<code>[3, 4]</code></p>
+<p>执行 <strong>Reduce-Scatter（求和）</strong>：
+1. <strong>Reduce阶段</strong>：全局求和得到 <code>[1+3, 2+4] = [4, 6]</code>。
+2. <strong>Scatter阶段</strong>：将结果分块分发：
+   - 进程0 接收第0块：<code>4</code>
+   - 进程1 接收第1块：<code>6</code></p>
+<p>最终每个进程仅保留自己的分块数据。</p>
+<span class="heading-anchor" id="与AllReduce的对比"></span><h3 id="allreduce"><strong>与AllReduce的对比</strong></h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><strong>操作</strong></th>
+<th><strong>结果分布</strong></th>
+<th><strong>通信开销</strong></th>
+<th><strong>典型场景</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>AllReduce</strong></td>
+<td>所有进程获得完整聚合结果</td>
+<td>较高（需广播完整数据）</td>
+<td>全局梯度更新</td>
+</tr>
+<tr>
+<td><strong>Reduce-Scatter</strong></td>
+<td>每个进程获得结果的分块</td>
+<td>较低（仅分发部分数据）</td>
+<td>分块参数更新、分布式存储</td>
+</tr>
+</tbody>
+</table></div>
+<p>通过Reduce-Scatter，系统可在<strong>降低通信和内存开销</strong>的同时，实现数据的分布式处理，尤其适用于需要分块并行计算的场景。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L689">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k33372aa1f4f9"></a></p>
+<span class="heading-anchor" id="什么是YUV"></span><h2 id="yuv">什么是YUV</h2>
+<p>YUV是指亮度参量和色度参量分开表示的像素格式，其中“Y”表示明亮度（Luminance或Luma），也就是灰度值；而“U”和“V”表示的则是色度（Chrominance或Chroma），作用是描述影像色彩及饱和度，用于指定像素的颜色。
+Y: 表示明亮度(Luminance或Luma)
+U和V: 色度(Chrominance或者Chroma), 作用是描述影像色彩及饱和度，用于指定像素的颜色。</p>
+<p>YCbCr其中Y是指亮度分量，Cb指蓝色色度分量，而Cr指红色色度分量。
+YCbCr 则是在世界数字组织视频标准研制过程中作为ITU - R BT.601 建议的一部分，其实是YUV经过缩放和偏移的翻版。其中Y与YUV 中的Y含义一致,Cb,Cr 同样都指色彩，只是在表示方法上不同而已。在YUV 家族中，YCbCr 是在计算机系统中应用最多的成员，其应用领域很广泛，JPEG、MPEG均采用此格式。一般人们所讲的YUV大多是指YCbCr。YCbCr 有许多取样格式，如4∶4∶4,4∶2∶2,4∶1∶1 和4∶2∶0。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L218">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf61b8669904d"></a></p>
+<span class="heading-anchor" id="什么是ZeRO？"></span><h2 id="zero">什么是ZeRO？</h2>
+<p><strong>ZeRO（Zero Redundancy Optimizer）</strong> 是微软提出的一种<strong>分布式训练优化技术</strong>，旨在<strong>消除深度学习训练中的显存冗余</strong>，支持高效训练超大规模模型（如万亿参数）。其核心思想是通过<strong>分片（Sharding）技术</strong>，将模型参数、梯度、优化器状态等分散存储在不同设备上，结合动态通信调度，显著降低单设备显存占用。</p>
+<span class="heading-anchor" id="ZeRO 的三个阶段"></span><h3 id="zero_1"><strong>ZeRO 的三个阶段</strong></h3>
+<p>ZeRO 分阶段优化显存占用，用户可根据需求选择不同阶段：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><strong>阶段</strong></th>
+<th><strong>优化内容</strong></th>
+<th><strong>显存节省比例</strong></th>
+<th><strong>通信开销</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ZeRO-1</strong></td>
+<td>优化器状态分片（如Adam的动量）</td>
+<td>4x</td>
+<td>低（仅梯度聚合）</td>
+</tr>
+<tr>
+<td><strong>ZeRO-2</strong></td>
+<td>梯度分片 + 优化器状态分片</td>
+<td>8x</td>
+<td>中等（梯度分片聚合）</td>
+</tr>
+<tr>
+<td><strong>ZeRO-3</strong></td>
+<td>参数分片 + 梯度分片 + 优化器状态分片</td>
+<td>至多 <strong>N倍</strong>（N为GPU数）</td>
+<td>高（动态参数通信）</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="局限性"></span><h3 id="_1_34"><strong>局限性</strong></h3>
+<ol>
+<li><strong>通信开销</strong>：ZeRO-3 因频繁通信可能增加训练时间。</li>
+<li><strong>配置复杂性</strong>：需权衡分片粒度、Offload策略等。</li>
+<li><strong>框架依赖</strong>：DeepSpeed 或 PyTorch FSDP 需特定环境支持。</li>
+</ol>
+<p>通过 ZeRO，训练超大模型的门槛显著降低，成为当前分布式深度学习领域的核心技术之一。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L987">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfad9649714e1"></a></p>
+<span class="heading-anchor" id="什么是Zigzag（锯齿形或之字形）顺序模式？"></span><h2 id="zigzag">什么是Zigzag（锯齿形或之字形）顺序模式？</h2>
+<p><strong>Zigzag 顺序模式</strong>是一种通过交替或来回移动的路径来优化数据访问或处理顺序的策略。其核心目标是<strong>减少数据跳跃性访问</strong>，从而提升缓存利用率、降低数据传输开销，或避免重复操作。通俗来说，它类似于“蛇形走位”，在处理多个数据块时，通过交替方向遍历，最大化利用相邻数据，减少冗余操作。</p>
+<span class="heading-anchor" id="数学表示"></span><h3 id="_1_35">数学表示</h3>
+<p>对于二维矩阵 <span class="arithmatex">\(A_{m \times n}\)</span> ，Zigzag 遍历顺序可表示为：  </p>
+<div class="arithmatex">\[
+\text{顺序} = \begin{cases} 
+A_{i,j} \rightarrow A_{i,j+1} &amp; \text{若 } i \text{ 为偶数行} \\
+A_{i,j} \rightarrow A_{i,j-1} &amp; \text{若 } i \text{ 为奇数行}
+\end{cases}
+\]</div>
+<p><strong>面试点睛</strong>：<br/>
+回答时需结合具体技术场景（如 Tiled VAE、激光雷达分块），强调 Zigzag 如何解决显存/内存瓶颈，并量化其收益（如速度提升 20%）。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L346">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5b8c4f2ed9f1"></a></p>
+<span class="heading-anchor" id="什么是异构计算？"></span><h2 id="_1_36">什么是异构计算？</h2>
+<p>首先，异构现象是指不同计算平台之间，由于硬件结构(包括计算核心和内存)，指令集和底层软件实现等方面的不同而有着不同的特性。</p>
+<p>异构计算是指联合使用两个或者多个不同的计算平台，并进行协同运算。比如CPU和GPU的异构计算，TPU和GPU的异构计算以及TPU/GPU/CPU的异构计算等等。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L749">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6b017f3c9fe4"></a></p>
+<span class="heading-anchor" id="什么是推理框架，它有哪些核心功能？"></span><h2 id="_1_37">什么是推理框架，它有哪些核心功能？</h2>
+<blockquote>
+<p>推理框架是把训练好的模型高效部署到生产环境的系统，它通过模型加载、图优化、算子执行、内存管理、硬件适配和服务化能力，让模型在不同硬件上以更低延迟、更高吞吐和更低成本稳定运行。</p>
+</blockquote>
+<span class="heading-anchor" id="面试问题：讲一下你对推理框架的理解"></span><h3 id="_2_22">面试问题：讲一下你对推理框架的理解</h3>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L87">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3368fda67026"></a></p>
+<span class="heading-anchor" id="什么是模型剪枝？"></span><h2 id="_1_38">什么是模型剪枝？</h2>
+<p>模型剪枝按照剪枝粒度可分为突触剪枝、神经元剪枝、权重矩阵剪枝等，主要是将权重矩阵中不重要的参数设置为0，结合稀疏矩阵来进行存储和计算。通常为了保证性能，需要逐步进行迭代剪枝，让精度损失限制在一个可接受的范围。</p>
+<p>突触剪枝剪掉神经元之间的不重要的连接。对应到权重矩阵中，相当于将某个参数设置为0。</p>
+<p>神经元剪枝则直接将某个节点直接裁剪。对应到权重矩阵中，相当于某一行和某一列置零。</p>
+<p>除此之外，也可以将整个权重矩阵裁剪，每一层中只保留最重要的部分，这就是权重矩阵剪枝。相比突触剪枝和神经元剪枝，权重矩阵剪枝压缩率要大很多。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E7%9F%A5%E8%AF%86%E7%82%B9.md#L30">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka61328601238"></a></p>
+<span class="heading-anchor" id="什么是模型蒸馏？"></span><h2 id="_1_39">什么是模型蒸馏？</h2>
+<p>模型蒸馏（Model Distillation）是一种模型压缩技术，旨在将一个<strong>大型复杂模型（通常称为“教师模型”）</strong>的知识转移到一个<strong>小型简单模型（称为“学生模型”）</strong>中。</p>
+<p>模型蒸馏技术最开始由Hinton等人于2015年提出，主要用于改进小型模型的性能，使其在保持较低计算成本的同时，能够逼近大型模型的性能。</p>
+<span class="heading-anchor" id="模型蒸馏的基本原理"></span><h3 id="_2_24">模型蒸馏的基本原理</h3>
+<p>模型蒸馏的基本思想是使用大型模型的输出（软标签）来训练小型模型。</p>
+<p>大型模型的输出通常包含了关于类别概率的更多信息，这些信息比硬标签（即实际的类别标签）更能表达不同类别之间的相对关系。通过训练小型模型去学习逼近这些软标签，小型模型可以学习到更细致的决策边界。</p>
+<span class="heading-anchor" id="模型蒸馏的步骤"></span><h3 id="_3_4">模型蒸馏的步骤</h3>
+<ol>
+<li>
+<p><strong>训练教师模型</strong>：
+   教师模型通常是一个大型深度网络，能够在AI细分任务上达到SOTA精度。</p>
+</li>
+<li>
+<p><strong>生成软标签</strong>：
+   使用教师模型对训练数据集进行预测，记录输出的类别概率（软标签）。这些概率不仅表示最可能的类别，还提供了对其他类别的预测概率，包含了更丰富的信息。</p>
+</li>
+<li>
+<p><strong>训练学生模型</strong>：
+   学生模型的结构比教师模型简单，其训练过程不仅使用真实的标签（硬标签），还使用教师模型生成的软标签。通常，训练过程中会使用一个<strong>温度参数（T）</strong>来调整软标签的"软化"程度。损失函数是硬标签的损失和软标签的损失的加权和。</p>
+</li>
+<li>
+<p><strong>评估学生模型</strong>：
+   在独立的测试数据上评估学生模型的性能，验证其是否成功学习到了教师模型的知识。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="温度调整（Temperature Scaling）"></span><h3 id="temperature-scaling">温度调整（Temperature Scaling）</h3>
+<p>在蒸馏过程中，温度参数<code>T</code>用于控制软标签的平滑程度。较高的温度会使得概率分布更加平滑，使得学生模型能够从教师模型的预测中学到更细微的差别。损失函数通常是交叉熵损失，计算学生模型预测和软标签之间的差异。</p>
+<span class="heading-anchor" id="模型蒸馏的优势"></span><h3 id="_4_2">模型蒸馏的优势</h3>
+<ul>
+<li><strong>效率提升</strong>：学生模型通常比教师模型更小、更快，适合部署在资源受限的环境中。</li>
+<li><strong>泛化能力</strong>：学生模型通过学习教师模型的软标签，通常可以获得比直接训练更好的泛化能力。</li>
+</ul>
+<span class="heading-anchor" id="实际应用"></span><h3 id="_5">实际应用</h3>
+<p>模型蒸馏已被广泛应用于多种任务，如AI绘画、图像分类、图像分割、目标检测、语音识别和自然语言处理等，特别是在需要模型部署到移动设备或需要实时处理的场景中。</p>
+<p>总之，模型蒸馏是提高模型部署效率的有效技术，特别适合于需要在保持模型性能的同时减小模型大小和提升计算速度的应用场景。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E7%9F%A5%E8%AF%86%E7%82%B9.md#L40">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k53953acc290c"></a></p>
+<span class="heading-anchor" id="什么是模型量化？"></span><h2 id="_1_40">什么是模型量化？</h2>
+<p>通常的深度学习模型参数是FP32浮点型的，而模型量化主要是使用FP16，INT8以及INT4等低精度类型来保存模型参数，从而有效的降低模型计算量和内存占用，并将精度损失限制在一个可接受的范围内。</p>
+<p>模型量化主要分在线量化和离线量化。在线量化在模型训练阶段采用量化方法进行量化。离线量化主要在模型离线工具（模型转换阶段）中采用量化方法进行量化。</p>
+<p>工业界中主要使用离线量化作为通用模型量化的解决方案。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E7%9F%A5%E8%AF%86%E7%82%B9.md#L21">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k38e908ce6ff3"></a></p>
+<span class="heading-anchor" id="什么是流媒体"></span><h2 id="_1_41">什么是流媒体</h2>
+<p>流媒体是指采用流式传输的方式在Internet播放的媒体格式。流媒体又叫流式媒体，它是指商家用一个视频传送服务器把节目当成数据包发出，传送到网络上。用户通过解压设备对这些数据进行解压后，节目就会像发送前那样显示出来。流媒体以流的方式在网络中传输音频、视频和多媒体文件的形式。流媒体文件格式是支持采用流式传输及播放的媒体格式。流式传输方式是将视频和音频等多媒体文件经过特殊的压缩方式分成一个个压缩包，由服务器向用户计算机连续、实时传送。在采用流式传输方式的系统中，用户不必像非流式播放那样等到整个文件全部下载完毕后才能看到当中的内容，而是只需要经过几秒钟或几十秒的启动延时即可在用户计算机上利用相应的播放器对压缩的视频或音频等流式媒体文件进行播放，剩余的部分将继续进行下载，直至播放完毕。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E7%9F%A5%E8%AF%86%E7%82%B9.md#L48">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k464f961bbd42"></a></p>
+<span class="heading-anchor" id="什么是自定义算子？"></span><h2 id="_1_42">什么是自定义算子？</h2>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%87%AA%E5%AE%9A%E4%B9%89%E7%AE%97%E5%AD%90%E5%AE%9E%E7%8E%B0.md#L16">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4a680756f81a"></a></p>
+<span class="heading-anchor" id="什么是计算强度？它为什么重要？"></span><h2 id="_1_43">什么是计算强度？它为什么重要？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、定义"></span><h3 id="_2_28">一、定义</h3>
+<p>计算强度通常指单位数据访问量对应的计算量，常用公式表示为：</p>
+<pre><code class="language-text">计算强度 = 计算量（FLOPs） / 数据访问量（Bytes）
+</code></pre>
+<p>计算强度越高，说明每读取一份数据能做更多计算；计算强度越低，说明程序大量时间可能花在搬数据上。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1374">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7f7d3426c999"></a></p>
+<span class="heading-anchor" id="介绍一下AI行业中规范的AI服务启动Shell脚本"></span><h2 id="aiaishell">介绍一下AI行业中规范的AI服务启动Shell脚本</h2>
+<p><strong>在AI行业中，AIGC、传统深度学习、自动驾驶等核心领域一般都使用Shell脚本启动AI程序服务</strong>。Shell脚本可以自动化AI程序的启动、停止和监控过程，使得对AI服务管理变得更加高效和可靠。以下是Rocky总结的编写规范Shell脚本的详细步骤，并对每个步骤进行深入浅出的讲解。</p>
+<span class="heading-anchor" id="2. 设置环境变量"></span><h3 id="2_1">2. 设置环境变量</h3>
+<pre><code class="language-sh"># 定义环境变量
+export MODEL_DIR="/path/to/model"
+export DATA_DIR="/path/to/data"
+export LOG_DIR="/path/to/logs"
+export CONFIG_FILE="/path/to/config.yaml"
+export PYTHON_ENV="/path/to/virtualenv/bin/python"
+</code></pre>
+<ul>
+<li><strong>解释</strong>：环境变量用于存储配置文件、数据目录、日志目录等路径。使用 <code>export</code> 命令将这些变量导出，<strong>使其在当前Shell脚本的所有子进程中都可见和可访问，这意味着当前脚本启动的任何其他脚本或命令中都能访问到这些变量</strong>。</li>
+</ul>
+<span class="heading-anchor" id="完整示例脚本"></span><h3 id="_1_44">完整示例脚本</h3>
+<pre><code class="language-sh">#!/bin/bash
+# This script is used to start the AI service.
+# Author: WeTHinkIn
+# Date: 2024-08-12
+
+# 如果出现报错，及时结束程序
+set -e
+
+# 定义环境变量
+export MODEL_DIR="/path/to/model"
+export DATA_DIR="/path/to/data"
+export LOG_DIR="/path/to/logs"
+export CONFIG_FILE="/path/to/config.yaml"
+export PYTHON_ENV="/path/to/virtualenv/bin/python"
+
+# 首先确定要获取的AI服务代码的分支：检查启动Shell脚本时是否提供了第一个命令行参数，如果没有提供，则将变量branch设置为默认值"master"；如果提供了第一个命令行参数，则将变量branch设置为该参数的值。
+if [ -z "$1" ]; then
+  branch="master"
+else
+  branch="$1"
+fi
+
+# 清理当前工作目录，获取制定分支的最新AI服务代码
+cd /path/to/code_path
+git pull
+git reset
+git checkout .
+git clean -f
+git checkout $branch
+git pull
+
+# 下面两个命令可以停止特定端口（比如8888）上的已有程序，为即将启动的AI程序服务提供空闲端口
+lsof -i :8888 | grep LISTEN | awk '{print $2}' | xargs kill -9
+# 或者
+pkill -f 'python.*8888'
+
+# 启动AI程序服务
+echo "Starting WeThinkIn AI service..."
+nohup python /path/to/WeThinkIn.py --model_dir ${MODEL_DIR} --data_dir ${DATA_DIR} --config ${CONFIG_FILE} &gt; ${LOG_DIR}/service.log 2&gt;&amp;1 &amp;
+echo "WeThinkIn AI service started. Logs are available at ${LOG_DIR}/service.log"
+
+# 错误捕获与错误处理
+handle_error() {
+    echo "Error occurred in script at line: $1."
+    exit 1
+}
+
+trap 'handle_error $LINENO' ERR
+</code></pre>
+<p>通过以上步骤，我们就可以编写出一个结构清晰、功能完整的Shell脚本，用于启动AI程序服务。Shell脚本中要包括环境变量设置、AI服务代码获取、服务启动和错误处理等功能，来保证Shell脚本的可维护性和鲁棒性。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L815">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb9106d0320dd"></a></p>
+<span class="heading-anchor" id="介绍一下DDP和FSDP的原理与区别"></span><h2 id="ddpfsdp">介绍一下DDP和FSDP的原理与区别</h2>
+<span class="heading-anchor" id="1.1 核心思想"></span><h3 id="11">1.1 核心思想</h3>
+<p>DDP采用“复制”的策略。其核心思想可以概括为：
+<strong>“一个模型，多处复制，数据分片，梯度聚合”</strong></p>
+<ul>
+<li><strong>一个模型</strong>：在每一个GPU上（每个进程），都拥有<strong>完整的、相同的</strong>模型副本。</li>
+<li><strong>多处复制</strong>：如果有N个GPU，那么就有N个完全一样的模型在同时运行。</li>
+<li><strong>数据分片</strong>：数据加载器会将一个大的训练批次（Batch）切分成N个更小的分片（Mini-Batch），每个GPU处理一个分片。</li>
+<li><strong>梯度聚合</strong>：在每个训练步骤（Step）的后向传播结束后，所有GPU需要将它们计算出的梯度进行同步平均，确保所有模型副本的权重保持一致。</li>
+</ul>
+<span class="heading-anchor" id="1.2 工作流程详解"></span><h3 id="12">1.2 工作流程详解</h3>
+<p>假设我们在一个有4个GPU的机器上使用DDP。</p>
+<ol>
+<li>
+<p><strong>初始化阶段</strong>：</p>
+<ul>
+<li>主进程（Rank 0）将模型初始化，然后将这个模型的状态字典（State Dict）广播到其他所有GPU进程。</li>
+<li>每个GPU上都构建了一个完全相同的模型副本。</li>
+<li>为每个模型副本创建一个优化器（如Adam）。</li>
+<li>初始化一个<strong>集合通信库</strong>（如NCCL），用于GPU间的高效通信。</li>
+</ul>
+</li>
+<li>
+<p><strong>训练循环（每一步）</strong>：</p>
+<ul>
+<li><strong>a. 前向传播</strong>：<ul>
+<li>数据加载器将一个大的Batch（例如1024个样本）切分成4个小的Mini-Batch（每个256个样本）。</li>
+<li>每个GPU拿到属于自己的那个Mini-Batch（数据并行）。</li>
+<li>每个GPU独立地对自己的Mini-Batch进行前向传播，计算损失。</li>
+</ul>
+</li>
+<li><strong>b. 后向传播</strong>：<ul>
+<li>每个GPU独立地进行后向传播，计算相对于自身模型参数的梯度。</li>
+<li><strong>注意</strong>：此时，4个GPU上分别有4份不同的梯度，因为它们处理的数据不同。</li>
+</ul>
+</li>
+<li><strong>c. 梯度同步（核心步骤）</strong>：<ul>
+<li>DDP使用 <strong><code>all-reduce</code></strong> 通信原语来同步梯度。</li>
+<li><strong><code>all-reduce</code></strong> 操作会收集所有GPU上的梯度，并对它们进行<strong>求和</strong>或<strong>平均</strong>，然后将最终结果同步到每一个GPU上。</li>
+<li>例如，GPU0上的梯度 <code>g0</code> 会与GPU1的 <code>g1</code>、GPU2的 <code>g2</code>、GPU3的 <code>g3</code> 进行平均，最终每个GPU上的梯度都变为 <code>(g0 + g1 + g2 + g3) / 4</code>。</li>
+</ul>
+</li>
+<li><strong>d. 参数更新</strong>：<ul>
+<li>梯度同步完成后，每个GPU上的优化器利用同步后的、完全一致的梯度，独立地更新自己持有的模型参数。</li>
+<li>由于所有模型的初始状态相同，并且用相同的梯度更新，所以更新后的参数在所有GPU上仍然保持一致。</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<span class="heading-anchor" id="1.3 优点与局限性"></span><h3 id="13">1.3 优点与局限性</h3>
+<ul>
+<li>
+<p><strong>优点</strong>：</p>
+<ul>
+<li><strong>概念简单，实现成熟</strong>：PyTorch等框架提供了开箱即用的支持。</li>
+<li><strong>性能优秀</strong>：通信量相对固定（只同步梯度），在模型不是特别大时，扩展效率很高。</li>
+</ul>
+</li>
+<li>
+<p><strong>局限性（也是FSDP要解决的问题）</strong>：</p>
+<ul>
+<li><strong>显存冗余</strong>：每个GPU都必须存储<strong>完整的模型副本</strong>、优化器状态和梯度。对于拥有100亿参数的模型，仅模型权重就可能占用40GB+显存，再加上优化器状态和梯度，单个GPU根本无法承受。</li>
+<li><strong>无法训练超大模型</strong>：当模型规模超过单个GPU显存容量时，DDP就无法工作了。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="2.1 核心思想"></span><h3 id="21">2.1 核心思想</h3>
+<p>FSDP是DDP的“增强版”，它采用了“分片”的策略。其核心思想可以概括为：
+<strong>“模型分片，各处一份，用时聚合，用完释放”</strong></p>
+<p>FSDP受DeepSpeed的ZeRO（零冗余优化器）启发，并将其集成到了PyTorch中。它的核心突破在于：<strong>不再在每个GPU上保存完整的模型副本，而是将模型参数、梯度、优化器状态进行分片，分散到各个GPU上。</strong></p>
+<span class="heading-anchor" id="2.2 工作原理详解"></span><h3 id="22">2.2 工作原理详解</h3>
+<ol>
+<li>
+<p><strong>模型分片</strong>：</p>
+<ul>
+<li>将整个模型划分为多个子模块（例如，Transformer的一个层可以作为一个分片单元）。</li>
+<li>在初始化时，每个GPU上只存储<strong>整个模型的一部分参数</strong>。例如，在一个4GPU的系统上，第一层可能在GPU0上，第二层在GPU1上，以此类推。</li>
+</ul>
+</li>
+<li>
+<p><strong>前向传播</strong>：</p>
+<ul>
+<li>当计算需要某个特定子模块时（例如，数据流动到了第二层），FSDP会执行以下操作：<ul>
+<li><strong>全收集</strong>：向所有其他GPU发起通信，<strong>收集（all-gather）</strong> 该子模块所需的<strong>所有分片参数</strong>，在当前GPU上临时重建一个完整的该子模块。</li>
+<li><strong>计算</strong>：使用重建的完整子模块和输入数据执行前向计算。</li>
+<li><strong>释放</strong>：计算完成后，立即<strong>释放</strong>掉从其他GPU收集来的参数，只保留自己负责的那部分分片。这极大地节省了显存。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>后向传播</strong>：</p>
+<ul>
+<li>后向传播过程与前向传播类似，也是按需通过 <strong><code>all-gather</code></strong> 重建子模块，计算梯度，然后释放参数。</li>
+<li>计算出的梯度会与对应的分片参数在一起。对于模型参数的分片，其梯度自然也是分片的。</li>
+</ul>
+</li>
+<li>
+<p><strong>梯度与优化器状态分片</strong>：</p>
+<ul>
+<li><strong>梯度同步</strong>：后向传播结束后，FSDP不是对完整梯度进行 <code>all-reduce</code>，而是对分片的梯度进行 <strong><code>reduce-scatter</code></strong>。每个GPU负责对自己所持有的那一部分参数梯度进行求和，最终每个GPU只拥有全局梯度的一个分片。</li>
+<li><strong>优化器状态分片</strong>：由于每个GPU只持有模型参数的一个分片和对应的梯度分片，因此优化器（如Adam的动量和方差状态）也只需要在同一个GPU上为这一部分参数进行初始化和更新。这再次大幅减少了显存占用。</li>
+</ul>
+</li>
+</ol>
+<span class="heading-anchor" id="2.3 核心优势"></span><h3 id="23">2.3 核心优势</h3>
+<p>FSDP通过精妙的“分时复用”和“分片存储”策略，实现了<strong>近乎线性的显存节省</strong>。</p>
+<ul>
+<li>
+<p><strong>显存优化</strong>：</p>
+<ul>
+<li><strong>模型状态</strong>（参数、梯度、优化器状态）被分片到所有GPU上。在N个GPU上，每个GPU的模型状态显存占用理论上降为原来的 <code>1/N</code>。</li>
+<li><strong>激活值</strong>：FSDP也支持将激活值计算也进行分片，进一步节省显存。</li>
+</ul>
+</li>
+<li>
+<p><strong>通信权衡</strong>：</p>
+<ul>
+<li>FSDP用<strong>增加的通信量</strong>换来了<strong>巨量的显存节省</strong>。</li>
+<li><code>all-gather</code> 和 <code>reduce-scatter</code> 操作比DDP的 <code>all-reduce</code> 更复杂，通信量可能更大。</li>
+<li>但是，通过精细控制分片粒度（例如在层级别分片，而不是参数级别），可以找到通信和显存的最佳平衡点。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="总结与对比"></span><h3 id="_1_45">总结与对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>DDP（分布式数据并行）</th>
+<th>FSDP（完全分片数据并行）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心策略</strong></td>
+<td><strong>复制</strong></td>
+<td><strong>分片</strong></td>
+</tr>
+<tr>
+<td><strong>模型存储</strong></td>
+<td>每个GPU存储<strong>完整模型副本</strong></td>
+<td>每个GPU只存储<strong>模型的一个分片</strong></td>
+</tr>
+<tr>
+<td><strong>优化器状态</strong></td>
+<td>每个GPU存储<strong>完整优化器状态</strong></td>
+<td>每个GPU只存储<strong>优化器状态的一个分片</strong></td>
+</tr>
+<tr>
+<td><strong>梯度处理</strong></td>
+<td><strong>All-Reduce</strong>（同步平均）</td>
+<td><strong>Reduce-Scatter</strong>（同步并分片）</td>
+</tr>
+<tr>
+<td><strong>参数使用</strong></td>
+<td>始终驻留显存</td>
+<td>按需 <strong>All-Gather</strong>，用完即焚</td>
+</tr>
+<tr>
+<td><strong>显存效率</strong></td>
+<td>低，存在大量冗余</td>
+<td><strong>极高</strong>，理论上显存需求与GPU数量成反比</td>
+</tr>
+<tr>
+<td><strong>通信开销</strong></td>
+<td>相对较低且固定</td>
+<td>相对较高，取决于模型结构和分片策略</td>
+</tr>
+<tr>
+<td><strong>适用场景</strong></td>
+<td>模型能够放入单个GPU显存，追求高计算吞吐量</td>
+<td><strong>超大模型</strong>训练，当模型无法放入单个GPU显存时</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L641">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd0313e33babb"></a></p>
+<span class="heading-anchor" id="介绍一下Group convolution的作用"></span><h2 id="group-convolution">介绍一下Group convolution的作用</h2>
+<p><strong>Group Convolution（分组卷积）</strong> 是一种卷积操作的变体，最早在 AlexNet 中被提出，用于解决 GPU 显存不足的问题。后来，它在许多高效的模型架构（如 ResNeXt、MobileNet、ShuffleNet）中得到了广泛应用。</p>
+<span class="heading-anchor" id="1. Group Convolution 的原理"></span><h3 id="1-group-convolution">1. <strong>Group Convolution 的原理</strong></h3>
+<p>Group Convolution 将输入特征图和卷积核分成多个组，每组独立进行卷积操作，最后将结果拼接起来。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E7%9F%A5%E8%AF%86%E7%82%B9.md#L248">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k75277c5b85c7"></a></p>
+<span class="heading-anchor" id="介绍一下NF4精度的特点"></span><h2 id="nf4">介绍一下NF4精度的特点</h2>
+<p>NF4（Normalized Float 4-bit）是一种专门为深度学习模型设计的 4 位浮点数（4-bit floating-point）数值表示方式，旨在优化模型的存储和计算效率，同时尽量保持高精度。NF4 是目前低精度量化领域中的一种新兴方法，被广泛应用于大语言模型（LLMs）等参数量巨大的模型中。NF4精度具备以下优势：
+- <strong>存储高效</strong>：仅占用 4-bit，适合大规模模型。
+- <strong>性能稳定</strong>：在压缩显存占用的同时，精度损失较小。
+- <strong>硬件友好</strong>：针对推理和部署场景进行优化。</p>
+<p>它是当前大模型量化的重要方向之一，结合工具（如 BitsAndBytes、DeepSpeed）和框架支持，可以大幅提升 AIGC 模型的运行效率。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_47">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L805">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb30c6a181a7c"></a></p>
+<span class="heading-anchor" id="介绍一下NVLink的概念"></span><h2 id="nvlink">介绍一下NVLink的概念</h2>
+<span class="heading-anchor" id="一、NVLink的核心知识"></span><h3 id="nvlink_1">一、NVLink的核心知识</h3>
+<p><strong>NVLink</strong> 是英伟达（NVIDIA）设计的一种<strong>高速GPU互连技术</strong>，旨在解决传统PCIe总线在带宽和延迟上的瓶颈，提升多GPU系统（或多GPU与CPU之间）的通信效率。其核心特点包括：</p>
+<ol>
+<li>
+<p><strong>高带宽</strong>：<br/>
+   - NVLink的带宽远超PCIe。例如：  </p>
+<ul>
+<li>PCIe 4.0 x16带宽为 <strong>32 GB/s</strong>（双向）。  </li>
+<li>NVLink 3.0单链路带宽为 <strong>50 GB/s</strong>（单向），多链路叠加后可达 <strong>600 GB/s</strong>（如NVIDIA A100支持12条链路）。  </li>
+<li>带宽优势在多GPU并行计算中尤为关键。</li>
+</ul>
+</li>
+<li>
+<p><strong>低延迟</strong>：<br/>
+   - NVLink采用<strong>点对点直连架构</strong>，减少数据中转层级，通信延迟比PCIe低 <strong>5-10倍</strong>。</p>
+</li>
+<li>
+<p><strong>灵活拓扑</strong>：<br/>
+   - 支持多种连接方式（如GPU-GPU、GPU-CPU），并可通过<strong>NVSwitch</strong>芯片构建大规模GPU集群（如NVIDIA DGX系统）。</p>
+</li>
+<li>
+<p><strong>内存一致性</strong>：<br/>
+   - 支持<strong>统一虚拟内存（UVA）</strong>，允许GPU直接访问其他GPU或CPU的内存，简化编程模型。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="二、通俗易懂的实际案例"></span><h3 id="_1_48">二、通俗易懂的实际案例</h3>
+<p><strong>案例：多GPU训练大型语言模型（如GPT-4）</strong><br/>
+假设使用4块NVIDIA A100 GPU训练GPT-4模型：<br/>
+- <strong>传统PCIe架构</strong>：GPU之间通过PCIe交换数据，带宽受限，导致参数同步耗时较长（如每轮训练需10秒）。<br/>
+- <strong>NVLink架构</strong>：GPU通过NVLink直连，带宽提升数倍，参数同步时间缩短至2秒。<br/>
+- <strong>效果</strong>：训练速度提升约30%，显著降低训练成本。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L154">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8d7b5fc156c9"></a></p>
+<span class="heading-anchor" id="介绍一下torch、torchvision、CUDA、cuDNN之间的关系"></span><h2 id="torchtorchvisioncudacudnn">介绍一下torch、torchvision、CUDA、cuDNN之间的关系</h2>
+<p><strong>Torch</strong>、<strong>Torchvision</strong>、<strong>CUDA</strong> 和 <strong>cuDNN</strong> 是在AI领域研发中紧密相关的组件。它们共同作用，尤其是在 <strong>PyTorch</strong> 生态系统中，用于加速神经网络模型的开发与训练。下面是它们之间的详细关系解释：</p>
+<span class="heading-anchor" id="示例代码"></span><h3 id="_1_49">示例代码</h3>
+<pre><code class="language-python">import torch
+import torchvision
+import torchvision.transforms as transforms
+import torch.nn as nn
+import torch.optim as optim
+
+# 使用 Torchvision 加载 CIFAR-10 数据集
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
+
+# 构建一个简单的卷积神经网络
+class SimpleCNN(nn.Module):
+    def __init__(self):
+        super(SimpleCNN, self).__init__()
+        self.conv1 = nn.Conv2d(3, 16, 3)  # 卷积层
+        self.pool = nn.MaxPool2d(2, 2)    # 池化层
+        self.fc1 = nn.Linear(16 * 6 * 6, 10)  # 全连接层
+
+    def forward(self, x):
+        x = self.pool(torch.relu(self.conv1(x)))
+        x = x.view(-1, 16 * 6 * 6)
+        x = self.fc1(x)
+        return x
+
+# 使用 CUDA 将模型移到 GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+net = SimpleCNN().to(device)
+
+# 定义损失函数和优化器
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+
+# 训练模型
+for epoch in range(2):  # 多次循环遍历数据集
+    running_loss = 0.0
+    for inputs, labels in trainloader:
+        inputs, labels = inputs.to(device), labels.to(device)  # 将数据转移到 GPU
+
+        optimizer.zero_grad()
+        outputs = net(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()  # 反向传播
+        optimizer.step()  # 优化
+
+        running_loss += loss.item()
+    print(f"Epoch {epoch + 1}, Loss: {running_loss / len(trainloader)}")
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L216">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5674b9e7c5ad"></a></p>
+<span class="heading-anchor" id="介绍一下XPU、MLU、MUSA各自的特点"></span><h2 id="xpumlumusa">介绍一下XPU、MLU、MUSA各自的特点</h2>
+<p><strong>XPU</strong>、<strong>MLU</strong> 和 <strong>MUSA</strong> 都是不同的硬件加速器架构，各自由不同的公司开发并用于加速 AI 和高性能计算任务。它们的主要功能是通过专门设计的硬件来加速大规模计算任务，特别是在AIGC、传统深度学习、自动驾驶等领域。以下是对每个加速器架构的详细介绍和它们的特点：</p>
+<span class="heading-anchor" id="1. XPU（Cross Processing Unit）"></span><h3 id="1-xpucross-processing-unit">1. <strong>XPU（Cross Processing Unit）</strong></h3>
+<ul>
+<li><strong>背景</strong>：<strong>XPU</strong> 通常用作 Intel 的新一代可扩展异构计算平台的统称，涵盖了不同的硬件架构，用于处理 AI、数据分析和高性能计算任务。Intel 的 XPU 通过整合 CPU、GPU、FPGA 和专用 AI 加速器（如 Nervana 或 Habana）等硬件，实现广泛的计算场景支持。</li>
+<li>
+<p><strong>特点</strong>：</p>
+<ul>
+<li><strong>异构计算</strong>：XPU 的主要特点是它能够支持异构计算，即在同一计算框架中结合 CPU、GPU、FPGA 和其他 AI 加速硬件来提高计算性能。</li>
+<li><strong>通用性强</strong>：XPU 设计的核心是通用计算，能够支持从数据中心到边缘设备的各种计算需求。</li>
+<li><strong>软件兼容性</strong>：借助 <strong>oneAPI</strong>，Intel 提供了一个统一的编程平台，使开发者能够使用单一代码库来开发支持不同硬件加速的应用程序，这大大简化了异构计算的开发复杂度。</li>
+</ul>
+</li>
+<li>
+<p><strong>应用领域</strong>：</p>
+<ul>
+<li>高性能计算（HPC）</li>
+<li>AI 加速（如训练和推理任务）</li>
+<li>数据分析和处理</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="2. MLU（Machine Learning Unit）"></span><h3 id="2-mlumachine-learning-unit">2. <strong>MLU（Machine Learning Unit）</strong></h3>
+<ul>
+<li><strong>背景</strong>：<strong>MLU</strong> 是由中国公司 <strong>寒武纪科技</strong>（Cambricon）开发的专用机器学习处理器，专门用于加速深度学习和 AI 相关的任务。MLU 处理器通常部署在数据中心、云计算平台和边缘计算设备中。</li>
+<li>
+<p><strong>特点</strong>：</p>
+<ul>
+<li><strong>AI 加速优化</strong>：MLU 是为 AI 任务优化的芯片，特别擅长深度学习模型的训练和推理任务。与传统的 GPU 不同，它是专门为处理神经网络计算所设计的。</li>
+<li><strong>自定义架构</strong>：寒武纪在设计 MLU 架构时，采用了针对神经网络计算的定制硬件，使其在神经网络计算时比传统的通用处理器更高效。</li>
+<li><strong>高吞吐量与能效比</strong>：MLU 的设计目标是提供高吞吐量，并在大规模并行计算中保持较高的能效比。这使得 MLU 特别适合在数据中心进行大规模深度学习任务的处理。</li>
+</ul>
+</li>
+<li>
+<p><strong>应用领域</strong>：</p>
+<ul>
+<li>数据中心 AI 加速</li>
+<li>边缘计算设备</li>
+<li>云端 AI 服务</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="3. MUSA（Machine Unified Smart Accelerator）"></span><h3 id="3-musamachine-unified-smart-accelerator">3. <strong>MUSA（Machine Unified Smart Accelerator）</strong></h3>
+<ul>
+<li><strong>背景</strong>：<strong>MUSA</strong> 是由 <strong>摩尔线程</strong>（Moore Threads）开发的一种 AI 加速架构。摩尔线程是一家中国的半导体公司，致力于开发用于高性能图形渲染和 AI 计算的图形处理器和加速器。</li>
+<li>
+<p><strong>特点</strong>：</p>
+<ul>
+<li><strong>多功能性</strong>：MUSA 是一种智能加速器，能够同时支持图形渲染和 AI 计算任务。与单纯的 AI 加速器不同，MUSA 兼具 AI 和图形处理能力，适合图形计算与 AI 场景结合的应用。</li>
+<li><strong>可编程性</strong>：MUSA 支持丰富的编程模型，可以通过不同的 API 和框架来进行开发，适合需要自定义计算任务的用户。</li>
+<li><strong>AI 与图形渲染结合</strong>：MUSA 特别适合在图形处理和 AI 推理需要同时进行的场景中发挥作用，比如在实时渲染和 AI 驱动的增强现实、虚拟现实（AR/VR）应用中。</li>
+</ul>
+</li>
+<li>
+<p><strong>应用领域</strong>：</p>
+<ul>
+<li>高性能图形渲染</li>
+<li>AI 推理加速</li>
+<li>混合场景应用，如游戏、虚拟现实、增强现实</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_50">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L58">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k12bedc13bb6c"></a></p>
+<span class="heading-anchor" id="介绍一下模型部署领域自定义算子的概念"></span><h2 id="_1_51">介绍一下模型部署领域自定义算子的概念</h2>
+<p>不管是AIGC、传统深度学习还是自动驾驶领域，<strong>涉及到AI模型的深入部署和优化</strong>，就需要进行自定义算子的研发。<strong>自定义算子（Custom Operator）</strong> 是指开发者在标准框架（如 PyTorch、TensorFlow、ONNX 等）之外，为实现特殊功能或优化性能而编写的算子（Operator）。这些算子通常用于AI模型推理阶段，解决标准算子无法满足的需求，或对计算逻辑进行更高效的实现。</p>
+<p>自定义算子主要用于：
+1. 实现新的功能（如自定义激活函数）。
+2. 针对硬件加速进行优化（如 GPU、TensorRT 插件）。
+3. 支持AI模型的高效部署与跨平台适配。</p>
+<p>通过正确实现和注册自定义算子，可以有效提升AI模型部署的灵活性与性能，满足AI实际业务的特殊需求。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%87%AA%E5%AE%9A%E4%B9%89%E7%AE%97%E5%AD%90%E5%AE%9E%E7%8E%B0.md#L6">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbfcc2d3c7bdb"></a></p>
+<span class="heading-anchor" id="代价与权衡"></span><h2 id="_1_52">代价与权衡</h2>
+<ul>
+<li><strong>计算开销增加</strong>：由于需要在反向传播中重新计算前向过程，增加了计算时间。</li>
+<li><strong>适用场景</strong>：在内存资源极为有限的情况下，可接受一定的计算时间增加，换取内存的节省。</li>
+</ul>
+<p><strong>sdpa_math：sdpa_math</strong> 是指在 PyTorch 中使用 C++ 实现的 Scaled Dot-Product Attention，利用 PyTorch 的自定义 C++ 扩展（即 <strong>PyTorch C++ Extensions</strong>）来优化计算性能。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1708">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka0a47c030ed8"></a></p>
+<span class="heading-anchor" id="企业私有化部署需要考虑哪些问题？"></span><h2 id="_1_53">企业私有化部署需要考虑哪些问题？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>私有化部署不仅是“把服务装到客户内网”，还包括数据、模型、工具、运维和合规全链路。</p>
+<p>需要考虑：</p>
+<ul>
+<li>模型部署：公有 API、私有模型、混合路由。</li>
+<li>数据不出域：文档、代码、数据库、trace、记忆。</li>
+<li>身份集成：SSO、LDAP、OIDC、企业 IAM。</li>
+<li>网络边界：内网访问、VPC、专线、代理。</li>
+<li>工具接入：数据库、工单、知识库、Git、IM、邮件。</li>
+<li>审计合规：日志保留、脱敏、访问追踪。</li>
+<li>算力资源：GPU、CPU、队列、弹性伸缩。</li>
+<li>版本升级：离线包、灰度、回滚、兼容性。</li>
+<li>安全扫描：镜像、依赖、MCP Server、插件。</li>
+<li>运维交付：监控、告警、备份、灾备。</li>
+</ul>
+<p>私有化场景的难点往往不是模型推理，而是客户系统集成和权限治理。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L416">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k46ecd5757523"></a></p>
+<span class="heading-anchor" id="使用Docker部署模型服务时常见问题有哪些？"></span><h2 id="docker">使用Docker部署模型服务时常见问题有哪些？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、GPU不可见"></span><h3 id="gpu_1">一、GPU不可见</h3>
+<p>常见原因包括没有安装NVIDIA Container Toolkit、启动容器时没有配置GPU参数、容器内CUDA版本和宿主机驱动不兼容等。</p>
+<span class="heading-anchor" id="二、CUDA和驱动版本不匹配"></span><h3 id="cuda">二、CUDA和驱动版本不匹配</h3>
+<p>容器内可以打包CUDA Runtime，但底层GPU驱动来自宿主机。如果版本不兼容，可能导致模型无法加载或推理失败。</p>
+<span class="heading-anchor" id="三、镜像过大"></span><h3 id="_1_54">三、镜像过大</h3>
+<p>模型服务镜像常包含CUDA、PyTorch、TensorRT、模型权重等，容易达到数GB甚至数十GB。需要合理拆分基础镜像、依赖层和模型文件。</p>
+<span class="heading-anchor" id="四、模型文件管理困难"></span><h3 id="_2_36">四、模型文件管理困难</h3>
+<p>大模型权重通常不适合直接打进镜像，更常见做法是通过挂载目录、对象存储下载或模型仓库管理。</p>
+<span class="heading-anchor" id="五、资源限制不合理"></span><h3 id="_3_6">五、资源限制不合理</h3>
+<p>容器内存、共享内存、线程数、GPU显存和文件句柄限制设置不合理，可能导致OOM、加载失败或性能下降。</p>
+<p>可以总结为：<strong>Docker解决的是环境一致性和部署标准化问题，但GPU推理还要特别关注驱动、CUDA、显存、模型文件挂载和资源限制。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1653">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd97cd155485a"></a></p>
+<span class="heading-anchor" id="使用哪款大模型、为什么，部署 GPU 环境，是否考虑高参数量并量化"></span><h2 id="gpu_2">使用哪款大模型、为什么，部署 GPU 环境，是否考虑高参数量并量化</h2>
+<p><strong>回答：</strong></p>
+<p>模型选型先看任务和约束，再看榜单。维度包括工具调用与结构化输出、中文和领域知识、长上下文、推理质量、延迟、吞吐、价格、部署许可、数据合规、量化兼容和服务稳定性。金融场景尤其要关注可审计、拒答、权限、数字准确性和人工接管，不能只用通用问答分数。</p>
+<p>通常采用强模型做复杂规划/难例，较小模型做路由、改写、摘要和高频简单请求，并用缓存、批处理、量化和模型路由控制成本。上线前用脱敏业务集、对抗集、工具故障集和人工盲评做端到端验证。</p>
+<p><a id="tencent-llm-collection-20260903-q46"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_55">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L812">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd4c73dd3d1d2"></a></p>
+<span class="heading-anchor" id="全连接层（Fully Connected Layer）"></span><h2 id="fully-connected-layer">全连接层（Fully Connected Layer）</h2>
+<p>全连接层的参数量由输入和输出的神经元数决定。</p>
+<p><strong>公式</strong>：</p>
+<div class="arithmatex">\[
+\text{参数量} = \text{输入特征数} \times \text{输出特征数} + \text{输出特征数}
+\]</div>
+<p><strong>示例</strong>：假设输入特征为 512，输出特征为 256。</p>
+<div class="arithmatex">\[
+\text{参数量} = 512 \times 256 + 256 = 131328
+\]</div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_56">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L283">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4f51d0562321"></a></p>
+<span class="heading-anchor" id="六、RDMA部署要求"></span><h2 id="rdma">六、RDMA部署要求</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><strong>组件</strong></th>
+<th><strong>要求</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>网卡</strong></td>
+<td>支持RDMA的NIC（如Mellanox CX-6/CX-7）</td>
+</tr>
+<tr>
+<td><strong>交换机</strong></td>
+<td>RoCE需支持DCQCN/ECN流控（如Arista 7050）</td>
+</tr>
+<tr>
+<td><strong>操作系统</strong></td>
+<td>Linux内核 ≥ 4.11（支持Soft-RoCE）</td>
+</tr>
+<tr>
+<td><strong>驱动/库</strong></td>
+<td>MLNX_OFED、libibverbs、perftest工具集</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_57">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1583">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7a7542be03d7"></a></p>
+<span class="heading-anchor" id="具体步骤："></span><h2 id="_1_58">具体步骤：</h2>
+<p>1) 模型初始化时，系统根据用户设置的 max_total_token_num 预先申请 KV 缓存显存，并创建 Token Table 来记录输入 token 的实际存储位置。
+<img alt="TokenAttention1" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/imgs/TokenAttention1.png"/></p>
+<p>2) 当处理新请求时，系统首先检查预分配的Token缓存中是否有可用的连续空间用于存储KV Cache。 TokenAttention 倾向于为请求分配连续的内存，以最大限度地减少推理过程中的内存访问。仅当连续空间不足时，才会为请求分配非连续的内存。分配的空间记录在Token Table中，用于后续的注意力计算。
+<img alt="TokenAttention2" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/imgs/TokenAttention2.png"/></p>
+<p>3) 对于新生成的Token的缓存，只需从预先分配的Token缓存中找到未使用的空间并将相应的条目添加到Token表中即可。此外，为了有效地分配和释放Cache，我们利用Torch Tensor在GPU上的并行计算能力来管理预分配Token Cache的状态。首先，我们定义状态如下:</p>
+<pre><code class="language-python">self.mem_state = torch.ones((size,), dtype=torch.bool, device="cuda")
+self._mem_cum_sum = torch.empty((size,), dtype=torch.int32, device="cuda")
+self.indexes = torch.arange(0, size, dtype=torch.long, device="cuda")
+self.can_use_mem_size = size
+</code></pre>
+<p>mem_state 记录了缓存的使用状态，其中1代表未使用，0代表已使用。 _mem_cum_sum 用于 mem_state 的累积和，用于有效地识别和选择未使用的空间进行缓存分配。分配过程如下：</p>
+<pre><code class="language-python">torch.cumsum(self.mem_state, dim=0, dtype=torch.int32, out=self._mem_cum_sum)
+#
+select_index = torch.logical_and(self._mem_cum_sum &lt;= need_size, self.mem_state == 1)
+select_index = self.indexes[select_index]
+self.mem_state[select_index] = 0
+self.can_use_mem_size -= len(select_index)
+</code></pre>
+<p><img alt="TokenAttention3" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/imgs/TokenAttention3.png"/></p>
+<p>4) 请求完成后，可以通过删除 Token Table 上的记录来快速释放相应的显存，从而为调度新的请求让路。</p>
+<pre><code class="language-python">self.can_use_mem_size += free_index.shape[0]
+self.mem_state[free_index] = 1
+</code></pre>
+<p><img alt="TokenAttention4" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/imgs/TokenAttention4.png"/></p>
+<p>5) 由于Token级别的 GPU 内存管理，TokenAttention 可以实现 GPU 内存的零浪费。它可以准确地计算出系统可以容纳多少新Token进行计算。因此，当结合 Efficient Router 来管理请求时，它可以在推理过程中不断添加新的请求，充分利用每一块GPU内存，最大化GPU利用率。
+<img alt="TokenAttention5" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/imgs/TokenAttention5.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L872">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k55fb23e6affa"></a></p>
+<span class="heading-anchor" id="内存池、张量复用和算子融合分别如何降低内存开销？"></span><h2 id="_1_59">内存池、张量复用和算子融合分别如何降低内存开销？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、内存池"></span><h3 id="_2_38">一、内存池</h3>
+<p>内存池会预先申请一大块内存，后续重复使用，避免频繁向系统申请和释放内存。这样可以降低分配开销，也能减少内存碎片。</p>
+<span class="heading-anchor" id="二、张量复用"></span><h3 id="_3_7">二、张量复用</h3>
+<p>如果两个中间张量的生命周期不重叠，就可以让它们复用同一块内存。推理框架会根据计算图分析张量生命周期，做静态内存规划。</p>
+<span class="heading-anchor" id="三、算子融合"></span><h3 id="_4_4">三、算子融合</h3>
+<p>算子融合可以减少中间结果落到显存或内存中。例如将多个elementwise算子融合后，中间结果可以保存在寄存器或缓存中。</p>
+<span class="heading-anchor" id="四、低精度和量化"></span><h3 id="_5_1">四、低精度和量化</h3>
+<p>使用FP16、BF16、INT8、INT4等低精度格式，可以直接减少权重、中间激活和缓存的内存占用。</p>
+<span class="heading-anchor" id="五、显存交换与分层存储"></span><h3 id="_6_1">五、显存交换与分层存储</h3>
+<p>当模型或KV Cache无法完全放入显存时，可以把部分数据放到CPU内存、SSD或远端存储中。但这种方式会引入数据搬运开销，通常作为显存不足时的补充手段。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1440">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k540e05820cb1"></a></p>
+<span class="heading-anchor" id="内存注册（Memory Registration）"></span><h2 id="memory-registration">内存注册（Memory Registration）</h2>
+<ul>
+<li><strong>安全隔离机制</strong>：<br/>
+  应用需预先注册内存区域，网卡只访问授权区域  </li>
+</ul>
+<pre><code class="language-c">  // Verbs API 示例
+  struct ibv_mr *mr = ibv_reg_mr(pd, addr, length, IBV_ACCESS_REMOTE_WRITE);
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_60">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1541">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5e6ee4ac4919"></a></p>
+<span class="heading-anchor" id="分阶段加载与卸载（Layer-by-Layer Offloading）"></span><h2 id="layer-by-layer-offloading">分阶段加载与卸载（Layer-by-Layer Offloading）</h2>
+<ul>
+<li><strong>方法</strong>：</li>
+<li>在推理过程中，仅将当前需要计算的模型层加载到 GPU 中。</li>
+<li>计算完成后，立即将这部分权重卸载到 CPU 或磁盘，释放 GPU 显存。</li>
+<li>对于下一层的计算，重复上述过程。</li>
+<li><strong>优点</strong>：</li>
+<li>显存使用峰值仅与单层计算的资源需求相关。</li>
+<li>对计算顺序较强的模型（如 Transformer）特别有效。</li>
+<li><strong>缺点</strong>：</li>
+<li>CPU/GPU 之间频繁的数据传输可能成为瓶颈。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_61">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1939">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc241468e51c4"></a></p>
+<span class="heading-anchor" id="剪枝的基本流程和重要性判断方法是什么？"></span><h2 id="_1_62">剪枝的基本流程和重要性判断方法是什么？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、基本思想"></span><h3 id="_2_39">一、基本思想</h3>
+<p>神经网络通常存在一定冗余，并不是每个参数、通道或层都同等重要。剪枝就是找出其中贡献较小的部分，把它们删除或置零，从而让模型更小、更快。</p>
+<p>可以类比成修剪树枝：保留主干和重要分支，剪掉对结果影响较小的枝叶。</p>
+<span class="heading-anchor" id="二、剪枝的一般流程"></span><h3 id="_3_8">二、剪枝的一般流程</h3>
+<p>剪枝通常包括四步：</p>
+<ol>
+<li><strong>训练原始模型</strong>：先得到一个效果较好的大模型</li>
+<li><strong>评估重要性</strong>：判断哪些权重、通道、层或注意力头不重要</li>
+<li><strong>执行剪枝</strong>：删除或置零不重要部分</li>
+<li><strong>微调恢复精度</strong>：用训练数据继续训练一段时间，弥补剪枝带来的精度损失</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L861">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k24e9a253069b"></a></p>
+<span class="heading-anchor" id="动态Shape、控制流和自定义算子为什么容易导致ONNX部署问题？"></span><h2 id="shapeonnx">动态Shape、控制流和自定义算子为什么容易导致ONNX部署问题？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、动态Shape的问题"></span><h3 id="shape">一、动态Shape的问题</h3>
+<p>动态Shape指的是模型输入或中间张量的某些维度在运行时才确定，例如batch size、图像高宽、序列长度等。</p>
+<p>动态Shape容易带来问题，原因是：</p>
+<ol>
+<li><strong>图优化更难</strong>：很多融合、内存规划和kernel选择依赖静态shape</li>
+<li><strong>后端支持不一致</strong>：ONNX Runtime支持相对灵活，但TensorRT需要Optimization Profile</li>
+<li><strong>shape推断可能失败</strong>：某些Reshape、Concat、Slice等操作依赖运行时shape</li>
+<li><strong>性能不稳定</strong>：不同shape可能走不同kernel或触发不同内存分配</li>
+</ol>
+<p>因此，动态Shape虽然提升灵活性，但会增加部署和调优复杂度。实际工程中通常只开放必要维度，并限制输入范围。</p>
+<span class="heading-anchor" id="二、控制流的问题"></span><h3 id="_1_63">二、控制流的问题</h3>
+<p>控制流包括if、for、while等分支和循环。训练框架中这些逻辑可以依赖Python运行时灵活执行，但ONNX导出后需要转换成静态图中的If、Loop等节点。</p>
+<p>问题在于：</p>
+<ul>
+<li>trace导出可能只记录某一次输入经过的分支。例如，若 forward 中有 <code>if x.shape[2] &gt; 512: ... else: ...</code> 这样的数据相关分支，trace 只会记录 dummy input 走过的那一条路径，另一条分支将完全丢失</li>
+<li>script虽然能保留部分控制流，但目标推理后端不一定支持 ONNX 的 If/Loop 节点</li>
+<li>TensorRT、端侧Runtime等对ONNX控制流支持可能有限</li>
+<li>数据相关分支会让图优化和shape推断更复杂</li>
+</ul>
+<p>所以部署模型时通常希望forward逻辑尽量稳定，把复杂业务分支放到模型外部处理。</p>
+<span class="heading-anchor" id="三、自定义算子的问题"></span><h3 id="_2_40">三、自定义算子的问题</h3>
+<p>自定义算子包括自定义CUDA op、自定义C++ op、自定义autograd Function或训练框架中特有的算子。</p>
+<p>它们容易出问题是因为ONNX标准并不知道这个算子的语义。即使导出成功，目标推理框架也可能不知道如何执行。</p>
+<p>常见解决方式有：</p>
+<ol>
+<li><strong>用标准ONNX算子重写</strong>：优先推荐，部署最简单</li>
+<li><strong>注册Symbolic导出规则</strong>：告诉PyTorch如何把自定义操作导出成ONNX节点</li>
+<li><strong>实现ONNX Runtime Custom Op</strong>：让ORT知道如何执行该节点</li>
+<li><strong>实现TensorRT Plugin</strong>：让TensorRT在构建Engine时支持该算子</li>
+</ol>
+<span class="heading-anchor" id="四、三类问题的共同本质"></span><h3 id="_3_9">四、三类问题的共同本质</h3>
+<p>动态Shape、控制流和自定义算子的共同问题是：它们都削弱了模型图的静态可分析性和后端可移植性。</p>
+<p>推理部署更喜欢规则、静态、标准算子组成的图，因为这样更容易做：</p>
+<ul>
+<li>图优化</li>
+<li>算子融合</li>
+<li>内存规划</li>
+<li>硬件kernel选择</li>
+<li>低精度量化</li>
+</ul>
+<p>可以总结为：<strong>动态Shape会增加shape推断、内存规划和后端优化难度；控制流可能在trace导出时被固化，或在推理后端不被支持；自定义算子没有标准语义，目标引擎无法直接执行。实际部署中应尽量使用标准算子、限制动态维度范围、简化forward逻辑，并在必要时实现Custom Op或TensorRT Plugin。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L881">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9ebacf334218"></a></p>
+<span class="heading-anchor" id="动态迁移（Dynamic Offloading）"></span><h2 id="dynamic-offloading">动态迁移（Dynamic Offloading）</h2>
+<ul>
+<li><strong>方法</strong>：</li>
+<li>根据当前的硬件利用率、任务需求或显存状态，动态决定哪些模块需要迁移到 GPU 或 CPU。</li>
+<li>结合运行时监控工具（如 NVIDIA's PyTorch Profiler）优化决策。</li>
+<li><strong>优点</strong>：</li>
+<li>更智能，适应性强，可以根据任务负载动态调整。</li>
+<li><strong>缺点</strong>：</li>
+<li>实现复杂度高，性能不确定性较大。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_64">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1960">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kaddc0d3002a9"></a></p>
+<span class="heading-anchor" id="参数介绍"></span><h2 id="_1_65">参数介绍</h2>
+<p>SamplingParams有关参数
+- temperature：Temperature 参数是文本生成模型中用于控制生成文本的随机性和创造性的一个重要的超参数。Temperature参数通常设置为 0.1 到 1.0 之间。
+- top_k:模型预测的前k个最可能的下一个词。
+- max_tokens:模型生成的最大长度。
+- stop:生成模型停止生成的符号。</p>
+<p>LLM有关参数
+- model:LLM模型路径。
+- tensor_parallel_size:并行处理的大小。
+- gpu_memory_utilization:默认为0.9， cpu_swap_space默认4个G。若gpu_memory_utilization参数过小(分配的内存大小低于模型使用内存)或者过大(接近1.0)时，代码会崩溃。
+- request_rate:请求速率</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_41">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L636">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k506a4c6216b4"></a></p>
+<span class="heading-anchor" id="同步调用"></span><h2 id="_1_66">同步调用</h2>
+<pre><code>from openai import OpenAI
+
+openai_api_base = "http://127.0.0.1:8000/v1"
+openai_api_key = "EMPTY"
+client = OpenAI(api_key=openai_api_key, base_url=openai_api_base)
+
+def api_predict(conversation):
+    response = client.chat.completions.create(
+        model="Qwen",
+        messages=conversation
+    )
+    for chunk in response:
+        content = chunk.choices[0].delta.content
+        if content:
+            yield content
+
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_42">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L2356">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1c89b9ae7fc2"></a></p>
+<span class="heading-anchor" id="哪些业务场景对推理加速最敏感？"></span><h2 id="_1_67">哪些业务场景对推理加速最敏感？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>对推理加速最敏感的场景，通常具备一个或多个特点：<strong>实时性要求高、并发请求多、模型规模大、部署资源受限</strong>。</p>
+<span class="heading-anchor" id="一、实时交互场景"></span><h3 id="_2_43">一、实时交互场景</h3>
+<p>这类场景对延迟非常敏感，用户希望很快得到反馈。</p>
+<p>典型例子包括：
+- 智能客服、语音助手、实时翻译
+- 搜索排序、推荐系统、广告排序
+- 人脸识别、OCR识别、拍照识物</p>
+<p>这些场景中，推理延迟过高会直接影响用户体验和业务转化率。</p>
+<span class="heading-anchor" id="二、高并发在线服务场景"></span><h3 id="_3_10">二、高并发在线服务场景</h3>
+<p>这类场景每秒请求量很大，重点关注吞吐量和资源成本。</p>
+<p>典型例子包括：
+- 推荐系统召回与排序
+- 广告点击率预估
+- 内容审核
+- 大模型API服务</p>
+<p>在这些业务中，哪怕单次推理只优化几毫秒，放到每天千万级或亿级请求上，也会带来明显的成本收益。</p>
+<span class="heading-anchor" id="三、端侧和边缘部署场景"></span><h3 id="_4_7">三、端侧和边缘部署场景</h3>
+<p>端侧和边缘设备资源有限，通常受算力、内存、功耗和包体限制。</p>
+<p>典型例子包括：
+- 手机端图像美化、人脸检测、语音唤醒
+- 摄像头侧的视频分析
+- 工业质检设备
+- IoT设备上的异常检测</p>
+<p>这些场景不能简单依赖大服务器，因此必须通过模型压缩、量化、算子优化等方式让模型在小设备上跑起来。</p>
+<span class="heading-anchor" id="四、大模型推理场景"></span><h3 id="_5_2">四、大模型推理场景</h3>
+<p>大模型推理尤其需要加速，因为模型参数量大、KV Cache占用高、自回归解码逐token生成，天然容易出现延迟高和显存成本高的问题。</p>
+<p>典型优化包括：
+- PagedAttention 降低 KV Cache 浪费
+- Continuous Batching 提升GPU利用率
+- 量化降低显存和带宽压力
+- 推测解码降低生成延迟</p>
+<p>可以总结为：<strong>推理加速最典型的应用场景包括实时交互、高并发在线服务、端侧/边缘部署和大模型服务。这些场景共同特点是对延迟、吞吐、成本或资源限制非常敏感。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_6_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L479">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kde9f255be384"></a></p>
+<span class="heading-anchor" id="哪些场景更适合使用AOT或JIT编译？"></span><h2 id="aotjit">哪些场景更适合使用AOT或JIT编译？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、AOT编译"></span><h3 id="aot">一、AOT编译</h3>
+<p>AOT是 Ahead-of-Time Compilation，即提前编译。</p>
+<p>它是在模型真正上线运行之前，就根据目标硬件和输入规格完成编译，生成可直接部署的模型或引擎文件。</p>
+<p>典型特点：
+- 编译发生在部署前
+- 首次请求延迟低
+- 运行时更稳定
+- 对未覆盖的动态输入适应性相对较弱，通常需要提前配置shape range或多个optimization profile</p>
+<p>典型例子：TensorRT Engine、OpenVINO IR、部分端侧NPU模型格式。</p>
+<span class="heading-anchor" id="二、JIT编译"></span><h3 id="jit">二、JIT编译</h3>
+<p>JIT是 Just-in-Time Compilation，即即时编译。</p>
+<p>它是在模型运行过程中，根据实际输入形状、执行路径和硬件环境进行编译或优化。</p>
+<p>典型特点：
+- 编译发生在运行时
+- 能根据真实输入做更灵活的优化
+- 首次运行可能有编译开销
+- 需要缓存编译结果，否则会影响线上延迟</p>
+<p>典型例子：XLA JIT、TorchScript JIT、TorchInductor中的部分运行时编译场景。</p>
+<span class="heading-anchor" id="三、对比总结"></span><h3 id="_1_68">三、对比总结</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比维度</th>
+<th>AOT编译</th>
+<th>JIT编译</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>编译时机</td>
+<td>部署前</td>
+<td>运行时</td>
+</tr>
+<tr>
+<td>首次请求延迟</td>
+<td>较低</td>
+<td>可能较高</td>
+</tr>
+<tr>
+<td>动态输入适应性</td>
+<td>较弱</td>
+<td>较强</td>
+</tr>
+<tr>
+<td>线上稳定性</td>
+<td>较好</td>
+<td>依赖缓存和编译策略</td>
+</tr>
+<tr>
+<td>常见场景</td>
+<td>生产部署、端侧部署</td>
+<td>动态shape、研究框架、运行时优化</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_44">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1234">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k99488500bc1f"></a></p>
+<span class="heading-anchor" id="四、Triton和TensorRT是什么关系？"></span><h2 id="tritontensorrt">四、Triton和TensorRT是什么关系？</h2>
+<p>TensorRT主要负责把模型优化成适合NVIDIA GPU执行的Engine；Triton负责把这个Engine或其他模型格式托管成推理服务。</p>
+<p>二者关系可以理解为：</p>
+<pre><code class="language-text">TensorRT：单模型、底层执行、性能优化
+Triton：多模型、服务化、调度、并发、监控
+</code></pre>
+<p>在NVIDIA GPU生产部署中，常见组合是：</p>
+<pre><code class="language-text">PyTorch模型
+  ↓ 导出ONNX
+ONNX模型
+  ↓ TensorRT构建
+TensorRT Engine
+  ↓ Triton托管
+HTTP/gRPC推理服务
+</code></pre>
+<p>可以总结为：<strong>Triton Inference Server主要解决模型上线后的服务化问题，包括统一HTTP/gRPC接口、多模型多版本管理、并发调度、Dynamic Batching、模型热加载和监控指标暴露。TensorRT偏向单模型底层优化，Triton偏向生产服务托管，两者经常组合使用：TensorRT负责生成高性能Engine，Triton负责对外提供高并发推理服务。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_69">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L1726">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5b50e4d3d95d"></a></p>
+<span class="heading-anchor" id="四、三者区别总结"></span><h2 id="_1_70">四、三者区别总结</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>量化对象</th>
+<th>主要解决问题</th>
+<th>难度</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>权重量化</td>
+<td>模型大小、权重显存、权重带宽</td>
+<td>相对较低</td>
+<td>大模型压缩、端侧部署</td>
+</tr>
+<tr>
+<td>激活量化</td>
+<td>中间张量显存、计算和访存</td>
+<td>较高</td>
+<td>INT8端到端推理</td>
+</tr>
+<tr>
+<td>KV Cache量化</td>
+<td>大模型长上下文和高并发显存压力</td>
+<td>较高</td>
+<td>LLM推理服务</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>权重量化主要让模型更小，激活量化主要让推理过程更省，KV Cache量化主要解决大模型长上下文和高并发时的显存压力。三者都属于量化，但优化对象和工程难点不同。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_45">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1191">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf640f6006b05"></a></p>
+<span class="heading-anchor" id="四、与LangChain等框架的区别"></span><h2 id="langchain">四、与LangChain等框架的区别</h2>
+<p>SGLang的DSL与LangChain定位不同：
+- LangChain侧重：组件串联、工具调用、链式抽象
+- SGLang侧重：模型调用的编程模型 + 后端高效执行（RadixAttention等）</p>
+<p>SGLang的DSL更底层、更灵活，性能更可控。LangChain更多是一个应用层框架。</p>
+<p>可以总结为：<strong>SGLang DSL通过gen/select/fork等操作和Python原生控制流，将Prompt构建、模型调用和结果处理统一在一个编程模型中。它解决了传统方法中Prompt与逻辑分离、并行调用复杂、输出格式不可控等痛点，尤其适合需要复杂调用链和结构化输出的Agent、多轮对话等场景。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_71">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L975">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka03844b1726e"></a></p>
+<span class="heading-anchor" id="四、为什么PD分离是顺势而为"></span><h2 id="pd">四、为什么PD分离是顺势而为</h2>
+<p>既然两阶段瓶颈不同、对硬件的要求不同、优化方向不同，很自然的思路就是——把它们分开部署到不同的硬件上，各自使用最适合的配置。</p>
+<p>可以总结为：<strong>Prefill是计算密集型（瓶颈在FLOPS），Decode是访存密集型（瓶颈在HBM带宽）。两阶段放在一起会相互干扰，分开优化可以各取所需的硬件和策略。这就是PD分离架构的出发点。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_72">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1813">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb88d729e01a9"></a></p>
+<span class="heading-anchor" id="四、为什么需要MXFP8？"></span><h2 id="mxfp8">四、为什么需要MXFP8？</h2>
+<ul>
+<li><strong>缓解outlier问题</strong>：per-tensor FP8的scale由全局最大值决定，个别outlier会压缩其他数值的表示范围；MXFP8按block缩放，outlier只影响所在block</li>
+<li><strong>精度更高</strong>：在相同8位元素宽度下，block-wise scaling通常比per-tensor FP8更接近FP16</li>
+<li><strong>适配硬件趋势</strong>：NVIDIA Blackwell的Tensor Core原生支持MXFP8/MXFP4，可以在不牺牲太多精度的情况下获得更高吞吐</li>
+<li><strong>为更低精度铺路</strong>：同一套block scaling机制可扩展到MXFP6/MXFP4</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_73">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L1496">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-a6fd9e8bc6c7.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a><a class="page-next" href="n-cbb46570fb35.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#fp8">二、与普通FP8的区别</a></li><li class="outline-level-2"><a href="#decode-launch-overhead">二、为什么 Decode 阶段 Launch Overhead 突出</a></li><li class="outline-level-2"><a href="#opset">二、为什么Opset会影响兼容性？</a></li><li class="outline-level-2"><a href="#_1_4">二、为什么不只学习真实标签？</a></li><li class="outline-level-2"><a href="#_1_5">二、为什么不能只用模型文件直接部署？</a></li><li class="outline-level-2"><a href="#_1_6">二、为什么推理部署中需要模型压缩？</a></li><li class="outline-level-2"><a href="#_1_7">二、为什么融合能加速？</a></li><li class="outline-level-2"><a href="#kv-cache">二、为什么要单独量化KV Cache？</a></li><li class="outline-level-2"><a href="#_1_9">二、为什么重要？</a></li><li class="outline-level-2"><a href="#_1_10">二、为什么需要推理框架</a></li><li class="outline-level-2"><a href="#roce">二、为何需要“RoCE高网”？</a></li><li class="outline-level-2"><a href="#_1_12">二、如何理解？</a></li><li class="outline-level-2"><a href="#_1_13">二、如何采集命中率数据</a></li><li class="outline-level-2"><a href="#_1_14">二、计算瓶颈怎么看？</a></li><li class="outline-level-2"><a href="#_1_15">二、通俗案例解析：智能旅行规划系统</a></li><li class="outline-level-2"><a href="#_1_16">五、关键特性与生态支持</a></li><li class="outline-level-2"><a href="#_1_17">五、如何选择并行策略？</a></li><li class="outline-level-2"><a href="#all-gather">什么是All-gather操作？</a></li><li class="outline-level-2"><a href="#cuda-graphlaunch-overhead">什么是CUDA Graph？为什么它能降低大模型推理中的Launch Overhead？</a></li><li class="outline-level-2"><a href="#cuda-graph_3">什么是cuda-graph？</a></li><li class="outline-level-2"><a href="#diffusers">什么是diffusers?</a></li><li class="outline-level-2"><a href="#encoder-decoderseq2seq">什么是Encoder-Decoder(Seq2seq)模型?</a></li><li class="outline-level-2"><a href="#fsdp">什么是FSDP？</a></li><li class="outline-level-2"><a href="#gpu">什么是GPU内存带宽？</a></li><li class="outline-level-2"><a href="#gstreamer">什么是Gstreamer</a></li><li class="outline-level-2"><a href="#h264">什么是H.264</a></li><li class="outline-level-2"><a href="#h265">什么是H.265</a></li><li class="outline-level-2"><a href="#infiniband">什么是InfiniBand网卡？</a></li><li class="outline-level-2"><a href="#jenkins">什么是Jenkins？</a></li><li class="outline-level-2"><a href="#nccl-test">什么是nccl-test？</a></li><li class="outline-level-2"><a href="#onnx">什么是ONNX？它有什么作用？</a></li><li class="outline-level-2"><a href="#reduce-scatter">什么是Reduce-Scatter操作？</a></li><li class="outline-level-2"><a href="#yuv">什么是YUV</a></li><li class="outline-level-2"><a href="#zero">什么是ZeRO？</a></li><li class="outline-level-2"><a href="#zigzag">什么是Zigzag（锯齿形或之字形）顺序模式？</a></li><li class="outline-level-2"><a href="#_1_36">什么是异构计算？</a></li><li class="outline-level-2"><a href="#_1_37">什么是推理框架，它有哪些核心功能？</a></li><li class="outline-level-2"><a href="#_1_38">什么是模型剪枝？</a></li><li class="outline-level-2"><a href="#_1_39">什么是模型蒸馏？</a></li><li class="outline-level-2"><a href="#_1_40">什么是模型量化？</a></li><li class="outline-level-2"><a href="#_1_41">什么是流媒体</a></li><li class="outline-level-2"><a href="#_1_42">什么是自定义算子？</a></li><li class="outline-level-2"><a href="#_1_43">什么是计算强度？它为什么重要？</a></li><li class="outline-level-2"><a href="#aiaishell">介绍一下AI行业中规范的AI服务启动Shell脚本</a></li><li class="outline-level-2"><a href="#ddpfsdp">介绍一下DDP和FSDP的原理与区别</a></li><li class="outline-level-2"><a href="#group-convolution">介绍一下Group convolution的作用</a></li><li class="outline-level-2"><a href="#nf4">介绍一下NF4精度的特点</a></li><li class="outline-level-2"><a href="#nvlink">介绍一下NVLink的概念</a></li><li class="outline-level-2"><a href="#torchtorchvisioncudacudnn">介绍一下torch、torchvision、CUDA、cuDNN之间的关系</a></li><li class="outline-level-2"><a href="#xpumlumusa">介绍一下XPU、MLU、MUSA各自的特点</a></li><li class="outline-level-2"><a href="#_1_51">介绍一下模型部署领域自定义算子的概念</a></li><li class="outline-level-2"><a href="#_1_52">代价与权衡</a></li><li class="outline-level-2"><a href="#_1_53">企业私有化部署需要考虑哪些问题？</a></li><li class="outline-level-2"><a href="#docker">使用Docker部署模型服务时常见问题有哪些？</a></li><li class="outline-level-2"><a href="#gpu_2">使用哪款大模型、为什么，部署 GPU 环境，是否考虑高参数量并量化</a></li><li class="outline-level-2"><a href="#fully-connected-layer">全连接层（Fully Connected Layer）</a></li><li class="outline-level-2"><a href="#rdma">六、RDMA部署要求</a></li><li class="outline-level-2"><a href="#_1_58">具体步骤：</a></li><li class="outline-level-2"><a href="#_1_59">内存池、张量复用和算子融合分别如何降低内存开销？</a></li><li class="outline-level-2"><a href="#memory-registration">内存注册（Memory Registration）</a></li><li class="outline-level-2"><a href="#layer-by-layer-offloading">分阶段加载与卸载（Layer-by-Layer Offloading）</a></li><li class="outline-level-2"><a href="#_1_62">剪枝的基本流程和重要性判断方法是什么？</a></li><li class="outline-level-2"><a href="#shapeonnx">动态Shape、控制流和自定义算子为什么容易导致ONNX部署问题？</a></li><li class="outline-level-2"><a href="#dynamic-offloading">动态迁移（Dynamic Offloading）</a></li><li class="outline-level-2"><a href="#_1_65">参数介绍</a></li><li class="outline-level-2"><a href="#_1_66">同步调用</a></li><li class="outline-level-2"><a href="#_1_67">哪些业务场景对推理加速最敏感？</a></li><li class="outline-level-2"><a href="#aotjit">哪些场景更适合使用AOT或JIT编译？</a></li><li class="outline-level-2"><a href="#tritontensorrt">四、Triton和TensorRT是什么关系？</a></li><li class="outline-level-2"><a href="#_1_70">四、三者区别总结</a></li><li class="outline-level-2"><a href="#langchain">四、与LangChain等框架的区别</a></li><li class="outline-level-2"><a href="#pd">四、为什么PD分离是顺势而为</a></li><li class="outline-level-2"><a href="#mxfp8">四、为什么需要MXFP8？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

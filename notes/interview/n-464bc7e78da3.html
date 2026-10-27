@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>测试设计与实践 · 李杨的学习笔记</title><meta name="description" content="没有容量数据和演练结果，高可用方案只能停留在设计稿。压测用于观察系统在不同流量下的延迟、吞吐和资源变化，故障演练则验证节点宕机、依赖变慢或网络分区后，保护和恢复机制是否按预期工作。">
+<meta property="og:type" content="website"><meta property="og:title" content="测试设计与实践 · 李杨的学习笔记"><meta property="og:description" content="没有容量数据和演练结果，高可用方案只能停留在设计稿。压测用于观察系统在不同流量下的延迟、吞吐和资源变化，故障演练则验证节点宕机、依赖变慢或网络分区后，保护和恢复机制是否按预期工作。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-464bc7e78da3.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-464bc7e78da3.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html" aria-current="page">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">17-测试开发</p><h1>测试设计与实践</h1><p class="article-question-meta">8 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-7b08ee1acdf0">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/17-%E6%B5%8B%E8%AF%95%E5%BC%80%E5%8F%91/%E6%B5%8B%E8%AF%95%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E8%B7%B5.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#_1_1">性能测试与故障治理</a></li><li class="outline-level-2"><a href="#_1_2">测试开发</a></li><li class="outline-level-2"><a href="#2026-ai">测试开发学习路线（2026 最新版）：AI 时代如何从测试走向质量工程</a></li><li class="outline-level-2"><a href="#_1_4">测试报告/测试用例设计，如何判断符合本次新需求改动？新功能无历史问题单，怎么设计测试用例？</a></li><li class="outline-level-2"><a href="#_1_5">测试用例及其输出：</a></li><li class="outline-level-2"><a href="#_1_6">网络性能测试</a></li><li class="outline-level-2"><a href="#ai_1">阶段九：AI 辅助测试怎么用</a></li><li class="outline-level-2"><a href="#_1_8">面试时怎么讲测开能力</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kdd948d6e8d10"></a></p>
+<span class="heading-anchor" id="性能测试与故障治理"></span><h2 id="_1_1">性能测试与故障治理</h2>
+<p>没有容量数据和演练结果，高可用方案只能停留在设计稿。压测用于观察系统在不同流量下的延迟、吞吐和资源变化，故障演练则验证节点宕机、依赖变慢或网络分区后，保护和恢复机制是否按预期工作。</p>
+<p><img alt="性能压测主流程" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-availability/ha-interview-performance-test-flow.png"/></p>
+<p>相关内容：<a href="https://javaguide.cn/high-availability/performance-test.html">性能测试入门</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>RT、QPS、TPS、并发数、吞吐量和错误率分别反映什么？</li>
+<li>为什么平均 RT 不能代表长尾延迟？P95、P99 应该怎样看？</li>
+<li>性能测试、负载测试、压力测试和稳定性测试有什么区别？</li>
+<li>容量评估为什么不能只看应用服务器？怎样找到数据库、缓存或连接池瓶颈？</li>
+<li>缓存穿透、击穿和雪崩分别由什么触发？</li>
+<li>什么是故障演练？它和性能压测验证的问题有什么不同？</li>
+<li>如何设计一个高可用系统？回答时怎样串起冗余、限流、熔断、幂等和观测？</li>
+<li>超时和重试上线后，为什么要同时观察首次成功率和最终成功率？</li>
+</ul>
+<p>如果首次成功率持续下降、最终成功率却变化不大，系统可能正在用重试掩盖下游故障。此时不仅要看最终成功率，还要检查重试 QPS、超时率、线程池队列、连接池等待时间和熔断器状态。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md#L133">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k39f254a5232e"></a></p>
+<span class="heading-anchor" id="测试开发"></span><h2 id="_1_2">测试开发</h2>
+<p>【测试开发】</p>
+<ul>
+<li>计算机或相关专业本科及以上学历；</li>
+<li>一至两年的 C/C++/Python 或其他计算机语言的编程经验；</li>
+<li>具备撰写测试计划、测试用例、以及实现性能和安全等测试的能力；</li>
+<li>具备实现自动化系统的能力；</li>
+<li>具备定位调查产品缺陷能力、以及代码级别调试缺陷的能力；</li>
+<li>工作主动积极，有责任心，具有良好的团队合作精神。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/huihut/interview/blob/7a7166804a0ffc8f156e906bf4c1a94bb9f6a94b/README.md#L3358">huihut/interview</a>，来源许可：CC-BY-NC-SA-4.0。</li>
+</ul>
+<p><a id="ked14df94dd2d"></a></p>
+<span class="heading-anchor" id="测试开发学习路线（2026 最新版）：AI 时代如何从测试走向质量工程"></span><h2 id="2026-ai">测试开发学习路线（2026 最新版）：AI 时代如何从测试走向质量工程</h2>
+<p>你好，我是 Guide。这是面向测试开发方向的学习路线 2026 最新版。</p>
+<p>后台经常有同学问：</p>
+<blockquote>
+<p>Java 后端太卷了，能不能转测开？</p>
+<p>测开是不是比开发简单一点？</p>
+<p>AI 都能写测试用例了，测试岗位以后还值得学吗？</p>
+</blockquote>
+<p>我的判断比较直接：测开可以作为一个不错的求职方向，但别把它理解成“后端学不动后的备选”。测试开发工程师（Software Development Engineer in Test，简称 SDET）确实在测试体系里更偏技术，但它要求你能把编程、测试理论、工程工具、业务理解和质量保障串起来。</p>
+<p>如果只是会点手工测试、会点 Postman、会写几条 Selenium 脚本，在现在的环境里竞争力不太够。更好的方向是：能写自动化框架，能接 CI/CD，能看日志和监控定位问题，能做接口、UI、性能和稳定性验证，还能把 AI 用在用例生成、脚本维护、日志分析、缺陷归因和 AI 应用评测里。</p>
+<p>这篇路线主要写给三类同学：</p>
+<ul>
+<li>计算机相关专业，想准备测试开发、自动化测试、质量工程方向的同学。</li>
+<li>已经在做功能测试，想补编程和自动化能力的同学。</li>
+<li>有 Java / Python / 后端基础，想把求职方向扩展到测开的同学。</li>
+</ul>
+<p>先提醒一句：如果你未来的长期目标是纯业务开发，测开经历未必总能无缝迁回开发岗。测开的项目成果更多体现为质量体系、自动化效率、问题定位和平台能力，和业务功能开发的叙事不完全一样。后续想回开发岗也可以，但简历和面试表达要提前设计好。</p>
+<span class="heading-anchor" id="先理解测开到底在做什么"></span><h3 id="_1_3">先理解测开到底在做什么</h3>
+<p>传统测试更关注“这个功能有没有问题”。测开还要往前多走几步：为什么这个问题会漏掉？以后能不能自动发现？这类问题能不能沉淀成工具、平台或流程？</p>
+<p>在真实团队里，测开的工作可能包括这些：</p>
+<ul>
+<li>参与需求评审，提前识别边界条件、异常流程和风险点。</li>
+<li>设计测试用例，覆盖功能、接口、兼容性、安全、性能和稳定性。</li>
+<li>编写接口自动化、UI 自动化、App 自动化脚本。</li>
+<li>建设自动化测试框架，管理测试数据、测试环境和测试报告。</li>
+<li>把自动化用例接入 Jenkins、GitHub Actions、GitLab CI 等流水线。</li>
+<li>做性能压测，分析吞吐量、响应时间、错误率、CPU、内存、数据库和缓存指标。</li>
+<li>开发测试平台，例如用例管理、自动化调度、报告聚合、覆盖率分析和精准测试。</li>
+<li>测试 AI 应用，例如 RAG 问答、智能客服、Agent 工具调用、多模态应用。</li>
+</ul>
+<p>所以，测开的代码主要落在测试框架、测试工具、质量平台和问题定位脚本上。代码量可能没有业务开发大，但对工程链路的理解要更完整。</p>
+<span class="heading-anchor" id="AI 时代，测开要多学什么"></span><h3 id="ai">AI 时代，测开要多学什么</h3>
+<p>AI 对测试的影响已经很明显了。</p>
+<p>一方面，AI 可以帮你提高测试效率。比如根据需求文档生成测试点，帮你补边界用例，改写接口自动化脚本，分析失败日志，生成性能测试报告初稿。以前写 20 条用例要半小时，现在可以先让 AI 出第一版，再由你审查和补充。</p>
+<p>另一方面，AI 应用本身也需要测试。传统系统通常是确定性的，接口返回字段错了就是错了；AI 应用更麻烦，同一个问题可能有不同回答，回答看起来流畅但事实不一定对，RAG 检索可能没召回正确材料，Agent 可能选错工具或编错参数。</p>
+<p>这意味着测开需要补一块新的能力：<strong>评估不确定系统的质量</strong>。</p>
+<p>你至少要知道这些问题怎么测：</p>
+<ul>
+<li>Prompt 是否容易被注入攻击绕过？</li>
+<li>RAG 是否召回了正确文档，回答有没有忠实于检索材料？</li>
+<li>大模型输出的 JSON 是否稳定，字段缺失时系统怎么兜底？</li>
+<li>Agent 调用工具时，工具选择、参数生成、执行结果回填是否正确？</li>
+<li>多轮对话里，上下文污染、历史记忆和权限边界有没有问题？</li>
+<li>模型切换、Prompt 调整、Embedding 更新后，质量是变好了还是变差了？</li>
+</ul>
+<p>AI 不能替代好的测试判断。它能帮你更快地产出候选用例和脚本，但最终要由你判断覆盖是否完整、断言是否有效、失败是否真的暴露了问题。</p>
+<span class="heading-anchor" id="测开学习路线概览"></span><h3 id="_2_2">测开学习路线概览</h3>
+<p>如果你从零开始，可以按这条顺序走：</p>
+<pre><code class="language-text">计算机基础 -&gt; 编程语言 -&gt; 数据库/Linux/Git/Docker -&gt; 测试理论
+-&gt; 接口自动化 -&gt; UI/App 自动化 -&gt; 性能测试 -&gt; CI/CD 与质量工程
+-&gt; AI 辅助测试 -&gt; AI 应用测试 -&gt; 项目和面试表达
+</code></pre>
+<p>不要一上来就学一堆工具。工具可以很快上手，但测开真正拉开差距的是三件事：</p>
+<ul>
+<li>能不能写出可维护的测试代码，少写一次性脚本。</li>
+<li>能不能把自动化接进工程流程，跑在 CI 和日常回归里。</li>
+<li>能不能解释一次失败背后的原因，给出日志、数据和链路证据。</li>
+</ul>
+<span class="heading-anchor" id="阶段一：补计算机基础"></span><h3 id="_3">阶段一：补计算机基础</h3>
+<p>测开面试也会问计算机基础，尤其是校招、实习和大厂面试。</p>
+<p>不用按考研 408 的深度全啃一遍，但下面这些内容要能讲清楚：</p>
+<ul>
+<li>计算机网络：HTTP/HTTPS、TCP/UDP、三次握手和四次挥手、DNS、Cookie / Session / Token、常见状态码、浏览器输入 URL 后发生了什么。</li>
+<li>操作系统：进程和线程、上下文切换、死锁、内存管理、I/O、Linux 文件权限和常用命令。</li>
+<li>数据结构与算法：数组、链表、栈、队列、哈希表、树、堆、排序、二分、双指针、DFS / BFS、动态规划基础。</li>
+<li>基本系统设计意识：缓存、限流、超时、重试、日志、监控、降级。</li>
+</ul>
+<p>测开问计网时，经常会贴近排障场景。比如页面加载慢怎么查，接口偶发超时怎么定位，App 抓包看到 401 / 403 / 500 分别可能是什么原因。你不能只背概念，要能顺着请求链路说。</p>
+<p>可以配合 JavaGuide 里的内容学习：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/network/other-network-questions.md">计算机网络常见面试题</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md">操作系统常见面试题</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/process-and-thread.md">进程和线程</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/linux-intro.md">Linux 常用命令总结</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/algorithms/">数据结构与算法</a></li>
+</ul>
+<p>算法不用刷到后端开发岗那么极限，但基本题要做。测试开发依然是技术岗，笔试和一面遇到算法题很正常。</p>
+<span class="heading-anchor" id="阶段二：选一门主语言，再补一门辅助语言"></span><h3 id="_4">阶段二：选一门主语言，再补一门辅助语言</h3>
+<p>测开绕不开编程。</p>
+<p>语言选择不必纠结太久。Java 和 Python 都能做测开，只是侧重点不一样：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>语言</th>
+<th>更适合的场景</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Java</td>
+<td>已经有 Java 基础、目标公司技术栈偏 Java、想做测试平台或后端质量工具</td>
+<td>直接用 Java 投测开也可以，重点补 JUnit、TestNG、Rest Assured、Spring Boot</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>想快速写脚本、接口自动化、数据处理、日志分析、AI 工具链调用</td>
+<td>很适合测开入门，重点补 pytest、requests、Playwright、Locust</td>
+</tr>
+<tr>
+<td>Java + Python</td>
+<td>想覆盖更广的岗位和项目</td>
+<td>Java 做平台和工程底座，Python 做自动化脚本和 AI 辅助工具</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果你本来就是 Java 后端，不要为了测开把 Java 扔掉重新学 Python。Java 的 Spring Boot、MySQL、Redis、接口设计、单元测试、日志排查经验都能迁移到测开，简历里也更好讲。</p>
+<p>如果你没有明显语言基础，短期准备测开可以先学 Python。它写接口自动化、数据处理、批量脚本和 AI API 调用更轻。</p>
+<p>这一阶段至少要做到：</p>
+<ul>
+<li>能写基本程序，理解函数、类、异常、集合、文件读写和网络请求。</li>
+<li>能用测试框架写单元测试，例如 Java 的 JUnit / Mockito，Python 的 pytest。</li>
+<li>能封装 HTTP 请求，处理 Token、Header、Cookie、参数化和断言。</li>
+<li>能读懂项目目录结构，知道代码、配置、测试、日志分别放在哪里。</li>
+<li>能写一点简单服务，例如 Spring Boot 或 Flask / FastAPI，用来练接口测试。</li>
+</ul>
+<p>Java 相关内容可以看：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/basis/java-basic-questions-01.md">Java 基础常见面试题</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/collection/java-collection-questions-01.md">Java 集合常见面试题</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/system-design/basis/unit-test.md">Java 单元测试</a></li>
+</ul>
+<span class="heading-anchor" id="阶段三：补数据库、Linux、Git、Docker 和 CI/CD"></span><h3 id="linuxgitdocker-cicd">阶段三：补数据库、Linux、Git、Docker 和 CI/CD</h3>
+<p>测开的工作不只发生在浏览器页面上。很多问题最后都要落到数据、环境、日志和发布流程上。</p>
+<p>数据库这块，MySQL 是重点。你至少要会：</p>
+<ul>
+<li>写常见 SQL：查询、过滤、排序、分页、聚合、关联查询。</li>
+<li>看懂表结构，知道主键、唯一索引、普通索引、外键的影响。</li>
+<li>理解事务、隔离级别、脏读、不可重复读、幻读。</li>
+<li>用 SQL 构造测试数据，验证接口返回和数据库状态是否一致。</li>
+<li>能解释慢 SQL、索引失效、连接数耗尽这类常见问题。</li>
+</ul>
+<p>Linux 主要用于部署、日志查看和排障。常用命令要熟：<code>cd</code>、<code>ls</code>、<code>cat</code>、<code>tail</code>、<code>grep</code>、<code>awk</code>、<code>sed</code>、<code>ps</code>、<code>top</code>、<code>df</code>、<code>du</code>、<code>curl</code>、<code>netstat</code> / <code>ss</code>。</p>
+<p>Git 要会分支、提交、合并、解决冲突、回滚和查看提交历史。Docker 要会拉镜像、写简单 Dockerfile、启动容器、挂载配置、查看日志。CI/CD 至少要知道流水线怎么触发、怎么执行测试、怎么生成报告、失败时怎么定位。</p>
+<p>推荐配套阅读：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md">MySQL 常见面试题</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/tools/git/git-intro.md">Git 入门教程</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/tools/docker/docker-intro.md">Docker 入门教程</a></li>
+</ul>
+<p>这一阶段的练习可以很具体：自己写一个小服务，用 Docker 启动 MySQL 和后端服务，再用 GitHub Actions 或 Jenkins 跑一组接口自动化测试。哪怕功能很小，只要链路完整，就比只学工具强很多。</p>
+<span class="heading-anchor" id="阶段四：测试理论和用例设计"></span><h3 id="_5">阶段四：测试理论和用例设计</h3>
+<p>测试理论不该停在背名词。它解决的是一个具体问题：面对一个功能，你怎么判断自己测得够不够？</p>
+<p>基础内容包括：</p>
+<ul>
+<li>测试流程：需求分析、测试计划、用例设计、执行、缺陷跟踪、回归、上线验证、复盘。</li>
+<li>测试分类：单元测试、集成测试、系统测试、验收测试、回归测试、冒烟测试。</li>
+<li>测试类型：功能、接口、性能、安全、兼容性、易用性、稳定性。</li>
+<li>用例设计方法：等价类、边界值、判定表、因果图、状态迁移、正交实验、错误推测。</li>
+<li>缺陷管理：缺陷标题、复现步骤、实际结果、期望结果、环境信息、日志和截图。</li>
+</ul>
+<p>面试里很常见的场景题，比如测试电梯、水杯、登录页、购物车、微信朋友圈、红包、文件上传。回答时别只按功能点罗列，可以按维度展开：</p>
+<ul>
+<li>功能流程：正常路径和异常路径。</li>
+<li>数据边界：空值、超长、特殊字符、重复、非法格式。</li>
+<li>权限和安全：未登录、越权、敏感信息、频率限制。</li>
+<li>兼容性：浏览器、系统版本、网络状态、屏幕尺寸。</li>
+<li>性能和稳定性：高并发、弱网、重复提交、长时间运行。</li>
+<li>可观测性：日志、埋点、告警、错误码是否可定位。</li>
+</ul>
+<p>AI 可以帮你生成初稿，但你要会审。比如让 AI 生成登录页测试点，它可能会覆盖账号密码、验证码、记住登录这些常规点，但经常漏掉风控、频率限制、账号锁定、第三方登录、Token 续期、并发登录和审计日志。</p>
+<p>测开要能补上这些漏掉的地方。</p>
+<span class="heading-anchor" id="阶段五：接口测试和接口自动化"></span><h3 id="_6">阶段五：接口测试和接口自动化</h3>
+<p>接口自动化是测开最应该优先拿下的一块。</p>
+<p>原因很简单：接口比 UI 更稳定，执行速度更快，也更容易接入 CI。很多团队的自动化测试主力都是接口回归。</p>
+<p>先从工具开始。Postman、Apifox、Reqable、Insomnia 这类工具至少会一个，能完成接口调试、环境变量、前置脚本、后置断言和测试集合执行。</p>
+<p>然后写代码。Python 可以用 <code>requests + pytest</code>，Java 可以用 <code>JUnit / TestNG + Rest Assured</code>。一个像样的接口自动化框架，至少要包含：</p>
+<ul>
+<li>环境配置：测试环境、预发环境、接口域名、账号和 Token。</li>
+<li>请求封装：统一处理 Header、Cookie、鉴权、超时、重试。</li>
+<li>数据管理：测试数据准备、清理、参数化、数据库校验。</li>
+<li>断言体系：状态码、响应字段、业务码、数据库状态、消息队列副作用。</li>
+<li>报告输出：Allure、HTML 报告、失败日志、请求和响应详情。</li>
+<li>CI 集成：每次提交或每天定时执行，失败后能定位到具体用例。</li>
+</ul>
+<p>不要只断言 <code>status_code == 200</code>。接口测试真正有价值的断言，应该能证明业务状态正确。例如创建订单接口执行后，要验证订单表、库存变化、支付状态、消息事件或审计日志。</p>
+<p>AI 在这一阶段很适合做三件事：</p>
+<ul>
+<li>根据 OpenAPI / Swagger 文档生成初版测试用例。</li>
+<li>根据接口返回生成数据模型和断言模板。</li>
+<li>帮你审查用例是否只测了成功路径。</li>
+</ul>
+<p>但测试数据、业务断言和环境清理要自己把关。AI 不知道你们系统里哪些字段会影响后续流程。</p>
+<span class="heading-anchor" id="阶段六：UI 自动化和 App 自动化"></span><h3 id="ui-app">阶段六：UI 自动化和 App 自动化</h3>
+<p>UI 自动化能做，但不要一上来就把所有回归都押在 UI 上。</p>
+<p>UI 自动化的成本比接口自动化高。页面结构会变，元素定位会失效，网络和渲染会带来不稳定，维护不好很容易变成“每天都有人修脚本”。所以 UI 自动化更适合覆盖高价值、稳定、跨页面的主流程，比如登录、下单、支付、审批、发布。</p>
+<p>Web UI 自动化可以重点看：</p>
+<ul>
+<li>Playwright：现代 Web 自动化工具，等待机制、调试体验、并行执行和多浏览器支持都比较好。</li>
+<li>Selenium：历史更久，企业存量项目多，面试也常问原理。</li>
+<li>Cypress：前端团队用得多，适合 Web 应用端到端测试。</li>
+</ul>
+<p>如果从 2026 年开始新学，我更建议优先学 Playwright，再了解 Selenium。Selenium 的生态和面试价值仍然在，但新项目的稳定性和开发体验，Playwright 往往更舒服。</p>
+<p>App 自动化主要看 Appium。你要理解设备连接、元素定位、等待、滑动、权限弹窗、日志抓取、弱网和多机型兼容。</p>
+<p>UI / App 自动化要重点掌握：</p>
+<ul>
+<li>Page Object Model，别把元素定位和业务步骤全部写在一个文件里。</li>
+<li>稳定等待，少用固定 <code>sleep</code>。</li>
+<li>截图、视频、Trace 和失败日志留存。</li>
+<li>测试数据隔离，避免用例互相污染。</li>
+<li>并行执行和失败重试，但重试不能掩盖真实问题。</li>
+</ul>
+<p>AI 可以帮你从页面结构生成初版脚本，也可以根据失败截图猜测定位问题。但 UI 自动化的稳定性来自工程设计，脚本生成速度只是开始。</p>
+<span class="heading-anchor" id="阶段七：性能测试和稳定性测试"></span><h3 id="_7">阶段七：性能测试和稳定性测试</h3>
+<p>性能测试不能只停在打开 JMeter 压一下，然后贴一张 QPS 图。</p>
+<p>你要先明确测试目标：验证单接口容量、核心链路容量、峰值流量、稳定性、限流降级，还是找瓶颈。目标不同，压测模型也不同。</p>
+<p>常见工具：</p>
+<ul>
+<li>JMeter：企业里很常见，适合接口和 Web 服务压测。</li>
+<li>k6：脚本化体验更现代，适合开发者协作。</li>
+<li>Locust：Python 编写场景，适合复杂用户行为建模。</li>
+<li>Gatling：性能不错，Scala 技术栈里更常见。</li>
+</ul>
+<p>需要关注的指标：</p>
+<ul>
+<li>吞吐量：QPS、TPS。</li>
+<li>响应时间：平均值、P95、P99。</li>
+<li>错误率：HTTP 错误、业务错误、超时。</li>
+<li>资源指标：CPU、内存、磁盘 I/O、网络 I/O、线程数、连接数。</li>
+<li>依赖指标：数据库慢 SQL、连接池、Redis 命中率、消息队列堆积。</li>
+</ul>
+<p>性能测试报告要能回答几个问题：</p>
+<ul>
+<li>这次压测的业务场景是什么？</li>
+<li>并发用户、请求比例、数据规模和持续时间是多少？</li>
+<li>瓶颈出在哪里，证据是什么？</li>
+<li>优化前后指标变化如何？</li>
+<li>当前结论的边界是什么？</li>
+</ul>
+<p>没有监控的压测价值很低。至少要能看到服务日志、系统资源、数据库指标和错误堆栈。遇到响应慢，先判断是应用线程耗尽、数据库慢、外部接口慢、GC、网络，还是压测脚本本身有问题。</p>
+<span class="heading-anchor" id="阶段八：CI/CD、质量平台和精准测试"></span><h3 id="cicd">阶段八：CI/CD、质量平台和精准测试</h3>
+<p>测开进阶的分水岭，通常在脚本之外：能不能把质量能力沉淀进团队流程。</p>
+<p>第一步是 CI/CD。把接口自动化、单元测试、静态检查、UI 冒烟、测试报告接进流水线。每次合并代码后自动跑一批关键用例，失败时能看到日志、截图、请求响应和负责模块。</p>
+<p>第二步是测试平台。一个简单的平台也可以很有价值，比如：</p>
+<ul>
+<li>用例管理：维护接口、场景、优先级、标签、执行状态。</li>
+<li>自动化调度：按项目、分支、环境、标签触发测试。</li>
+<li>报告聚合：展示通过率、失败原因、历史趋势。</li>
+<li>测试数据管理：准备账号、订单、库存、审批流等数据。</li>
+<li>缺陷联动：失败用例自动关联缺陷或通知负责人。</li>
+</ul>
+<p>第三步是覆盖率和精准测试。Java 可以看 JaCoCo，Python 可以看 Coverage.py。它们能告诉你自动化用例覆盖了哪些代码行、分支和方法。更进一步，可以结合代码变更范围、调用链和历史失败记录，优先执行更可能发现问题的用例。</p>
+<p>精准测试对校招生不一定是硬要求，但它很适合作为进阶项目。相比“我写了一个接口自动化框架”，能说清“我根据代码覆盖率和变更文件筛选回归用例”，技术含量会高不少。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/roadmap/test-development-roadmap.md#L2">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1582c796ee28"></a></p>
+<span class="heading-anchor" id="测试报告/测试用例设计，如何判断符合本次新需求改动？新功能无历史问题单，怎么设计测试用例？"></span><h2 id="_1_4">测试报告/测试用例设计，如何判断符合本次新需求改动？新功能无历史问题单，怎么设计测试用例？</h2>
+<p><strong>回答：</strong></p>
+<p>先建立“需求条款—改动点—测试用例—断言—执行证据”的可追溯关系。测试报告是否覆盖新需求，取决于用例和断言是否对应验收条件，不能只看报告文本是否提到了新功能。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>输入依据</th>
+<th>推导方法</th>
+<th>示例检查点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>需求与验收条件</td>
+<td>决策表、等价类、边界值</td>
+<td>金额小于、等于、大于上限</td>
+</tr>
+<tr>
+<td>状态机与接口契约</td>
+<td>状态迁移、前置条件、错误码</td>
+<td>已退款状态再次退款</td>
+</tr>
+<tr>
+<td>技术方案与代码差异</td>
+<td>影响分析、接口与数据兼容</td>
+<td>旧调用方是否仍可使用</td>
+</tr>
+<tr>
+<td>非功能约束</td>
+<td>并发、故障、权限与资源测试</td>
+<td>重试是否产生重复副作用</td>
+</tr>
+</tbody>
+</table></div>
+<p>没有历史问题单的新功能，仍可从规范、产品确认、接口 schema、领域不变量和风险分析设计用例。历史缺陷用于补充经验，不应成为唯一生成依据。需求不清时先提出澄清项，并把受影响用例标为待确认。</p>
+<p>测试预期要有独立依据。若生成器和评审器都使用同一模型、同一上下文，可能一致地犯错；关键规则采用可执行断言、领域专家审核、已知故障注入或变异测试验证。变异测试也只能衡量对所选变异的检出能力。</p>
+<p>验收可以同时看需求覆盖、断言正确性、有效缺陷发现、误报、重复用例和人工修改量。需求覆盖率可定义为“有有效用例覆盖的确认条款数/本次确认条款总数”，但高覆盖率不等于没有缺陷。</p>
+<p><strong>用一张最小决策表落地。</strong> 假设已确认规则是“可退款金额以分存储，正整数，上限为 L，同一业务退款请求不能重复扣减”，且订单处于可退款状态，那么至少要覆盖下列组合。金额使用整数分只是本例契约，实际业务应按自身货币精度设计。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>条件</th>
+<th>预期与独立断言</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>金额为 0、负数、非整数</td>
+<td>参数层拒绝，退款账本不变</td>
+</tr>
+<tr>
+<td>金额为 1、L−1、L</td>
+<td>L 足够大时检查合法边界，账本仅产生一次预期变更</td>
+</tr>
+<tr>
+<td>金额为 L+1</td>
+<td>业务层拒绝，不能仅检查错误文案</td>
+</tr>
+<tr>
+<td>同一幂等键、相同请求重试</td>
+<td>返回同一业务操作结果，账本不重复变更</td>
+</tr>
+<tr>
+<td>同一幂等键、不同金额</td>
+<td>按明确契约拒绝冲突，不能复用错误结果</td>
+</tr>
+<tr>
+<td>无权限、不可退款状态、依赖超时</td>
+<td>分别验证访问控制、状态约束和结果核对流程</td>
+</tr>
+</tbody>
+</table></div>
+<p>若规则还没有确认，就不能把这些假设写成正式验收标准。测试用例应关联规则版本；金额边界正确，也无法代替对并发重复请求、权限隔离和外部副作用的验证。</p>
+<p><a id="meituan-agent-20261012-18fa4134-q04"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%BE%8E%E5%9B%A2%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L710">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd83e0bdfe1a5"></a></p>
+<span class="heading-anchor" id="测试用例及其输出："></span><h2 id="_1_5">测试用例及其输出：</h2>
+<p>上面的代码对包含多种情况的测试用例进行了排序，包括：
+- 普通未排序数组，
+- 已排序数组，
+- 逆序数组，
+- 空数组，
+- 单元素数组，
+- 所有元素相同的数组。</p>
+<p>这些测试用例涵盖了快速排序可能面临的一些典型情况，并显示了算法处理这些情况的能力。每个测试用例的输出将展示原始数组和排序后的数组，以验证排序过程的正确性。</p>
+<p>非递归（迭代）版本的快速排序可以使用一个显式的栈来模拟递归过程。这种方法避免了递归可能带来的栈溢出问题，并直观地展示了算法的控制流程。下面是如何使用栈实现快速排序的迭代版本：</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%80%9A%E7%94%A8AIGC%E7%AE%97%E6%B3%95%E5%B2%97%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L90">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke13a28f78d38"></a></p>
+<span class="heading-anchor" id="网络性能测试"></span><h2 id="_1_6">网络性能测试</h2>
+<p>1) 加载转换后的TensorRT模型进行性能测试，指定batch大小</p>
+<pre><code>trtexec --loadEngine=mnist16.trt --batch=1
+</code></pre>
+<p>2) 收集和打印时序跟踪信息</p>
+<pre><code>trtexec --deploy=data/AlexNet/AlexNet_N2.prototxt --output=prob --exportTimes=trace.json
+</code></pre>
+<p>3) 使用多流调整吞吐量
+调整吞吐量可能需要运行多个并发执行流。例如，当实现的延迟完全在所需阈值内时，我们可以增加吞吐量，即使以一些延迟为代价。例如，为批量大小 1 和 2 保存引擎并假设两者都在 2ms 内执行，延迟阈值：</p>
+<pre><code>trtexec --deploy=GoogleNet_N2.prototxt --output=prob --batch=1 --saveEngine=g1.trt --int8 --buildOnly
+trtexec --deploy=GoogleNet_N2.prototxt --output=prob --batch=2 --saveEngine=g2.trt --int8 --buildOnly
+</code></pre>
+<p>保存的引擎可以尝试找到低于 2 ms 的组合批次/流，以最大化吞吐量：</p>
+<pre><code>trtexec --loadEngine=g1.trt --batch=1 --streams=2
+trtexec --loadEngine=g1.trt --batch=1 --streams=3
+trtexec --loadEngine=g1.trt --batch=1 --streams=4
+trtexec --loadEngine=g2.trt --batch=2 --streams=2
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1154">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2ba5eb50df34"></a></p>
+<span class="heading-anchor" id="阶段九：AI 辅助测试怎么用"></span><h2 id="ai_1">阶段九：AI 辅助测试怎么用</h2>
+<p>AI 辅助测试不要停留在“帮我写测试用例”。</p>
+<p>更实用的用法是把任务拆细，让 AI 做候选生成和辅助审查：</p>
+<pre><code class="language-text">请根据下面的需求说明，输出测试点。
+要求：
+1. 按功能、接口、权限、安全、兼容性、性能、异常场景分类；
+2. 每个测试点写出前置条件、操作步骤、预期结果；
+3. 单独列出你不确定、需要产品确认的点；
+4. 不要编造需求里没有出现的业务规则。
+</code></pre>
+<p>接口自动化可以这样用：</p>
+<pre><code class="language-text">请根据这份 OpenAPI 文档生成 pytest 接口测试用例初稿。
+要求：
+1. 区分正常路径和异常路径；
+2. 每个用例都要有明确断言；
+3. 不要只断言 HTTP 200；
+4. 标出需要人工补充测试数据的地方。
+</code></pre>
+<p>失败日志分析可以这样用：</p>
+<pre><code class="language-text">请分析下面这次 CI 失败日志。
+要求：
+1. 先判断失败发生在环境、测试数据、断言、接口还是业务代码；
+2. 给出最可能的 3 个原因；
+3. 给出下一步排查命令或需要查看的日志；
+4. 不要直接下结论，缺证据的地方标注“不确定”。
+</code></pre>
+<p>这类 Prompt 的价值在于让 AI 把候选空间列出来。真正的判断仍然来自日志、数据、代码和业务规则。</p>
+<p>更进一步，可以用 AI 做质量审查。比如让它检查自动化框架里有没有硬编码环境、用例是否互相依赖、断言是否太弱、失败重试是否掩盖问题。这个方向和 <a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai-coding/">AI 编程实践指南</a> 里的 Spec Coding、代码审查和本地验证思路是相通的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/roadmap/test-development-roadmap.md#L291">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2abe0e8bdf09"></a></p>
+<span class="heading-anchor" id="面试时怎么讲测开能力"></span><h2 id="_1_8">面试时怎么讲测开能力</h2>
+<p>测开面试不要把自己讲成“会很多工具的人”。工具只是入口，面试官真正想知道的是你能不能保障质量。</p>
+<p>简历和面试表达可以按这条线组织：</p>
+<ul>
+<li>我负责过什么系统或模块的质量保障。</li>
+<li>我如何分析需求并设计测试点。</li>
+<li>我做了哪些自动化能力，覆盖了哪些接口或流程。</li>
+<li>自动化怎么接入 CI/CD，失败后如何通知和定位。</li>
+<li>我发现过什么问题，怎么定位，最后怎么修复或推动修复。</li>
+<li>我做过哪些效率提升，例如报告聚合、测试数据构造、覆盖率统计、用例筛选。</li>
+<li>我如何使用 AI 辅助测试，但如何保证 AI 输出被人工和自动化校验。</li>
+</ul>
+<p>如果你是后端转测开，可以强调这些优势：</p>
+<ul>
+<li>更懂接口设计和后端实现，能从代码和日志定位问题。</li>
+<li>更懂数据库、缓存、消息队列和分布式链路，能测到功能表面以外的风险。</li>
+<li>能开发测试工具或平台，工作不止于执行用例。</li>
+</ul>
+<p>如果你是功能测试转测开，可以强调这些优势：</p>
+<ul>
+<li>更懂业务流程和测试思维。</li>
+<li>更知道哪些场景容易漏测。</li>
+<li>自动化要承接已有人工经验，把高频、稳定、可重复的部分沉淀成脚本和平台。</li>
+</ul>
+<p>常见面试题可以按这些方向准备：</p>
+<ul>
+<li>如何设计登录、购物车、电梯、水杯、文件上传的测试用例？</li>
+<li>接口自动化框架怎么设计？</li>
+<li>pytest 和 unittest 有什么区别？JUnit 和 Mockito 怎么配合？</li>
+<li>Selenium、Playwright、Cypress 的区别是什么？</li>
+<li>UI 自动化不稳定怎么办？</li>
+<li>JMeter 压测报告怎么看？P95 和 P99 分别代表什么？</li>
+<li>接口偶发超时怎么排查？</li>
+<li>线上 bug 漏测了，如何复盘？</li>
+<li>AI 生成的测试用例怎么验证质量？</li>
+<li>如何测试一个 RAG 问答系统或 Agent 工具调用系统？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/roadmap/test-development-roadmap.md#L433">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-b5a162d88a6c.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>测试开发</strong></a><a class="page-next" href="n-2eea79558398.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>运维与云原生</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#_1_1">性能测试与故障治理</a></li><li class="outline-level-2"><a href="#_1_2">测试开发</a></li><li class="outline-level-2"><a href="#2026-ai">测试开发学习路线（2026 最新版）：AI 时代如何从测试走向质量工程</a></li><li class="outline-level-2"><a href="#_1_4">测试报告/测试用例设计，如何判断符合本次新需求改动？新功能无历史问题单，怎么设计测试用例？</a></li><li class="outline-level-2"><a href="#_1_5">测试用例及其输出：</a></li><li class="outline-level-2"><a href="#_1_6">网络性能测试</a></li><li class="outline-level-2"><a href="#ai_1">阶段九：AI 辅助测试怎么用</a></li><li class="outline-level-2"><a href="#_1_8">面试时怎么讲测开能力</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

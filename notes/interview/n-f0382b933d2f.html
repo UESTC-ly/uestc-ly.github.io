@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>模型结构与注意力 · 李杨的学习笔记</title><meta name="description" content="三种主流方法 ： 1. 分组注意力 （LLaVA-Mini）： • 将576个视觉token分为8组，每组执行局部自注意力。 • 效果 ：计算复杂度从O(n²)降至O(n√n)，VQA任务保持87%准确率。 2. 动态稀疏注意力 （TinyGPT-V）： • 每层自动选择Top-k（k=32）关键token，减少计算量">
+<meta property="og:type" content="website"><meta property="og:title" content="模型结构与注意力 · 李杨的学习笔记"><meta property="og:description" content="三种主流方法 ： 1. 分组注意力 （LLaVA-Mini）： • 将576个视觉token分为8组，每组执行局部自注意力。 • 效果 ：计算复杂度从O(n²)降至O(n√n)，VQA任务保持87%准确率。 2. 动态稀疏注意力 （TinyGPT-V）： • 每层自动选择Top-k（k=32）关键token，减少计算量"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-f0382b933d2f.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-f0382b933d2f.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html" aria-current="page">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>模型结构与注意力</h1><p class="article-question-meta">23 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E6%A8%A1%E5%9E%8B%E7%BB%93%E6%9E%84%E4%B8%8E%E6%B3%A8%E6%84%8F%E5%8A%9B-05.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#svlm">轻量级注意力机制如何优化sVLM的计算效率？</a></li><li class="outline-level-2"><a href="#m-roperope">追问了M-RoPE比原来的ROPE有什么改进?有什么优点?</a></li><li class="outline-level-2"><a href="#qwen3-vl-ropemrope">长文本模型结构优化；Qwen3-VL RoPE、MRoPE原理，其他位置编码方案</a></li><li class="outline-level-2"><a href="#1-nlp">问题1. NLP中常见的分词方法有哪些？</a></li><li class="outline-level-2"><a href="#1-self-attention">问题1：为什么 self-attention 可以堆叠多层，有什么作用？</a></li><li class="outline-level-2"><a href="#2transformer">问题2：Transformer 位置编码是什么？</a></li><li class="outline-level-2"><a href="#2transformermask">问题2：Transformer的mask是如何操作的？</a></li><li class="outline-level-2"><a href="#2-transformer">问题2：说下 Transformer 模型</a></li><li class="outline-level-2"><a href="#3qkv-d">问题3：QKV 注意力公式为什么除以根号 d</a></li><li class="outline-level-2"><a href="#3self-attentionsqrt">问题3：Self attention的公式是什么，为什么要除以sqrt</a></li><li class="outline-level-2"><a href="#3rope">问题3：位置编码介绍及ROPE（相对位置编码）的优势</a></li><li class="outline-level-2"><a href="#3mmoe-100">问题3：讲一讲多目标优化，MMoE 怎么设计？如果权重为 1,0,0 这样全部集中在某一个专家上该怎么办？</a></li><li class="outline-level-2"><a href="#4transformer">问题4：Transformer 的结构整体介绍一下</a></li><li class="outline-level-2"><a href="#5batchnormlayernormtransformer">问题5：BatchNorm与LayerNorm的区别及Transformer的选择</a></li><li class="outline-level-2"><a href="#6-attention">问题6：可以介绍一下 attention 机制吗？</a></li><li class="outline-level-2"><a href="#7-attention-qkv">问题7：关于 attention 机制，三个矩阵 Q,K,V的作用是什么？</a></li><li class="outline-level-2"><a href="#mhamqagqadeepseekqwen">除MHA、MQA、GQA之外，你还了解哪些注意力变体，DeepSeek、Qwen采用的注意力方案有什么特点</a></li><li class="outline-level-2"><a href="#rag">随着超长上下文模型的出现，你认为传统RAG架构的必要性是否降低了？</a></li><li class="outline-level-2"><a href="#multi-head-attention">题目一：手写完整的Multi-Head Attention，不能只写框架</a></li><li class="outline-level-2"><a href="#moe">题目三：MOE模型的通信开销计算和负载不均衡问题分析</a></li><li class="outline-level-2"><a href="#vllmpagedattention">题目四：推理加速的底层实现（vLLM的PagedAttention原理、投机解码的工程实现）</a></li><li class="outline-level-2"><a href="#attention">高性能Attention重构具体做了哪些工作</a></li><li class="outline-level-2"><a href="#moe_1">高稀疏 MoE 的瓶颈为什么会转向通信和稳定性？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k3a303fdabed0"></a></p>
+<span class="heading-anchor" id="轻量级注意力机制如何优化sVLM的计算效率？"></span><h2 id="svlm">轻量级注意力机制如何优化sVLM的计算效率？</h2>
+<p><strong>三种主流方法</strong>：<br/>
+1. <strong>分组注意力</strong>（LLaVA-Mini）：<br/>
+   • 将576个视觉token分为8组，每组执行局部自注意力。<br/>
+   • <strong>效果</strong>：计算复杂度从O(n²)降至O(n√n)，VQA任务保持87%准确率。<br/>
+2. <strong>动态稀疏注意力</strong>（TinyGPT-V）：<br/>
+   • 每层自动选择Top-k（k=32）关键token，减少计算量。<br/>
+   • <strong>效果</strong>：Hateful Memes检测F1值达65.3%，内存消耗减少58%。<br/>
+3. <strong>轴向注意力</strong>（DeepSeek-VL2）：<br/>
+   • 将注意力矩阵分解为行（Row）与列（Column）注意力，显存占用降低63%。<br/>
+   • <strong>应用场景</strong>：4096×4096医学影像处理（GPU显存≤24GB）。  </p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E6%A0%B8%E5%BF%83%E6%A8%A1%E5%9E%8B.md#L291">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k904289c27389"></a></p>
+<span class="heading-anchor" id="追问了M-RoPE比原来的ROPE有什么改进?有什么优点?"></span><h2 id="m-roperope">追问了M-RoPE比原来的ROPE有什么改进?有什么优点?</h2>
+<p><strong>常见问法：</strong> 追问道了M-RoPE比原来的RoPE有什么改进？有什么优点？</p>
+<p><strong>回答：</strong></p>
+<p>M-RoPE 的改进在于把一维位置推广到多模态所需的时间与二维空间坐标。以 Qwen2-VL 为例，旋转位置编码的通道维度分成对应时间、高度、宽度的部分，分别使用 token 的 $<code>(t,h,w)</code>$ 坐标旋转 query 和 key。文本三个坐标取相同位置，退化为普通一维 RoPE；单张图像的时间坐标相同，空间坐标随 patch 位置变化；视频则还区分时间位置。</p>
+<p>普通 RoPE 有 $<code>\langle R_mq,R_nk\rangle=q^TR_{n-m}k</code>$，所以内积依赖相对位移。M-RoPE 在不同通道子空间保留不同轴的相对位移，帮助模型区分横向邻近、纵向邻近和跨帧关联，并适配不同分辨率、帧数。</p>
+<p>它不是让模型只看位置就理解运动，也不自动保证任意长度外推。视觉编码、时间采样和训练覆盖仍决定效果；Qwen2-VL 的帧索引设计与后续模型按真实时间对齐的改进需要区分。</p>
+<p><strong>实现时最容易混淆的是坐标与通道。</strong> 每个视觉 token 仍对应一个隐藏向量，时间、高度、宽度分别使用其中不同的旋转通道对，不是把隐藏维度直接扩大三倍。坐标网格需要与视觉 token 合并、裁剪和 padding 后的布局一致；错误地沿用原图 patch 坐标，会让模型看到的内容与位置错位。</p>
+<p><img alt="M-RoPE 三轴位置与通道分配" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/imgs/jd-damodel-20251211-20260205/01_MRoPE三轴位置.png"/></p>
+<p>图 1：M-RoPE 的核心是把不同轴的相对位移显式写入对应通道。不同版本的轴分配、频率排列和时间尺度需要分别检查，不能只根据名称判断位置编码等价。</p>
+<p><a id="jd-damodel-20251211-20260205-p1-q2"></a></p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_1_2">补充说明</h3>
+<p><a id="jd-damodel-20251211-20260205-p4-q3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L143">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E4%BA%AC%E4%B8%9C%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L577">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k90adecaaefed"></a></p>
+<span class="heading-anchor" id="长文本模型结构优化；Qwen3-VL RoPE、MRoPE原理，其他位置编码方案"></span><h2 id="qwen3-vl-ropemrope">长文本模型结构优化；Qwen3-VL RoPE、MRoPE原理，其他位置编码方案</h2>
+<p>答：长文本模型结构优化主要围绕两个瓶颈：一是 attention 的 <span class="arithmatex">\(O(L^2)\)</span> 复杂度，二是位置编码在超出训练长度后的外推问题。</p>
+<p>结构上常见优化包括：</p>
+<ol>
+<li>
+<p>高效 attention：FlashAttention 降低显存读写开销；PagedAttention 优化推理 KV cache；Sliding Window Attention、Local Attention、Sparse Attention 降低长序列二次复杂度。</p>
+</li>
+<li>
+<p>注意力头优化：MQA/GQA 让多个 query head 共享较少的 key/value head，显著降低 KV cache 大小。</p>
+</li>
+<li>
+<p>分块与层次化建模：先 chunk 编码，再做跨 chunk 汇聚；或者引入 global token、memory token、summary token。</p>
+</li>
+<li>
+<p>检索增强：不把所有上下文硬塞进模型，而是先检索相关片段，再输入模型。</p>
+</li>
+<li>
+<p>位置外推：对 RoPE 做 NTK scaling、position interpolation、YaRN 等扩展，使模型适配更长上下文。</p>
+</li>
+</ol>
+<p>RoPE，即旋转位置编码，不是把位置向量加到 token embedding 上，而是在 attention 里对 <span class="arithmatex">\(Q\)</span> 和 <span class="arithmatex">\(K\)</span> 做位置相关的旋转变换。对于位置 <span class="arithmatex">\(m\)</span> 和 <span class="arithmatex">\(n\)</span>，旋转后的内积天然包含相对位置 <span class="arithmatex">\(m-n\)</span> 的信息，因此适合自回归大模型：</p>
+<div class="arithmatex">\[
+\langle R_m q, R_n k \rangle = q^T R_{n-m} k
+\]</div>
+<p>Qwen-VL 系列中的 MRoPE 是 Multimodal RoPE。普通 RoPE 面向一维文本序列，而图像天然有二维高度、宽度，视频还有时间维。MRoPE 把位置分解为时间 <span class="arithmatex">\(t\)</span>、高度 <span class="arithmatex">\(h\)</span>、宽度 <span class="arithmatex">\(w\)</span> 三个维度。对纯文本 token，三个维度可以退化为同一个一维序列位置；对图像 token，主要使用 <span class="arithmatex">\(h,w\)</span>；对视频 token，则使用 <span class="arithmatex">\(t,h,w\)</span>。这样可以在统一序列中同时表达文本顺序、图像空间位置和视频时序位置。</p>
+<p>Qwen3-VL 在此基础上引入 Interleaved-MRoPE。它的要点是把时间、高度、宽度三个维度的位置频率以交错方式分配到 RoPE 维度中，而不是简单分段使用，从而让时空三个维度都能更充分地利用频率信息。公开技术资料中还提到 Qwen3-VL 结合了 DeepStack 和文本时间戳对齐：DeepStack 融合 ViT 多层特征，增强细粒度视觉信息；文本时间戳对齐把视频时间定位更显式地绑定到文本表达上，有利于长视频理解和 temporal grounding。</p>
+<p>其他位置编码方案包括：</p>
+<ol>
+<li>
+<p>绝对位置编码：包括正弦位置编码和可学习位置编码。实现简单，但长度外推能力较弱。</p>
+</li>
+<li>
+<p>相对位置编码：如 Transformer-XL、T5 relative position bias，直接建模 token 间相对距离。</p>
+</li>
+<li>
+<p>ALiBi：在 attention score 上加入与距离相关的线性 bias，不增加位置 embedding，外推性较好。</p>
+</li>
+<li>
+<p>RoPE：通过旋转注入位置，兼具相对位置表达和工程效率，是当前 LLM 主流方案。</p>
+</li>
+<li>
+<p>xPos、NTK-RoPE、YaRN：都是围绕 RoPE 外推和长上下文稳定性做改进。</p>
+</li>
+<li>
+<p>2D/3D 位置编码：用于图像、视频和多模态模型，比如 ViT 的二维位置编码、视频 Transformer 的时空位置编码、Qwen-VL 的 MRoPE。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%88%B1%E5%A5%87%E8%89%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L299">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0e0d1cca2f3a"></a></p>
+<span class="heading-anchor" id="问题1. NLP中常见的分词方法有哪些？"></span><h2 id="1-nlp">问题1. NLP中常见的分词方法有哪些？</h2>
+<p><strong>常见的中文分词方法包括基于规则、基于统计和基于深度学习的方法。</strong> 其中，基于规则的方法根据预先定义的规则对文本进行切分；基于统计的方法通过统计某个词
+在语料库中出现的概率来进行分词；基于深度学习的方法则利用深度神经网络模型从大规模语料中学习分词模型。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%8D%8E%E4%B8%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L13">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd9b9ffed8a25"></a></p>
+<span class="heading-anchor" id="问题1：为什么 self-attention 可以堆叠多层，有什么作用？"></span><h2 id="1-self-attention">问题1：为什么 self-attention 可以堆叠多层，有什么作用？</h2>
+<p>Self-attention 能够捕捉输入序列中的长距离依赖关系，通过堆叠多层 self-attention，模型可以学习序列中更深层次的模式和依赖关系。
+多层 self-attention 就像神经网络中的多个隐藏层一样，使模型能够学习和表示更复杂的函数。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L9">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k71722d91dff8"></a></p>
+<span class="heading-anchor" id="问题2：Transformer 位置编码是什么？"></span><h2 id="2transformer">问题2：Transformer 位置编码是什么？</h2>
+<p>Transformer中的位置编码（Positional Encoding）是为了弥补自注意力机制中缺乏顺序信息的缺陷。位置编码有两种常见方式：
+- <strong>固定位置编码</strong>：如原始Transformer论文中使用的正弦和余弦函数。每个位置的编码是一个固定的向量，不随训练变化。
+- <strong>可训练位置编码</strong>：将位置编码作为可训练的参数，与模型其他参数一起训练。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%90%BA%E7%A8%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L21">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2142e2b4a6d3"></a></p>
+<span class="heading-anchor" id="问题2：Transformer的mask是如何操作的？"></span><h2 id="2transformermask">问题2：Transformer的mask是如何操作的？</h2>
+<p><strong>Transformer模型使用mask主要有两个目的：</strong></p>
+<ul>
+<li><strong>防止信息泄露</strong>：在训练自回归模型（如GPT系列）时，模型在生成每个单词时只能看到它前面的单词。为了实现这一点，使用了“前向mask”。
+这种mask通常是一个上三角矩阵，其中位置(i, j)的值为1（表示masked），如果i &lt; j，否则为0。这样，在计算自注意力时，模型只关注当前单词及其之前的单词。</li>
+<li><strong>填充mask</strong>：在处理不同长度的输入序列时，通常会对较短的序列进行填充（padding），以使它们具有相同的长度。
+为了防止模型在计算时关注填充部分，使用填充mask。填充mask通常会为填充的部分设置为1（masked），而非填充的部分为0。这样，模型在计算自注意力时就会忽略填充的部分。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B9%B3%E5%AE%89%E7%A7%91%E6%8A%80%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L21">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k6f90bbf7a71b"></a></p>
+<span class="heading-anchor" id="问题2：说下 Transformer 模型"></span><h2 id="2-transformer">问题2：说下 Transformer 模型</h2>
+<ul>
+<li><strong>Transformer 模型</strong> 是一种基于自注意力机制的神经网络架构，广泛应用于序列到序列的任务中。Transformer 本身是一个典型的encoder-decoder模型，
+Encoder端和Decoder端均有6个Block， Encoder 端的Block 包括两个模块，多头self-attention模块以及一个前馈神经网络模块；Decoder端的
+Block 包括三个模块，多头self-attention模块，多头Encoder-Decoder attention交互模块，以及一个前 馈神经网络模块； 
+需要注意：Encoder端和Decoder端中的每个模块都有残差层和LayerNormalization层。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L13">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k07501766e322"></a></p>
+<span class="heading-anchor" id="问题3：QKV 注意力公式为什么除以根号 d"></span><h2 id="3qkv-d">问题3：QKV 注意力公式为什么除以根号 d</h2>
+<p>除以根号 <span class="arithmatex">\(\( \sqrt{d_k} \)\)</span> 的原因是为了防止内积值过大导致softmax函数的梯度消失问题。由于Q和K的维度较高，其内积的值会随 <span class="arithmatex">\(\( d_k \)\)</span> 增加而增大，
+从而导致softmax的输出极端化（接近0或1）。除以根号 <span class="arithmatex">\(\( \sqrt{d_k} \)\)</span> 可以使得内积值的方差接近1，保持梯度稳定。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%90%BA%E7%A8%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L27">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k875aa84cc8ef"></a></p>
+<span class="heading-anchor" id="问题3：Self attention的公式是什么，为什么要除以sqrt"></span><h2 id="3self-attentionsqrt">问题3：Self attention的公式是什么，为什么要除以sqrt</h2>
+<p>Self Attention的公式为：</p>
+<div class="arithmatex">\[\[ \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V \]\]</div>
+<p>其中， <span class="arithmatex">\(\( d_k \)\)</span> 是键向量的维度。除以 <span class="arithmatex">\(\( \sqrt{d_k} \)\)</span> 是为了防止在高维空间中，点积的值过大，从而导致softmax函数的梯度消失，确保梯度更平稳，提升训练效果。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B9%B3%E5%AE%89%E7%A7%91%E6%8A%80%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L31">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka63dd6f7916a"></a></p>
+<span class="heading-anchor" id="问题3：位置编码介绍及ROPE（相对位置编码）的优势"></span><h2 id="3rope">问题3：位置编码介绍及ROPE（相对位置编码）的优势</h2>
+<p>Transformer 需要位置编码以捕捉序列中的位置信息，因为其缺乏循环结构。位置编码分为：
+- <strong>绝对位置编码 (APE)</strong>: 为每个位置赋予固定的唯一标识。
+- <strong>相对位置编码 (ROPE)</strong>: 动态捕捉序列中的相对位置信息，提供更好的外推能力。在处理长度变化的序列时，ROPE 相比 APE 表现更优，
+因其不依赖于绝对位置，能更好地处理序列中元素之间的相对关系。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L81">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5cf6320d42f4"></a></p>
+<span class="heading-anchor" id="问题3：讲一讲多目标优化，MMoE 怎么设计？如果权重为 1,0,0 这样全部集中在某一个专家上该怎么办？"></span><h2 id="3mmoe-100">问题3：讲一讲多目标优化，MMoE 怎么设计？如果权重为 1,0,0 这样全部集中在某一个专家上该怎么办？</h2>
+<p>多目标优化是指优化多个目标函数，通常需要在不同目标间找到一个权衡。多门专家混合网络（MMoE, Multi-gate Mixture-of-Experts）
+是一种处理多目标优化的方法，其中每个目标都由一个专家网络来处理，而门网络则决定每个专家对最终输出的贡献。如果权重全部集中在某一个专家上，
+那么模型的输出就完全由那个专家决定。这可能在某些情况下是合理的，但在大多数情况下，你可能希望各个专家都能对输出有所贡献，
+这需要通过训练和调整权重来实现。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L18">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc038d776bd05"></a></p>
+<span class="heading-anchor" id="问题4：Transformer 的结构整体介绍一下"></span><h2 id="4transformer">问题4：Transformer 的结构整体介绍一下</h2>
+<p>Transformer 是一种基于自注意力机制的深度学习模型，广泛应用于自然语言处理任务中。其核心结构包括：</p>
+<ul>
+<li><strong>Encoder和Decoder</strong>: Encoder 负责对输入序列进行编码，生成一组高维特征表示；Decoder 则根据这些表示和目标序列进行解码，生成最终输出。</li>
+<li><strong>多头自注意力机制 (Multi-Head Self-Attention)</strong>: 通过多个注意力头并行处理序列数据，捕捉不同位置之间的依赖关系。</li>
+<li><strong>前馈神经网络 (Feed-Forward Network, FFN)</strong>: 在注意力层后面，通过两层全连接网络对每个位置进行独立的非线性变换。</li>
+<li><strong>残差连接和LayerNorm</strong>: 通过残差连接和LayerNorm，避免梯度消失问题，同时加快模型的收敛速度。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L88">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k251eec96b7f0"></a></p>
+<span class="heading-anchor" id="问题5：BatchNorm与LayerNorm的区别及Transformer的选择"></span><h2 id="5batchnormlayernormtransformer">问题5：BatchNorm与LayerNorm的区别及Transformer的选择</h2>
+<ul>
+<li><strong>BatchNorm</strong>: 主要用于卷积神经网络，通过标准化每个维度来减少内部协变量偏移。</li>
+<li><strong>LayerNorm</strong>: 主要用于序列模型，如RNN和Transformer，对整个层进行标准化，独立于mini-batch。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L97">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8b6ac22fa7f7"></a></p>
+<span class="heading-anchor" id="问题6：可以介绍一下 attention 机制吗？"></span><h2 id="6-attention">问题6：可以介绍一下 attention 机制吗？</h2>
+<p>Attention 机制是一种用于序列建模的技术，它可以自适应地对序列中的不同部分赋予不同的权重，以实现更好的特征表示。
+在 Attention 机制中，通过计算查询向量与一组键值对之间的相似度，来确定每个键值对的权重，最终通过加权平均的方式得到 Attention 向量。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%B6%A3%E7%8E%A9%E7%A7%91%E6%8A%80%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L38">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7c0f0d664be5"></a></p>
+<span class="heading-anchor" id="问题7：关于 attention 机制，三个矩阵 Q,K,V的作用是什么？"></span><h2 id="7-attention-qkv">问题7：关于 attention 机制，三个矩阵 Q,K,V的作用是什么？</h2>
+<p>在 Attention 机制中，KQV 是一组与序列中每个元素对应的三个矩阵，其中 K 和 V 分别代表键和值，用于计算对应元素的权重，Q 代表查询向量，
+用于确定权重分配的方式。三个矩阵 K、Q、V 在 Attention 机制中的具体作用如下：
+- K（Key）矩阵：K 矩阵用于计算每个元素的权重，是一个与输入序列相同大小的矩阵。通过计算查询向量 Q 与每个元素的相似度，
+确定每个元素在加权平均中所占的比例。
+- Q（Query）向量：Q 向量是用来确定权重分配方式的向量，与输入序列中的每个元素都有一个对应的相似度，可以看作是一个加权的向量。
+- V（Value）矩阵：V 矩阵是与输入序列相同大小的矩阵，用于给每个元素赋予一个对应的特征向量。在 Attention 机制中，
+加权平均后的向量就是 V 矩阵的加权平均向量。</p>
+<p>通过K、Q、V三个矩阵的计算，Attention机制可以自适应地为输入序列中的每个元素分配一个权重，以实现更好的特征表示。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%B6%A3%E7%8E%A9%E7%A7%91%E6%8A%80%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L42">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k28d813daa7c3"></a></p>
+<span class="heading-anchor" id="除MHA、MQA、GQA之外，你还了解哪些注意力变体，DeepSeek、Qwen采用的注意力方案有什么特点"></span><h2 id="mhamqagqadeepseekqwen">除MHA、MQA、GQA之外，你还了解哪些注意力变体，DeepSeek、Qwen采用的注意力方案有什么特点</h2>
+<p><strong>回答：</strong></p>
+<p>可以按“减少访问位置、压缩历史表示、改变注意力形式”介绍变体。滑动窗口和块稀疏注意力只访问部分位置，窗口为 w 时局部注意力主要计算可降到 O(nwd)，但远距离信息需要全局 token、跨层传播或其他路径。线性注意力和部分循环状态模型通过核映射或状态递推处理历史，避免完整的两两注意力矩阵，但固定状态容量、数值稳定性和精确检索能力需要额外评估。</p>
+<p><strong>DeepSeek 应限定版本。</strong> DeepSeek-V2、V3 采用 MLA，即多头潜在注意力。其核心是把 K/V 信息联合压缩到较低维的潜在表示，并采用解耦的位置编码设计；推理时缓存潜在表示及必要的位置相关分量，结合矩阵吸收或专用内核计算，减少直接缓存每个头完整 K/V 的开销。它不是简单把全部 Query 头共用同一组普通 K/V，也不能把 KV Cache 说成只剩一个无位置分量的向量。</p>
+<p>MLA 的收益依赖缓存布局、计算重排、硬件和推理实现，训练与预填充仍需承担相应计算。DeepSeekMoE 属于 FFN/专家结构，不能用来回答“注意力是什么”；MoE、MLA 和训练目标是不同层面的设计。</p>
+<p><strong>Qwen 也不能用一个结论覆盖所有版本。</strong> 例如 Qwen3-8B 的配置是 32 个 Query 头、8 个 K/V 头，属于 GQA。Qwen3-Next-80B-A3B 则使用混合架构，将 Gated DeltaNet 与门控注意力组合：前者通过状态更新高效处理长历史，后者保留注意力交互能力。应按具体模型配置确认层布局，不能把 Qwen3-Next 的混合设计倒推到整个 Qwen 系列，也不能把门控机制本身等同于 KV 头共享。</p>
+<p>还可以补充低秩或压缩记忆注意力、带全局位置的局部注意力等，但要说明近似条件和质量代价。FlashAttention 是精确注意力的高效实现方法，与稀疏、线性或 MLA 的结构变化应分开比较。选型时同时看长文本检索、推理质量、缓存容量、首 token 延迟、解码吞吐和内核支持，不能只比较论文中的理论复杂度。</p>
+<p><a id="huawei-llm-algo-20261025-11623402-q05"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%8D%8E%E4%B8%BA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L122">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0f1571a56a02"></a></p>
+<span class="heading-anchor" id="随着超长上下文模型的出现，你认为传统RAG架构的必要性是否降低了？"></span><h2 id="rag">随着超长上下文模型的出现，你认为传统RAG架构的必要性是否降低了？</h2>
+<p><a id="batch4-p1-q14"></a></p>
+<p><strong>相关解释：</strong> <a href="n-8c2a7e9f229a.html#k1abf61aa73cc">Embedding模型与Reranker差异，二者训练Loss区别</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L260">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd6fb2fa6ecca"></a></p>
+<span class="heading-anchor" id="题目一：手写完整的Multi-Head Attention，不能只写框架"></span><h2 id="multi-head-attention">题目一：手写完整的Multi-Head Attention，不能只写框架</h2>
+<p><strong>回答：</strong></p>
+<p>这道题不能只写四个线性层，完整回答至少要把张量形状、缩放点积、掩码语义、数值稳定性和输出投影讲清楚。</p>
+<p>设输入为 <span class="arithmatex">\(X\in\mathbb{R}^{B\times S\times d_{model}}\)</span>，头数为 <span class="arithmatex">\(H\)</span>，则每个头的维度为 <span class="arithmatex">\(d_h=d_{model}/H\)</span>。先做三组线性投影：</p>
+<div class="arithmatex">\[
+Q=XW_Q,\quad K=XW_K,\quad V=XW_V
+\]</div>
+<p>其中 <span class="arithmatex">\(Q,K,V\)</span> 的形状都是 <span class="arithmatex">\([B,S,d_{model}]\)</span>。将最后一维拆成多头并交换维度后，形状变为 <span class="arithmatex">\([B,H,S,d_h]\)</span>。每个头的注意力为：</p>
+<div class="arithmatex">\[
+A=\operatorname{softmax}\left(\frac{QK^{\mathsf T}}{\sqrt{d_h}}+M\right),\qquad
+O=AV
+\]</div>
+<p>最后把 <span class="arithmatex">\(H\)</span> 个头拼回 <span class="arithmatex">\([B,S,d_{model}]\)</span>，再经过 <span class="arithmatex">\(W_O\)</span> 得到输出。除以 <span class="arithmatex">\(\sqrt{d_h}\)</span> 是为了控制点积方差，避免 logits 随维度增大而使 Softmax 饱和、梯度变小。</p>
+<p>一个可以现场运行的简化实现如下。这里约定布尔 <code>attn_mask=True</code> 表示允许关注，形状可以是 <code>[B, 1, Q, K]</code> 或可广播到该形状的张量：</p>
+<pre><code class="language-python">import math
+import torch
+from torch import nn
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.0):
+        super().__init__()
+        if d_model % num_heads != 0:
+            raise ValueError("d_model must be divisible by num_heads")
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, attn_mask=None, is_causal=False):
+        bsz, seq_len, _ = x.shape
+        q = self.q_proj(x).view(bsz, seq_len, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(bsz, seq_len, self.num_heads, self.head_dim)
+        v = self.v_proj(x).view(bsz, seq_len, self.num_heads, self.head_dim)
+        q = q.transpose(1, 2)  # [B, H, S, Dh]
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        scores = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)
+        if is_causal:
+            causal = torch.tril(
+                torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device)
+            )
+            scores = scores.masked_fill(~causal, torch.finfo(scores.dtype).min)
+        if attn_mask is not None:
+            scores = scores.masked_fill(~attn_mask, torch.finfo(scores.dtype).min)
+
+        weights = torch.softmax(scores.float(), dim=-1).to(scores.dtype)
+        weights = self.dropout(weights)
+        out = weights @ v
+        out = out.transpose(1, 2).contiguous().view(bsz, seq_len, self.d_model)
+        return self.out_proj(out)
+</code></pre>
+<p>需要主动说明几个边界。第一，<code>view</code> 只能在内存布局满足条件时安全使用，合并转置后的头通常要先 <code>contiguous()</code>；第二，因果 Mask 与 Padding Mask 的形状和广播规则不能混为一谈；第三，Cross-Attention 时 <span class="arithmatex">\(Q\)</span> 的长度可以与 <span class="arithmatex">\(K,V\)</span> 不同，不能把所有序列长度写死为 <span class="arithmatex">\(S\)</span>。在现代大模型中还可能使用 GQA/MQA、RoPE、FlashAttention 或 fused kernel，但这些是对 QKV 组织和内核的优化，不改变上述注意力的数学骨架。</p>
+<p><a id="deepseek-llm-algo-20260726-q2"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L55">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7cf85045918f"></a></p>
+<span class="heading-anchor" id="题目三：MOE模型的通信开销计算和负载不均衡问题分析"></span><h2 id="moe">题目三：MOE模型的通信开销计算和负载不均衡问题分析</h2>
+<p><strong>回答：</strong></p>
+<p>MoE 的计算量与通信量要分开分析。设一个并行批次有 <span class="arithmatex">\(T\)</span> 个 token，隐藏维度为 <span class="arithmatex">\(d\)</span>，每个 token 选择 <span class="arithmatex">\(k\)</span> 个专家，专家数为 <span class="arithmatex">\(E\)</span>，专家并行组大小为 <span class="arithmatex">\(P\)</span>，每个激活值使用 <span class="arithmatex">\(b\)</span> 字节。</p>
+<p>路由器先为每个 token 计算专家分数并选出 Top-<span class="arithmatex">\(k\)</span>。在 Expert Parallel 中，token 的激活需要通过 All-to-All Dispatch 发到拥有目标专家的设备；专家计算后再通过 All-to-All Combine 将结果送回原 token 所在设备。若负载均匀、每台设备本地命中比例约为 <span class="arithmatex">\(1/P\)</span>，网络上的有效激活载荷可近似写为：</p>
+<div class="arithmatex">\[
+V_{one-way}\approx Tkd b\left(1-\frac{1}{P}\right)
+\]</div>
+<p>两次交换的总载荷约为：</p>
+<div class="arithmatex">\[
+V_{comm}\approx 2Tkd b\left(1-\frac{1}{P}\right)
+\]</div>
+<p>这是粗略的聚合估计；实际还要加上路由索引、padding、元数据、协议头以及拓扑带来的非均匀开销。用延迟带宽模型表达单次通信时间：</p>
+<div class="arithmatex">\[
+T_{comm}\approx \alpha N_{collective}+\frac{V_{comm}}{BW_{eff}}
+\]</div>
+<p>其中 <span class="arithmatex">\(\alpha\)</span> 是集体通信启动延迟，<span class="arithmatex">\(BW_{eff}\)</span> 是受 PCIe、NVLink、RoCE、拥塞和消息大小共同影响的有效带宽。小 batch 时延迟项突出，大 batch 时带宽和负载倾斜更关键。</p>
+<p>计算侧，每个专家接收的 token 数约为 <span class="arithmatex">\(Tk/E\)</span>，若专家是标准两层 FFN，单 token 的矩阵乘开销大致与 <span class="arithmatex">\(d\times d_{ff}\)</span> 成正比；因此 MoE 通过只激活少数专家降低每 token 的计算量，但并不免费：路由、All-to-All、专家权重驻留和负载倾斜会吞掉收益。比如总参数很大而激活参数较小，只能说明稀疏计算特征，不能直接推出端到端吞吐。</p>
+<p>负载不均衡要同时看三件事：专家接收 token 数的均值和最大值、负载变异系数 <code>std(load)/mean(load)</code>，以及因为 capacity 溢出被丢弃或重路由的 token 比例。常见 capacity 为：</p>
+<div class="arithmatex">\[
+C=\left\lceil \frac{c\,Tk}{E}\right\rceil
+\]</div>
+<p>其中 <span class="arithmatex">\(c\)</span> 是 capacity factor。<span class="arithmatex">\(c\)</span> 太小会丢 token，太大则浪费显存和通信；实际需按序列长度、batch、Top-<span class="arithmatex">\(k\)</span> 和目标丢弃率调参。</p>
+<p>造成倾斜的原因包括路由器偏置、热门 token、领域分布变化、专家容量不足和跨节点拓扑差异。可用辅助负载均衡损失、专家偏置控制、容量约束、随机路由、动态 batching 以及拓扑感知放置缓解。回答时还要区分“训练时路由均衡”和“推理时服务均衡”：后者除了 token 数，还要考虑专家所在设备的真实排队时间和通信路径。</p>
+<p><a id="deepseek-llm-algo-20260726-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L185">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k04975e8d1110"></a></p>
+<span class="heading-anchor" id="题目四：推理加速的底层实现（vLLM的PagedAttention原理、投机解码的工程实现）"></span><h2 id="vllmpagedattention">题目四：推理加速的底层实现（vLLM的PagedAttention原理、投机解码的工程实现）</h2>
+<p><strong>回答：</strong></p>
+<p>这道题应拆成两部分：PagedAttention 解决 KV Cache 的内存管理和批处理问题；投机解码通过较便宜的草稿预测减少目标模型的串行迭代次数。两者可以结合，但不是同一个算法。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L224">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf4b875b7103c"></a></p>
+<span class="heading-anchor" id="高性能Attention重构具体做了哪些工作"></span><h2 id="attention">高性能Attention重构具体做了哪些工作</h2>
+<p><strong>回答：</strong></p>
+<p>回答应围绕一次真实优化讲清“原来慢在哪里、改了什么、为什么有效、如何验收”。可以先列出工作负载：GPU 型号，模型与 attention 类型，batch、query/KV 长度、head 数、head dimension、dtype，以及是否 causal、是否包含 KV cache。只说“用了 FlashAttention”不足以说明自己做了重构。</p>
+<p>典型工作可以分为四层，按实际参与范围选择展开：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>可实施的改动</th>
+<th>要证明的收益</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>计算与访存</td>
+<td>分块计算、在线 softmax、融合缩放与 mask</td>
+<td>减少 HBM 往返和中间张量</td>
+</tr>
+<tr>
+<td>并行与布局</td>
+<td>选择 tile、warp 数和流水级数，优化 Q/K/V 布局</td>
+<td>减少访存不合并、同步等待与资源浪费</td>
+</tr>
+<tr>
+<td>形状与阶段</td>
+<td>区分长序列 prefill、单 token decode、变长 batch</td>
+<td>避免一种 kernel 配置覆盖所有形状</td>
+</tr>
+<tr>
+<td>框架接入</td>
+<td>算子注册、dispatch、回退分支与回归测试</td>
+<td>真实模型调用到新实现，且质量和兼容性不退化</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如朴素实现会把 $<code>QK^T</code>$ 和 softmax 结果存入全局显存，而分块融合实现只保留局部块和归一化统计，降低 IO。这个例子解释的是机制，不能当作自己已经完成的项目经历。</p>
+<p>验证先与可信参考实现比较输出；训练算子还需比较梯度。覆盖非整块长度、不同 stride、padding、causal mask、GQA 和极端数值，再测冷启动与稳态、单算子与端到端。最终报告固定条件下的延迟分布、吞吐、峰值显存和误差，而非只报一个最好形状的加速比。</p>
+<p><strong>把“重构”说具体，还应交代保留的语义。</strong> dropout、causal 对齐、padding mask、非连续 stride、GQA 头映射和输出 dtype 都属于接口契约。例如 query 长度与 KV 长度不相等时，三角 mask 是左上对齐还是右下对齐，会直接改变可见 token；不同库默认约定可能不同，不能只在正方形 attention 上对齐一次输出就验收。</p>
+<p>如果做训练路径，前向少存一个矩阵不等于反向免费。需要说明保存了哪些归一化统计、哪些量在 backward 重算，dropout 的随机数是否可复现，以及额外计算换来了多少激活显存节省。对于真实服务，要把新 kernel 的 shape 选择规则和回退条件写进集成测试。</p>
+<p><a id="kuaishou-ai-infra-20260928-0511386c-q02"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L338">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2caef4a8f97e"></a></p>
+<span class="heading-anchor" id="高稀疏 MoE 的瓶颈为什么会转向通信和稳定性？"></span><h2 id="moe_1">高稀疏 MoE 的瓶颈为什么会转向通信和稳定性？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>专家总量增大后，单 Token FLOPs 仍可能可控，但专家所在设备间的 Token 调度、热门专家偏斜、激活异常和权重访存会先成为瓶颈。</p>
+<ul>
+<li>Kimi使用投影前归一化、SiTU-GLU 和 Quantile Balancing 缓解。<a href="https://arxiv.org/abs/2607.24653">Kimi K3 技术报告</a></li>
+<li>MoonEP 则在系统侧通过动态冗余专家放置与静态计算形状应对偏斜。 <a href="https://github.com/MoonshotAI/MoonEP">MoonEP 官方仓库</a></li>
+<li>DeepSeek-V3 的无辅助损失负载均衡减少了平衡损失对语言建模目标的干扰。<a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3 技术报告</a> </li>
+</ul>
+<p><a id="sota-section-3-question-2"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/07_%E6%A8%A1%E5%9E%8B%E6%8B%86%E8%A7%A3%EF%BC%9A%E8%B7%A8%E5%91%A8%E6%9C%9F%E6%8A%80%E6%9C%AF%E6%8B%86%E8%A7%A3.md#L98">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-2595eed292ad.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>模型结构与注意力</strong></a><a class="page-next" href="n-904330a6a1c5.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>评估、安全与可靠性</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#svlm">轻量级注意力机制如何优化sVLM的计算效率？</a></li><li class="outline-level-2"><a href="#m-roperope">追问了M-RoPE比原来的ROPE有什么改进?有什么优点?</a></li><li class="outline-level-2"><a href="#qwen3-vl-ropemrope">长文本模型结构优化；Qwen3-VL RoPE、MRoPE原理，其他位置编码方案</a></li><li class="outline-level-2"><a href="#1-nlp">问题1. NLP中常见的分词方法有哪些？</a></li><li class="outline-level-2"><a href="#1-self-attention">问题1：为什么 self-attention 可以堆叠多层，有什么作用？</a></li><li class="outline-level-2"><a href="#2transformer">问题2：Transformer 位置编码是什么？</a></li><li class="outline-level-2"><a href="#2transformermask">问题2：Transformer的mask是如何操作的？</a></li><li class="outline-level-2"><a href="#2-transformer">问题2：说下 Transformer 模型</a></li><li class="outline-level-2"><a href="#3qkv-d">问题3：QKV 注意力公式为什么除以根号 d</a></li><li class="outline-level-2"><a href="#3self-attentionsqrt">问题3：Self attention的公式是什么，为什么要除以sqrt</a></li><li class="outline-level-2"><a href="#3rope">问题3：位置编码介绍及ROPE（相对位置编码）的优势</a></li><li class="outline-level-2"><a href="#3mmoe-100">问题3：讲一讲多目标优化，MMoE 怎么设计？如果权重为 1,0,0 这样全部集中在某一个专家上该怎么办？</a></li><li class="outline-level-2"><a href="#4transformer">问题4：Transformer 的结构整体介绍一下</a></li><li class="outline-level-2"><a href="#5batchnormlayernormtransformer">问题5：BatchNorm与LayerNorm的区别及Transformer的选择</a></li><li class="outline-level-2"><a href="#6-attention">问题6：可以介绍一下 attention 机制吗？</a></li><li class="outline-level-2"><a href="#7-attention-qkv">问题7：关于 attention 机制，三个矩阵 Q,K,V的作用是什么？</a></li><li class="outline-level-2"><a href="#mhamqagqadeepseekqwen">除MHA、MQA、GQA之外，你还了解哪些注意力变体，DeepSeek、Qwen采用的注意力方案有什么特点</a></li><li class="outline-level-2"><a href="#rag">随着超长上下文模型的出现，你认为传统RAG架构的必要性是否降低了？</a></li><li class="outline-level-2"><a href="#multi-head-attention">题目一：手写完整的Multi-Head Attention，不能只写框架</a></li><li class="outline-level-2"><a href="#moe">题目三：MOE模型的通信开销计算和负载不均衡问题分析</a></li><li class="outline-level-2"><a href="#vllmpagedattention">题目四：推理加速的底层实现（vLLM的PagedAttention原理、投机解码的工程实现）</a></li><li class="outline-level-2"><a href="#attention">高性能Attention重构具体做了哪些工作</a></li><li class="outline-level-2"><a href="#moe_1">高稀疏 MoE 的瓶颈为什么会转向通信和稳定性？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

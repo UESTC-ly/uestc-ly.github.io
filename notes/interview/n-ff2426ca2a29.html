@@ -1,0 +1,2108 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>并发、Channel与调度 · 李杨的学习笔记</title><meta name="description" content="Channel 发送和接收元素的本质是什么？">
+<meta property="og:type" content="website"><meta property="og:title" content="并发、Channel与调度 · 李杨的学习笔记"><meta property="og:description" content="Channel 发送和接收元素的本质是什么？"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-ff2426ca2a29.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-ff2426ca2a29.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html" aria-current="page">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">11-Go</p><h1>并发、Channel与调度</h1><p class="article-question-meta">16 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-333a94a68218">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/11-Go/%E5%B9%B6%E5%8F%91%E3%80%81Channel%E4%B8%8E%E8%B0%83%E5%BA%A6-01.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#channel_1">channel 发送和接收元素的本质是什么</a></li><li class="outline-level-2"><a href="#channel_2">channel 底层的数据结构是什么</a></li><li class="outline-level-2"><a href="#context">context 如何被取消</a></li><li class="outline-level-2"><a href="#go-channel">Go Channel</a></li><li class="outline-level-2"><a href="#goroutine">goroutine 如何退出</a></li><li class="outline-level-2"><a href="#gpm">GPM 是什么</a></li><li class="outline-level-2"><a href="#providermodelagent-runtimechannel">Provider、Model、Agent Runtime、Channel 如何解耦？</a></li><li class="outline-level-2"><a href="#goroutine_1">主 goroutine 如何创建</a></li><li class="outline-level-2"><a href="#csp">什么是 CSP</a></li><li class="outline-level-2"><a href="#_1_9">传递共享的数据</a></li><li class="outline-level-2"><a href="#channel-happened-before">关于 channel 的 happened-before 有哪些</a></li><li class="outline-level-2"><a href="#goroutine_2">取消 goroutine</a></li><li class="outline-level-2"><a href="#sessionuserchannelworkspace">多平台会话如何做 session、user、channel、workspace 隔离？</a></li><li class="outline-level-2"><a href="#channel_3">如何优雅地关闭 channel</a></li><li class="outline-level-2"><a href="#_1_14">并发标记清除法的难点是什么？</a></li><li class="outline-level-2"><a href="#_1_15">案例分析</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kd26e143aab4d"></a></p>
+<span class="heading-anchor" id="channel 发送和接收元素的本质是什么"></span><h2 id="channel_1">channel 发送和接收元素的本质是什么</h2>
+<p>Channel 发送和接收元素的本质是什么？</p>
+<blockquote>
+<p>All transfer of value on the go channels happens with the copy of value.</p>
+</blockquote>
+<p>就是说 channel 的发送和接收操作本质上都是 “值的拷贝”，无论是从 sender goroutine 的栈到 chan buf，还是从 chan buf 到 receiver goroutine，或者是直接从 sender goroutine 到 receiver goroutine。</p>
+<p>举一个例子：</p>
+<pre><code>type user struct {
+    name string
+    age int8
+}
+
+var u = user{name: "Ankur", age: 25}
+var g = &amp;u
+
+func modifyUser(pu *user) {
+    fmt.Println("modifyUser Received Vaule", pu)
+    pu.name = "Anand"
+}
+
+func printUser(u &lt;-chan *user) {
+    time.Sleep(2 * time.Second)
+    fmt.Println("printUser goRoutine called", &lt;-u)
+}
+
+func main() {
+    c := make(chan *user, 5)
+    c &lt;- g
+    fmt.Println(g)
+    // modify g
+    g = &amp;user{name: "Ankur Anand", age: 100}
+    go printUser(c)
+    go modifyUser(g)
+    time.Sleep(5 * time.Second)
+    fmt.Println(g)
+}
+</code></pre>
+<p>运行结果：</p>
+<pre><code class="language-shell">&amp;{Ankur 25}
+modifyUser Received Vaule &amp;{Ankur Anand 100}
+printUser goRoutine called &amp;{Ankur 25}
+&amp;{Anand 100}
+</code></pre>
+<p>这里就是一个很好的 <code>share memory by communicating</code> 的例子。</p>
+<p><img alt="output" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/12.png"/></p>
+<p>一开始构造一个结构体 u，地址是 0x56420，图中地址上方就是它的内容。接着把 <code>&amp;u</code> 赋值给指针 <code>g</code>，g 的地址是 0x565bb0，它的内容就是一个地址，指向 u。</p>
+<p>main 程序里，先把 g 发送到 c，根据 <code>copy value</code> 的本质，进入到 chan buf 里的就是 <code>0x56420</code>，它是指针 g 的值（不是它指向的内容），所以打印从 channel 接收到的元素时，它就是 <code>&amp;{Ankur 25}</code>。因此，这里并不是将指针 g “发送” 到了 channel 里，只是拷贝它的值而已。</p>
+<p>再强调一次：</p>
+<blockquote>
+<p>Remember all transfer of value on the go channels happens with the copy of value.</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/9-channel%20%E5%8F%91%E9%80%81%E5%92%8C%E6%8E%A5%E6%94%B6%E5%85%83%E7%B4%A0%E7%9A%84%E6%9C%AC%E8%B4%A8%E6%98%AF%E4%BB%80%E4%B9%88.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1c5bcadcf739"></a></p>
+<span class="heading-anchor" id="channel 底层的数据结构是什么"></span><h2 id="channel_2">channel 底层的数据结构是什么</h2>
+<span class="heading-anchor" id="数据结构"></span><h3 id="_1_1">数据结构</h3>
+<p>底层数据结构需要看源码，版本为 go 1.9.2：</p>
+<pre><code class="language-golang">type hchan struct {
+    // chan 里元素数量
+    qcount   uint
+    // chan 底层循环数组的长度
+    dataqsiz uint
+    // 指向底层循环数组的指针
+    // 只针对有缓冲的 channel
+    buf      unsafe.Pointer
+    // chan 中元素大小
+    elemsize uint16
+    // chan 是否被关闭的标志
+    closed   uint32
+    // chan 中元素类型
+    elemtype *_type // element type
+    // 已发送元素在循环数组中的索引
+    sendx    uint   // send index
+    // 已接收元素在循环数组中的索引
+    recvx    uint   // receive index
+    // 等待接收的 goroutine 队列
+    recvq    waitq  // list of recv waiters
+    // 等待发送的 goroutine 队列
+    sendq    waitq  // list of send waiters
+
+    // 保护 hchan 中所有字段
+    lock mutex
+}
+</code></pre>
+<p>关于字段的含义都写在注释里了，再来重点说几个字段：</p>
+<p><code>buf</code> 指向底层循环数组，只有缓冲型的 channel 才有。</p>
+<p><code>sendx</code>，<code>recvx</code> 均指向底层循环数组，表示当前可以发送和接收的元素位置索引值（相对于底层数组）。</p>
+<p><code>sendq</code>，<code>recvq</code> 分别表示被阻塞的 goroutine，这些 goroutine 由于尝试读取 channel 或向 channel 发送数据而被阻塞。</p>
+<p><code>waitq</code> 是 <code>sudog</code> 的一个双向链表，而 <code>sudog</code> 实际上是对 goroutine 的一个封装：</p>
+<pre><code class="language-golang">type waitq struct {
+    first *sudog
+    last  *sudog
+}
+</code></pre>
+<p><code>lock</code> 用来保证每个读 channel 或写 channel 的操作都是原子的。</p>
+<p>例如，创建一个容量为 6 的，元素为 int 型的 channel 数据结构如下 ：</p>
+<p><img alt="chan data structure" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/0.png"/></p>
+<span class="heading-anchor" id="创建"></span><h3 id="_2">创建</h3>
+<p>我们知道，通道有两个方向，发送和接收。理论上来说，我们可以创建一个只发送或只接收的通道，但是这种通道创建出来后，怎么使用呢？一个只能发的通道，怎么接收呢？同样，一个只能收的通道，如何向其发送数据呢？</p>
+<p>一般而言，使用 <code>make</code> 创建一个能收能发的通道：</p>
+<pre><code class="language-golang">// 无缓冲通道
+ch1 := make(chan int)
+// 有缓冲通道
+ch2 := make(chan int, 10)
+</code></pre>
+<p>通过<a href="https://mp.weixin.qq.com/s/obnnVkO2EiFnuXk_AIDHWw">汇编</a>分析，我们知道，最终创建 chan 的函数是 <code>makechan</code>：</p>
+<pre><code class="language-golang">func makechan(t *chantype, size int64) *hchan
+</code></pre>
+<p>从函数原型来看，创建的 chan 是一个指针。所以我们能在函数间直接传递 channel，而不用传递 channel 的指针。</p>
+<p>具体来看下代码：</p>
+<pre><code class="language-golang">const hchanSize = unsafe.Sizeof(hchan{}) + uintptr(-int(unsafe.Sizeof(hchan{}))&amp;(maxAlign-1))
+
+func makechan(t *chantype, size int64) *hchan {
+    elem := t.elem
+
+    // 省略了检查 channel size，align 的代码
+    // ……
+
+    var c *hchan
+    // 如果元素类型不含指针 或者 size 大小为 0（无缓冲类型）
+    // 只进行一次内存分配
+    if elem.kind&amp;kindNoPointers != 0 || size == 0 {
+        // 如果 hchan 结构体中不含指针，GC 就不会扫描 chan 中的元素
+        // 只分配 "hchan 结构体大小 + 元素大小*个数" 的内存
+        c = (*hchan)(mallocgc(hchanSize+uintptr(size)*elem.size, nil, true))
+        // 如果是缓冲型 channel 且元素大小不等于 0（大小等于 0的元素类型：struct{}）
+        if size &gt; 0 &amp;&amp; elem.size != 0 {
+            c.buf = add(unsafe.Pointer(c), hchanSize)
+        } else {
+            // race detector uses this location for synchronization
+            // Also prevents us from pointing beyond the allocation (see issue 9401).
+            // 1. 非缓冲型的，buf 没用，直接指向 chan 起始地址处
+            // 2. 缓冲型的，能进入到这里，说明元素无指针且元素类型为 struct{}，也无影响
+            // 因为只会用到接收和发送游标，不会真正拷贝东西到 c.buf 处（这会覆盖 chan的内容）
+            c.buf = unsafe.Pointer(c)
+        }
+    } else {
+        // 进行两次内存分配操作
+        c = new(hchan)
+        c.buf = newarray(elem, int(size))
+    }
+    c.elemsize = uint16(elem.size)
+    c.elemtype = elem
+    // 循环数组长度
+    c.dataqsiz = uint(size)
+
+    // 返回 hchan 指针
+    return c
+}
+</code></pre>
+<p>新建一个 chan 后，内存在堆上分配，大概长这样：</p>
+<p><img alt="make chan" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/1.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<p>【Kavya在Gopher Con 上关于 channel 的设计，非常好】https://speakerd.s3.amazonaws.com/presentations/10ac0b1d76a6463aa98ad6a9dec917a7/GopherCon_v10.0.pdf</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/2-channel%20%E5%BA%95%E5%B1%82%E7%9A%84%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E6%98%AF%E4%BB%80%E4%B9%88.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka51021db9508"></a></p>
+<span class="heading-anchor" id="context 如何被取消"></span><h2 id="context">context 如何被取消</h2>
+<p>context 包的代码并不长，<code>context.go</code> 文件总共不到 500 行，其中还有很多大段的注释，代码可能也就 200 行左右的样子，是一个非常值得研究的代码库。</p>
+<p>先看一张整体的图：</p>
+<p><img alt="structure" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/assets/3.png"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>名称</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Context</td>
+<td>接口</td>
+<td>定义了 Context 接口的四个方法</td>
+</tr>
+<tr>
+<td>emptyCtx</td>
+<td>结构体</td>
+<td>实现了 Context 接口，它其实是个空的 context</td>
+</tr>
+<tr>
+<td>CancelFunc</td>
+<td>函数</td>
+<td>取消函数</td>
+</tr>
+<tr>
+<td>canceler</td>
+<td>接口</td>
+<td>context 取消接口，定义了两个方法</td>
+</tr>
+<tr>
+<td>cancelCtx</td>
+<td>结构体</td>
+<td>可以被取消</td>
+</tr>
+<tr>
+<td>timerCtx</td>
+<td>结构体</td>
+<td>超时会被取消</td>
+</tr>
+<tr>
+<td>valueCtx</td>
+<td>结构体</td>
+<td>可以存储 k-v 对</td>
+</tr>
+<tr>
+<td>Background</td>
+<td>函数</td>
+<td>返回一个空的 context，常作为根 context</td>
+</tr>
+<tr>
+<td>TODO</td>
+<td>函数</td>
+<td>返回一个空的 context，常用于重构时期，没有合适的 context 可用</td>
+</tr>
+<tr>
+<td>WithCancel</td>
+<td>函数</td>
+<td>基于父 context，生成一个可以取消的 context</td>
+</tr>
+<tr>
+<td>newCancelCtx</td>
+<td>函数</td>
+<td>创建一个可取消的 context</td>
+</tr>
+<tr>
+<td>propagateCancel</td>
+<td>函数</td>
+<td>向下传递 context 节点间的取消关系</td>
+</tr>
+<tr>
+<td>parentCancelCtx</td>
+<td>函数</td>
+<td>找到第一个可取消的父节点</td>
+</tr>
+<tr>
+<td>removeChild</td>
+<td>函数</td>
+<td>去掉父节点的孩子节点</td>
+</tr>
+<tr>
+<td>init</td>
+<td>函数</td>
+<td>包初始化</td>
+</tr>
+<tr>
+<td>WithDeadline</td>
+<td>函数</td>
+<td>创建一个有 deadline 的 context</td>
+</tr>
+<tr>
+<td>WithTimeout</td>
+<td>函数</td>
+<td>创建一个有 timeout 的 context</td>
+</tr>
+<tr>
+<td>WithValue</td>
+<td>函数</td>
+<td>创建一个存储 k-v 对的 context</td>
+</tr>
+</tbody>
+</table></div>
+<p>上面这张表展示了 context 的所有函数、接口、结构体，可以纵览全局，可以在读完文章后，再回头细看。</p>
+<p>整体类图如下：</p>
+<p><img alt="classes" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/assets/4.png"/></p>
+<span class="heading-anchor" id="接口"></span><h3 id="_1_2">接口</h3>
+<span class="heading-anchor" id="Context"></span><h3 id="context_1">Context</h3>
+<p>现在可以直接看源码：</p>
+<pre><code class="language-golang">type Context interface {
+    // 当 context 被取消或者到了 deadline，返回一个被关闭的 channel
+    Done() &lt;-chan struct{}
+
+    // 在 channel Done 关闭后，返回 context 取消原因
+    Err() error
+
+    // 返回 context 是否会被取消以及自动取消时间（即 deadline）
+    Deadline() (deadline time.Time, ok bool)
+
+    // 获取 key 对应的 value
+    Value(key interface{}) interface{}
+}
+</code></pre>
+<p><code>Context</code> 是一个接口，定义了 4 个方法，它们都是<code>幂等</code>的。也就是说连续多次调用同一个方法，得到的结果都是相同的。</p>
+<p><code>Done()</code> 返回一个 channel，可以表示 context 被取消的信号：当这个 channel 被关闭时，说明 context 被取消了。注意，这是一个只读的channel。 我们又知道，读一个关闭的 channel 会读出相应类型的零值。并且源码里没有地方会向这个 channel 里面塞入值。换句话说，这是一个 <code>receive-only</code> 的 channel。因此在子协程里读这个 channel，除非被关闭，否则读不出来任何东西。也正是利用了这一点，子协程从 channel 里读出了值（零值）后，就可以做一些收尾工作，尽快退出。</p>
+<p><code>Err()</code> 返回一个错误，表示 channel 被关闭的原因。例如是被取消，还是超时。</p>
+<p><code>Deadline()</code> 返回 context 的截止时间，通过此时间，函数就可以决定是否进行接下来的操作，如果时间太短，就可以不往下做了，否则浪费系统资源。当然，也可以用这个 deadline 来设置一个 I/O 操作的超时时间。</p>
+<p><code>Value()</code> 获取之前设置的 key 对应的 value。</p>
+<h3 id="canceler">canceler</h3>
+<p>再来看另外一个接口：</p>
+<pre><code class="language-golang">type canceler interface {
+    cancel(removeFromParent bool, err error)
+    Done() &lt;-chan struct{}
+}
+</code></pre>
+<p>实现了上面定义的两个方法的 Context，就表明该 Context 是可取消的。源码中有两个类型实现了 canceler 接口：<code>*cancelCtx</code> 和 <code>*timerCtx</code>。注意是加了 <code>*</code> 号的，是这两个结构体的指针实现了 canceler 接口。</p>
+<p>Context 接口设计成这个样子的原因：</p>
+<ul>
+<li>“取消”操作应该是建议性，而非强制性</li>
+</ul>
+<p>caller 不应该去关心、干涉 callee 的情况，决定如何以及何时 return 是 callee 的责任。caller 只需发送“取消”信息，callee 根据收到的信息来做进一步的决策，因此接口并没有定义 cancel 方法。</p>
+<ul>
+<li>“取消”操作应该可传递</li>
+</ul>
+<p>“取消”某个函数时，和它相关联的其他函数也应该“取消”。因此，<code>Done()</code> 方法返回一个只读的 channel，所有相关函数监听此 channel。一旦 channel 关闭，通过 channel 的“广播机制”，所有监听者都能收到。</p>
+<span class="heading-anchor" id="结构体"></span><h3 id="_2_1">结构体</h3>
+<span class="heading-anchor" id="emptyCtx"></span><h3 id="emptyctx">emptyCtx</h3>
+<p>源码中定义了 <code>Context</code> 接口后，并且给出了一个实现：</p>
+<pre><code class="language-golang">type emptyCtx int
+
+func (*emptyCtx) Deadline() (deadline time.Time, ok bool) {
+    return
+}
+
+func (*emptyCtx) Done() &lt;-chan struct{} {
+    return nil
+}
+
+func (*emptyCtx) Err() error {
+    return nil
+}
+
+func (*emptyCtx) Value(key interface{}) interface{} {
+    return nil
+}
+</code></pre>
+<p>看这段源码，非常 happy。因为每个函数都实现的异常简单，要么是直接返回，要么是返回 nil。</p>
+<p>所以，这实际上是一个空的 context，永远不会被 cancel，没有存储值，也没有 deadline。</p>
+<p>它被包装成：</p>
+<pre><code class="language-golang">var (
+    background = new(emptyCtx)
+    todo       = new(emptyCtx)
+)
+</code></pre>
+<p>通过下面两个导出的函数（首字母大写）对外公开：</p>
+<pre><code class="language-golang">func Background() Context {
+    return background
+}
+
+func TODO() Context {
+    return todo
+}
+</code></pre>
+<p>background 通常用在 main 函数中，作为所有 context 的根节点。</p>
+<p>todo 通常用在并不知道传递什么 context的情形。例如，调用一个需要传递 context 参数的函数，你手头并没有其他 context 可以传递，这时就可以传递 todo。这常常发生在重构进行中，给一些函数添加了一个 Context 参数，但不知道要传什么，就用 todo “占个位子”，最终要换成其他 context。</p>
+<span class="heading-anchor" id="cancelCtx"></span><h3 id="cancelctx">cancelCtx</h3>
+<p>再来看一个重要的 context：</p>
+<pre><code class="language-golang">type cancelCtx struct {
+    Context
+
+    // 保护之后的字段
+    mu       sync.Mutex
+    done     chan struct{}
+    children map[canceler]struct{}
+    err      error
+}
+</code></pre>
+<p>这是一个可以取消的 Context，实现了 canceler 接口。它直接将接口 Context 作为它的一个匿名字段，这样，它就可以被看成一个 Context。</p>
+<p>先来看 <code>Done()</code> 方法的实现：</p>
+<pre><code class="language-golang">func (c *cancelCtx) Done() &lt;-chan struct{} {
+    c.mu.Lock()
+    if c.done == nil {
+        c.done = make(chan struct{})
+    }
+    d := c.done
+    c.mu.Unlock()
+    return d
+}
+</code></pre>
+<p>c.done 是“懒汉式”创建，只有调用了 Done() 方法的时候才会被创建。再次说明，函数返回的是一个只读的 channel，而且没有地方向这个 channel 里面写数据。所以，直接调用读这个 channel，协程会被 block 住。一般通过搭配 select 来使用。一旦关闭，就会立即读出零值。</p>
+<p><code>Err()</code> 和 <code>String()</code> 方法比较简单，不多说。推荐看源码，非常简单。</p>
+<p>接下来，我们重点关注 <code>cancel()</code> 方法的实现：</p>
+<pre><code class="language-golang">func (c *cancelCtx) cancel(removeFromParent bool, err error) {
+    // 必须要传 err
+    if err == nil {
+        panic("context: internal error: missing cancel error")
+    }
+    c.mu.Lock()
+    if c.err != nil {
+        c.mu.Unlock()
+        return // 已经被其他协程取消
+    }
+    // 给 err 字段赋值
+    c.err = err
+    // 关闭 channel，通知其他协程
+    if c.done == nil {
+        c.done = closedchan
+    } else {
+        close(c.done)
+    }
+
+    // 遍历它的所有子节点
+    for child := range c.children {
+        // 递归地取消所有子节点
+        child.cancel(false, err)
+    }
+    // 将子节点置空
+    c.children = nil
+    c.mu.Unlock()
+
+    if removeFromParent {
+        // 从父节点中移除自己 
+        removeChild(c.Context, c)
+    }
+}
+</code></pre>
+<p>总体来看，<code>cancel()</code> 方法的功能就是关闭 channel：c.done；递归地取消它的所有子节点；从父节点从删除自己。达到的效果是通过关闭 channel，将取消信号传递给了它的所有子节点。goroutine 接收到取消信号的方式就是 select 语句中的<code>读 c.done</code> 被选中。</p>
+<p>我们再来看创建一个可取消的 Context 的方法：</p>
+<pre><code class="language-golang">func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
+    c := newCancelCtx(parent)
+    propagateCancel(parent, &amp;c)
+    return &amp;c, func() { c.cancel(true, Canceled) }
+}
+
+func newCancelCtx(parent Context) cancelCtx {
+    return cancelCtx{Context: parent}
+}
+</code></pre>
+<p>这是一个暴露给用户的方法，传入一个父 Context（这通常是一个 <code>background</code>，作为根节点），返回新建的 context，新 context 的 done channel 是新建的（前文讲过）。</p>
+<p>当 WithCancel 函数返回的 CancelFunc 被调用或者是父节点的 done channel 被关闭（父节点的 CancelFunc 被调用），此 context（子节点） 的 done channel 也会被关闭。</p>
+<p>注意传给 WithCancel 方法的参数，前者是 true，也就是说取消的时候，需要将自己从父节点里删除。第二个参数则是一个固定的取消错误类型：</p>
+<pre><code class="language-golang">var Canceled = errors.New("context canceled")
+</code></pre>
+<p>还注意到一点，调用子节点 cancel 方法的时候，传入的第一个参数 <code>removeFromParent</code> 是 false。</p>
+<p>两个问题需要回答：1. 什么时候会传 true？2. 为什么有时传 true，有时传 false？</p>
+<p>当 <code>removeFromParent</code> 为 true 时，会将当前节点的 context 从父节点 context 中删除：</p>
+<pre><code class="language-golang">func removeChild(parent Context, child canceler) {
+    p, ok := parentCancelCtx(parent)
+    if !ok {
+        return
+    }
+    p.mu.Lock()
+    if p.children != nil {
+        delete(p.children, child)
+    }
+    p.mu.Unlock()
+}
+</code></pre>
+<p>最关键的一行：</p>
+<pre><code class="language-golang">delete(p.children, child)
+</code></pre>
+<p>什么时候会传 true 呢？答案是调用 <code>WithCancel()</code> 方法的时候，也就是新创建一个可取消的 context 节点时，返回的 cancelFunc 函数会传入 true。这样做的结果是：当调用返回的 cancelFunc 时，会将这个 context 从它的父节点里“除名”，因为父节点可能有很多子节点，你自己取消了，所以我要和你断绝关系，对其他人没影响。</p>
+<p>在取消函数内部，我知道，我所有的子节点都会因为我的一：<code>c.children = nil</code> 而化为灰烬。我自然就没有必要再多做这一步，最后我所有的子节点都会和我断绝关系，没必要一个个做。另外，如果遍历子节点的时候，调用 child.cancel 函数传了 true，还会造成同时遍历和删除一个 map 的境地，会有问题的。</p>
+<p><img alt="context cancel" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/assets/5.png"/></p>
+<p>如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子关系都荡然无存了。</p>
+<p>重点看 <code>propagateCancel()</code>：</p>
+<pre><code class="language-golang">func propagateCancel(parent Context, child canceler) {
+    // 父节点是个空节点
+    if parent.Done() == nil {
+        return // parent is never canceled
+    }
+    // 找到可以取消的父 context
+    if p, ok := parentCancelCtx(parent); ok {
+        p.mu.Lock()
+        if p.err != nil {
+            // 父节点已经被取消了，本节点（子节点）也要取消
+            child.cancel(false, p.err)
+        } else {
+            // 父节点未取消
+            if p.children == nil {
+                p.children = make(map[canceler]struct{})
+            }
+            // "挂到"父节点上
+            p.children[child] = struct{}{}
+        }
+        p.mu.Unlock()
+    } else {
+        // 如果没有找到可取消的父 context。新启动一个协程监控父节点或子节点取消信号
+        go func() {
+            select {
+            case &lt;-parent.Done():
+                child.cancel(false, parent.Err())
+            case &lt;-child.Done():
+            }
+        }()
+    }
+}
+</code></pre>
+<p>这个方法的作用就是向上寻找可以“挂靠”的“可取消”的 context，并且“挂靠”上去。这样，调用上层 cancel 方法的时候，就可以层层传递，将那些挂靠的子 context 同时“取消”。</p>
+<p>这里着重解释下为什么会有 else 描述的情况发生。<code>else</code> 是指当前节点 context 没有向上找到可以取消的父节点，那么就要再启动一个协程监控父节点或者子节点的取消动作。</p>
+<p>这里就有疑问了，既然没找到可以取消的父节点，那 <code>case &lt;-parent.Done()</code> 这个 case 就永远不会发生，所以可以忽略这个 case；而 <code>case &lt;-child.Done()</code> 这个 case 又啥事不干。那这个 <code>else</code> 不就多余了吗？</p>
+<p>其实不然。我们来看 <code>parentCancelCtx</code> 的代码：</p>
+<pre><code class="language-golang">func parentCancelCtx(parent Context) (*cancelCtx, bool) {
+    for {
+        switch c := parent.(type) {
+        case *cancelCtx:
+            return c, true
+        case *timerCtx:
+            return &amp;c.cancelCtx, true
+        case *valueCtx:
+            parent = c.Context
+        default:
+            return nil, false
+        }
+    }
+}
+</code></pre>
+<p>这里只会识别三种 Context 类型：<em>cancelCtx，</em>timerCtx，*valueCtx。若是把 Context 内嵌到一个类型里，就识别不出来了。</p>
+<p>由于 context 包的代码并不多，所以我直接把它 copy 出来了，然后在 else 语句里加上了几条打印语句，来验证上面的说法：</p>
+<pre><code class="language-golang">type MyContext struct {
+    // 这里的 Context 是我 copy 出来的，所以前面不用加 context.
+    Context
+}
+
+func main() {
+    childCancel := true
+
+    parentCtx, parentFunc := WithCancel(Background())
+    mctx := MyContext{parentCtx}
+
+    childCtx, childFun := WithCancel(mctx)
+
+    if childCancel {
+        childFun()
+    } else {
+        parentFunc()
+    }
+
+    fmt.Println(parentCtx)
+    fmt.Println(mctx)
+    fmt.Println(childCtx)
+
+    // 防止主协程退出太快，子协程来不及打印 
+    time.Sleep(10 * time.Second)
+}
+</code></pre>
+<p>我自已在 else 里添加的打印语句我就不贴出来了，感兴趣的可以自己动手实验下。我们看下三个 context 的打印结果：</p>
+<pre><code class="language-shell">context.Background.WithCancel
+{context.Background.WithCancel}
+{context.Background.WithCancel}.WithCancel
+</code></pre>
+<p>果然，mctx，childCtx 和正常的 parentCtx 不一样，因为它是一个自定义的结构体类型。</p>
+<p><code>else</code> 这段代码说明，如果把 ctx 强行塞进一个结构体，并用它作为父节点，调用 WithCancel 函数构建子节点 context 的时候，Go 会新启动一个协程来监控取消信号，明显有点浪费嘛。</p>
+<p>再来说一下，select 语句里的两个 case 其实都不能删。</p>
+<pre><code class="language-golang">select {
+    case &lt;-parent.Done():
+        child.cancel(false, parent.Err())
+    case &lt;-child.Done():
+}
+</code></pre>
+<p>第一个 case 说明当父节点取消，则取消子节点。如果去掉这个 case，那么父节点取消的信号就不能传递到子节点。</p>
+<p>第二个 case 是说如果子节点自己取消了，那就退出这个 select，父节点的取消信号就不用管了。如果去掉这个 case，那么很可能父节点一直不取消，这个 goroutine 就泄漏了。当然，如果父节点取消了，就会重复让子节点取消，不过，这也没什么影响嘛。</p>
+<span class="heading-anchor" id="timerCtx"></span><h3 id="timerctx">timerCtx</h3>
+<p>timerCtx 基于 cancelCtx，只是多了一个 time.Timer 和一个 deadline。Timer 会在 deadline 到来时，自动取消 context。</p>
+<pre><code class="language-golang">type timerCtx struct {
+    cancelCtx
+    timer *time.Timer // Under cancelCtx.mu.
+
+    deadline time.Time
+}
+</code></pre>
+<p>timerCtx 首先是一个 cancelCtx，所以它能取消。看下 cancel() 方法：</p>
+<pre><code class="language-golang">func (c *timerCtx) cancel(removeFromParent bool, err error) {
+    // 直接调用 cancelCtx 的取消方法
+    c.cancelCtx.cancel(false, err)
+    if removeFromParent {
+        // 从父节点中删除子节点
+        removeChild(c.cancelCtx.Context, c)
+    }
+    c.mu.Lock()
+    if c.timer != nil {
+        // 关掉定时器，这样，在deadline 到来时，不会再次取消
+        c.timer.Stop()
+        c.timer = nil
+    }
+    c.mu.Unlock()
+}
+</code></pre>
+<p>创建 timerCtx 的方法：</p>
+<pre><code class="language-golang">func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc) {
+    return WithDeadline(parent, time.Now().Add(timeout))
+}
+</code></pre>
+<p><code>WithTimeout</code> 函数直接调用了 <code>WithDeadline</code>，传入的 deadline 是当前时间加上 timeout 的时间，也就是从现在开始再经过 timeout 时间就算超时。也就是说，<code>WithDeadline</code> 需要用的是绝对时间。重点来看它：</p>
+<pre><code class="language-golang">func WithDeadline(parent Context, deadline time.Time) (Context, CancelFunc) {
+    if cur, ok := parent.Deadline(); ok &amp;&amp; cur.Before(deadline) {
+        // 如果父节点 context 的 deadline 早于指定时间。直接构建一个可取消的 context。
+        // 原因是一旦父节点超时，自动调用 cancel 函数，子节点也会随之取消。
+        // 所以不用单独处理子节点的计时器时间到了之后，自动调用 cancel 函数
+        return WithCancel(parent)
+    }
+
+    // 构建 timerCtx
+    c := &amp;timerCtx{
+        cancelCtx: newCancelCtx(parent),
+        deadline:  deadline,
+    }
+    // 挂靠到父节点上
+    propagateCancel(parent, c)
+
+    // 计算当前距离 deadline 的时间
+    d := time.Until(deadline)
+    if d &lt;= 0 {
+        // 直接取消
+        c.cancel(true, DeadlineExceeded) // deadline has already passed
+        return c, func() { c.cancel(true, Canceled) }
+    }
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.err == nil {
+        // d 时间后，timer 会自动调用 cancel 函数。自动取消
+        c.timer = time.AfterFunc(d, func() {
+            c.cancel(true, DeadlineExceeded)
+        })
+    }
+    return c, func() { c.cancel(true, Canceled) }
+}
+</code></pre>
+<p>也就是说仍然要把子节点挂靠到父节点，一旦父节点取消了，会把取消信号向下传递到子节点，子节点随之取消。</p>
+<p>有一个特殊情况是，如果要创建的这个子节点的 deadline 比父节点要晚，也就是说如果父节点是时间到自动取消，那么一定会取消这个子节点，导致子节点的 deadline 根本不起作用，因为子节点在 deadline 到来之前就已经被父节点取消了。</p>
+<p>这个函数的最核心的一句是：</p>
+<pre><code class="language-golang">c.timer = time.AfterFunc(d, func() {
+    c.cancel(true, DeadlineExceeded)
+})
+</code></pre>
+<p>c.timer 会在 d 时间间隔后，自动调用 cancel 函数，并且传入的错误就是 <code>DeadlineExceeded</code>：</p>
+<pre><code class="language-golang">var DeadlineExceeded error = deadlineExceededError{}
+
+type deadlineExceededError struct{}
+
+func (deadlineExceededError) Error() string   { return "context deadline exceeded" }
+</code></pre>
+<p>也就是超时错误。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/4-context%20%E5%A6%82%E4%BD%95%E8%A2%AB%E5%8F%96%E6%B6%88.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k718d348f7012"></a></p>
+<span class="heading-anchor" id="Go Channel"></span><h2 id="go-channel">Go Channel</h2>
+<p><strong>回答：</strong></p>
+<p>Channel 是 Go 中有类型的通信机制，可在 goroutine 之间传递值并建立同步关系。<code>make(chan T)</code> 创建无缓冲 channel，发送需要与接收配对；<code>make(chan T, n)</code> 创建容量为 <code>n</code> 的缓冲 channel，未满时发送可继续，非空时接收可继续。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>发送</th>
+<th>接收</th>
+<th>关闭</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>nil channel</td>
+<td>一直阻塞</td>
+<td>一直阻塞</td>
+<td>panic</td>
+</tr>
+<tr>
+<td>已关闭 channel</td>
+<td>panic</td>
+<td>先读完缓冲值，再立即返回零值与 <code>ok=false</code></td>
+<td>再关闭会 panic</td>
+</tr>
+<tr>
+<td>打开的无缓冲 channel</td>
+<td>等待接收配对</td>
+<td>等待发送配对</td>
+<td>唤醒等待接收；等待发送会 panic</td>
+</tr>
+<tr>
+<td>打开的有缓冲 channel</td>
+<td>满时阻塞</td>
+<td>空时阻塞</td>
+<td>不丢弃已缓冲的数据</td>
+</tr>
+</tbody>
+</table></div>
+<p>两值接收 <code>v, ok := &lt;-ch</code> 中，只有 channel 已关闭且缓冲耗尽时，<code>ok</code> 才为 false。<code>for v := range ch</code> 会持续接收直到该条件成立；若发送方忘记关闭，消费者可能永久等待。</p>
+<p>通常由明确负责发送生命周期的一方关闭 channel。多发送者场景应由协调者等待所有发送结束后关闭，接收者不应随意关闭仍有人发送的通道。关闭用于表达“不会再有新值”，不是释放 channel 的必要动作。</p>
+<p><code>select</code> 在可执行的通信分支中选择一个；有多个就绪分支时不能依赖源码顺序作为优先级。nil channel 对应分支不会就绪，已关闭且耗尽的 channel 接收则持续就绪，若在循环中不退出或禁用该分支，可能形成忙循环。带 <code>default</code> 的循环也可能空转。</p>
+<p>Channel 通信具有 Go 内存模型定义的同步语义，但传递指针不会自动保护被指向对象的后续并发修改。工程中仍需明确所有权，利用 <code>context</code>、超时和有界队列处理取消与背压，并避免 goroutine 因永久等待而泄漏。</p>
+<p>补充一个容易混淆的同步边界：发送方在发送前写入的数据，通过匹配的接收可以建立 Go 内存模型规定的可见性关系；但发送指针后继续修改对象，仍可能与接收者读取发生数据竞争。无缓冲 channel 也不意味着“接收方整个业务处理完成后，发送方才继续”，它只保证通信配对所要求的同步，需要业务完成确认时应增加明确的 ack 或其他同步机制。</p>
+<p>多生产者场景通常由协调者等待所有生产者退出后关闭结果 channel；生产者的阻塞发送和消费者的阻塞接收都应考虑取消路径。即使 <code>select</code> 同时包含 <code>ctx.Done()</code>，取消与发送都就绪时也不能保证取消分支优先。已经发生的外部写入不会因 context 取消而自动回滚。</p>
+<p><a id="baidu-aigc-multimodal-agent-20260922-20260924-r2-q15"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2152">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdd05eb7315be"></a></p>
+<span class="heading-anchor" id="goroutine 如何退出"></span><h2 id="goroutine">goroutine 如何退出</h2>
+<p>上一讲说到调度器将 main goroutine 推上舞台，为它铺好了道路，开始执行 <code>runtime.main</code> 函数。这一讲，我们探索 main goroutine 以及普通 goroutine 从执行到退出的整个过程。</p>
+<pre><code class="language-golang">// The main goroutine.
+func main() {
+    // g = main goroutine，不再是 g0 了
+    g := getg()
+
+    // ……………………
+
+    if sys.PtrSize == 8 {
+        maxstacksize = 1000000000
+    } else {
+        maxstacksize = 250000000
+    }
+
+    // Allow newproc to start new Ms.
+    mainStarted = true
+
+    systemstack(func() {
+        // 创建监控线程，该线程独立于调度器，不需要跟 p 关联即可运行
+        newm(sysmon, nil)
+    })
+
+    lockOSThread()
+
+    if g.m != &amp;m0 {
+        throw("runtime.main not on m0")
+    }
+
+    // 调用 runtime 包的初始化函数，由编译器实现
+    runtime_init() // must be before defer
+    if nanotime() == 0 {
+        throw("nanotime returning zero")
+    }
+
+    // Defer unlock so that runtime.Goexit during init does the unlock too.
+    needUnlock := true
+    defer func() {
+        if needUnlock {
+            unlockOSThread()
+        }
+    }()
+
+    // Record when the world started. Must be after runtime_init
+    // because nanotime on some platforms depends on startNano.
+    runtimeInitTime = nanotime()
+
+    // 开启垃圾回收器
+    gcenable()
+
+    main_init_done = make(chan bool)
+
+    // ……………………
+
+    // main 包的初始化，递归的调用我们 import 进来的包的初始化函数
+    fn := main_init
+    fn()
+    close(main_init_done)
+
+    needUnlock = false
+    unlockOSThread()
+
+    // ……………………
+
+    // 调用 main.main 函数
+    fn = main_main
+    fn()
+    if raceenabled {
+        racefini()
+    }
+
+    // ……………………
+
+    // 进入系统调用，退出进程，可以看出 main goroutine 并未返回，而是直接进入系统调用退出进程了
+    exit(0)
+    // 保护性代码，如果 exit 意外返回，下面的代码会让该进程 crash 死掉
+    for {
+        var x *int32
+        *x = 0
+    }
+}
+</code></pre>
+<p><code>main</code> 函数执行流程如下图：</p>
+<p><img alt="runtime.main 启动流程" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/2.png"/></p>
+<p>从流程图可知，main goroutine 执行完之后就直接调用 <code>exit(0)</code> 退出了，这会导致整个进程退出，太粗暴了。</p>
+<p>不过，main goroutine 实际上就是代表用户的 main 函数，它都执行完了，肯定是用户的任务都执行完了，直接退出就可以了，就算有其他的 goroutine 没执行完，同样会直接退出。</p>
+<pre><code class="language-golang">package main
+
+import "fmt"
+
+func main() {
+     go func() {fmt.Println("hello qcrao.com")}()
+}
+</code></pre>
+<p>在这个例子中，main goroutine 退出时，还来不及执行 <code>go 出去</code> 的函数，整个进程就直接退出了，打印语句不会执行。因此，main goroutine 不会等待其他 goroutine 执行完再退出，知道这个有时能解释一些现象，比如上面那个例子。</p>
+<p>这时，心中可能会跳出疑问，我们在新创建 goroutine 的时候，不是整出了个“偷天换日”，风风火火地设置了 goroutine 退出时应该跳到 <code>runtime.goexit</code> 函数吗，怎么这会不用了，闲得慌？</p>
+<p>回顾一下上一讲的内容，跳转到 main 函数的两行代码：</p>
+<pre><code class="language-asm">// 把 sched.pc 值放入 BX 寄存器
+MOVQ    gobuf_pc(BX), BX
+// JMP 把 BX 寄存器的包含的地址值放入 CPU 的 IP 寄存器，于是，CPU 跳转到该地址继续执行指令
+JMP BX
+</code></pre>
+<p>直接使用了一个跳转，并没有使用 <code>CALL</code> 指令，而 runtime.main 函数中确实也没有 <code>RET</code> 返回的指令。所以，main goroutine 执行完后，直接调用 exit(0) 退出整个进程。</p>
+<p>那之前整地“偷天换日”还有用吗？有的！这是针对非 main goroutine 起作用。</p>
+<p>参考资料【阿波张 非 goroutine 的退出】中用调试工具验证了非 main goroutine 的退出，感兴趣的可以去跟着实践一遍。</p>
+<p>我们继续探索非 main goroutine （后文我们就称 gp 好了）的退出流程。</p>
+<p><code>gp</code> 执行完后，RET 指令弹出 <code>goexit</code> 函数地址（实际上是 funcPC(goexit)+1），CPU 跳转到 <code>goexit</code> 的第二条指令继续执行：</p>
+<pre><code class="language-golang">// src/runtime/asm_amd64.s
+
+// The top-most function running on a goroutine
+// returns to goexit+PCQuantum.
+TEXT runtime·goexit(SB),NOSPLIT,$0-0
+    BYTE    $0x90   // NOP
+    CALL    runtime·goexit1(SB) // does not return
+    // traceback from goexit1 must hit code range of goexit
+    BYTE    $0x90   // NOP
+</code></pre>
+<p>直接调用 <code>runtime·goexit1</code>：</p>
+<pre><code class="language-golang">// src/runtime/proc.go
+// Finishes execution of the current goroutine.
+func goexit1() {
+    // …………………… 
+    mcall(goexit0)
+}
+</code></pre>
+<p>调用 <code>mcall</code> 函数：</p>
+<pre><code class="language-golang">// 切换到 g0 栈，执行 fn(g)
+// Fn 不能返回
+TEXT runtime·mcall(SB), NOSPLIT, $0-8
+    // 取出参数的值放入 DI 寄存器，它是 funcval 对象的指针，此场景中 fn.fn 是 goexit0 的地址
+    MOVQ    fn+0(FP), DI
+
+    get_tls(CX)
+    // AX = g
+    MOVQ    g(CX), AX   // save state in g-&gt;sched
+    // mcall 返回地址放入 BX
+    MOVQ    0(SP), BX   // caller's PC
+    // g.sched.pc = BX，保存 g 的 PC
+    MOVQ    BX, (g_sched+gobuf_pc)(AX)
+    LEAQ    fn+0(FP), BX    // caller's SP
+    // 保存 g 的 SP
+    MOVQ    BX, (g_sched+gobuf_sp)(AX)
+    MOVQ    AX, (g_sched+gobuf_g)(AX)
+    MOVQ    BP, (g_sched+gobuf_bp)(AX)
+
+    // switch to m-&gt;g0 &amp; its stack, call fn
+    MOVQ    g(CX), BX
+    MOVQ    g_m(BX), BX
+    // SI = g0
+    MOVQ    m_g0(BX), SI
+    CMPQ    SI, AX  // if g == m-&gt;g0 call badmcall
+    JNE 3(PC)
+    MOVQ    $runtime·badmcall(SB), AX
+    JMP AX
+    // 把 g0 的地址设置到线程本地存储中
+    MOVQ    SI, g(CX)   // g = m-&gt;g0
+    // 从 g 的栈切换到了 g0 的栈D
+    MOVQ    (g_sched+gobuf_sp)(SI), SP  // sp = m-&gt;g0-&gt;sched.sp
+    // AX = g，参数入栈
+    PUSHQ   AX
+    MOVQ    DI, DX
+    // DI 是结构体 funcval 实例对象的指针，它的第一个成员才是 goexit0 的地址
+    // 读取第一个成员到 DI 寄存器
+    MOVQ    0(DI), DI
+    // 调用 goexit0(g)
+    CALL    DI
+    POPQ    AX
+    MOVQ    $runtime·badmcall2(SB), AX
+    JMP AX
+    RET
+</code></pre>
+<p>函数参数是：</p>
+<pre><code class="language-golang">type funcval struct {
+    fn uintptr
+    // variable-size, fn-specific data here
+}
+</code></pre>
+<p>字段 fn 就表示 goexit0 函数的地址。</p>
+<p>L5 将函数参数保存到 DI 寄存器，这里 fn.fn 就是 goexit0 的地址。</p>
+<p>L7 将 tls 保存到 CX 寄存器，L9 将 当前线程指向的 goroutine （非 main goroutine，称为 gp）保存到 AX 寄存器，L11 将调用者（调用 mcall 函数）的栈顶，这里就是 mcall 完成后的返回地址，存入 BX 寄存器。</p>
+<p>L13 将 mcall 的返回地址保存到 gp 的 g.sched.pc 字段，L14 将 gp 的栈顶，也就是 SP 保存到 BX 寄存器，L16 将 SP 保存到 gp 的 g.sched.sp 字段，L17 将 g 保存到 gp 的 g.sched.g 字段，L18 将 BP 保存 到 gp 的 g.sched.bp 字段。这一段主要是保存 gp 的调度信息。</p>
+<p>L21 将当前指向的 g 保存到 BX 寄存器，L22 将 g.m 字段保存到 BX 寄存器，L23 将 g.m.g0 字段保存到 SI，g.m.g0 就是当前工作线程的 g0。</p>
+<p>现在，SI = g0， AX = gp，L25 判断 gp 是否是 g0，如果 gp == g0 说明有问题，执行 runtime·badmcall。正常情况下，PC 值加 3，跳过下面的两条指令，直接到达 L30。</p>
+<p>L30 将 g0 的地址设置到线程本地存储中，L32 将 g0.SP 设置到 CPU 的 SP 寄存器，这也就意味着我们从 gp 栈切换到了 g0 的栈，要变天了！</p>
+<p>L34 将参数 gp 入栈，为调用 goexit0 构造参数。L35 将 DI 寄存器的内容设置到 DX 寄存器，DI 是结构体 funcval 实例对象的指针，它的第一个成员才是 goexit0 的地址。L36 读取 DI 第一成员，也就是 goexit0 函数的地址。</p>
+<p>L40 调用 goexit0 函数，这已经是在 g0 栈上执行了，函数参数就是 gp。</p>
+<p>到这里，就会去执行 goexit0 函数，注意，这里永远都不会返回。所以，在 CALL 指令后面，如果返回了，又会去调用 <code>runtime.badmcall2</code> 函数去处理意外情况。</p>
+<p>来继续看 goexit0：</p>
+<pre><code class="language-golang">// goexit continuation on g0.
+// 在 g0 上执行
+func goexit0(gp *g) {
+    // g0
+    _g_ := getg()
+
+    casgstatus(gp, _Grunning, _Gdead)
+    if isSystemGoroutine(gp) {
+        atomic.Xadd(&amp;sched.ngsys, -1)
+    }
+
+    // 清空 gp 的一些字段
+    gp.m = nil
+    gp.lockedm = nil
+    _g_.m.lockedg = nil
+    gp.paniconfault = false
+    gp._defer = nil // should be true already but just in case.
+    gp._panic = nil // non-nil for Goexit during panic. points at stack-allocated data.
+    gp.writebuf = nil
+    gp.waitreason = ""
+    gp.param = nil
+    gp.labels = nil
+    gp.timer = nil
+
+    // Note that gp's stack scan is now "valid" because it has no
+    // stack.
+    gp.gcscanvalid = true
+    // 解除 g 与 m 的关系
+    dropg()
+
+    if _g_.m.locked&amp;^_LockExternal != 0 {
+        print("invalid m-&gt;locked = ", _g_.m.locked, "\n")
+        throw("internal lockOSThread error")
+    }
+    _g_.m.locked = 0
+    // 将 g 放入 free 队列缓存起来
+    gfput(_g_.m.p.ptr(), gp)
+    schedule()
+}
+</code></pre>
+<p>它主要完成最后的清理工作：</p>
+<blockquote>
+<ol>
+<li>
+<p>把 g 的状态从 <code>_Grunning</code> 更新为 <code>_Gdead</code>；</p>
+</li>
+<li>
+<p>清空 g 的一些字段；</p>
+</li>
+<li>
+<p>调用 dropg 函数解除 g 和 m 之间的关系，其实就是设置 g-&gt;m = nil, m-&gt;currg = nil；</p>
+</li>
+<li>
+<p>把 g 放入 p 的 freeg 队列缓存起来供下次创建 g 时快速获取而不用从内存分配。freeg 就是 g 的一个对象池；</p>
+</li>
+<li>
+<p>调用 schedule 函数再次进行调度。</p>
+</li>
+</ol>
+</blockquote>
+<p>到这里，gp 就完成了它的历史使命，功成身退，进入了 goroutine 缓存池，待下次有任务再重新启用。</p>
+<p>而工作线程，又继续调用 schedule 函数进行新一轮的调度，整个过程形成了一个循环。</p>
+<p>总结一下，main goroutine 和普通 goroutine 的退出过程：</p>
+<p>对于 main goroutine，在执行完用户定义的 main 函数的所有代码后，直接调用 exit(0) 退出整个进程，非常霸道。</p>
+<p>对于普通 goroutine 则没这么“舒服”，需要经历一系列的过程。先是跳转到提前设置好的 goexit 函数的第二条指令，然后调用 runtime.goexit1，接着调用 <code>mcall(goexit0)</code>，而 mcall 函数会切换到 g0 栈，运行 goexit0 函数，清理 goroutine 的一些字段，并将其添加到 goroutine 缓存池里，然后进入 schedule 调度循环。到这里，普通 goroutine 才算完成使命。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<p>【阿波张 非 main goroutine 的退出及调度循环】https://mp.weixin.qq.com/s/XttP9q7-PO7VXhskaBzGqA</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/sched/11-goroutine%20%E5%A6%82%E4%BD%95%E9%80%80%E5%87%BA.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke4d69790eafc"></a></p>
+<span class="heading-anchor" id="GPM 是什么"></span><h2 id="gpm">GPM 是什么</h2>
+<p>G、P、M 是 Go 调度器的三个核心组件，各司其职。在它们精密地配合下，Go 调度器得以高效运转，这也是 Go 天然支持高并发的内在动力。今天这篇文章我们来深入理解 GPM 模型。</p>
+<p>先看 G，取 goroutine 的首字母，主要保存 goroutine 的一些状态信息以及 CPU 的一些寄存器的值，例如 IP 寄存器，以便在轮到本 goroutine 执行时，CPU 知道要从哪一条指令处开始执行。</p>
+<blockquote>
+<p>当 goroutine 被调离 CPU 时，调度器负责把 CPU 寄存器的值保存在 g 对象的成员变量之中。</p>
+<p>当 goroutine 被调度起来运行时，调度器又负责把 g 对象的成员变量所保存的寄存器值恢复到 CPU 的寄存器。</p>
+</blockquote>
+<p>本系列使用的代码版本是 1.9.2，来看一下 g 的源码：</p>
+<pre><code class="language-golang">type g struct {
+
+    // goroutine 使用的栈
+    stack       stack   // offset known to runtime/cgo
+    // 用于栈的扩张和收缩检查，抢占标志
+    stackguard0 uintptr // offset known to liblink
+    stackguard1 uintptr // offset known to liblink
+
+    _panic         *_panic // innermost panic - offset known to liblink
+    _defer         *_defer // innermost defer
+    // 当前与 g 绑定的 m
+    m              *m      // current m; offset known to arm liblink
+    // goroutine 的运行现场
+    sched          gobuf
+    syscallsp      uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
+    syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
+    stktopsp       uintptr        // expected sp at top of stack, to check in traceback
+    // wakeup 时传入的参数
+    param          unsafe.Pointer // passed parameter on wakeup
+    atomicstatus   uint32
+    stackLock      uint32 // sigprof/scang lock; TODO: fold in to atomicstatus
+    goid           int64
+    // g 被阻塞之后的近似时间
+    waitsince      int64  // approx time when the g become blocked
+    // g 被阻塞的原因
+    waitreason     string // if status==Gwaiting
+    // 指向全局队列里下一个 g
+    schedlink      guintptr
+    // 抢占调度标志。这个为 true 时，stackguard0 等于 stackpreempt
+    preempt        bool     // preemption signal, duplicates stackguard0 = stackpreempt
+    paniconfault   bool     // panic (instead of crash) on unexpected fault address
+    preemptscan    bool     // preempted g does scan for gc
+    gcscandone     bool     // g has scanned stack; protected by _Gscan bit in status
+    gcscanvalid    bool     // false at start of gc cycle, true if G has not run since last scan; TODO: remove?
+    throwsplit     bool     // must not split stack
+    raceignore     int8     // ignore race detection events
+    sysblocktraced bool     // StartTrace has emitted EvGoInSyscall about this goroutine
+    // syscall 返回之后的 cputicks，用来做 tracing
+    sysexitticks   int64    // cputicks when syscall has returned (for tracing)
+    traceseq       uint64   // trace event sequencer
+    tracelastp     puintptr // last P emitted an event for this goroutine
+    // 如果调用了 LockOsThread，那么这个 g 会绑定到某个 m 上
+    lockedm        *m
+    sig            uint32
+    writebuf       []byte
+    sigcode0       uintptr
+    sigcode1       uintptr
+    sigpc          uintptr
+    // 创建该 goroutine 的语句的指令地址
+    gopc           uintptr // pc of go statement that created this goroutine
+    // goroutine 函数的指令地址
+    startpc        uintptr // pc of goroutine function
+    racectx        uintptr
+    waiting        *sudog         // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
+    cgoCtxt        []uintptr      // cgo traceback context
+    labels         unsafe.Pointer // profiler labels
+    // time.Sleep 缓存的定时器
+    timer          *timer         // cached timer for time.Sleep
+
+    gcAssistBytes int64
+}
+</code></pre>
+<p>源码中，比较重要的字段我已经作了注释，其他未作注释的与调度关系不大或者我暂时也没有理解的。</p>
+<p><code>g</code> 结构体关联了两个比较简单的结构体，stack 表示 goroutine 运行时的栈：</p>
+<pre><code class="language-golang">// 描述栈的数据结构，栈的范围：[lo, hi)
+type stack struct {
+    // 栈顶，低地址
+    lo uintptr
+    // 栈低，高地址
+    hi uintptr
+}
+</code></pre>
+<p>Goroutine 运行时，光有栈还不行，至少还得包括 PC，SP 等寄存器，gobuf 就保存了这些值：</p>
+<pre><code class="language-golang">type gobuf struct {
+    // 存储 rsp 寄存器的值
+    sp   uintptr
+    // 存储 rip 寄存器的值
+    pc   uintptr
+    // 指向 goroutine
+    g    guintptr
+    ctxt unsafe.Pointer // this has to be a pointer so that gc scans it
+    // 保存系统调用的返回值
+    ret  sys.Uintreg
+    lr   uintptr
+    bp   uintptr // for GOEXPERIMENT=framepointer
+}
+</code></pre>
+<p>再来看 M，取 machine 的首字母，它代表一个工作线程，或者说系统线程。G 需要调度到 M 上才能运行，M 是真正工作的人。结构体 m 就是我们常说的 M，它保存了 M 自身使用的栈信息、当前正在 M 上执行的 G 信息、与之绑定的 P 信息……</p>
+<p>当 M 没有工作可做的时候，在它休眠前，会“自旋”地来找工作：检查全局队列，查看 network poller，试图执行 gc 任务，或者“偷”工作。</p>
+<p>结构体 m 的源码如下：</p>
+<pre><code class="language-golang">// m 代表工作线程，保存了自身使用的栈信息
+type m struct {
+    // 记录工作线程（也就是内核线程）使用的栈信息。在执行调度代码时需要使用
+    // 执行用户 goroutine 代码时，使用用户 goroutine 自己的栈，因此调度时会发生栈的切换
+    g0      *g     // goroutine with scheduling stack/
+    morebuf gobuf  // gobuf arg to morestack
+    divmod  uint32 // div/mod denominator for arm - known to liblink
+
+    // Fields not known to debuggers.
+    procid        uint64     // for debuggers, but offset not hard-coded
+    gsignal       *g         // signal-handling g
+    sigmask       sigset     // storage for saved signal mask
+    // 通过 tls 结构体实现 m 与工作线程的绑定
+    // 这里是线程本地存储
+    tls           [6]uintptr // thread-local storage (for x86 extern register)
+    mstartfn      func()
+    // 指向正在运行的 goroutine 对象
+    curg          *g       // current running goroutine
+    caughtsig     guintptr // goroutine running during fatal signal
+    // 当前工作线程绑定的 p
+    p             puintptr // attached p for executing go code (nil if not executing go code)
+    nextp         puintptr
+    id            int32
+    mallocing     int32
+    throwing      int32
+    // 该字段不等于空字符串的话，要保持 curg 始终在这个 m 上运行
+    preemptoff    string // if != "", keep curg running on this m
+    locks         int32
+    softfloat     int32
+    dying         int32
+    profilehz     int32
+    helpgc        int32
+    // 为 true 时表示当前 m 处于自旋状态，正在从其他线程偷工作
+    spinning      bool // m is out of work and is actively looking for work
+    // m 正阻塞在 note 上
+    blocked       bool // m is blocked on a note
+    // m 正在执行 write barrier
+    inwb          bool // m is executing a write barrier
+    newSigstack   bool // minit on C thread called sigaltstack
+    printlock     int8
+    // 正在执行 cgo 调用
+    incgo         bool // m is executing a cgo call
+    fastrand      uint32
+    // cgo 调用总计数
+    ncgocall      uint64      // number of cgo calls in total
+    ncgo          int32       // number of cgo calls currently in progress
+    cgoCallersUse uint32      // if non-zero, cgoCallers in use temporarily
+    cgoCallers    *cgoCallers // cgo traceback if crashing in cgo call
+    // 没有 goroutine 需要运行时，工作线程睡眠在这个 park 成员上，
+    // 其它线程通过这个 park 唤醒该工作线程
+    park          note
+    // 记录所有工作线程的链表
+    alllink       *m // on allm
+    schedlink     muintptr
+    mcache        *mcache
+    lockedg       *g
+    createstack   [32]uintptr // stack that created this thread.
+    freglo        [16]uint32  // d[i] lsb and f[i]
+    freghi        [16]uint32  // d[i] msb and f[i+16]
+    fflag         uint32      // floating point compare flags
+    locked        uint32      // tracking for lockosthread
+    // 正在等待锁的下一个 m
+    nextwaitm     uintptr     // next m waiting for lock
+    needextram    bool
+    traceback     uint8
+    waitunlockf   unsafe.Pointer // todo go func(*g, unsafe.pointer) bool
+    waitlock      unsafe.Pointer
+    waittraceev   byte
+    waittraceskip int
+    startingtrace bool
+    syscalltick   uint32
+    // 工作线程 id
+    thread        uintptr // thread handle
+
+    // these are here because they are too large to be on the stack
+    // of low-level NOSPLIT functions.
+    libcall   libcall
+    libcallpc uintptr // for cpu profiler
+    libcallsp uintptr
+    libcallg  guintptr
+    syscall   libcall // stores syscall parameters on windows
+
+    mOS
+}
+</code></pre>
+<p>再来看 P，取 processor 的首字母，为 M 的执行提供“上下文”，保存 M 执行 G 时的一些资源，例如本地可运行 G 队列，memeory cache 等。</p>
+<p>一个 M 只有绑定 P 才能执行 goroutine，当 M 被阻塞时，整个 P 会被传递给其他 M ，或者说整个 P 被接管。</p>
+<pre><code class="language-golang">// p 保存 go 运行时所必须的资源
+type p struct {
+    lock mutex
+
+    // 在 allp 中的索引
+    id          int32
+    status      uint32 // one of pidle/prunning/...
+    link        puintptr
+    // 每次调用 schedule 时会加一
+    schedtick   uint32
+    // 每次系统调用时加一
+    syscalltick uint32
+    // 用于 sysmon 线程记录被监控 p 的系统调用时间和运行时间
+    sysmontick  sysmontick // last tick observed by sysmon
+    // 指向绑定的 m，如果 p 是 idle 的话，那这个指针是 nil
+    m           muintptr   // back-link to associated m (nil if idle)
+    mcache      *mcache
+    racectx     uintptr
+
+    deferpool    [5][]*_defer // pool of available defer structs of different sizes (see panic.go)
+    deferpoolbuf [5][32]*_defer
+
+    // Cache of goroutine ids, amortizes accesses to runtime·sched.goidgen.
+    goidcache    uint64
+    goidcacheend uint64
+
+    // Queue of runnable goroutines. Accessed without lock.
+    // 本地可运行的队列，不用通过锁即可访问
+    runqhead uint32 // 队列头
+    runqtail uint32 // 队列尾
+    // 使用数组实现的循环队列
+    runq     [256]guintptr
+
+    // runnext 非空时，代表的是一个 runnable 状态的 G，
+    // 这个 G 被 当前 G 修改为 ready 状态，相比 runq 中的 G 有更高的优先级。
+    // 如果当前 G 还有剩余的可用时间，那么就应该运行这个 G
+    // 运行之后，该 G 会继承当前 G 的剩余时间
+    runnext guintptr
+
+    // Available G's (status == Gdead)
+    // 空闲的 g
+    gfree    *g
+    gfreecnt int32
+
+    sudogcache []*sudog
+    sudogbuf   [128]*sudog
+
+    tracebuf traceBufPtr
+    traceSwept, traceReclaimed uintptr
+
+    palloc persistentAlloc // per-P to avoid mutex
+
+    // Per-P GC state
+    gcAssistTime     int64 // Nanoseconds in assistAlloc
+    gcBgMarkWorker   guintptr
+    gcMarkWorkerMode gcMarkWorkerMode
+    runSafePointFn uint32 // if 1, run sched.safePointFn at next safe point
+
+    pad [sys.CacheLineSize]byte
+}
+</code></pre>
+<p>GPM 三足鼎力，共同成就 Go scheduler。G 需要在 M 上才能运行，M 依赖 P 提供的资源，P 则持有待运行的 G。你中有我，我中有你。</p>
+<p>描述三者的关系：</p>
+<p><img alt="曹大 golang notes GPM 三者关系" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/14.png"/></p>
+<p>M 会从与它绑定的 P 的本地队列获取可运行的 G，也会从 network poller 里获取可运行的 G，还会从其他 P 偷 G。</p>
+<p>最后我们从宏观上总结一下 GPM，这篇文章尝试从它们的状态流转角度总结。</p>
+<p>首先是 G 的状态流转：</p>
+<p><img alt="G 的状态流转图" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/15.png"/></p>
+<p>说明一下，上图省略了一些垃圾回收的状态。</p>
+<p>接着是 P 的状态流转：</p>
+<p><img alt="P 的状态流转图" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/16.png"/></p>
+<blockquote>
+<p>通常情况下（在程序运行时不调整 P 的个数），P 只会在上图中的四种状态下进行切换。 当程序刚开始运行进行初始化时，所有的 P 都处于 <code>_Pgcstop</code> 状态， 随着 P 的初始化（<code>runtime.procresize</code>），会被置于 <code>_Pidle</code>。</p>
+<p>当 M 需要运行时，会 <code>runtime.acquirep</code> 来使 P 变成 <code>Prunning</code> 状态，并通过 <code>runtime.releasep</code> 来释放。 </p>
+<p>当 G 执行时需要进入系统调用，P 会被设置为 <code>_Psyscall</code>， 如果这个时候被系统监控抢夺（<code>runtime.retake</code>），则 P 会被重新修改为 <code>_Pidle</code>。 </p>
+<p>如果在程序运行中发生 <code>GC</code>，则 P 会被设置为 <code>_Pgcstop</code>， 并在 <code>runtime.startTheWorld</code> 时重新调整为 <code>_Prunning</code>。</p>
+</blockquote>
+<p>最后，我们来看 M 的状态变化：</p>
+<p><img alt="M 的状态流转图" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/17.png"/></p>
+<p>M 只有自旋和非自旋两种状态。自旋的时候，会努力找工作；找不到的时候会进入非自旋状态，之后会休眠，直到有工作需要处理时，被其他工作线程唤醒，又进入自旋状态。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/sched/6-GPM%20%E6%98%AF%E4%BB%80%E4%B9%88.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke816989d149f"></a></p>
+<span class="heading-anchor" id="Provider、Model、Agent Runtime、Channel 如何解耦？"></span><h2 id="providermodelagent-runtimechannel">Provider、Model、Agent Runtime、Channel 如何解耦？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>这四个概念经常被混在一起，但工程上必须拆开：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Provider</td>
+<td>模型或 Agent 能力的供应方</td>
+<td>OpenAI、Anthropic、本地模型服务、企业私有网关</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>具体推理模型</td>
+<td>GPT、Claude、Gemini、Qwen、Llama 等具体版本</td>
+</tr>
+<tr>
+<td>Agent Runtime</td>
+<td>负责模型循环和工具执行的运行时</td>
+<td>编码 Agent runtime、浏览器 Agent runtime、多模态 Agent runtime</td>
+</tr>
+<tr>
+<td>Channel</td>
+<td>用户或事件进入 Agent 的通道</td>
+<td>CLI、IDE、Slack、Discord、Web、Webhook、Cron</td>
+</tr>
+</tbody>
+</table></div>
+<p>解耦的好处：</p>
+<ul>
+<li>同一个 channel 可以切换不同 runtime。</li>
+<li>同一个 runtime 可以接多个 provider/model。</li>
+<li>同一个模型可以服务编码、浏览器、客服、数据分析等不同 Agent。</li>
+<li>企业可以通过配置控制模型供应商，而不改业务入口。</li>
+<li>运行时可以独立处理上下文压缩、工具协议、权限和 tracing。</li>
+</ul>
+<p>运行时选择通常需要回答几个问题：</p>
+<ul>
+<li>谁拥有模型 loop？</li>
+<li>谁保存 canonical thread history？</li>
+<li>工具调用是模型原生支持，还是运行时模拟？</li>
+<li>动态工具、MCP、hooks、subagent 是否可用？</li>
+<li>上下文压缩和 session 恢复由谁负责？</li>
+<li>当指定 runtime 不可用时，是降级、排队还是失败？</li>
+</ul>
+<p>面试中可以说：Provider / Model 解决“用什么脑”，Runtime 解决“怎么思考和行动”，Channel 解决“从哪里接活”。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L896">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd7c47ef3c674"></a></p>
+<span class="heading-anchor" id="主 goroutine 如何创建"></span><h2 id="goroutine_1">主 goroutine 如何创建</h2>
+<p>上一讲我们讲完了 Go scheduler 的初始化，现在调度器一切就绪，就差被调度的实体了。本文就来讲述 main goroutine 是如何诞生，并且被调度的。</p>
+<p>继续看代码，前面我们完成了 <code>schedinit</code> 函数，这是 runtime·rt0_go 函数里的一步，接着往后看：</p>
+<pre><code class="language-asm">// 创建一个新的 goroutine 来启动程序
+MOVQ    $runtime·mainPC(SB), AX     // entry
+// newproc 的第二个参数入栈，也就是新的 goroutine 需要执行的函数
+// AX = &amp;funcval{runtime·main},
+PUSHQ   AX
+// newproc 的第一个参数入栈，该参数表示 runtime.main 函数需要的参数大小，
+// 因为 runtime.main 没有参数，所以这里是 0
+PUSHQ   $0          // arg size
+// 创建 main goroutine
+CALL    runtime·newproc(SB)
+POPQ    AX
+POPQ    AX
+
+// start this M
+// 主线程进入调度循环，运行刚刚创建的 goroutine
+CALL    runtime·mstart(SB)
+
+// 永远不会返回，万一返回了，crash 掉
+MOVL    $0xf1, 0xf1  // crash
+RET
+</code></pre>
+<p>代码前面几行是在为调用 newproc 函数构“造栈”，执行完 <code>runtime·newproc(SB)</code> 后，就会以一个新的 goroutine 来执行 mainPC 也就是 <code>runtime.main()</code> 函数。<code>runtime.main()</code> 函数最终会执行到我们写的 main 函数，舞台交给我们。</p>
+<p>重点来看 <code>newproc</code> 函数：</p>
+<pre><code class="language-golang">// src/runtime/proc.go
+// 创建一个新的 g，运行 fn 函数，需要 siz byte 的参数
+// 将其放至 G 队列等待运行
+// 编译器会将 go 关键字的语句转化成此函数
+
+//go:nosplit
+func newproc(siz int32, fn *funcval)
+</code></pre>
+<p>从这里开始要进入 hard 模式了，打起精神！当我们随手一句：</p>
+<pre><code class="language-golang">go func() {
+    // 要做的事
+}()
+</code></pre>
+<p>就启动了一个 goroutine 的时候，一定要知道，在 Go 编译器的作用下，这条语句最终会转化成 newproc 函数。</p>
+<p>因此，<code>newproc</code> 函数需要两个参数：一个是新创建的 goroutine 需要执行的任务，也就是 fn，它代表一个函数 func；还有一个是 fn 的参数大小。</p>
+<p>再回过头看，构造 newproc 函数调用栈的时候，第一个参数是 0，因为 runtime.main 函数没有参数：</p>
+<pre><code class="language-golang">// src/runtime/proc.go
+
+func main()
+</code></pre>
+<p>第二个参数则是 runtime.main 函数的地址。</p>
+<p>可能会感到奇怪，为什么要给 <code>newproc</code> 传一个表示 fn 的参数大小的参数呢？</p>
+<p>我们知道，goroutine 和线程一样，都有自己的栈，不同的是 goroutine 的初始栈比较小，只有 2K，而且是可伸缩的，这也是创建 goroutine 的代价比创建线程代价小的原因。</p>
+<p>换句话说，每个 goroutine 都有自己的栈空间，newproc 函数会新创建一个新的 goroutine 来执行 fn 函数，在新 goroutine 上执行指令，就要用新 goroutine 的栈。而执行函数需要参数，这个参数又是在老的 goroutine 上，所以需要将其拷贝到新 goroutine 的栈上。拷贝的起始位置就是栈顶，这好办，那拷贝多少数据呢？由 siz 来确定。</p>
+<p>继续看代码，newproc 函数的第二个参数：</p>
+<pre><code class="language-golang">type funcval struct {
+    fn uintptr
+    // variable-size, fn-specific data here
+}
+</code></pre>
+<p>它是一个变长结构，第一个字段是一个指针 fn，内存中，紧挨着 fn 的是函数的参数。</p>
+<p>参考资料【欧神 关键字 go】有一个例子：</p>
+<pre><code class="language-golang">package main
+
+func hello(msg string) {
+    println(msg)
+}
+
+func main() {
+    go hello("hello world")
+}
+</code></pre>
+<p>栈布局是这样的：</p>
+<p><img alt="fn 与函数参数" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/25.png"/></p>
+<p>栈顶是 siz，再往上是函数的地址，再往上就是传给 hello 函数的参数，string 在这里是一个地址。因此前面代码里先 push 参数的地址，再 push 参数大小。</p>
+<pre><code class="language-golang">// src/runtime/proc.go
+
+//go:nosplit
+func newproc(siz int32, fn *funcval) {
+    // 获取第一个参数地址
+    argp := add(unsafe.Pointer(&amp;fn), sys.PtrSize)
+    // 获取调用者的指令地址，也就是调用 newproc 时由 call 指令压栈的函数返回地址
+    pc := getcallerpc(unsafe.Pointer(&amp;siz))
+    // systemstack 的作用是切换到 g0 栈执行作为参数的函数
+    // 用 g0 系统栈创建 goroutine 对象
+    // 传递的参数包括 fn 函数入口地址，argp 参数起始地址，siz 参数长度，调用方 pc（goroutine）
+
+    systemstack(func() {
+        newproc1(fn, (*uint8)(argp), siz, 0, pc)
+    })
+}
+</code></pre>
+<p>因此，argp 跳过 fn，向上跳一个指针的长度，拿到 fn 参数的地址。</p>
+<p>接着通过 getcallerpc 获取调用者的指令地址，也就是调用 newproc 时由 call 指令压栈的函数返回地址，也就是 <code>runtime·rt0_go</code> 函数里 <code>CALL runtime·newproc(SB)</code> 指令后面的 <code>POPQ AX</code> 这条指令的地址。</p>
+<p>最后，调用 systemstack 函数在 g0 栈执行 fn 函数。由于本文讲述的是初始化过程中，由 <code>runtime·rt0_go</code> 函数调用，本身是在 g0 栈执行，因此会直接执行 fn 函数。而如果是我们在程序中写的 <code>go xxx</code> 代码，在执行时，就会先切换到 g0 栈执行，然后再切回来。</p>
+<p>一鼓作气，继续看 <code>newproc1</code> 函数，为了连贯性，我先将整个函数的代码贴出来，并且加上了注释。当然，这篇文章不会涉及到所有的代码，只会讲部分内容。放在这里，方便阅读后面的文章时对照：</p>
+<pre><code class="language-golang">// 创建一个新的 g 来跑 fn
+func newproc1(fn *funcval, argp *uint8, narg int32, nret int32, callerpc uintptr) *g {
+    // 当前 goroutine 的指针
+    // 因为已经切换到 g0 栈，所以无论什么场景都是 _g_ = g0
+    // g0 是指当前工作线程的 g0
+    _g_ := getg()
+
+    if fn == nil {
+        _g_.m.throwing = -1 // do not dump full stacks
+        throw("go of nil func value")
+    }
+    _g_.m.locks++ // disable preemption because it can be holding p in a local var
+
+    // 参数加返回值所需要的空间（经过内存对齐）
+    siz := narg + nret
+    siz = (siz + 7) &amp;^ 7
+
+    // …………………………
+
+    // 当前工作线程所绑定的 p
+    // 初始化时 _p_ = g0.m.p，也就是 _p_ = allp[0]
+    _p_ := _g_.m.p.ptr()
+    // 从 p 的本地缓冲里获取一个没有使用的 g，初始化时为空，返回 nil
+    newg := gfget(_p_)
+    if newg == nil {
+        // new 一个 g 结构体对象，然后从堆上为其分配栈，并设置 g 的 stack 成员和两个 stackgard 成员
+        newg = malg(_StackMin)
+        // 初始化 g 的状态为 _Gdead
+        casgstatus(newg, _Gidle, _Gdead)
+        // 放入全局变量 allgs 切片中
+        allgadd(newg) // publishes with a g-&gt;status of Gdead so GC scanner doesn't look at uninitialized stack.
+    }
+    if newg.stack.hi == 0 {
+        throw("newproc1: newg missing stack")
+    }
+
+    if readgstatus(newg) != _Gdead {
+        throw("newproc1: new g is not Gdead")
+    }
+
+    // 计算运行空间大小，对齐
+    totalSize := 4*sys.RegSize + uintptr(siz) + sys.MinFrameSize // extra space in case of reads slightly beyond frame
+    totalSize += -totalSize &amp; (sys.SpAlign - 1)                  // align to spAlign
+    // 确定 sp 位置
+    sp := newg.stack.hi - totalSize
+    // 确定参数入栈位置
+    spArg := sp
+
+    // …………………………
+
+    if narg &gt; 0 {
+        // 将参数从执行 newproc 函数的栈拷贝到新 g 的栈
+        memmove(unsafe.Pointer(spArg), unsafe.Pointer(argp), uintptr(narg))
+
+        // …………………………
+    }
+
+    // 把 newg.sched 结构体成员的所有成员设置为 0
+    memclrNoHeapPointers(unsafe.Pointer(&amp;newg.sched), unsafe.Sizeof(newg.sched))
+    // 设置 newg 的 sched 成员，调度器需要依靠这些字段才能把 goroutine 调度到 CPU 上运行
+    newg.sched.sp = sp
+    newg.stktopsp = sp
+    // newg.sched.pc 表示当 newg 被调度起来运行时从这个地址开始执行指令
+    newg.sched.pc = funcPC(goexit) + sys.PCQuantum // +PCQuantum so that previous instruction is in same function
+    newg.sched.g = guintptr(unsafe.Pointer(newg))
+    gostartcallfn(&amp;newg.sched, fn)
+    newg.gopc = callerpc
+    // 设置 newg 的 startpc 为 fn.fn，该成员主要用于函数调用栈的 traceback 和栈收缩
+    // newg 真正从哪里开始执行并不依赖于这个成员，而是 sched.pc
+    newg.startpc = fn.fn
+    if _g_.m.curg != nil {
+        newg.labels = _g_.m.curg.labels
+    }
+    if isSystemGoroutine(newg) {
+        atomic.Xadd(&amp;sched.ngsys, +1)
+    }
+    newg.gcscanvalid = false
+    // 设置 g 的状态为 _Grunnable，可以运行了
+    casgstatus(newg, _Gdead, _Grunnable)
+
+    if _p_.goidcache == _p_.goidcacheend {
+        _p_.goidcache = atomic.Xadd64(&amp;sched.goidgen, _GoidCacheBatch)
+        _p_.goidcache -= _GoidCacheBatch - 1
+        _p_.goidcacheend = _p_.goidcache + _GoidCacheBatch
+    }
+    // 设置 goid
+    newg.goid = int64(_p_.goidcache)
+    _p_.goidcache++
+
+    // ……………………
+
+    // 将 G 放入 _p_ 的本地待运行队列
+    runqput(_p_, newg, true)
+
+    if atomic.Load(&amp;sched.npidle) != 0 &amp;&amp; atomic.Load(&amp;sched.nmspinning) == 0 &amp;&amp; mainStarted {
+        wakep()
+    }
+    _g_.m.locks--
+    if _g_.m.locks == 0 &amp;&amp; _g_.preempt {
+        _g_.stackguard0 = stackPreempt
+    }
+    return newg
+}
+</code></pre>
+<p>当前代码在 g0 栈上执行，因此执行完 <code>_g_ := getg()</code> 之后，无论是在什么情况下都可以得到 <code>_g_ = g0</code>。之后通过 g0 找到其绑定的 P，也就是 p0。</p>
+<p>接着，尝试从 p0 上找一个空闲的 G：</p>
+<pre><code class="language-golang">// 从 p 的本地缓冲里获取一个没有使用的 g，初始化时为空，返回 nil
+newg := gfget(_p_)
+</code></pre>
+<p>如果拿不到，则会在堆上创建一个新的 G，为其分配 2KB 大小的栈，并设置好新 goroutine 的 stack 成员，设置其状态为 _Gdead，并将其添加到全局变量 allgs 中。创建完成之后，我们就在堆上有了一个 2K 大小的栈。于是，我们的图再次丰富：</p>
+<p><img alt="创建了新的 goroutine" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/sched/assets/26.png"/></p>
+<p>这样，main goroutine 就诞生了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<p>【欧神 关键字 go】https://github.com/changkun/go-under-the-hood/blob/master/book/zh-cn/part3compile/ch11keyword/go.md</p>
+<p>【欧神 Go scheduler】https://github.com/changkun/go-under-the-hood/blob/master/book/zh-cn/part2runtime/ch06sched/init.md</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/sched/8-main%20goroutine%20%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3b89060ac225"></a></p>
+<span class="heading-anchor" id="什么是 CSP"></span><h2 id="csp">什么是 CSP</h2>
+<blockquote>
+<p>Do not communicate by sharing memory; instead, share memory by communicating.</p>
+</blockquote>
+<p>不要通过共享内存来通信，而要通过通信来实现内存共享。</p>
+<p>这就是 Go 的并发哲学，它依赖 CSP 模型，基于 channel 实现。</p>
+<p>CSP 经常被认为是 Go 在并发编程上成功的关键因素。CSP 全称是 “Communicating Sequential Processes”，这也是 Tony Hoare 在 1978 年发表在 ACM 的一篇论文。论文里指出一门编程语言应该重视 input 和 output 的原语，尤其是并发编程的代码。</p>
+<p>在那篇文章发表的时代，人们正在研究模块化编程的思想，该不该用 goto 语句在当时是最激烈的议题。彼时，面向对象编程的思想正在崛起，几乎没什么人关心并发编程。</p>
+<p>在文章中，CSP 也是一门自定义的编程语言，作者定义了输入输出语句，用于 processes 间的通信（communication）。processes 被认为是需要输入驱动，并且产生输出，供其他 processes 消费，processes 可以是进程、线程、甚至是代码块。输入命令是：!，用来向 processes 写入；输出是：?，用来从 processes 读出。这篇文章要讲的 channel 正是借鉴了这一设计。</p>
+<p>Hoare 还提出了一个 -&gt; 命令，如果 -&gt; 左边的语句返回 false，那它右边的语句就不会执行。</p>
+<p>通过这些输入输出命令，Hoare 证明了如果一门编程语言中把 processes 间的通信看得第一等重要，那么并发编程的问题就会变得简单。</p>
+<p>Go 是第一个将 CSP 的这些思想引入，并且发扬光大的语言。仅管内存同步访问控制（原文是 memory access synchronization）在某些情况下大有用处，Go 里也有相应的 sync 包支持，但是这在大型程序很容易出错。</p>
+<p>Go 一开始就把 CSP 的思想融入到语言的核心里，所以并发编程成为 Go 的一个独特的优势，而且很容易理解。</p>
+<p>大多数的编程语言的并发编程模型是基于线程和内存同步访问控制，Go 的并发编程的模型则用 goroutine 和 channel 来替代。Goroutine 和线程类似，channel 和 mutex (用于内存同步访问控制)类似。</p>
+<p>Goroutine 解放了程序员，让我们更能贴近业务去思考问题。而不用考虑各种像线程库、线程开销、线程调度等等这些繁琐的底层问题，goroutine 天生替你解决好了。</p>
+<p>Channel 则天生就可以和其他 channel 组合。我们可以把收集各种子系统结果的 channel 输入到同一个 channel。Channel 还可以和 select, cancel, timeout 结合起来。而 mutex 就没有这些功能。</p>
+<p>Go 的并发原则非常优秀，目标就是简单：尽量使用 channel；把 goroutine 当作免费的资源，随便用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/1-%E4%BB%80%E4%B9%88%E6%98%AF%20CSP.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd6f642cd8909"></a></p>
+<span class="heading-anchor" id="传递共享的数据"></span><h2 id="_1_9">传递共享的数据</h2>
+<p>对于 Web 服务端开发，往往希望将一个请求处理的整个过程串起来，这就非常依赖于 Thread Local（对于 Go 可理解为单个协程所独有） 的变量，而在 Go 语言中并没有这个概念，因此需要在函数调用的时候传递 context。</p>
+<pre><code class="language-golang">package main
+
+import (
+    "context"
+    "fmt"
+)
+
+func main() {
+    ctx := context.Background()
+    process(ctx)
+
+    ctx = context.WithValue(ctx, "traceId", "qcrao-2019")
+    process(ctx)
+}
+
+func process(ctx context.Context) {
+    traceId, ok := ctx.Value("traceId").(string)
+    if ok {
+        fmt.Printf("process over. trace_id=%s\n", traceId)
+    } else {
+        fmt.Printf("process over. no trace_id\n")
+    }
+}
+</code></pre>
+<p>运行结果：</p>
+<pre><code class="language-shell">process over. no trace_id
+process over. trace_id=qcrao-2019
+</code></pre>
+<p>第一次调用 process 函数时，ctx 是一个空的 context，自然取不出来 traceId。第二次，通过 <code>WithValue</code> 函数创建了一个 context，并赋上了 <code>traceId</code> 这个 key，自然就能取出来传入的 value 值。</p>
+<p>当然，现实场景中可能是从一个 HTTP 请求中获取到的 Request-ID。所以，下面这个样例可能更适合：</p>
+<pre><code class="language-golang">const requestIDKey int = 0
+
+func WithRequestID(next http.Handler) http.Handler {
+    return http.HandlerFunc(
+        func(rw http.ResponseWriter, req *http.Request) {
+            // 从 header 中提取 request-id
+            reqID := req.Header.Get("X-Request-ID")
+            // 创建 valueCtx。使用自定义的类型，不容易冲突
+            ctx := context.WithValue(
+                req.Context(), requestIDKey, reqID)
+
+            // 创建新的请求
+            req = req.WithContext(ctx)
+
+            // 调用 HTTP 处理函数
+            next.ServeHTTP(rw, req)
+        }
+    )
+}
+
+// 获取 request-id
+func GetRequestID(ctx context.Context) string {
+    return ctx.Value(requestIDKey).(string)
+}
+
+func Handle(rw http.ResponseWriter, req *http.Request) {
+    // 拿到 reqId，后面可以记录日志等等
+    reqID := GetRequestID(req.Context())
+    ...
+}
+
+func main() {
+    handler := WithRequestID(http.HandlerFunc(Handle))
+    http.ListenAndServe("/", handler)
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/2-context%20%E6%9C%89%E4%BB%80%E4%B9%88%E4%BD%9C%E7%94%A8.md#L62">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k34b60078e550"></a></p>
+<span class="heading-anchor" id="关于 channel 的 happened-before 有哪些"></span><h2 id="channel-happened-before">关于 channel 的 happened-before 有哪些</h2>
+<p>维基百科上给的定义：</p>
+<blockquote>
+<p>In computer science, the happened-before relation (denoted: -&gt;) is a relation between the result of two events, such that if one event should happen before another event, the result must reflect that, even if those events are in reality executed out of order (usually to optimize program flow).</p>
+</blockquote>
+<p>简单来说就是如果事件 a 和事件 b 存在 happened-before 关系，即 a -&gt; b，那么 a，b 完成后的结果一定要体现这种关系。由于现代编译器、CPU 会做各种优化，包括编译器重排、内存重排等等，在并发代码里，happened-before 限制就非常重要了。</p>
+<p>根据晃岳攀老师在 Gopher China 2019 上的并发编程分享，关于 channel 的发送（send）、发送完成（send finished）、接收（receive）、接收完成（receive finished）的 happened-before 关系如下：</p>
+<ol>
+<li>第 n 个 <code>send</code> 一定 <code>happened before</code> 第 n 个 <code>receive finished</code>，无论是缓冲型还是非缓冲型的 channel。</li>
+<li>对于容量为 m 的缓冲型 channel，第 n 个 <code>receive</code> 一定 <code>happened before</code> 第 n+m 个 <code>send finished</code>。</li>
+<li>对于非缓冲型的 channel，第 n 个 <code>receive</code> 一定 <code>happened before</code> 第 n 个 <code>send finished</code>。</li>
+<li>channel close 一定 <code>happened before</code> receiver 得到通知。</li>
+</ol>
+<p>我们来逐条解释一下。</p>
+<p>第一条，我们从源码的角度看也是对的，send 不一定是 <code>happened before</code> receive，因为有时候是先 receive，然后 goroutine 被挂起，之后被 sender 唤醒，send happened after receive。但不管怎样，要想完成接收，一定是要先有发送。</p>
+<p>第二条，缓冲型的 channel，当第 n+m 个 send 发生后，有下面两种情况：</p>
+<p>若第 n 个 receive 没发生。这时，channel 被填满了，send 就会被阻塞。那当第 n 个 receive 发生时，sender goroutine 会被唤醒，之后再继续发送过程。这样，第 n 个 <code>receive</code> 一定 <code>happened before</code> 第 n+m 个 <code>send finished</code>。</p>
+<p>若第 n 个 receive 已经发生过了，这直接就符合了要求。</p>
+<p>第三条，也是比较好理解的。第 n 个 send 如果被阻塞，sender goroutine 挂起，第 n 个 receive 这时到来，先于第 n 个 send finished。如果第 n 个 send 未被阻塞，说明第 n 个 receive 早就在那等着了，它不仅 happened before send finished，它还 happened before send。</p>
+<p>第四条，回忆一下源码，先设置完 closed = 1，再唤醒等待的 receiver，并将零值拷贝给 receiver。</p>
+<p>参考资料【鸟窝 并发编程分享】这篇博文的评论区有 PPT 的下载链接，这是晁老师在 Gopher 2019 大会上的演讲。</p>
+<p>关于 happened before，这里再介绍一个柴大和曹大的新书《Go 语言高级编程》里面提到的一个例子。</p>
+<p>书中 1.5 节先讲了顺序一致性的内存模型，这是并发编程的基础。</p>
+<p>我们直接来看例子：</p>
+<pre><code class="language-golang">var done = make(chan bool)
+var msg string
+
+func aGoroutine() {
+    msg = "hello, world"
+    done &lt;- true
+}
+
+func main() {
+    go aGoroutine()
+    &lt;-done
+    println(msg)
+}
+</code></pre>
+<p>先定义了一个 done channel 和一个待打印的字符串。在 main 函数里，启动一个 goroutine，等待从 done 里接收到一个值后，执行打印 msg 的操作。如果 main 函数中没有 <code>&lt;-done</code> 这行代码，打印出来的 msg 为空，因为 aGoroutine 来不及被调度，还来不及给 msg 赋值，主程序就会退出。而在 Go 语言里，主协程退出时不会等待其他协程。</p>
+<p>加了 <code>&lt;-done</code> 这行代码后，就会阻塞在此。等 aGoroutine 里向 done 发送了一个值之后，才会被唤醒，继续执行打印 msg 的操作。而这在之前，msg 已经被赋值过了，所以会打印出 <code>hello, world</code>。</p>
+<p>这里依赖的 happened before 就是前面讲的第一条。第一个 send 一定 happened before 第一个 receive finished，即 <code>done &lt;- true</code> 先于 <code>&lt;-done</code> 发生，这意味着 main 函数里执行完 <code>&lt;-done</code> 后接着执行 <code>println(msg)</code> 这一行代码时，msg 已经被赋过值了，所以会打印出想要的结果。</p>
+<p>进一步利用前面提到的第 3 条 happened before 规则，修改一下代码：</p>
+<pre><code class="language-golang">var done = make(chan bool)
+var msg string
+
+func aGoroutine() {
+    msg = "hello, world"
+    &lt;-done
+}
+
+func main() {
+    go aGoroutine()
+    done &lt;- true
+    println(msg)
+}
+</code></pre>
+<p>同样可以得到相同的结果，为什么？根据第三条规则，对于非缓冲型的 channel，第一个 receive 一定 happened before 第一个 send finished。也就是说，
+在 <code>done &lt;- true</code> 完成之前，<code>&lt;-done</code> 就已经发生了，也就意味着 msg 已经被赋上值了，最终也会打印出 <code>hello, world</code>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/11-%E5%85%B3%E4%BA%8E%20channel%20%E7%9A%84%20happened-before%20%E6%9C%89%E5%93%AA%E4%BA%9B.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k27de8afcdaa7"></a></p>
+<span class="heading-anchor" id="取消 goroutine"></span><h2 id="goroutine_2">取消 goroutine</h2>
+<p>我们先来设想一个场景：打开外卖的订单页，地图上显示外卖小哥的位置，而且是每秒更新 1 次。app 端向后台发起 websocket 连接（现实中可能是轮询）请求后，后台启动一个协程，每隔 1 秒计算 1 次小哥的位置，并发送给端。如果用户退出此页面，则后台需要“取消”此过程，退出 goroutine，系统回收资源。</p>
+<p>后端可能的实现如下：</p>
+<pre><code class="language-golang">func Perform() {
+    for {
+        calculatePos()
+        sendResult()
+        time.Sleep(time.Second)
+    }
+}
+</code></pre>
+<p>如果需要实现“取消”功能，并且在不了解 context 功能的前提下，可能会这样做：给函数增加一个指针型的 bool 变量，在 for 语句的开始处判断 bool 变量是发由 true 变为 false，如果改变，则退出循环。</p>
+<p>上面给出的简单做法，可以实现想要的效果，没有问题，但是并不优雅，并且一旦协程数量多了之后，并且各种嵌套，就会很麻烦。优雅的做法，自然就要用到 context。</p>
+<pre><code class="language-golang">func Perform(ctx context.Context) {
+    for {
+        calculatePos()
+        sendResult()
+
+        select {
+        case &lt;-ctx.Done():
+            // 被取消，直接返回
+            return
+        case &lt;-time.After(time.Second):
+            // block 1 秒钟 
+        }
+    }
+}
+</code></pre>
+<p>主流程可能是这样的：</p>
+<pre><code class="language-golang">ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+go Perform(ctx)
+
+// ……
+// app 端返回页面，调用cancel 函数
+cancel()
+</code></pre>
+<p>注意一个细节，WithTimeOut 函数返回的 context 和 cancelFun 是分开的。context 本身并没有取消函数，这样做的原因是取消函数只能由外层函数调用，防止子节点 context 调用取消函数，从而严格控制信息的流向：由父节点 context 流向子节点 context。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/stdlib/context/2-context%20%E6%9C%89%E4%BB%80%E4%B9%88%E4%BD%9C%E7%94%A8.md#L141">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfc98e442c134"></a></p>
+<span class="heading-anchor" id="多平台会话如何做 session、user、channel、workspace 隔离？"></span><h2 id="sessionuserchannelworkspace">多平台会话如何做 session、user、channel、workspace 隔离？</h2>
+<p>多平台 Agent 最怕上下文串线。设计 session scope 时应显式包含：</p>
+<ul>
+<li>platform：Telegram、Slack、Discord、Email、CLI。</li>
+<li>account / workspace：企业或组织空间。</li>
+<li>channel：群、频道、私聊、邮件线程。</li>
+<li>user：用户身份。</li>
+<li>agent_id：不同 Agent 或人格。</li>
+<li>task_id：长任务或后台任务。</li>
+</ul>
+<p>常见隔离策略：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>适用场景</th>
+<th>风险控制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>per-user</td>
+<td>私人助理</td>
+<td>防止不同用户共享上下文</td>
+</tr>
+<tr>
+<td>per-channel</td>
+<td>群聊 / 频道</td>
+<td>防止群聊内容进入私聊</td>
+</tr>
+<tr>
+<td>per-thread</td>
+<td>Slack / 邮件线程</td>
+<td>保持任务上下文局部</td>
+</tr>
+<tr>
+<td>per-workspace</td>
+<td>企业多租户</td>
+<td>防止跨组织数据泄露</td>
+</tr>
+<tr>
+<td>per-task</td>
+<td>长任务 / cron</td>
+<td>防止后台任务污染主会话</td>
+</tr>
+</tbody>
+</table></div>
+<p>关键原则：</p>
+<ul>
+<li>默认最小共享。</li>
+<li>私聊和群聊分离。</li>
+<li>工作区和租户分离。</li>
+<li>自动任务独立 session。</li>
+<li>reset、resume、archive 有明确规则。</li>
+<li>每次 trace 记录完整 scope。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/09_%E8%87%AA%E8%BF%9B%E5%8C%96Agent%E4%B8%8E%E5%A4%9A%E5%B9%B3%E5%8F%B0%E8%BF%90%E8%A1%8C%E6%97%B6%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L211">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0b8579ec9079"></a></p>
+<span class="heading-anchor" id="如何优雅地关闭 channel"></span><h2 id="channel_3">如何优雅地关闭 channel</h2>
+<p>关于 channel 的使用，有几点不方便的地方：</p>
+<ol>
+<li>在不改变 channel 自身状态的情况下，无法获知一个 channel 是否关闭。</li>
+<li>关闭一个 closed channel 会导致 panic。所以，如果关闭 channel 的一方在不知道 channel 是否处于关闭状态时就去贸然关闭 channel 是很危险的事情。</li>
+<li>向一个 closed channel 发送数据会导致 panic。所以，如果向 channel 发送数据的一方不知道 channel 是否处于关闭状态时就去贸然向 channel 发送数据是很危险的事情。</li>
+</ol>
+<p>一个比较粗糙的检查 channel 是否关闭的函数：</p>
+<pre><code class="language-golang">func IsClosed(ch &lt;-chan T) bool {
+    select {
+    case &lt;-ch:
+        return true
+    default:
+    }
+
+    return false
+}
+
+func main() {
+    c := make(chan T)
+    fmt.Println(IsClosed(c)) // false
+    close(c)
+    fmt.Println(IsClosed(c)) // true
+}
+</code></pre>
+<p>看一下代码，其实存在很多问题。首先，IsClosed 函数是一个有副作用的函数。每调用一次，都会读出 channel 里的一个元素，改变了 channel 的状态。这不是一个好的函数，干活就干活，还顺手牵羊！</p>
+<p>其次，IsClosed 函数返回的结果仅代表调用那个瞬间，并不能保证调用之后会不会有其他 goroutine 对它进行了一些操作，改变了它的这种状态。例如，IsClosed 函数返回 false，但这时有另一个 goroutine 关闭了 channel，而你还拿着这个过时的 “channel 未关闭”的信息，向其发送数据，就会导致 panic 的发生。当然，一个 channel 不会被重复关闭两次，如果 IsClosed 函数返回的结果是 true，说明 channel 是真的关闭了。</p>
+<p>有一条广泛流传的关闭 channel 的原则：</p>
+<blockquote>
+<p>don't close a channel from the receiver side and don't close a channel if the channel has multiple concurrent senders.</p>
+</blockquote>
+<p>不要从一个 receiver 侧关闭 channel，也不要在有多个 sender 时，关闭 channel。</p>
+<p>比较好理解，向 channel 发送元素的就是 sender，因此 sender 可以决定何时不发送数据，并且关闭 channel。但是如果有多个 sender，某个 sender 同样没法确定其他 sender 的情况，这时也不能贸然关闭 channel。</p>
+<p>但是上面所说的并不是最本质的，最本质的原则就只有一条：</p>
+<blockquote>
+<p>don't close (or send values to) closed channels.</p>
+</blockquote>
+<p>有两个不那么优雅地关闭 channel 的方法：</p>
+<ol>
+<li>
+<p>使用 defer-recover 机制，放心大胆地关闭 channel 或者向 channel 发送数据。即使发生了 panic，有 defer-recover 在兜底。</p>
+</li>
+<li>
+<p>使用 sync.Once 来保证只关闭一次。</p>
+</li>
+</ol>
+<p>那到底应该如何优雅地关闭 channel？</p>
+<p>根据 sender 和 receiver 的个数，分下面几种情况：</p>
+<ol>
+<li>一个 sender，一个 receiver</li>
+<li>一个 sender， M 个 receiver</li>
+<li>N 个 sender，一个 reciver</li>
+<li>N 个 sender， M 个 receiver</li>
+</ol>
+<p>对于 1，2，只有一个 sender 的情况就不用说了，直接从 sender 端关闭就好了，没有问题。重点关注第 3，4 种情况。</p>
+<p>第 3 种情形下，优雅关闭 channel 的方法是：the only receiver says "please stop sending more" by closing an additional signal channel。</p>
+<p>解决方案就是增加一个传递关闭信号的 channel，receiver 通过信号 channel 下达关闭数据 channel 指令。senders 监听到关闭信号后，停止发送数据。代码如下：</p>
+<pre><code class="language-golang">func main() {
+    rand.Seed(time.Now().UnixNano())
+
+    const Max = 100000
+    const NumSenders = 1000
+
+    dataCh := make(chan int, 100)
+    stopCh := make(chan struct{})
+
+    // senders
+    for i := 0; i &lt; NumSenders; i++ {
+        go func() {
+            for {
+                select {
+                case &lt;- stopCh:
+                    return
+                case dataCh &lt;- rand.Intn(Max):
+                }
+            }
+        }()
+    }
+
+    // the receiver
+    go func() {
+        for value := range dataCh {
+            if value == Max-1 {
+                fmt.Println("send stop signal to senders.")
+                close(stopCh)
+                return
+            }
+
+            fmt.Println(value)
+        }
+    }()
+
+    select {
+    case &lt;- time.After(time.Hour):
+    }
+}
+</code></pre>
+<p>这里的 stopCh 就是信号 channel，它本身只有一个 sender，因此可以直接关闭它。senders 收到了关闭信号后，select 分支 “case &lt;- stopCh” 被选中，退出函数，不再发送数据。</p>
+<p>需要说明的是，上面的代码并没有明确关闭 dataCh。在 Go 语言中，对于一个 channel，如果最终没有任何 goroutine 引用它，不管 channel 有没有被关闭，最终都会被 gc 回收。所以，在这种情形下，所谓的优雅地关闭 channel 就是不关闭 channel，让 gc 代劳。</p>
+<p>最后一种情况，优雅关闭 channel 的方法是：any one of them says "let's end the game" by notifying a moderator to close an additional signal channel。</p>
+<p>和第 3 种情况不同，这里有 M 个 receiver，如果直接还是采取第 3 种解决方案，由 receiver 直接关闭 stopCh 的话，就会重复关闭一个 channel，导致 panic。因此需要增加一个中间人，M 个 receiver 都向它发送关闭 dataCh 的“请求”，中间人收到第一个请求后，就会直接下达关闭 dataCh 的指令（通过关闭 stopCh，这时就不会发生重复关闭的情况，因为 stopCh 的发送方只有中间人一个）。另外，这里的 N 个 sender 也可以向中间人发送关闭 dataCh 的请求。</p>
+<pre><code class="language-golang">func main() {
+    rand.Seed(time.Now().UnixNano())
+
+    const Max = 100000
+    const NumReceivers = 10
+    const NumSenders = 1000
+
+    dataCh := make(chan int, 100)
+    stopCh := make(chan struct{})
+
+    // It must be a buffered channel.
+    toStop := make(chan string, 1)
+
+    var stoppedBy string
+
+    // moderator
+    go func() {
+        stoppedBy = &lt;-toStop
+        close(stopCh)
+    }()
+
+    // senders
+    for i := 0; i &lt; NumSenders; i++ {
+        go func(id string) {
+            for {
+                value := rand.Intn(Max)
+                if value == 0 {
+                    select {
+                    case toStop &lt;- "sender#" + id:
+                    default:
+                    }
+                    return
+                }
+
+                select {
+                case &lt;- stopCh:
+                    return
+                case dataCh &lt;- value:
+                }
+            }
+        }(strconv.Itoa(i))
+    }
+
+    // receivers
+    for i := 0; i &lt; NumReceivers; i++ {
+        go func(id string) {
+            for {
+                select {
+                case &lt;- stopCh:
+                    return
+                case value := &lt;-dataCh:
+                    if value == Max-1 {
+                        select {
+                        case toStop &lt;- "receiver#" + id:
+                        default:
+                        }
+                        return
+                    }
+
+                    fmt.Println(value)
+                }
+            }
+        }(strconv.Itoa(i))
+    }
+
+    select {
+    case &lt;- time.After(time.Hour):
+    }
+
+}
+</code></pre>
+<p>代码里 toStop 就是中间人的角色，使用它来接收 senders 和 receivers 发送过来的关闭 dataCh 请求。</p>
+<p>这里将 toStop 声明成了一个 缓冲型的 channel。假设 toStop 声明的是一个非缓冲型的 channel，那么第一个发送的关闭 dataCh 请求可能会丢失。因为无论是 sender 还是 receiver 都是通过 select 语句来发送请求，如果中间人所在的 goroutine 没有准备好，那 select 语句就不会选中，直接走 default 选项，什么也不做。这样，第一个关闭 dataCh 的请求就会丢失。</p>
+<p>如果，我们把 toStop 的容量声明成 Num(senders) + Num(receivers)，那发送 dataCh 请求的部分可以改成更简洁的形式：</p>
+<pre><code class="language-golang">...
+toStop := make(chan string, NumReceivers + NumSenders)
+...
+            value := rand.Intn(Max)
+            if value == 0 {
+                toStop &lt;- "sender#" + id
+                return
+            }
+...
+                if value == Max-1 {
+                    toStop &lt;- "receiver#" + id
+                    return
+                }
+...
+</code></pre>
+<p>直接向 toStop 发送请求，因为 toStop 容量足够大，所以不用担心阻塞，自然也就不用 select 语句再加一个 default case 来避免阻塞。</p>
+<p>可以看到，这里同样没有真正关闭 dataCh，原样同第 3 种情况。</p>
+<p>以上，就是最基本的一些情形，但已经能覆盖几乎所有的情况及其变种了。只要记住：</p>
+<p>以及更本质的原则：</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/8-%E5%A6%82%E4%BD%95%E4%BC%98%E9%9B%85%E5%9C%B0%E5%85%B3%E9%97%AD%20channel.md#L3">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke38430703e5c"></a></p>
+<span class="heading-anchor" id="并发标记清除法的难点是什么？"></span><h2 id="_1_14">并发标记清除法的难点是什么？</h2>
+<p>在没有用户态代码并发修改<code>三色抽象</code>的情况下，回收可以正常结束。但是并发回收的根本问题在于，用户态代码在回收过程中会并发地更新对象图，从而造成赋值器和回收器可能对对象图的结构产生不同的认知。这时以一个固定的三色波面作为回收过程前进的边界则不再合理。</p>
+<p>我们不妨考虑赋值器写操作的例子：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>时序</th>
+<th>回收器</th>
+<th>赋值器</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>shade(A, gray)</td>
+<td></td>
+<td>回收器：根对象的子节点着色为灰色对象</td>
+</tr>
+<tr>
+<td>2</td>
+<td>shade(C, black)</td>
+<td></td>
+<td>回收器：当所有子节点着色为灰色后，将节点着为黑色</td>
+</tr>
+<tr>
+<td>3</td>
+<td></td>
+<td>C.ref3 = C.ref2.ref1</td>
+<td>赋值器：并发的修改了 C 的子节点</td>
+</tr>
+<tr>
+<td>4</td>
+<td></td>
+<td>A.ref1 = nil</td>
+<td>赋值器：并发的修改了 A 的子节点</td>
+</tr>
+<tr>
+<td>5</td>
+<td>shade(A.ref1, gray)</td>
+<td></td>
+<td>回收器：进一步灰色对象的子节点并着色为灰色对象，这时由于 <code>A.ref1</code> 为 <code>nil</code>，什么事情也没有发生</td>
+</tr>
+<tr>
+<td>6</td>
+<td>shade(A, black)</td>
+<td></td>
+<td>回收器：由于所有子节点均已标记，回收器也不会重新扫描已经被标记为黑色的对象，此时 A 被着色为黑色，<code>scan(A)</code> 什么也不会发生，进而 B 在此次回收过程中永远不会被标记为黑色，进而错误地被回收。</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>初始状态：假设某个黑色对象 C 指向某个灰色对象 A ，而 A 指向白色对象 B；</li>
+<li><code>C.ref3 = C.ref2.ref1</code>：赋值器并发地将黑色对象 C 指向（ref3）了白色对象 B；</li>
+<li><code>A.ref1 = nil</code>：移除灰色对象 A 对白色对象 B 的引用（ref1）；</li>
+<li>最终状态：在继续扫描的过程中，白色对象 B 永远不会被标记为黑色对象了（回收器不会重新扫描黑色对象），进而对象 B 被错误地回收。</li>
+</ul>
+<p><img alt="gc-mutator" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/memgc/assets/gc-mutator.png"/></p>
+<p>总而言之，并发标记清除中面临的一个根本问题就是如何保证标记与清除过程的正确性。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/memgc/1-%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6%E7%9A%84%E8%AE%A4%E8%AF%86.md#L410">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kaa5dc7847780"></a></p>
+<span class="heading-anchor" id="案例分析"></span><h2 id="_1_15">案例分析</h2>
+<p>从 channel 接收和向 channel 发送数据的过程我们均会使用下面这个例子来进行说明：</p>
+<pre><code class="language-golang">func goroutineA(a &lt;-chan int) {
+    val := &lt;- a
+    fmt.Println("G1 received data: ", val)
+    return
+}
+
+func goroutineB(b &lt;-chan int) {
+    val := &lt;- b
+    fmt.Println("G2 received data: ", val)
+    return
+}
+
+func main() {
+    ch := make(chan int)
+    go goroutineA(ch)
+    go goroutineB(ch)
+    ch &lt;- 3
+    time.Sleep(time.Second)
+}
+</code></pre>
+<p>首先创建了一个无缓冲的 channel，接着启动两个 goroutine，并将前面创建的 channel 传递进去。然后，向这个 channel 中发送数据 3，最后 sleep 1 秒后程序退出。</p>
+<p>程序第 14 行创建了一个非缓冲型的 channel，我们只看 chan 结构体中的一些重要字段，来从整体层面看一下 chan 的状态，一开始什么都没有：</p>
+<p><img alt="unbuffered chan" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/4.png"/></p>
+<p>接着，第 15、16 行分别创建了一个 goroutine，各自执行了一个接收操作。通过前面的源码分析，我们知道，这两个 goroutine （后面称为 G1 和 G2 好了）都会被阻塞在接收操作。G1 和 G2 会挂在 channel 的 recq 队列中，形成一个双向循环链表。</p>
+<p>在程序的 17 行之前，chan 的整体数据结构如下：</p>
+<p><img alt="chan struct at the runtime" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/5.png"/></p>
+<p><code>buf</code> 指向一个长度为 0 的数组，qcount 为 0，表示 channel 中没有元素。重点关注 <code>recvq</code> 和 <code>sendq</code>，它们是 waitq 结构体，而 waitq 实际上就是一个双向链表，链表的元素是 sudog，里面包含 <code>g</code> 字段，<code>g</code> 表示一个 goroutine，所以 sudog 可以看成一个 goroutine。recvq 存储那些尝试读取 channel 但被阻塞的 goroutine，sendq 则存储那些尝试写入 channel，但被阻塞的 goroutine。</p>
+<p>此时，我们可以看到，recvq 里挂了两个 goroutine，也就是前面启动的 G1 和 G2。因为没有 goroutine 接收，而 channel 又是无缓冲类型，所以 G1 和 G2 被阻塞。sendq 没有被阻塞的 goroutine。</p>
+<p><code>recvq</code> 的数据结构如下：</p>
+<p><img alt="recvq structure" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/6.png"/></p>
+<p>再从整体上来看一下 chan 此时的状态：</p>
+<p><img alt="chan state" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/7.png"/></p>
+<p>G1 和 G2 被挂起了，状态是 <code>WAITING</code>。关于 goroutine 调度器这块不是今天的重点，当然后面肯定会写相关的文章。这里先简单说下，goroutine 是用户态的协程，由 Go runtime 进行管理，作为对比，内核线程由 OS 进行管理。Goroutine 更轻量，因此我们可以轻松创建数万 goroutine。</p>
+<p>一个内核线程可以管理多个 goroutine，当其中一个 goroutine 阻塞时，内核线程可以调度其他的 goroutine 来运行，内核线程本身不会阻塞。这就是通常我们说的 <code>M:N</code> 模型：</p>
+<p><img alt="M:N scheduling" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/8.png"/></p>
+<p><code>M:N</code> 模型通常由三部分构成：M、P、G。M 是内核线程，负责运行 goroutine；P 是 context，保存 goroutine 运行所需要的上下文，它还维护了可运行（runnable）的 goroutine 列表；G 则是待运行的 goroutine。M 和 P 是 G 运行的基础。</p>
+<p><img alt="MGP" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/9.png"/></p>
+<p>继续回到例子。假设我们只有一个 M，当 G1（<code>go goroutineA(ch)</code>） 运行到 <code>val := &lt;- a</code> 时，它由本来的 running 状态变成了 waiting 状态（调用了 gopark 之后的结果）：</p>
+<p><img alt="G1 running" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/10.png"/></p>
+<p>G1 脱离与 M 的关系，但调度器可不会让 M 闲着，所以会接着调度另一个 goroutine 来运行：</p>
+<p><img alt="G1 waiting" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/11.png"/></p>
+<p>G2 也是同样的遭遇。现在 G1 和 G2 都被挂起了，等待着一个 sender 往 channel 里发送数据，才能得到解救。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_6">补充说明</h3>
+<p>好了，看完源码。我们接着来分析例子，代码如下：</p>
+<pre><code class="language-golang">func goroutineA(a &lt;-chan int) {
+    val := &lt;- a
+    fmt.Println("goroutine A received data: ", val)
+    return
+}
+
+func goroutineB(b &lt;-chan int) {
+    val := &lt;- b
+    fmt.Println("goroutine B received data: ", val)
+    return
+}
+
+func main() {
+    ch := make(chan int)
+    go goroutineA(ch)
+    go goroutineB(ch)
+    ch &lt;- 3
+    time.Sleep(time.Second)
+
+    ch1 := make(chan struct{})
+}
+</code></pre>
+<p>在发送小节里我们说到 G1 和 G2 现在被挂起来了，等待 sender 的解救。在第 17 行，主协程向 ch 发送了一个元素 3，来看下接下来会发生什么。</p>
+<p>根据前面源码分析的结果，我们知道，sender 发现 ch 的 recvq 里有 receiver 在等待着接收，就会出队一个 sudog，把 recvq 里 first 指针的 sudo “推举”出来了，并将其加入到 P 的可运行 goroutine 队列中。</p>
+<p>然后，sender 把发送元素拷贝到 sudog 的 elem 地址处，最后会调用 goready 将 G1 唤醒，状态变为 runnable。</p>
+<p><img alt="G1 runnable" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/2.png"/></p>
+<p>当调度器光顾 G1 时，将 G1 变成 running 状态，执行 goroutineA 接下来的代码。G 表示其他可能有的 goroutine。</p>
+<p>这里其实涉及到一个协程写另一个协程栈的操作。有两个 receiver 在 channel 的一边虎视眈眈地等着，这时 channel 另一边来了一个 sender 准备向 channel 发送数据，为了高效，用不着通过 channel 的 buf “中转”一次，直接从源地址把数据 copy 到目的地址就可以了，效率高啊！</p>
+<p><img alt="send direct" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/golang-design/go-questions/741cb94826279e6879338565f09b3e71650278f6/content/channel/assets/3.png"/></p>
+<p>上图是一个示意图，<code>3</code> 会被拷贝到 G1 栈上的某个位置，也就是 val 的地址处，保存在 elem 字段。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/4-%E4%BB%8E%20channel%20%E6%8E%A5%E6%94%B6%E6%95%B0%E6%8D%AE%E7%9A%84%E8%BF%87%E7%A8%8B%E6%98%AF%E6%80%8E%E6%A0%B7%E7%9A%84.md#L291">Go Questions</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/channel/3-%E5%90%91%20channel%20%E5%8F%91%E9%80%81%E6%95%B0%E6%8D%AE%E7%9A%84%E8%BF%87%E7%A8%8B%E6%98%AF%E6%80%8E%E6%A0%B7%E7%9A%84.md#L247">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-ac004f4e8baa.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>内存、GC与性能</strong></a><a class="page-next" href="n-769cb0e710f3.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>并发、Channel与调度</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#channel_1">channel 发送和接收元素的本质是什么</a></li><li class="outline-level-2"><a href="#channel_2">channel 底层的数据结构是什么</a></li><li class="outline-level-2"><a href="#context">context 如何被取消</a></li><li class="outline-level-2"><a href="#go-channel">Go Channel</a></li><li class="outline-level-2"><a href="#goroutine">goroutine 如何退出</a></li><li class="outline-level-2"><a href="#gpm">GPM 是什么</a></li><li class="outline-level-2"><a href="#providermodelagent-runtimechannel">Provider、Model、Agent Runtime、Channel 如何解耦？</a></li><li class="outline-level-2"><a href="#goroutine_1">主 goroutine 如何创建</a></li><li class="outline-level-2"><a href="#csp">什么是 CSP</a></li><li class="outline-level-2"><a href="#_1_9">传递共享的数据</a></li><li class="outline-level-2"><a href="#channel-happened-before">关于 channel 的 happened-before 有哪些</a></li><li class="outline-level-2"><a href="#goroutine_2">取消 goroutine</a></li><li class="outline-level-2"><a href="#sessionuserchannelworkspace">多平台会话如何做 session、user、channel、workspace 隔离？</a></li><li class="outline-level-2"><a href="#channel_3">如何优雅地关闭 channel</a></li><li class="outline-level-2"><a href="#_1_14">并发标记清除法的难点是什么？</a></li><li class="outline-level-2"><a href="#_1_15">案例分析</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

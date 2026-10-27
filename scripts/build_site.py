@@ -59,7 +59,7 @@ def build():
         main = soup.select_one('main')
         refresh_note_chrome(main, path)
         extra = ''.join(str(tag) for tag in soup.head.select('script[src], link[rel="stylesheet"]')
-                        if any(item in tag.get('src', tag.get('href', '')) for item in ('katex/', 'render-diagrams.js', 'article.js', 'search.js')))
+                        if any(item in tag.get('src', tag.get('href', '')) for item in ('katex/', 'render-diagrams.js', 'article.js', 'search.js', 'interview.css')))
         path.write_text(render_page(soup.title.get_text(), description, path, main.decode_contents(), extra=extra))
     print(f'Built {sum(bool(m.get("template")) for m in site["modules"])} module pages; refreshed {len(pages)} note pages.')
 

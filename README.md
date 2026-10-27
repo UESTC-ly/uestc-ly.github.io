@@ -71,7 +71,24 @@ GitHub Pages 从 `main` 分支根目录发布生成后的静态 HTML，不要求
 
 ## 专题笔记
 
-当前共 676 篇：力扣刷题 89、计算机基础 271、大模型 33、AI Agent 开发 245、深度学习 38。包含标题与分类搜索、章节目录、Markdown 下载及 3 个算法交互演示。
+当前共 889 篇：力扣刷题 89、计算机基础 271、大模型 33、AI Agent 开发 245、深度学习 38、计算机八股大全 213。包含标题与分类搜索、章节目录、Markdown 下载及 3 个算法交互演示。
+
+### 计算机八股大全
+
+入口为 [`notes/interview/`](https://uestc-ly.github.io/notes/interview/)，首页、专题笔记和全站专题目录均可进入。保留 24 个知识方向；每个方向标注“基础先读”，提供公共基础、后端开发、AI 与大模型、岗位补充四条阅读路线。文章页目录只列知识条目，避免重复的参考资料小节挤占目录。
+
+题目搜索按需加载 `questions.json`，覆盖 8,732 个知识条目的题目、分类、所属章节和回答摘要，支持多关键词、方向筛选、分批显示，以及带查询参数的可分享链接。结果直接链接到文章锚点；未启用 JavaScript 时仍能使用分类、章节和原始 Markdown。原文、出处和许可说明随文章保留；摘录中的相对图片和参考链接通过该知识条目附带的固定版本来源恢复。按原文知识条目边界独立渲染，防止上游未闭合的 HTML 标签影响后续条目，并为重复标题分配唯一锚点。
+
+只更新此专题，保留其他专题内容：
+
+```sh
+.venv/bin/python scripts/build_notes.py /path/to/knowledgeBase --topic interview
+.venv/bin/python scripts/build_site.py
+.venv/bin/python scripts/check_site.py
+.venv/bin/python scripts/check_interview.py
+```
+
+也可直接从仓库内保留的原文重建：将导入命令的 `/path/to/knowledgeBase` 替换为 `notes/source`。`check_interview.py --original /path/to/八股题库搜集` 可额外核对每份 Markdown 与原始目录逐字节一致。
 
 重新导入笔记：
 

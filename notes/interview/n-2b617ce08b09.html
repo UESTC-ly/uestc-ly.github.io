@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>Redis实践问答 · 李杨的学习笔记</title><meta name="description" content="Lua 脚本同样支持批量操作多条命令。一段 Lua 脚本可以视作一条命令执行，可以看作是 原子操作 。也就是说，一段 Lua 脚本执行过程中不会有其他脚本或 Redis 命令同时执行，保证了操作不会被其他指令插入或打扰，这是 pipeline 所不具备的。">
+<meta property="og:type" content="website"><meta property="og:title" content="Redis实践问答 · 李杨的学习笔记"><meta property="og:description" content="Lua 脚本同样支持批量操作多条命令。一段 Lua 脚本可以视作一条命令执行，可以看作是 原子操作 。也就是说，一段 Lua 脚本执行过程中不会有其他脚本或 Redis 命令同时执行，保证了操作不会被其他指令插入或打扰，这是 pipeline 所不具备的。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-2b617ce08b09.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-2b617ce08b09.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html" aria-current="page">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">06-Redis与缓存</p><h1>Redis实践问答</h1><p class="article-question-meta">47 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-dd42c7fcdb61">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/06-Redis%E4%B8%8E%E7%BC%93%E5%AD%98/Redis%E5%AE%9E%E8%B7%B5%E9%97%AE%E7%AD%94.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#lua">Lua 脚本</a></li><li class="outline-level-2"><a href="#memcachedredis">Memcached与Redis的区别都有哪些？</a></li><li class="outline-level-2"><a href="#pipeline">pipeline</a></li><li class="outline-level-2"><a href="#redis-replication">Redis replication 的核心机制</a></li><li class="outline-level-2"><a href="#redis_1">Redis 为什么是单线程的而不采用多线程方案？</a></li><li class="outline-level-2"><a href="#redis_2">Redis 为什么这么快？</a></li><li class="outline-level-2"><a href="#redis-redis">Redis 事务：如何解决 Redis 事务的缺陷？</a></li><li class="outline-level-2"><a href="#redis_3">Redis 使用规范</a></li><li class="outline-level-2"><a href="#redis_4">Redis 后台线程了解吗？</a></li><li class="outline-level-2"><a href="#redis-memcached">Redis 和 Memcached 有啥区别？</a></li><li class="outline-level-2"><a href="#redis-memcached_1">Redis 和 Memcached 的区别</a></li><li class="outline-level-2"><a href="#redis_6">Redis 如何才能做到高可用</a></li><li class="outline-level-2"><a href="#redis_7">redis 是单线程的吗，为什么这么快</a></li><li class="outline-level-2"><a href="#redis_8">Redis 生产部署方案：面试官心理分析</a></li><li class="outline-level-2"><a href="#redis-redlock">Redis 的 RedLock 锁</a></li><li class="outline-level-2"><a href="#redis-redis-cas">Redis 的并发竞争问题是什么？如何解决这个问题？了解 Redis 事务的 CAS 方案吗？</a></li><li class="outline-level-2"><a href="#redis_9">Redis 的并发竞争问题：面试官心理分析</a></li><li class="outline-level-2"><a href="#redis_10">Redis 采用的是那种删除策略呢？</a></li><li class="outline-level-2"><a href="#redis60">Redis6.0 之前为什么不使用多线程？</a></li><li class="outline-level-2"><a href="#redis60_1">Redis6.0 之后为何引入了多线程？</a></li><li class="outline-level-2"><a href="#redisjava">Redis在Java开发中的作用、适用场景，底层原理考量？</a></li><li class="outline-level-2"><a href="#redis_11">Redis对于大量的请求，是怎样处理的？</a></li><li class="outline-level-2"><a href="#redisrediskey">Redis：如何解决Redis的并发竞争Key问题</a></li><li class="outline-level-2"><a href="#redlock">RedLock 算法</a></li><li class="outline-level-2"><a href="#string">String 的应用场景有哪些？</a></li><li class="outline-level-2"><a href="#string_1">String 的底层实现是什么？</a></li><li class="outline-level-2"><a href="#redis_12">为啥 Redis 单线程模型也能效率这么高？</a></li><li class="outline-level-2"><a href="#redis_13">了解Redis的线程模型吗？可以大致说说吗？</a></li><li class="outline-level-2"><a href="#redis-module">什么是 Redis Module？有什么用？</a></li><li class="outline-level-2"><a href="#redis_14">什么是 Redis？</a></li><li class="outline-level-2"><a href="#redis_15">使用 Redis 实现一个排行榜怎么做？</a></li><li class="outline-level-2"><a href="#redis_16">使用Redis的好处有哪些？</a></li><li class="outline-level-2"><a href="#_1_26">压缩列表</a></li><li class="outline-level-2"><a href="#redis_17">听说过Redis吗？它是什么？</a></li><li class="outline-level-2"><a href="#redis_18">如何使用 Redis 事务？</a></li><li class="outline-level-2"><a href="#redis_19">如何基于 Redis 实现延时任务？</a></li><li class="outline-level-2"><a href="#_1_29">如何控制定期删除的执行频率？</a></li><li class="outline-level-2"><a href="#redis_20">定期和惰性一定能保证删除数据吗？如果不能，Redis会有什么应对措施？</a></li><li class="outline-level-2"><a href="#_1_30">常见的数据优化方案你了解吗？</a></li><li class="outline-level-2"><a href="#_1_31">数据为什么会出现不一致的情况？</a></li><li class="outline-level-2"><a href="#_1_32">既然是单线程，那怎么监听大量的客户端连接呢？</a></li><li class="outline-level-2"><a href="#mysqlredis">有MySQL不就够用了吗？为什么要用Redis这种新的数据库？</a></li><li class="outline-level-2"><a href="#_1_33">每次随机抽查数量是多少？</a></li><li class="outline-level-2"><a href="#redis_21">生产环境中的 Redis 是怎么部署的？</a></li><li class="outline-level-2"><a href="#simple-dynamic-stringsds">简单动态字符串(Simple Dynamic String，SDS)</a></li><li class="outline-level-2"><a href="#redis-memcached_2">说一下 Redis 和 Memcached 的区别和共同点</a></li><li class="outline-level-2"><a href="#mongodbpostgresqlredis">面试追问：为什么选择 MongoDB、PostgreSQL、Redis 这样的存储组合？各自保存什么数据？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k190ad5d23257"></a></p>
+<span class="heading-anchor" id="Lua 脚本"></span><h2 id="lua">Lua 脚本</h2>
+<p>Lua 脚本同样支持批量操作多条命令。一段 Lua 脚本可以视作一条命令执行，可以看作是 <strong>原子操作</strong>。也就是说，一段 Lua 脚本执行过程中不会有其他脚本或 Redis 命令同时执行，保证了操作不会被其他指令插入或打扰，这是 pipeline 所不具备的。</p>
+<p>并且，Lua 脚本中支持一些简单的逻辑处理比如使用命令读取值并在 Lua 脚本中进行处理，这同样是 pipeline 所不具备的。</p>
+<p>不过， Lua 脚本依然存在下面这些缺陷：</p>
+<ul>
+<li>如果 Lua 脚本运行时出错并中途结束，之后的操作不会进行，但是之前已经发生的写操作不会撤销，所以即使使用了 Lua 脚本，也不能实现类似数据库回滚的原子性。</li>
+<li>Redis Cluster 下 Lua 脚本的原子操作也无法保证了，原因同样是无法保证所有的 key 都在同一个 <strong>hash slot（哈希槽）</strong> 上。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-02.md#L255">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k816be1736c26"></a></p>
+<span class="heading-anchor" id="Memcached与Redis的区别都有哪些？"></span><h2 id="memcachedredis">Memcached与Redis的区别都有哪些？</h2>
+<p>1、存储方式</p>
+<ul>
+<li>Memecache把数据全部存在内存之中，断电后会挂掉，没有持久化功能，数据不能超过内存大小。</li>
+<li>Redis有部份存在硬盘上，这样能保证数据的持久性。</li>
+</ul>
+<p>2、数据支持类型</p>
+<ul>
+<li>Memcache对数据类型支持相对简单,只有String这一种类型</li>
+<li>Redis有复杂的数据类型。Redis不仅仅支持简单的k/v类型的数据，同时还提供 list，set，zset，hash等数据结构的存储。</li>
+</ul>
+<p>3、使用底层模型不同</p>
+<ul>
+<li>它们之间底层实现方式 以及与客户端之间通信的应用协议不一样。</li>
+<li>Redis直接自己构建了VM 机制 ，因为一般的系统调用系统函数的话，会浪费一定的时间去移动和请求。</li>
+</ul>
+<p>4、集群模式：Memcached没有原生的集群模式，需要依靠客户端来实现往集群中分片写入数据；但是 Redis 目前 是原生支持 cluster 模式的.</p>
+<p>5、Memcached是多线程，非阻塞IO复用的网络模型；Redis使用单线程的多路 IO 复用模型。</p>
+<p>6、Value 值大小不同：Redis 最大可以达到 512MB；Memcached 只有 1MB。</p>
+<p id="比的优势在哪里">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L361)，来源许可：Apache-2.0。</p>
+<p><a id="k5765670c987b"></a></p>
+<h2 id="pipeline">pipeline</h2>
+<p>对于不支持批量操作的命令，我们可以利用 <strong>pipeline（流水线）</strong> 将一批 Redis 命令封装成一组，这些 Redis 命令会被一次性提交到 Redis 服务器，只需要一次网络传输。不过，需要注意控制一次批量操作的 <strong>元素个数</strong>（例如 500 以内，实际也和元素字节数有关），避免网络传输的数据量过大。</p>
+<p>与 <code>MGET</code>、<code>MSET</code> 等原生批量操作命令一样，pipeline 同样在 Redis Cluster 上使用会存在一些小问题。原因类似，无法保证所有的 key 都在同一个 <strong>hash slot（哈希槽）</strong> 上。如果想要使用的话，客户端需要自己维护 key 与 slot 的关系。</p>
+<p>原生批量操作命令和 pipeline 的是有区别的，使用的时候需要注意：</p>
+<ul>
+<li>原生批量操作命令是原子操作，pipeline 是非原子操作。</li>
+<li>pipeline 可以打包不同的命令，原生批量操作命令不可以。</li>
+<li>原生批量操作命令是 Redis 服务端支持实现的，而 pipeline 需要服务端和客户端的共同实现。</li>
+</ul>
+<p>顺带补充一下 pipeline 和 Redis 事务的对比：</p>
+<ul>
+<li>事务是原子操作，pipeline 是非原子操作。两个不同的事务不会同时运行，而 pipeline 可以同时以交错方式执行。</li>
+<li>Redis 事务中每个命令都需要发送到服务端，而 Pipeline 只需要发送一次，请求次数更少。</li>
+</ul>
+<blockquote>
+<p>事务可以看作是一个原子操作，但其实并不满足原子性。当我们提到 Redis 中的原子操作时，主要指的是这个操作（比如事务、Lua 脚本）不会被其他操作（比如其他事务、Lua 脚本）打扰，并不能完全保证这个操作中的所有写命令要么都执行要么都不执行。这主要也是因为 Redis 是不支持回滚操作。</p>
+</blockquote>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis-pipeline-vs-transaction.png"/></p>
+<p>另外，pipeline 不适用于执行顺序有依赖关系的一批命令。就比如说，你需要将前一个命令的结果给后续的命令使用，pipeline 就没办法满足你的需求了。对于这种需求，我们可以使用 <strong>Lua 脚本</strong>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-02.md#L232">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2b77e8085737"></a></p>
+<span class="heading-anchor" id="Redis replication 的核心机制"></span><h2 id="redis-replication">Redis replication 的核心机制</h2>
+<ul>
+<li>Redis 采用<strong>异步方式</strong>复制数据到 slave 节点，不过 Redis2.8 开始，slave node 会周期性地确认自己每次复制的数据量；</li>
+<li>一个 master node 是可以配置多个 slave node 的；</li>
+<li>slave node 也可以连接其他的 slave node；</li>
+<li>slave node 做复制的时候，不会 block master node 的正常工作；</li>
+<li>slave node 在做复制的时候，也不会 block 对自己的查询操作，它会用旧的数据集来提供服务；但是复制完成的时候，需要删除旧数据集，加载新数据集，这个时候就会暂停对外服务了；</li>
+<li>slave node 主要用来进行横向扩容，做读写分离，扩容的 slave node 可以提高读的吞吐量。</li>
+</ul>
+<p>注意，如果采用了主从架构，那么建议必须<strong>开启</strong> master node 的<a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-persistence.md">持久化</a>，不建议用 slave node 作为 master node 的数据热备，因为那样的话，如果你关掉 master 的持久化，可能在 master 宕机重启的时候数据是空的，然后可能一经过复制， slave node 的数据也丢了。</p>
+<p>另外，master 的各种备份方案，也需要做。万一本地的所有文件丢失了，从备份中挑选一份 rdb 去恢复 master，这样才能<strong>确保启动的时候，是有数据的</strong>，即使采用了后续讲解的<a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-sentinel.md">高可用机制</a>，slave node 可以自动接管 master node，但也可能 sentinel 还没检测到 master failure，master node 就自动重启了，还是可能导致上面所有的 slave node 数据被清空。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-master-slave.md#L9">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k88784b33697b"></a></p>
+<span class="heading-anchor" id="Redis 为什么是单线程的而不采用多线程方案？"></span><h2 id="redis_1">Redis 为什么是单线程的而不采用多线程方案？</h2>
+<p>这主要是基于一种客观原因来考虑的。因为Redis是基于内存的操作，CPU不是Redis的瓶颈，Redis的瓶颈最有可能是机器内存的大小或者网络带宽。</p>
+<p>既然单线程容易实现，而且CPU不会成为瓶颈，那就顺理成章地采用单线程的方案了（毕竟采用多线程会有很多麻烦！）</p>
+<p id="单线程的为什么这么快">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L411)，来源许可：Apache-2.0。</p>
+<p><a id="kfe223861042c"></a></p>
+<span class="heading-anchor" id="Redis 为什么这么快？"></span><h2 id="redis_2">Redis 为什么这么快？</h2>
+<p>Redis 内部做了非常多的性能优化，比较重要的有下面 4 点：</p>
+<ol>
+<li><strong>纯内存操作 (Memory-Based Storage)</strong> ：这是最主要的原因。Redis 数据读写操作都发生在内存中，访问速度是纳秒级别，而传统数据库频繁读写磁盘的速度是毫秒级别，两者相差数个数量级。</li>
+<li><strong>高效的 I/O 模型 (I/O Multiplexing &amp; Single-Threaded Event Loop)</strong> ：Redis 使用单线程事件循环配合 I/O 多路复用技术，让单个线程可以同时处理多个网络连接上的 I/O 事件（如读写），避免了多线程模型中的上下文切换和锁竞争问题。虽然是单线程，但结合内存操作的高效性和 I/O 多路复用，使得 Redis 能轻松处理大量并发请求（Redis 线程模型会在后文中详细介绍到）。</li>
+<li><strong>优化的内部数据结构 (Optimized Data Structures)</strong> ：Redis 提供多种数据类型（如 String, List, Hash, Set, Sorted Set 等），其内部实现采用高度优化的编码方式（如 ziplist, quicklist, skiplist, hashtable 等）。Redis 会根据数据大小和类型动态选择最合适的内部编码，以在性能和空间效率之间取得最佳平衡。</li>
+<li><strong>简洁高效的通信协议 (Simple Protocol - RESP)</strong> ：Redis 使用的是自己设计的 RESP (REdis Serialization Protocol) 协议。这个协议实现简单、解析性能好，并且是二进制安全的。客户端和服务端之间通信的序列化/反序列化开销很小，有助于提升整体的交互速度。</li>
+</ol>
+<blockquote>
+<p>下面这张图片总结的挺不错的，分享一下，出自 <a href="https://twitter.com/alexxubyte/status/1498703822528544770">Why is Redis so fast?</a>。</p>
+</blockquote>
+<p><img alt="why-redis-so-fast" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/why-redis-so-fast.png"/></p>
+<p>那既然都这么快了，为什么不直接用 Redis 当主数据库呢？主要是因为内存成本太高，并且 Redis 提供的数据持久化仍然有数据丢失的风险。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L31">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kdccfe2bfc6e1"></a></p>
+<span class="heading-anchor" id="Redis 事务：如何解决 Redis 事务的缺陷？"></span><h2 id="redis-redis">Redis 事务：如何解决 Redis 事务的缺陷？</h2>
+<p>Redis 从 2.6 版本开始支持执行 Lua 脚本，它的功能和事务非常类似。我们可以利用 Lua 脚本来批量执行多条 Redis 命令，这些 Redis 命令会被提交到 Redis 服务器一次性执行完成，大幅减小了网络开销。</p>
+<p>一段 Lua 脚本可以视作一条命令执行，一段 Lua 脚本执行过程中不会有其他脚本或 Redis 命令同时执行，保证了操作不会被其他指令插入或打扰。</p>
+<p>不过，如果 Lua 脚本运行时出错并中途结束，出错之后的命令是不会被执行的。并且，出错之前执行的命令是无法被撤销的，无法实现类似关系型数据库执行失败可以回滚的那种原子性效果。因此，<strong>严格来说的话，通过 Lua 脚本来批量执行 Redis 命令实际也是不完全满足原子性的。</strong></p>
+<p>如果想要让 Lua 脚本中的命令全部执行，必须保证语句语法和命令都是对的。</p>
+<p>另外，Redis 7.0 新增了 <a href="https://redis.io/docs/latest/develop/programmability/functions-intro/">Redis functions</a> 特性，你可以将 Redis functions 看作是比 Lua 更强大的脚本。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-02.md#L175">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ke808ace41e88"></a></p>
+<span class="heading-anchor" id="Redis 使用规范"></span><h2 id="redis_3">Redis 使用规范</h2>
+<p>实际使用 Redis 的过程中，我们尽量要准守一些常见的规范，比如：</p>
+<ol>
+<li>使用连接池：避免频繁创建关闭客户端连接。</li>
+<li>尽量不使用 O(n) 指令，使用 O(n) 命令时要关注 n 的数量：像 <code>KEYS *</code>、<code>HGETALL</code>、<code>LRANGE</code>、<code>SMEMBERS</code>、<code>SINTER</code>/<code>SUNION</code>/<code>SDIFF</code> 等 O(n) 命令并非不能使用，但是需要明确 n 的值。另外，有遍历的需求可以使用 <code>HSCAN</code>、<code>SSCAN</code>、<code>ZSCAN</code> 代替。</li>
+<li>使用批量操作减少网络传输：原生批量操作命令（比如 <code>MGET</code>、<code>MSET</code> 等等）、pipeline、Lua 脚本。</li>
+<li>尽量不使用 Redis 事务：Redis 事务实现的功能比较鸡肋，可以使用 Lua 脚本代替。</li>
+<li>禁止长时间开启 monitor：对性能影响比较大。</li>
+<li>控制 key 的生命周期：避免 Redis 中存放了太多不经常被访问的数据。</li>
+<li>……</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-02.md#L828">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k39cea3e18edb"></a></p>
+<span class="heading-anchor" id="Redis 后台线程了解吗？"></span><h2 id="redis_4">Redis 后台线程了解吗？</h2>
+<p>我们虽然经常说 Redis 是单线程模型（主要逻辑是单线程完成的），但实际还有一些后台线程用于执行一些比较耗时的操作：</p>
+<ul>
+<li>通过 <code>bio_close_file</code> 后台线程来释放 AOF / RDB 等过程中产生的临时文件资源。</li>
+<li>通过 <code>bio_aof_fsync</code> 后台线程调用 <code>fsync</code> 函数将系统内核缓冲区还未同步到到磁盘的数据强制刷到磁盘（AOF 文件）。</li>
+<li>通过 <code>bio_lazy_free</code> 后台线程释放大对象（已删除）占用的内存空间.</li>
+</ul>
+<p>在<code>bio.h</code> 文件中有定义（Redis 6.0 版本，源码地址：<a href="https://github.com/redis/redis/blob/6.0/src/bio.h">https://github.com/redis/redis/blob/6.0/src/bio.h</a>）：</p>
+<pre><code class="language-java">#ifndef __BIO_H
+#define __BIO_H
+
+/* Exported API */
+void bioInit(void);
+void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3);
+unsigned long long bioPendingJobsOfType(int type);
+unsigned long long bioWaitStepOfType(int type);
+time_t bioOlderJobOfType(int type);
+void bioKillThreads(void);
+
+/* Background job opcodes */
+#define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. */
+#define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
+#define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
+#define BIO_NUM_OPS       3
+
+#endif
+</code></pre>
+<p>关于 Redis 后台线程的详细介绍可以查看 <a href="https://juejin.cn/post/7102780434739626014">Redis 6.0 后台线程有哪些？</a> 这篇就文章。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L556">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k49466b20ca96"></a></p>
+<span class="heading-anchor" id="Redis 和 Memcached 有啥区别？"></span><h2 id="redis-memcached">Redis 和 Memcached 有啥区别？</h2>
+<span class="heading-anchor" id="Redis 支持复杂的数据结构"></span><h3 id="redis_5">Redis 支持复杂的数据结构</h3>
+<p>Redis 相比 Memcached 来说，拥有<a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-data-types.md">更多的数据结构</a>，能支持更丰富的数据操作。如果需要缓存能够支持更复杂的结构和操作， Redis 会是不错的选择。</p>
+<span class="heading-anchor" id="Redis 原生支持集群模式"></span><h3 id="redis_1_1">Redis 原生支持集群模式</h3>
+<p>在 Redis3.x 版本中，便能支持 cluster 模式，而 Memcached 没有原生的集群模式，需要依靠客户端来实现往集群中分片写入数据。</p>
+<span class="heading-anchor" id="性能对比"></span><h3 id="_1_7">性能对比</h3>
+<p>由于 Redis 只使用<strong>单核</strong>，而 Memcached 可以使用<strong>多核</strong>，所以平均每一个核上 Redis 在存储小数据时比 Memcached 性能更高。而在 100k 以上的数据中，Memcached 性能要高于 Redis。虽然 Redis 最近也在存储大数据的性能上进行优化，但是比起 Memcached，还是稍有逊色。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-single-thread-model.md#L15">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k912cb10a993e"></a></p>
+<span class="heading-anchor" id="Redis 和 Memcached 的区别"></span><h2 id="redis-memcached_1">Redis 和 Memcached 的区别</h2>
+<p><strong>常见问法：</strong> Redis 和 Memcached 的区别：面试官心理分析</p>
+<span class="heading-anchor" id="面试题"></span><h3 id="_1_8">面试题</h3>
+<p>Redis 和 Memcached 有什么区别？Redis 的线程模型是什么？为什么 Redis 单线程却能支撑高并发？</p>
+<span class="heading-anchor" id="面试官心理分析"></span><h3 id="_2_1">面试官心理分析</h3>
+<p>这个是问 Redis 的时候，最基本的问题吧，Redis 最基本的一个内部原理和特点，就是 Redis 实际上是个<strong>单线程工作模型</strong>，你要是这个都不知道，那后面玩儿 Redis 的时候，出了问题岂不是什么都不知道？</p>
+<p>还有可能面试官会问问你 Redis 和 Memcached 的区别，但是 Memcached 是早些年各大互联网公司常用的缓存方案，但是现在近几年基本都是 Redis，没什么公司用 Memcached 了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-single-thread-model.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-single-thread-model.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kdb5dd95e4324"></a></p>
+<span class="heading-anchor" id="Redis 如何才能做到高可用"></span><h2 id="redis_6">Redis 如何才能做到高可用</h2>
+<p><strong>常见问法：</strong> Redis 如何才能做到高可用？</p>
+<p>如果系统在 365 天内，有 99.99% 的时间，都是可以哗哗对外提供服务的，那么就说系统是高可用的。</p>
+<p>一个 slave 挂掉了，是不会影响可用性的，还有其它的 slave 在提供相同数据下的相同的对外的查询服务。</p>
+<p>但是，如果 master node 死掉了，会怎么样？没法写数据了，写缓存的时候，全部失效了。slave node 还有什么用呢，没有 master 给它们复制数据了，系统相当于不可用了。</p>
+<p>Redis 的高可用架构，叫做 <code>failover</code> <strong>故障转移</strong>，也可以叫做主备切换。</p>
+<p>master node 在故障时，自动检测，并且将某个 slave node 自动切换为 master node 的过程，叫做主备切换。这个过程，实现了 Redis 的主从架构下的高可用。</p>
+<p>后面会详细说明 Redis <a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-sentinel.md">基于哨兵的高可用性</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-master-slave.md#L91">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L287">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k71cea4ecd59f"></a></p>
+<span class="heading-anchor" id="redis 是单线程的吗，为什么这么快"></span><h2 id="redis_7">redis 是单线程的吗，为什么这么快</h2>
+<p><strong>单线程</strong></p>
+<ul>
+<li>没有了多线程上下文切换的性能损耗</li>
+<li>没有了访问共享资源加锁的性能损耗</li>
+<li>开发和调试非常友好，可维护性高</li>
+</ul>
+<p><strong>纯内存操作</strong></p>
+<p><code>redis</code>是一个内存数据库，它的数据都存储在内存中，这意味着我们读写数据都是在内存中完成，这个速度是非常快的。<code>redis</code>是一个KV内存数据库，它内部构建了一个哈希表，根据指定的<code>KEY</code>访问时，只需要<code>O(1)</code>的时间复杂度就可以找到对应的数据。同时，<code>redis</code>提供了丰富的数据类型，并使用高效的操作方式进行操作，这些操作都在内存中进行，并不会大量消耗<code>CPU</code>资源，所以速度极快</p>
+<p><strong>IO 多路复用技术</strong></p>
+<p><code>redis</code> 服务采用 <code>Reactor</code> 的方式来实现文件事件处理器（每一个网络连接其实都对应一个文件描述符）。文件事件处理器使用 I/O 多路复用模块同时监听多个 FD，当 <code>accept</code>、<code>read</code>、<code>write</code> 和 <code>close</code> 文件事件产生时，文件事件处理器就会回调 FD 绑定的事件处理器。虽然整个文件事件处理器是在单线程上运行的，但是通过 I/O 多路复用模块的引入，实现了同时对多个 FD 读写的监控，提高了网络通信模型的性能，同时也可以保证整个 <code>redis</code> 服务实现的简单</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L588">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9cb2495083d5"></a></p>
+<span class="heading-anchor" id="Redis 生产部署方案：面试官心理分析"></span><h2 id="redis_8">Redis 生产部署方案：面试官心理分析</h2>
+<p>看看你了解不了解你们公司的 Redis 生产集群的部署架构，如果你不了解，那么确实你就很失职了，你的 Redis 是主从架构？集群架构？用了哪种集群方案？有没有做高可用保证？有没有开启持久化机制确保可以进行数据恢复？线上 Redis 给几个 G 的内存？设置了哪些参数？压测后你们 Redis 集群承载多少 QPS？</p>
+<p>兄弟，这些你必须是门儿清的，否则你确实是没好好思考过。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-production-environment.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kcc470acb0899"></a></p>
+<span class="heading-anchor" id="Redis 的 RedLock 锁"></span><h2 id="redis-redlock">Redis 的 RedLock 锁</h2>
+<p>为了解决 Redis 单点的问题。 Redis 的作者提出了 RedLock 的解决方案。方案非常的巧妙和简洁。 RedLock 的核心思想就是，<strong>同时使用多个 Redis Master 来冗余，且这些节点都是完全的独立的，也不需要对这些节点之间的数据进行同步</strong>。</p>
+<p>假设我们有N个Redis节点，N应该是一个大于2的奇数。RedLock的实现步骤:</p>
+<ol>
+<li>取得当前时间</li>
+<li>使用单节点获取锁的方式，依次获取 N 个节点的 Redis 锁。</li>
+<li>如果获取到的锁的数量大于 N/2+1<em>N</em>/2+1 个，且获取的时间小于锁的有效时间(lock validity time)就认为获取到了一个有效的锁，锁自动释放时间就是最初的锁释放时间减去之前获取锁所消耗的时间。</li>
+<li>如果获取锁的数量小于 N/2+1<em>N</em>/2+1 ，或者在锁的有效时间(lock validity time)内没有获取到足够的锁，就认为获取锁失败，这个时候需要向所有节点发送释放锁的消息。</li>
+</ol>
+<p>对于释放锁的实现就很简单了，向所有的 Redis 节点发起释放的操作，无论之前是否获取锁成功。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/05-01-02-distribution.md#L90">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k003f39f37ef3"></a></p>
+<span class="heading-anchor" id="Redis 的并发竞争问题是什么？如何解决这个问题？了解 Redis 事务的 CAS 方案吗？"></span><h2 id="redis-redis-cas">Redis 的并发竞争问题是什么？如何解决这个问题？了解 Redis 事务的 CAS 方案吗？</h2>
+<p>这个也是线上非常常见的一个问题，就是<strong>多客户端同时并发写</strong>一个 key，可能本来应该先到的数据后到了，导致数据版本错了；或者是多客户端同时获取一个 key，修改值之后再写回去，只要顺序错了，数据就错了。</p>
+<p>而且 Redis 自己就有天然解决这个问题的 CAS 类的乐观锁方案。</p>
+<p>某个时刻，多个系统实例都去更新某个 key。可以基于 zookeeper 实现分布式锁。每个系统通过 zookeeper 获取分布式锁，确保同一时间，只能有一个系统实例在操作某个 key，别人都不允许读和写。</p>
+<p><img alt="zookeeper-distributed-lock" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.assets/202208092301751.png"/></p>
+<p>你要写入缓存的数据，都是从 mysql 里查出来的，都得写入 mysql 中，写入 mysql 中的时候必须保存一个时间戳，从 mysql 查出来的时候，时间戳也查出来。</p>
+<p>每次要<strong>写之前，先判断</strong>一下当前这个 value 的时间戳是否比缓存里的 value 的时间戳要新。如果是的话，那么可以写，否则，就不能用旧的数据覆盖新的数据。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L710">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k314b509aa1b8"></a></p>
+<span class="heading-anchor" id="Redis 的并发竞争问题：面试官心理分析"></span><h2 id="redis_9">Redis 的并发竞争问题：面试官心理分析</h2>
+<p>这个也是线上非常常见的一个问题，就是<strong>多客户端同时并发写</strong>一个 key，可能本来应该先到的数据后到了，导致数据版本错了；或者是多客户端同时获取一个 key，修改值之后再写回去，只要顺序错了，数据就错了。</p>
+<p>而且 Redis 自己就有天然解决这个问题的 CAS 类的乐观锁方案。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-cas.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka4deacb9bebd"></a></p>
+<span class="heading-anchor" id="Redis 采用的是那种删除策略呢？"></span><h2 id="redis_10">Redis 采用的是那种删除策略呢？</h2>
+<p>Redis 采用的是 <strong>定期删除+惰性/懒汉式删除</strong> 结合的策略，这也是大部分缓存框架的选择。定期删除对内存更加友好，惰性删除对 CPU 更加友好。两者各有千秋，结合起来使用既能兼顾 CPU 友好，又能兼顾内存友好。</p>
+<p>下面是我们详细介绍一下 Redis 中的定期删除具体是如何做的。</p>
+<p>Redis 的定期删除过程是随机的（周期性地随机从设置了过期时间的 key 中抽查一批），所以并不保证所有过期键都会被立即删除。这也就解释了为什么有的 key 过期了，并没有被删除。并且，Redis 底层会通过限制删除操作执行的时长和频率来减少删除操作对 CPU 时间的影响。</p>
+<p>另外，定期删除还会受到执行时间和过期 key 的比例的影响：</p>
+<ul>
+<li>执行时间已经超过了阈值，那么就中断这一次定期删除循环，以避免使用过多的 CPU 时间。</li>
+<li>如果这一批过期的 key 比例超过一个比例，就会重复执行此删除流程，以更积极地清理过期 key。相应地，如果过期的 key 比例低于这个比例，就会中断这一次定期删除循环，避免做过多的工作而获得很少的内存回收。</li>
+</ul>
+<p>Redis 7.2 版本的执行时间阈值是 <strong>25ms</strong>，过期 key 比例设定值是 <strong>10%</strong>。</p>
+<pre><code class="language-c">#define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds. */
+#define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Max % of CPU to use. */
+#define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
+                                                   we do extra efforts. */
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L647">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k6f2258feefc6"></a></p>
+<span class="heading-anchor" id="Redis6.0 之前为什么不使用多线程？"></span><h2 id="redis60">Redis6.0 之前为什么不使用多线程？</h2>
+<p>虽然说 Redis 是单线程模型，但实际上，<strong>Redis 在 4.0 之后的版本中就已经加入了对多线程的支持。</strong></p>
+<p>不过，Redis 4.0 增加的多线程主要是针对一些大键值对的删除操作的命令，使用这些命令就会使用主线程之外的其他线程来“异步处理”，从而减少对主线程的影响。</p>
+<p>为此，Redis 4.0 之后新增了几个异步命令：</p>
+<ul>
+<li><code>UNLINK</code>：可以看作是 <code>DEL</code> 命令的异步版本。</li>
+<li><code>FLUSHALL ASYNC</code>：用于清空所有数据库的所有键，不限于当前 <code>SELECT</code> 的数据库。</li>
+<li><code>FLUSHDB ASYNC</code>：用于清空当前 <code>SELECT</code> 数据库中的所有键。</li>
+</ul>
+<p><img alt="redis4.0 more thread" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis4.0-more-thread.png"/></p>
+<p>总的来说，直到 Redis 6.0 之前，Redis 的主要操作仍然是单线程处理的。</p>
+<p><strong>那 Redis6.0 之前为什么不使用多线程？</strong> 我觉得主要原因有 3 点：</p>
+<ul>
+<li>单线程编程容易并且更容易维护；</li>
+<li>Redis 的性能瓶颈不在 CPU，主要在内存和网络；</li>
+<li>多线程就会存在死锁、线程上下文切换等问题，甚至会影响性能。</li>
+</ul>
+<p>相关阅读：<a href="https://draveness.me/whys-the-design-redis-single-thread/">为什么 Redis 选择单线程模型？</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L502">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2508e713f32b"></a></p>
+<span class="heading-anchor" id="Redis6.0 之后为何引入了多线程？"></span><h2 id="redis60_1">Redis6.0 之后为何引入了多线程？</h2>
+<p><strong>Redis6.0 引入多线程主要是为了提高网络 IO 读写性能</strong>，因为这个算是 Redis 中的一个性能瓶颈（Redis 的瓶颈主要受限于内存和网络）。</p>
+<p>虽然，Redis6.0 引入了多线程，但是 Redis 的多线程只是在网络数据的读写这类耗时操作上使用了，执行命令仍然是单线程顺序执行。因此，你也不需要担心线程安全问题。</p>
+<p>Redis6.0 的多线程默认是禁用的，只使用主线程。如需开启需要设置 IO 线程数 &gt; 1，需要修改 redis 配置文件 <code>redis.conf</code>：</p>
+<pre><code class="language-bash">io-threads 4 #设置1的话只会开启主线程，官网建议4核的机器建议设置为2或3个线程，8核的建议设置为6个线程
+</code></pre>
+<p>另外：</p>
+<ul>
+<li>io-threads 的个数一旦设置，不能通过 config 动态设置。</li>
+<li>当设置 ssl 后，io-threads 将不工作。</li>
+</ul>
+<p>开启多线程后，默认只会使用多线程进行 IO 写入 writes，即发送数据给客户端，如果需要开启多线程 IO 读取 reads，同样需要修改 redis 配置文件 <code>redis.conf</code>：</p>
+<pre><code class="language-bash">io-threads-do-reads yes
+</code></pre>
+<p>但是官网描述开启多线程读并不能有太大提升，因此一般情况下并不建议开启。</p>
+<p>相关阅读：</p>
+<ul>
+<li><a href="https://mp.weixin.qq.com/s/FZu3acwK6zrCBZQ_3HoUgw">Redis 6.0 新特性-多线程连环 13 问！</a></li>
+<li><a href="https://segmentfault.com/a/1190000039223696">Redis 多线程网络模型全面揭秘</a>（推荐）</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L526">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k719dad6cc5d8"></a></p>
+<span class="heading-anchor" id="Redis在Java开发中的作用、适用场景，底层原理考量？"></span><h2 id="redisjava">Redis在Java开发中的作用、适用场景，底层原理考量？</h2>
+<p><strong>回答：</strong></p>
+<p>Redis 是独立的数据服务，在 Java 项目中常通过客户端或 Spring Data Redis 接入。需要从数据结构、并发语义、过期和故障行为解释选择，不能只说“放内存所以快”。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>常用方式</th>
+<th>关键边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>热点缓存</td>
+<td>String/Hash、TTL、cache-aside</td>
+<td>数据库与缓存通常非强一致，要定义失效窗口</td>
+</tr>
+<tr>
+<td>会话与验证码</td>
+<td>有时效的键、原子计数</td>
+<td>访问保护、一次性消费、过期与重放</td>
+</tr>
+<tr>
+<td>计数和限流</td>
+<td>INCR、Lua、Sorted Set</td>
+<td>多步需原子化，脚本不能长时间阻塞</td>
+</tr>
+<tr>
+<td>排行榜</td>
+<td>Sorted Set</td>
+<td>分值更新、并列规则、热点与容量</td>
+</tr>
+<tr>
+<td>任务协作</td>
+<td>Streams、消费组</td>
+<td>待确认消息、重投和消费者幂等</td>
+</tr>
+<tr>
+<td>互斥协调</td>
+<td>带租约的锁</td>
+<td>过期、暂停与故障切换会影响互斥假设</td>
+</tr>
+</tbody>
+</table></div>
+<p>常见部署中的命令执行以串行路径为核心，网络 IO 和后台任务可涉及其他线程；不能把整个 Redis 说成只有一个线程。性能来自内存访问、数据结构与事件驱动等共同作用，长命令、大 key、热点 key 和网络往返仍可能成为瓶颈。</p>
+<p>缓存层要区分穿透、击穿和雪崩：可结合空值短缓存、适用时的布隆过滤器、并发请求合并、TTL 打散、限流降级处理。数据库提交后删除缓存是常见策略，但并发读写、删除失败和旧值回填仍会造成窗口，重要场景可用版本校验和可靠失效事件收敛。</p>
+<p>锁可用 <code>SET key token NX PX ttl</code> 获取，用原子比较 token 后删除的方式释放，避免误删别人的锁。租约过期后旧持有者仍可能继续执行，续租也不能消除所有故障；高风险写入应使用底层资源支持的 fencing token、数据库约束或合适的一致性服务。</p>
+<p>RDB 是周期快照，AOF 记录写操作，持久化策略影响恢复时间与可能的数据丢失窗口；复制、集群分片和持久化分别解决不同问题。Redis Cluster 的多 key 原子操作通常受同一 hash slot 约束。Java 端还要关注连接池、超时、序列化、客户端重试及重复副作用。</p>
+<p><strong>锁失效后为什么还可能写坏数据？</strong> 假设 worker A 获得 30 秒租约后暂停，租约到期，worker B 获得新锁并完成写入；A 恢复后仍然可能继续访问数据库。比较随机 token 后删除只能防止 A 误删 B 的锁，无法阻止 A 的过期业务写入。</p>
+<p>Fencing token 的思路是每次获得执行资格时取得单调递增序号，底层资源记录已接受的序号，并在原子写入时拒绝较旧序号。只有下游真正执行了这个检查，它才有效；单纯在日志或 HTTP 头里附加一个数字没有保护作用。序号生成本身也需具备所需的单调与故障语义，不能把任意 Redis 计数器在故障切换后都视为可靠的 fencing 服务。</p>
+<p>对订单等关键业务，唯一约束、条件更新和业务幂等通常应直接落在最终数据存储中。Redis 锁可以减少并发争用，却不应成为账本正确性的唯一依据。</p>
+<p><a id="meituan-agent-20261012-18fa4134-q25"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%BE%8E%E5%9B%A2%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1197">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8e10472f11a7"></a></p>
+<span class="heading-anchor" id="Redis对于大量的请求，是怎样处理的？"></span><h2 id="redis_11">Redis对于大量的请求，是怎样处理的？</h2>
+<p>1、Redis是一个单线程程序，也就说同一时刻它只能处理一个客户端请求；</p>
+<p>2、Redis是通过IO多路复用（select，epoll，kqueue，依据不同的平台，采取不同的实现）来处理多个客户端请求。</p>
+<p id="缓存雪崩缓存穿透缓存预热缓存更新缓存击穿缓存降级全搞定">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L532)，来源许可：Apache-2.0。</p>
+<p><a id="ke48cae84f5ea"></a></p>
+<span class="heading-anchor" id="Redis：如何解决Redis的并发竞争Key问题"></span><h2 id="redisrediskey">Redis：如何解决Redis的并发竞争Key问题</h2>
+<p>所谓 Redis 的并发竞争 Key 的问题也就是多个系统同时对一个 key 进行操作，但是最后执行的顺序和我们期望的顺序不同，这样也就导致了结果的不同！</p>
+<p>推荐一种方案：分布式锁（zookeeper 和 Redis 都可以实现分布式锁）。（如果不存在 Redis 的并发竞争 Key 问 题，不要使用分布式锁，这样会影响性能）</p>
+<p>基于zookeeper临时有序节点可以实现的分布式锁。大致思想为：每个客户端对某个方法加锁时，在zookeeper上的 与该方法对应的指定节点的目录下，生成一个唯一的瞬时有序节点。 </p>
+<p>判断是否获取锁的方式很简单，只需要判断有 序节点中序号最小的一个。 当释放锁的时候，只需将这个瞬时节点删除即可。</p>
+<p>同时，其可以避免服务宕机导致的锁 无法释放，而产生的死锁问题。完成业务流程后，删除对应的子节点释放锁。</p>
+<p>在实践中，当然是从以可靠性为主。所以首推Zookeeper。</p>
+<p id="如何保证缓存与数据库双写时的数据一致性">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L45)，来源许可：Apache-2.0。</p>
+<p><a id="k7fbe7c48d1e0"></a></p>
+<span class="heading-anchor" id="RedLock 算法"></span><h2 id="redlock">RedLock 算法</h2>
+<p>这个场景是假设有一个 Redis cluster，有 5 个 Redis master 实例。然后执行如下步骤获取一把锁：</p>
+<ol>
+<li>获取当前时间戳，单位是毫秒；</li>
+<li>跟上面类似，轮流尝试在每个 master 节点上创建锁，超时时间较短，一般就几十毫秒（客户端为了获取锁而使用的超时时间比自动释放锁的总时间要小。例如，如果自动释放时间是 10 秒，那么超时时间可能在 <code>5~50</code> 毫秒范围内）；</li>
+<li>尝试在<strong>大多数节点</strong>上建立一个锁，比如 5 个节点就要求是 3 个节点 <code>n / 2 + 1</code> ；</li>
+<li>客户端计算建立好锁的时间，如果建立锁的时间小于超时时间，就算建立成功了；</li>
+<li>要是锁建立失败了，那么就依次之前建立过的锁删除；</li>
+<li>只要别人建立了一把分布式锁，你就得<strong>不断轮询去尝试获取锁</strong>。</li>
+</ol>
+<p><img alt="redis-redlock" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/redis-redlock.png"/></p>
+<p><a href="https://redis.io/">Redis 官方</a>给出了以上两种基于 Redis 实现分布式锁的方法，详细说明可以查看：https://redis.io/topics/distlock 。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-lock-redis-vs-zookeeper.md#L52">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k6071c83965f9"></a></p>
+<span class="heading-anchor" id="String 的应用场景有哪些？"></span><h2 id="string">String 的应用场景有哪些？</h2>
+<p>String 是 Redis 中最简单同时也是最常用的一个数据类型。它是一种二进制安全的数据类型，可以用来存储任何类型的数据比如字符串、整数、浮点数、图片（图片的 base64 编码或者解码或者图片的路径）、序列化后的对象。</p>
+<p>String 的常见应用场景如下：</p>
+<ul>
+<li>常规数据（比如 Session、Token、序列化后的对象、图片的路径）的缓存；</li>
+<li>计数比如用户单位时间的请求数（简单限流可以用到）、页面单位时间的访问数；</li>
+<li>分布式锁（利用 <code>SETNX key value</code> 命令可以实现一个最简易的分布式锁）；</li>
+<li>……</li>
+</ul>
+<p>关于 String 的详细介绍请看这篇文章：<a href="https://javaguide.cn/database/redis/redis-data-structures-01.html">Redis 5 种基本数据类型详解</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L210">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2a17fc040817"></a></p>
+<span class="heading-anchor" id="String 的底层实现是什么？"></span><h2 id="string_1">String 的底层实现是什么？</h2>
+<p>Redis 是基于 C 语言编写的，但 Redis 的 String 类型的底层实现并不是 C 语言中的字符串（即以空字符 <code>\0</code> 结尾的字符数组），而是自己编写了 <a href="https://github.com/antirez/sds">SDS</a>（Simple Dynamic String，简单动态字符串）来作为底层实现。</p>
+<p>SDS 最早是 Redis 作者为日常 C 语言开发而设计的 C 字符串，后来被应用到了 Redis 上，并经过了大量的修改完善以适合高性能操作。</p>
+<p>Redis7.0 的 SDS 的部分源码如下（<a href="https://github.com/redis/redis/blob/7.0/src/sds.h">https://github.com/redis/redis/blob/7.0/src/sds.h</a>）：</p>
+<pre><code class="language-c">/* Note: sdshdr5 is never used, we just access the flags byte directly.
+ * However is here to document the layout of type 5 SDS strings. */
+struct __attribute__ ((__packed__)) sdshdr5 {
+    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr8 {
+    uint8_t len; /* used */
+    uint8_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr16 {
+    uint16_t len; /* used */
+    uint16_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr32 {
+    uint32_t len; /* used */
+    uint32_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr64 {
+    uint64_t len; /* used */
+    uint64_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+</code></pre>
+<p>通过源码可以看出，SDS 共有五种实现方式：SDS_TYPE_5（并未用到）、SDS_TYPE_8、SDS_TYPE_16、SDS_TYPE_32、SDS_TYPE_64，其中只有后四种实际用到。Redis 会根据初始化的长度决定使用哪种类型，从而减少内存的使用。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>字节</th>
+<th>位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sdshdr5</td>
+<td>&lt; 1</td>
+<td>&lt;8</td>
+</tr>
+<tr>
+<td>sdshdr8</td>
+<td>1</td>
+<td>8</td>
+</tr>
+<tr>
+<td>sdshdr16</td>
+<td>2</td>
+<td>16</td>
+</tr>
+<tr>
+<td>sdshdr32</td>
+<td>4</td>
+<td>32</td>
+</tr>
+<tr>
+<td>sdshdr64</td>
+<td>8</td>
+<td>64</td>
+</tr>
+</tbody>
+</table></div>
+<p>对于后四种实现都包含了下面这 4 个属性：</p>
+<ul>
+<li><code>len</code>：字符串的长度也就是已经使用的字节数。</li>
+<li><code>alloc</code>：总共可用的字符空间大小，alloc-len 就是 SDS 剩余的空间大小。</li>
+<li><code>buf[]</code>：实际存储字符串的数组。</li>
+<li><code>flags</code>：低三位保存类型标志。</li>
+</ul>
+<p>SDS 相比于 C 语言中的字符串有如下提升：</p>
+<ol>
+<li><strong>可以避免缓冲区溢出</strong>：C 语言中的字符串被修改（比如拼接）时，一旦没有分配足够长度的内存空间，就会造成缓冲区溢出。SDS 被修改时，会先根据 len 属性检查空间大小是否满足要求，如果不满足，则先扩展至所需大小再进行修改操作。</li>
+<li><strong>获取字符串长度的复杂度较低</strong>：C 语言中的字符串的长度通常是经过遍历计数来实现的，时间复杂度为 O(n)。SDS 的长度获取直接读取 len 属性即可，时间复杂度为 O(1)。</li>
+<li><strong>减少内存分配次数</strong>：为了避免修改（增加/减少）字符串时，每次都需要重新分配内存（C 语言的字符串是这样的），SDS 实现了空间预分配和惰性空间释放两种优化策略。当 SDS 需要增加字符串时，Redis 会为 SDS 分配好内存，并且根据特定的算法分配多余的内存，这样可以减少连续执行字符串增长操作所需的内存重分配次数。当 SDS 需要减少字符串时，这部分内存不会立即被回收，会被记录下来，等待后续使用（支持手动释放，有对应的 API）。</li>
+<li><strong>二进制安全</strong>：C 语言中的字符串以空字符 <code>\0</code> 作为字符串结束的标识，这存在一些问题，像一些二进制文件（比如图片、视频、音频）就可能包括空字符，C 字符串无法正确保存。SDS 使用 len 属性判断字符串是否结束，不存在这个问题。</li>
+</ol>
+<p>🤐 多提一嘴，很多文章里 SDS 的定义是下面这样的：</p>
+<pre><code class="language-c">struct sdshdr {
+    unsigned int len;
+    unsigned int free;
+    char buf[];
+};
+</code></pre>
+<p>这个也没错，Redis 3.2 之前就是这样定义的。后来，由于这种方式的定义存在问题，<code>len</code> 和 <code>free</code> 的定义用了 4 个字节，造成了浪费。Redis 3.2 之后，Redis 改进了 SDS 的定义，将其划分为了现在的 5 种类型。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L237">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k97fc75c252b0"></a></p>
+<span class="heading-anchor" id="为啥 Redis 单线程模型也能效率这么高？"></span><h2 id="redis_12">为啥 Redis 单线程模型也能效率这么高？</h2>
+<ul>
+<li>纯内存操作。</li>
+<li>核心是基于非阻塞的 IO 多路复用机制。</li>
+<li>C 语言实现，一般来说，C 语言实现的程序“距离”操作系统更近，执行速度相对会更快。</li>
+<li>单线程反而避免了多线程的频繁上下文切换问题，预防了多线程可能产生的竞争问题。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/redis-single-thread-model.md#L58">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k000fa7df1453"></a></p>
+<span class="heading-anchor" id="了解Redis的线程模型吗？可以大致说说吗？"></span><h2 id="redis_13">了解Redis的线程模型吗？可以大致说说吗？</h2>
+<p>如果你打开看过 Redis 的源码就会发现Redis 内部使用文件事件处理器 file event handler，这个文件事件处理器是单线程的，所以 Redis 才叫做单线程的模型。</p>
+<p>它采用 IO 多路复用机制同时监听多个 socket，根据 socket 上的事件来选择对应的事件处理器进行处理。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.assets/202205220024968.png"/></p>
+<p>文件事件处理器的结构包含 4 个部分：</p>
+<ul>
+<li>多个 socket</li>
+<li>IO多路复用程序</li>
+<li>文件事件分派器</li>
+<li>事件处理器（连接应答处理器、命令请求处理器、命令回复处理器）</li>
+</ul>
+<p>使用 I/O 多路复用程序来同时监听多个套接字， 并根据套接字目前执行的任务来为套接字关联不同的事件处理器。</p>
+<p>当被监听的套接字准备好执行连接应答（accept）、读取（read）、写入（write）、关闭（close）等操作时， 与操作相对应的文件事件就会产生， 这时文件事件处理器就会调用套接字之前关联好的事件处理器来处理这些事件。</p>
+<p>多个 socket 可能会并发产生不同的操作，每个操作对应不同的文件事件，但是 IO 多路复用程序会监听多个 socket，会将 socket 产生的事件放入队列中排队，事件分派器每次从队列中取出一个事件，把该事件交给对应的事件处理器进行处理。</p>
+<p><strong>一句话总结</strong>：“I/O 多路复用程序负责监听多个套接字， 并向文件事件分派器传送那些产生了事件的套接字。”</p>
+<p id="设置过期时间的两种方案是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L433)，来源许可：Apache-2.0。</p>
+<p><a id="k5a50fe6aed80"></a></p>
+<span class="heading-anchor" id="什么是 Redis Module？有什么用？"></span><h2 id="redis-module">什么是 Redis Module？有什么用？</h2>
+<p>Redis 从 4.0 版本开始，支持通过 Module 来扩展其功能以满足特殊的需求。这些 Module 以动态链接库（so 文件）的形式被加载到 Redis 中，这是一种非常灵活的动态扩展功能的实现方式，值得借鉴学习！</p>
+<p>我们每个人都可以基于 Redis 去定制化开发自己的 Module，比如实现搜索引擎功能、自定义分布式锁和分布式限流。</p>
+<p>目前，被 Redis 官方推荐的 Module 有：</p>
+<ul>
+<li><a href="https://github.com/RediSearch/RediSearch">RediSearch</a>：用于实现搜索引擎的模块。</li>
+<li><a href="https://github.com/RedisJSON/RedisJSON">RedisJSON</a>：用于处理 JSON 数据的模块。</li>
+<li><a href="https://github.com/RedisGraph/RedisGraph">RedisGraph</a>：用于实现图形数据库的模块。</li>
+<li><a href="https://github.com/RedisTimeSeries/RedisTimeSeries">RedisTimeSeries</a>：用于处理时间序列数据的模块。</li>
+<li><a href="https://github.com/RedisBloom/RedisBloom">RedisBloom</a>：用于实现布隆过滤器的模块。</li>
+<li><a href="https://github.com/RedisAI/RedisAI">RedisAI</a>：用于执行深度学习/机器学习模型并管理其数据的模块。</li>
+<li><a href="https://github.com/brandur/redis-cell">RedisCell</a>：用于实现分布式限流的模块。</li>
+<li>……</li>
+</ul>
+<p>关于 Redis 模块的详细介绍，可以查看官方文档：<a href="https://redis.io/modules">https://redis.io/modules</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L129">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k98d0ba491b46"></a></p>
+<span class="heading-anchor" id="什么是 Redis？"></span><h2 id="redis_14">什么是 Redis？</h2>
+<p><a href="https://redis.io/">Redis</a> （<strong>RE</strong>mote <strong>DI</strong>ctionary <strong>S</strong>erver）是一个基于 C 语言开发的开源 NoSQL 数据库（BSD 许可）。与传统数据库不同的是，Redis 的数据是保存在内存中的（内存数据库，支持持久化），因此读写速度非常快，被广泛应用于分布式缓存方向。并且，Redis 存储的是 KV 键值对数据。</p>
+<p>为了满足不同的业务场景，Redis 内置了多种数据类型实现（比如 String、Hash、Sorted Set、Bitmap、HyperLogLog、GEO）。并且，Redis 还支持事务、持久化、Lua 脚本、发布订阅模型、多种开箱即用的集群方案（Redis Sentinel、Redis Cluster）。</p>
+<p><img alt="Redis 数据类型概览" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis-overview-of-data-types-2023-09-28.jpg"/></p>
+<p>Redis 没有外部依赖，Linux 和 OS X 是 Redis 开发和测试最多的两个操作系统，官方推荐生产环境使用 Linux 部署 Redis。</p>
+<p>个人学习的话，你可以自己本机安装 Redis 或者通过 Redis 官网提供的<a href="https://try.redis.io/">在线 Redis 环境</a>（少部分命令无法使用）来实际体验 Redis。</p>
+<p><img alt="try-redis" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/try.redis.io.png"/></p>
+<p>全世界有非常多的网站使用到了 Redis，<a href="https://techstacks.io/">techstacks.io</a> 专门维护了一个<a href="https://techstacks.io/tech/redis">使用 Redis 的热门站点列表</a>，感兴趣的话可以看看。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L15">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k017163c7cf29"></a></p>
+<span class="heading-anchor" id="使用 Redis 实现一个排行榜怎么做？"></span><h2 id="redis_15">使用 Redis 实现一个排行榜怎么做？</h2>
+<p>Redis 中有一个叫做 <code>Sorted Set</code>（有序集合）的数据类型经常被用在各种排行榜的场景，比如直播间送礼物的排行榜、朋友圈的微信步数排行榜、王者荣耀中的段位排行榜、话题热度排行榜等等。</p>
+<p>相关的一些 Redis 命令：<code>ZRANGE</code>（从小到大排序）、<code>ZREVRANGE</code>（从大到小排序）、<code>ZREVRANK</code>（指定元素排名）。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/2021060714195385.png"/></p>
+<p><a href="https://javaguide.cn/zhuanlan/java-mian-shi-zhi-bei.html">《Java 面试指北》</a> 的「技术面试题篇」就有一篇文章详细介绍如何使用 Sorted Set 来设计制作一个排行榜，感兴趣的小伙伴可以看看。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/image-20220719071115140.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L333">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka05ebbba38a6"></a></p>
+<span class="heading-anchor" id="使用Redis的好处有哪些？"></span><h2 id="redis_16">使用Redis的好处有哪些？</h2>
+<p>1、访问速度快，因为数据存在内存中，类似于Java中的HashMap或者C++中的哈希表（如unordered_map/unordered_set），这两者的优势就是查找和操作的时间复杂度都是O(1)</p>
+<p>2、数据类型丰富，支持String，list，set，sorted set，hash这五种数据结构</p>
+<p>3、支持事务，Redis中的操作都是原子性，换句话说就是对数据的更改要么全部执行，要么全部不执行，这就是原子性的定义</p>
+<p>4、特性丰富：Redis可用于缓存，消息，按key设置过期时间，过期后将会自动删除。</p>
+<p id="与的区别都有哪些">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L348)，来源许可：Apache-2.0。</p>
+<p><a id="kfce330267b77"></a></p>
+<span class="heading-anchor" id="压缩列表"></span><h2 id="_1_26">压缩列表</h2>
+<blockquote>
+<p>压缩列表(ziplist)是列表键和哈希键的底层实现之一。当一个列表键只包含少量列表项，并且每个列表项要么就是小整数值，要么就是长度比较短的字符串，那么Redis就会使用压缩列表来做列表键的底层实现。</p>
+</blockquote>
+<p><strong>特性</strong></p>
+<p>看他的名字就能看出来，是为了节省内存造的列表结构。</p>
+<p id="常见数据结构以及使用场景分别是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L256)，来源许可：Apache-2.0。</p>
+<p><a id="k3b9b8be9cf20"></a></p>
+<span class="heading-anchor" id="听说过Redis吗？它是什么？"></span><h2 id="redis_17">听说过Redis吗？它是什么？</h2>
+<p>Redis是一个<strong>数据库</strong>，不过与传统数据库不同的是Redis的数据库是存在<strong>内存</strong>中，所以<strong>读写速度非常快</strong>，因此 Redis被广泛应用于<strong>缓存</strong>方向。</p>
+<p>除此之外，Redis也经常用来做分布式锁，Redis提供了多种数据类型来支持不同的业务场景。除此之外，Redis 支持事务持久化、LUA脚本、LRU驱动事件、多种集群方案。</p>
+<p id="五种数据结构整理">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L47)，来源许可：Apache-2.0。</p>
+<p><a id="k81d2259d4fa6"></a></p>
+<span class="heading-anchor" id="如何使用 Redis 事务？"></span><h2 id="redis_18">如何使用 Redis 事务？</h2>
+<p>Redis 可以通过 <strong><code>MULTI</code>、<code>EXEC</code>、<code>DISCARD</code> 和 <code>WATCH</code></strong> 等命令来实现事务（Transaction）功能。</p>
+<pre><code class="language-bash">&gt; MULTI
+OK
+&gt; SET PROJECT "JavaGuide"
+QUEUED
+&gt; GET PROJECT
+QUEUED
+&gt; EXEC
+1) OK
+2) "JavaGuide"
+</code></pre>
+<p><a href="https://redis.io/commands/multi"><code>MULTI</code></a> 命令后可以输入多个命令，Redis 不会立即执行这些命令，而是将它们放到队列，当调用了 <a href="https://redis.io/commands/exec"><code>EXEC</code></a> 命令后，再执行所有的命令。</p>
+<p>这个过程是这样的：</p>
+<ol>
+<li>开始事务（<code>MULTI</code>）；</li>
+<li>命令入队（批量操作 Redis 的命令，先进先出（FIFO）的顺序执行）；</li>
+<li>执行事务（<code>EXEC</code>）。</li>
+</ol>
+<p>你也可以通过 <a href="https://redis.io/commands/discard"><code>DISCARD</code></a> 命令取消一个事务，它会清空事务队列中保存的所有命令。</p>
+<pre><code class="language-bash">&gt; MULTI
+OK
+&gt; SET PROJECT "JavaGuide"
+QUEUED
+&gt; GET PROJECT
+QUEUED
+&gt; DISCARD
+OK
+</code></pre>
+<p>你可以通过<a href="https://redis.io/commands/watch"><code>WATCH</code></a> 命令监听指定的 Key，当调用 <code>EXEC</code> 命令执行事务时，如果一个被 <code>WATCH</code> 命令监视的 Key 被 <strong>其他客户端/Session</strong> 修改的话，整个事务都不会被执行。</p>
+<pre><code class="language-bash"># 客户端 1
+&gt; SET PROJECT "RustGuide"
+OK
+&gt; WATCH PROJECT
+OK
+&gt; MULTI
+OK
+&gt; SET PROJECT "JavaGuide"
+QUEUED
+
+# 客户端 2
+# 在客户端 1 执行 EXEC 命令提交事务之前修改 PROJECT 的值
+&gt; SET PROJECT "GoGuide"
+
+# 客户端 1
+# 修改失败，因为 PROJECT 的值被客户端2修改了
+&gt; EXEC
+(nil)
+&gt; GET PROJECT
+"GoGuide"
+</code></pre>
+<p>不过，如果 <strong>WATCH</strong> 与 <strong>事务</strong> 在同一个 Session 里，并且被 <strong>WATCH</strong> 监视的 Key 被修改的操作发生在事务内部，这个事务是可以被执行成功的（相关 issue：<a href="https://github.com/Snailclimb/JavaGuide/issues/1714">WATCH 命令碰到 MULTI 命令时的不同效果</a>）。</p>
+<p>事务内部修改 WATCH 监视的 Key：</p>
+<pre><code class="language-bash">&gt; SET PROJECT "JavaGuide"
+OK
+&gt; WATCH PROJECT
+OK
+&gt; MULTI
+OK
+&gt; SET PROJECT "JavaGuide1"
+QUEUED
+&gt; SET PROJECT "JavaGuide2"
+QUEUED
+&gt; SET PROJECT "JavaGuide3"
+QUEUED
+&gt; EXEC
+1) OK
+2) OK
+3) OK
+127.0.0.1:6379&gt; GET PROJECT
+"JavaGuide3"
+</code></pre>
+<p>事务外部修改 WATCH 监视的 Key：</p>
+<pre><code class="language-bash">&gt; SET PROJECT "JavaGuide"
+OK
+&gt; WATCH PROJECT
+OK
+&gt; SET PROJECT "JavaGuide2"
+OK
+&gt; MULTI
+OK
+&gt; GET USER
+QUEUED
+&gt; EXEC
+(nil)
+</code></pre>
+<p>Redis 官网相关介绍 <a href="https://redis.io/topics/transactions">https://redis.io/topics/transactions</a> 如下：</p>
+<p><img alt="Redis 事务" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis-transactions.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-02.md#L27">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kfcd476a3f64c"></a></p>
+<span class="heading-anchor" id="如何基于 Redis 实现延时任务？"></span><h2 id="redis_19">如何基于 Redis 实现延时任务？</h2>
+<blockquote>
+<p>类似的问题：</p>
+<ul>
+<li>订单在 10 分钟后未支付就失效，如何用 Redis 实现？</li>
+<li>红包 24 小时未被查收自动退还，如何用 Redis 实现？</li>
+</ul>
+</blockquote>
+<p>基于 Redis 实现延时任务的功能无非就下面两种方案：</p>
+<ol>
+<li>Redis 过期事件监听。</li>
+<li>Redisson 内置的延时队列。</li>
+</ol>
+<p>Redis 过期事件监听存在时效性较差、丢消息、多服务实例下消息重复消费等问题，不被推荐使用。</p>
+<p>Redisson 内置的延时队列具备下面这些优势：</p>
+<ol>
+<li><strong>减少了丢消息的可能</strong>：DelayedQueue 中的消息会被持久化，即使 Redis 宕机了，根据持久化机制，也只可能丢失一点消息，影响不大。当然了，你也可以使用扫描数据库的方法作为补偿机制。</li>
+<li><strong>消息不存在重复消费问题</strong>：每个客户端都是从同一个目标队列中获取任务的，不存在重复消费的问题。</li>
+</ol>
+<p>关于 Redis 实现延时任务的详细介绍，可以看我写的这篇文章：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-delayed-task.md">如何基于 Redis 实现延时任务？</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L173">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kc49439d54afb"></a></p>
+<span class="heading-anchor" id="如何控制定期删除的执行频率？"></span><h2 id="_1_29">如何控制定期删除的执行频率？</h2>
+<p>在 Redis 中，定期删除的频率是由 <strong>hz</strong> 参数控制的。hz 默认为 10，代表每秒执行 10 次，也就是每秒钟进行 10 次尝试来查找并删除过期的 key。</p>
+<p>hz 的取值范围为 1~500。增大 hz 参数的值会提升定期删除的频率。如果你想要更频繁地执行定期删除任务，可以适当增加 hz 的值，但这会增加 CPU 的使用率。根据 Redis 官方建议，hz 的值不建议超过 100，对于大部分用户使用默认的 10 就足够了。</p>
+<p>下面是 hz 参数的官方注释，我翻译了其中的重要信息（Redis 7.2 版本）。</p>
+<p><img alt="redis.conf 对于 hz 的注释" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis.conf-hz.png"/></p>
+<p>类似的参数还有一个 <strong>dynamic-hz</strong>，这个参数开启之后 Redis 就会在 hz 的基础上动态计算一个值。Redis 提供并默认启用了使用自适应 hz 值的能力，</p>
+<p>这两个参数都在 Redis 配置文件 <code>redis.conf</code> 中：</p>
+<pre><code class="language-properties"># 默认为 10
+hz 10
+# 默认开启
+dynamic-hz yes
+</code></pre>
+<p>多提一嘴，除了定期删除过期 key 这个定期任务之外，还有一些其他定期任务例如关闭超时的客户端连接、更新统计信息，这些定期任务的执行频率也是通过 hz 参数决定。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L677">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k6eb6bf9f02cb"></a></p>
+<span class="heading-anchor" id="定期和惰性一定能保证删除数据吗？如果不能，Redis会有什么应对措施？"></span><h2 id="redis_20">定期和惰性一定能保证删除数据吗？如果不能，Redis会有什么应对措施？</h2>
+<p>并不能保证一定删除，Redsi有一个Redis 内存淘汰机制来确保数据一定会被删除。</p>
+<p>首先介一下定期删除和惰性删除的工作流程：</p>
+<p>1、定期删除，Redis默认每个100ms检查，是否有过期的key,有过期key则删除。需要说明的是，Redis不是每个100ms将所有的key检查一次，而是随机抽取进行检查(如果每隔100ms,全部key进行检查，Redis岂不是卡死)。因此，如果只采用定期删除策略，会导致很多key到时间没有删除。</p>
+<p>2、于是，惰性删除派上用场。也就是说在你获取某个key的时候，Redis会检查一下，这个key如果设置了过期时间那么是否过期了？如果过期了此时就会删除。</p>
+<p>3、采用定期删除+惰性删除就没其他问题了么?
+不是的，如果定期删除没删除key。然后你也没即时去请求key，也就是说惰性删除也没生效。这样，Redis</p>
+<p>4、内存会越来越高。那么就应该采用内存淘汰机制。</p>
+<p>在Redis.conf中有一行配置:maxmemory-policy volatile-lru</p>
+<p>该配置就是配内存淘汰策略的，主要有以下六种方案：</p>
+<p>1、<strong>volatile-lru</strong>：从已设置过期时间的数据集（server.db[i].expires）中挑选最近最少使用的数据淘汰</p>
+<p>2、<strong>volatile-ttl</strong>：从已设置过期时间的数据集（server.db[i].expires）中挑选将要过期的数据淘汰</p>
+<p>3、<strong>volatile-random</strong>：从已设置过期时间的数据集（server.db[i].expires）中任意选择数据淘汰</p>
+<p>4、<strong>allkeys-lru</strong>：从数据集（server.db[i].dict）中挑选最近最少使用的数据淘汰</p>
+<p>5、<strong>allkeys-random</strong>：从数据集（server.db[i].dict）中任意选择数据淘汰</p>
+<p>6、<strong>no-enviction</strong>（驱逐）：禁止驱逐数据，新写入操作会报错</p>
+<p>ps：如果没有设置 expire 的key, 不满足先决条件(prerequisites); 那么 volatile-lru, volatile-random 和 volatile-ttl 策略的行为, 和 noeviction(不删除) 基本上一致。</p>
+<p id="对于大量的请求是怎样处理的">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L494)，来源许可：Apache-2.0。</p>
+<p><a id="k361a1b481400"></a></p>
+<span class="heading-anchor" id="常见的数据优化方案你了解吗？"></span><h2 id="_1_30">常见的数据优化方案你了解吗？</h2>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.assets/202205220023822.png"/></p>
+<p><strong>一、缓存双淘汰法</strong></p>
+<ol>
+<li>先淘汰缓存</li>
+<li>再写数据库</li>
+<li>往消息总线esb发送一个淘汰消息，发送立即返回。写请求的处理时间几乎没有增加，这个方法淘汰了缓存两次。因此被称为“缓存双淘汰法“，而在消息总线下游，有一个异步淘汰缓存的消费者，在拿到淘汰消息在1s后淘汰缓存，这样，即使在一秒内有脏数据入缓存，也能够被淘汰掉。</li>
+</ol>
+<p><strong>二、异步淘汰缓存</strong></p>
+<p>上述的步骤，都是在业务线里面执行，新增一个线下的读取binlog异步淘汰缓存模块，读取binlog总的数据，然后进行异步淘汰。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.assets/202205220023992.png"/></p>
+<p>这里简单提供一个思路</p>
+<p>1.思路：</p>
+<p>MySQL binlog增量发布订阅消费+消息队列+增量数据更新到Redis</p>
+<p>1）读请求走Redis：热数据基本都在Redis</p>
+<p>2）写请求走MySQL: 增删改都操作MySQL</p>
+<p>3）更新Redis数据：MySQ的数据操作binlog，来更新到Redis</p>
+<p>2.Redis更新</p>
+<p>1）数据操作主要分为两块：</p>
+<ul>
+<li>一个是全量(将全部数据一次写入到Redis)</li>
+<li>一个是增量（实时更新）</li>
+</ul>
+<p>这里说的是增量,指的是mysql的update、insert、delate变更数据。这样一旦MySQL中产生了新的写入、更新、删除等操作，就可以把binlog相关的消息推送至Redis，Redis再根据binlog中的记录，对Redis进行更新，就无需在从业务线去操作缓存内容。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L134">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka6021167e51d"></a></p>
+<span class="heading-anchor" id="数据为什么会出现不一致的情况？"></span><h2 id="_1_31">数据为什么会出现不一致的情况？</h2>
+<p>这样的问题主要是在并发读写访问的时候，缓存和数据相互交叉执行。</p>
+<span class="heading-anchor" id="一、单库情况下"></span><h3 id="_2_4"><strong>一、单库情况下</strong></h3>
+<p>同一时刻发生了并发读写请求，<strong>例如为A(写) B (读)2个请求</strong></p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.assets/202205220023694.png"/></p>
+<ol>
+<li>
+<p>A请求发送一个写操作到服务端，第一步会淘汰cache，然后因为各种原因卡主了，不在执行后面业务(例：大量的业务操作、调用其他服务处理消耗了1s）。</p>
+</li>
+<li>
+<p>B请求发送一个读操作，读cache，因为cache淘汰，所以为空</p>
+</li>
+<li>
+<p>B请求继续读DB，读出一个脏数据，并写入cache</p>
+</li>
+<li>
+<p>A请求终于执行完全，在写入数据到DB</p>
+</li>
+</ol>
+<p>总结：因最后才把写操作数据入DB，并没同步。cache里面一直保持脏数据</p>
+<p>脏数据是指源系统中的数据不在给定的范围内或对于实际业务毫无意义，或是数据格式非法，以及在源系统中存在不规范的编码和含糊的业务逻辑。</p>
+<span class="heading-anchor" id="二、主从同步，读写分离的情况下，读从库而产生脏数据"></span><h3 id="_3_1"><strong>二、主从同步，读写分离的情况下，读从库而产生脏数据</strong></h3>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.assets/202205220023284.png"/></p>
+<ol>
+<li>
+<p>A请求发送一个写操作到服务端，第一步会淘汰cache</p>
+</li>
+<li>
+<p>A请求写主数据库，写了最新的数据。</p>
+</li>
+<li>
+<p>B请求发送一个读操作，读cache，因为cache淘汰，所以为空</p>
+</li>
+<li>
+<p>B请求继续读DB，读的是从库，此时主从同步还没同步成功。读出脏数据，然后脏数据入cache</p>
+</li>
+<li>
+<p>最后数据库主从同步完成</p>
+</li>
+</ol>
+<p>总结：这种情况下请求A和请求B操作时序没问题，是主从同步的时延问题(假设1s)，导致读请求读取从库读到脏数据导致的数据不一致</p>
+<p><strong>根本原因:</strong></p>
+<p>单库下，逻辑处理中消耗1s，可能读到旧数据入缓存</p>
+<p>主从+读写分离，在1s的主从同步时延中，到从库的旧数据入缓存</p>
+<p id="常见的数据优化方案你了解吗">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L84)，来源许可：Apache-2.0。</p>
+<p><a id="ka031dba3dbc3"></a></p>
+<span class="heading-anchor" id="既然是单线程，那怎么监听大量的客户端连接呢？"></span><h2 id="_1_32">既然是单线程，那怎么监听大量的客户端连接呢？</h2>
+<p>Redis 通过 <strong>IO 多路复用程序</strong> 来监听来自客户端的大量连接（或者说是监听多个 socket），它会将感兴趣的事件及类型（读、写）注册到内核中并监听每个事件是否发生。</p>
+<p>这样的好处非常明显：<strong>I/O 多路复用技术的使用让 Redis 不需要额外创建多余的线程来监听客户端的大量连接，降低了资源的消耗</strong>（和 NIO 中的 <code>Selector</code> 组件很像）。</p>
+<p>文件事件处理器（file event handler）主要是包含 4 个部分：</p>
+<ul>
+<li>多个 socket（客户端连接）</li>
+<li>IO 多路复用程序（支持多个客户端连接的关键）</li>
+<li>文件事件分派器（将 socket 关联到相应的事件处理器）</li>
+<li>事件处理器（连接应答处理器、命令请求处理器、命令回复处理器）</li>
+</ul>
+<p><img alt="文件事件处理器（file event handler）" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/redis/redis-event-handler.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L487">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2b66044221ce"></a></p>
+<span class="heading-anchor" id="有MySQL不就够用了吗？为什么要用Redis这种新的数据库？"></span><h2 id="mysqlredis">有MySQL不就够用了吗？为什么要用Redis这种新的数据库？</h2>
+<p>主要是因为 Redis 具备高性能和高并发两种特性。</p>
+<p>1、<strong>高性能</strong></p>
+<p>假如用户第一次访问数据库中的某些数据。这个过程会比较慢，因为是从硬盘上读取的。将该用户访问的数据存在缓存中，这样下一次再访问这些数据的时候就可以直接从缓存中获取了。</p>
+<p>操作缓存就是直接操作内存，所以速度相当快。如果数据库中的对应数据改变的之后，同步改变缓存中相应的数据即可！</p>
+<p>2、<strong>高并发</strong></p>
+<p>直接操作缓存能够承受的请求是远远大于直接访问数据库的，所以我们可以考虑把数据库中的部分数据转移到缓存中去，这样用户的一部分请求会直接到缓存这里而不用经过数据库。</p>
+<p id="也是一种缓存型数据结构为什么不用而选择做缓存">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L318)，来源许可：Apache-2.0。</p>
+<p><a id="k29afc2025b7f"></a></p>
+<span class="heading-anchor" id="每次随机抽查数量是多少？"></span><h2 id="_1_33">每次随机抽查数量是多少？</h2>
+<p><code>expire.c</code> 中定义了每次随机抽查的数量，Redis 7.2 版本为 20，也就是说每次会随机选择 20 个设置了过期时间的 key 判断是否过期。</p>
+<pre><code class="language-c">#define ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP 20 /* Keys for each DB loop. */
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L669">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd12ce1bca76f"></a></p>
+<span class="heading-anchor" id="生产环境中的 Redis 是怎么部署的？"></span><h2 id="redis_21">生产环境中的 Redis 是怎么部署的？</h2>
+<p>这个问题主要是想看看你了解不了解你们公司的 Redis 生产集群的部署架构。</p>
+<p>如果你不了解，那么确实你就很失职了，你的 Redis 是主从架构？集群架构？用了哪种集群方案？有没有做高可用保证？有没有开启持久化机制确保可以进行数据恢复？线上 Redis 给几个 G 的内存？设置了哪些参数？压测后你们 Redis 集群承载多少 QPS？</p>
+<p>Redis cluster，10 台机器，5 台机器部署了 Redis 主实例，另外 5 台机器部署了 Redis 的从实例，每个主实例挂了一个从实例，5 个节点对外提供读写服务，每个节点的读写高峰 QPS 可能可以达到每秒 5 万，5 台机器最多是 25 万读写请求每秒。</p>
+<p>机器是什么配置？32G 内存+ 8 核 CPU + 1T 磁盘，但是分配给 Redis 进程的是 10g 内存，一般线上生产环境，Redis 的内存尽量不要超过 10g，超过 10g 可能会有问题。</p>
+<p>5 台机器对外提供读写，一共有 50g 内存。</p>
+<p>因为每个主实例都挂了一个从实例，所以是高可用的，任何一个主实例宕机，都会自动故障迁移，Redis 从实例会自动变成主实例继续提供读写服务。</p>
+<p>你往内存里写的是什么数据？每条数据的大小是多少？商品数据，每条数据是 10kb。100 条数据是 1mb，10 万条数据是 1g。常驻内存的是 200 万条商品数据，占用内存是 20g，仅仅不到总内存的 50%。目前高峰期每秒就是 3500 左右的请求量。</p>
+<p>其实大型的公司，会有基础架构的 team 负责缓存集群的运维。</p>
+<p id="reference"> 
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-02-Redis.md#L724)，来源许可：Apache-2.0。</p>
+<p><a id="ka257b10b4b01"></a></p>
+<span class="heading-anchor" id="简单动态字符串(Simple Dynamic String，SDS)"></span><h2 id="simple-dynamic-stringsds">简单动态字符串(Simple Dynamic String，SDS)</h2>
+<p>Redis没有直接使用C语言传统的字符串，而是自己构建了一种名为简单动态字符串（Simple dynamic string，SDS）的抽象类型，并将SDS用作Redis的默认字符串表示。</p>
+<p>其实SDS等同于C语言中的char * ，但它可以存储任意二进制数据，不能像C语言字符串那样以字符’\0’来标识字符串的结 束，因此它必然有个长度字段。</p>
+<p><strong>定义</strong></p>
+<pre><code class="language-c">struct sdshdr {
+    // 记录buf数组中已使用字节的数量
+    // 等于sds所保存字符串的长度
+    int len;
+
+    // 记录buf数组中未使用字节的数量
+    int free;
+
+    // 字节数组，用于保存字符串
+    char buf[];
+}
+</code></pre>
+<p><strong>优点</strong></p>
+<ul>
+<li>获取字符串长度的复杂度为O(1)。</li>
+<li>杜绝缓冲区溢出。</li>
+<li>减少修改字符串长度时所需要的内存重分配次数。</li>
+<li>二进制安全。</li>
+<li>兼容部分C字符串函数。</li>
+</ul>
+<p>它具有很常规的 set/get 操作，value 可以是String也可以是数字，一般做一些复杂的计数功能的缓存。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-02-01-Redis.md#L58">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd42dbbdb515b"></a></p>
+<span class="heading-anchor" id="说一下 Redis 和 Memcached 的区别和共同点"></span><h2 id="redis-memcached_2">说一下 Redis 和 Memcached 的区别和共同点</h2>
+<p>现在公司一般都是用 Redis 来实现缓存，而且 Redis 自身也越来越强大了！不过，了解 Redis 和 Memcached 的区别和共同点，有助于我们在做相应的技术选型的时候，能够做到有理有据！</p>
+<p><strong>共同点</strong>：</p>
+<ol>
+<li>都是基于内存的数据库，一般都用来当做缓存使用。</li>
+<li>都有过期策略。</li>
+<li>两者的性能都非常高。</li>
+</ol>
+<p><strong>区别</strong>：</p>
+<ol>
+<li><strong>数据类型</strong>：Redis 支持更丰富的数据类型（支持更复杂的应用场景）。Redis 不仅仅支持简单的 k/v 类型的数据，同时还提供 list、set、zset、hash 等数据结构的存储；而 Memcached 只支持最简单的 k/v 数据类型。</li>
+<li><strong>数据持久化</strong>：Redis 支持数据的持久化，可以将内存中的数据保持在磁盘中，重启的时候可以再次加载进行使用；而 Memcached 把数据全部存在内存之中。也就是说，Redis 有灾难恢复机制，而 Memcached 没有。</li>
+<li><strong>集群模式支持</strong>：Memcached 没有原生的集群模式，需要依靠客户端来实现往集群中分片写入数据；而 Redis 自 3.0 版本起是原生支持集群模式的。</li>
+<li><strong>线程模型</strong>：Memcached 是多线程、非阻塞 IO 复用的网络模型；而 Redis 使用单线程的多路 IO 复用模型（Redis 6.0 针对网络数据的读写引入了多线程）。</li>
+<li><strong>特性支持</strong>：Redis 支持发布订阅模型、Lua 脚本、事务等功能，而 Memcached 不支持。并且，Redis 支持更多的编程语言。</li>
+<li><strong>过期数据删除</strong>：Memcached 过期数据的删除策略只用了惰性删除，而 Redis 同时使用了惰性删除与定期删除。</li>
+</ol>
+<p>相信看了上面的对比之后，我们已经没有什么理由可以选择使用 Memcached 来作为自己项目的分布式缓存了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/redis/redis-questions-01.md#L74">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k459a9843286d"></a></p>
+<span class="heading-anchor" id="面试追问：为什么选择 MongoDB、PostgreSQL、Redis 这样的存储组合？各自保存什么数据？"></span><h2 id="mongodbpostgresqlredis">面试追问：为什么选择 MongoDB、PostgreSQL、Redis 这样的存储组合？各自保存什么数据？</h2>
+<p>这类组合是一种工程选择，不是 Agent 项目的标配。MongoDB 可保存灵活结构的会话事件与工具记录；PostgreSQL 适合事务业务、明确字段、版本约束，也可承载 pgvector 与全文检索；Redis 适合短期缓存、限流、临时会话和有明确恢复语义的协调数据。</p>
+<p>会话记录描述发生过什么，任务状态描述执行到哪里，记忆保存可复用信息，知识库保存外部业务证据，预约表保存权威业务结果。应明确每类数据的唯一权威写入点，避免同一事实在三个库里都可修改。</p>
+<p>缓存失效、跨库一致性、删除传播、备份与故障恢复会增加成本。早期系统可先使用 PostgreSQL 加必要缓存，只有查询模式、规模或组织能力支持时才拆库。Redis 中的临时确认与锁不能替代持久化预约事务或可靠的幂等记录。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L294">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-1939646360c6.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Redis与缓存</strong></a><a class="page-next" href="n-925610c601b4.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>持久化、复制与集群</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#lua">Lua 脚本</a></li><li class="outline-level-2"><a href="#memcachedredis">Memcached与Redis的区别都有哪些？</a></li><li class="outline-level-2"><a href="#pipeline">pipeline</a></li><li class="outline-level-2"><a href="#redis-replication">Redis replication 的核心机制</a></li><li class="outline-level-2"><a href="#redis_1">Redis 为什么是单线程的而不采用多线程方案？</a></li><li class="outline-level-2"><a href="#redis_2">Redis 为什么这么快？</a></li><li class="outline-level-2"><a href="#redis-redis">Redis 事务：如何解决 Redis 事务的缺陷？</a></li><li class="outline-level-2"><a href="#redis_3">Redis 使用规范</a></li><li class="outline-level-2"><a href="#redis_4">Redis 后台线程了解吗？</a></li><li class="outline-level-2"><a href="#redis-memcached">Redis 和 Memcached 有啥区别？</a></li><li class="outline-level-2"><a href="#redis-memcached_1">Redis 和 Memcached 的区别</a></li><li class="outline-level-2"><a href="#redis_6">Redis 如何才能做到高可用</a></li><li class="outline-level-2"><a href="#redis_7">redis 是单线程的吗，为什么这么快</a></li><li class="outline-level-2"><a href="#redis_8">Redis 生产部署方案：面试官心理分析</a></li><li class="outline-level-2"><a href="#redis-redlock">Redis 的 RedLock 锁</a></li><li class="outline-level-2"><a href="#redis-redis-cas">Redis 的并发竞争问题是什么？如何解决这个问题？了解 Redis 事务的 CAS 方案吗？</a></li><li class="outline-level-2"><a href="#redis_9">Redis 的并发竞争问题：面试官心理分析</a></li><li class="outline-level-2"><a href="#redis_10">Redis 采用的是那种删除策略呢？</a></li><li class="outline-level-2"><a href="#redis60">Redis6.0 之前为什么不使用多线程？</a></li><li class="outline-level-2"><a href="#redis60_1">Redis6.0 之后为何引入了多线程？</a></li><li class="outline-level-2"><a href="#redisjava">Redis在Java开发中的作用、适用场景，底层原理考量？</a></li><li class="outline-level-2"><a href="#redis_11">Redis对于大量的请求，是怎样处理的？</a></li><li class="outline-level-2"><a href="#redisrediskey">Redis：如何解决Redis的并发竞争Key问题</a></li><li class="outline-level-2"><a href="#redlock">RedLock 算法</a></li><li class="outline-level-2"><a href="#string">String 的应用场景有哪些？</a></li><li class="outline-level-2"><a href="#string_1">String 的底层实现是什么？</a></li><li class="outline-level-2"><a href="#redis_12">为啥 Redis 单线程模型也能效率这么高？</a></li><li class="outline-level-2"><a href="#redis_13">了解Redis的线程模型吗？可以大致说说吗？</a></li><li class="outline-level-2"><a href="#redis-module">什么是 Redis Module？有什么用？</a></li><li class="outline-level-2"><a href="#redis_14">什么是 Redis？</a></li><li class="outline-level-2"><a href="#redis_15">使用 Redis 实现一个排行榜怎么做？</a></li><li class="outline-level-2"><a href="#redis_16">使用Redis的好处有哪些？</a></li><li class="outline-level-2"><a href="#_1_26">压缩列表</a></li><li class="outline-level-2"><a href="#redis_17">听说过Redis吗？它是什么？</a></li><li class="outline-level-2"><a href="#redis_18">如何使用 Redis 事务？</a></li><li class="outline-level-2"><a href="#redis_19">如何基于 Redis 实现延时任务？</a></li><li class="outline-level-2"><a href="#_1_29">如何控制定期删除的执行频率？</a></li><li class="outline-level-2"><a href="#redis_20">定期和惰性一定能保证删除数据吗？如果不能，Redis会有什么应对措施？</a></li><li class="outline-level-2"><a href="#_1_30">常见的数据优化方案你了解吗？</a></li><li class="outline-level-2"><a href="#_1_31">数据为什么会出现不一致的情况？</a></li><li class="outline-level-2"><a href="#_1_32">既然是单线程，那怎么监听大量的客户端连接呢？</a></li><li class="outline-level-2"><a href="#mysqlredis">有MySQL不就够用了吗？为什么要用Redis这种新的数据库？</a></li><li class="outline-level-2"><a href="#_1_33">每次随机抽查数量是多少？</a></li><li class="outline-level-2"><a href="#redis_21">生产环境中的 Redis 是怎么部署的？</a></li><li class="outline-level-2"><a href="#simple-dynamic-stringsds">简单动态字符串(Simple Dynamic String，SDS)</a></li><li class="outline-level-2"><a href="#redis-memcached_2">说一下 Redis 和 Memcached 的区别和共同点</a></li><li class="outline-level-2"><a href="#mongodbpostgresqlredis">面试追问：为什么选择 MongoDB、PostgreSQL、Redis 这样的存储组合？各自保存什么数据？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

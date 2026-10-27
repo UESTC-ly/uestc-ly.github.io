@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>事务、锁与MVCC · 李杨的学习笔记</title><meta name="description" content="MongoDB 事务想要搞懂原理还是比较花费时间的，我自己也没有搞太明白。因此，我这里只是简单介绍一下 MongoDB 事务，想要了解原理的小伙伴，可以自行搜索查阅相关资料。">
+<meta property="og:type" content="website"><meta property="og:title" content="事务、锁与MVCC · 李杨的学习笔记"><meta property="og:description" content="MongoDB 事务想要搞懂原理还是比较花费时间的，我自己也没有搞太明白。因此，我这里只是简单介绍一下 MongoDB 事务，想要了解原理的小伙伴，可以自行搜索查阅相关资料。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-a72ad4495cae.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-a72ad4495cae.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html" aria-current="page">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">05-数据库与SQL</p><h1>事务、锁与MVCC</h1><p class="article-question-meta">36 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-a86b91355ce3">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/05-%E6%95%B0%E6%8D%AE%E5%BA%93%E4%B8%8ESQL/%E4%BA%8B%E5%8A%A1%E3%80%81%E9%94%81%E4%B8%8EMVCC.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#mongodb">MongoDB 事务</a></li><li class="outline-level-2"><a href="#mysql">MySQL 的事务隔离级别有哪些？如何保证一致性？</a></li><li class="outline-level-2"><a href="#mysql_1">MySQL 的隔离级别是基于锁实现的吗？</a></li><li class="outline-level-2"><a href="#mysql_2">MySQL 的默认隔离级别是什么?</a></li><li class="outline-level-2"><a href="#mysql_3">MySQL 都有哪些锁？它们的作用分别是什么？</a></li><li class="outline-level-2"><a href="#mysql_4">MySQL中为什么要有事务回滚机制？</a></li><li class="outline-level-2"><a href="#mysql-acid">MySQL的 ACID，分别解释一下</a></li><li class="outline-level-2"><a href="#_1_6">不可重复读和幻读区别是什么？可以举个例子吗？</a></li><li class="outline-level-2"><a href="#_1_7">不可重复读和幻读有什么区别？</a></li><li class="outline-level-2"><a href="#acidmvccagent">事务ACID、隔离级别和MVCC在Agent任务系统中有什么价值？</a></li><li class="outline-level-2"><a href="#acid">事务四大特性（ACID）原子性、一致性、隔离性、持久性？</a></li><li class="outline-level-2"><a href="#mvcc_1">什么是 MVCC？</a></li><li class="outline-level-2"><a href="#_1_11">什么是三级封锁协议？</a></li><li class="outline-level-2"><a href="#_1_12">什么是两段锁协议？</a></li><li class="outline-level-2"><a href="#_1_13">什么是数据库事务？</a></li><li class="outline-level-2"><a href="#mvcc_2">介绍 MVCC</a></li><li class="outline-level-2"><a href="#_1_15">何为事务？ 一言蔽之，事务是逻辑上的一组操作，要么都执行，要么都不执行。</a></li><li class="outline-level-2"><a href="#_1_16">共享锁和排他锁呢？</a></li><li class="outline-level-2"><a href="#_1_17">四种隔离级别的实现原理？</a></li><li class="outline-level-2"><a href="#mysql_5">在高并发写入场景下，MySQL 的间隙锁可能造成什么问题？</a></li><li class="outline-level-2"><a href="#_1_19">常见的封锁类型？</a></li><li class="outline-level-2"><a href="#_1_20">并发事务带来了哪些问题?</a></li><li class="outline-level-2"><a href="#_1_21">并发事务的控制方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_22">意向锁有什么作用？</a></li><li class="outline-level-2"><a href="#_1_23">数据库中的锁有了解过吗</a></li><li class="outline-level-2"><a href="#_1_24">数据库并发事务会带来哪些问题？</a></li><li class="outline-level-2"><a href="#_1_25">数据库悲观锁和乐观锁的原理和应用场景分别有什么？</a></li><li class="outline-level-2"><a href="#_1_26">数据库的四种隔离级别？</a></li><li class="outline-level-2"><a href="#_1_27">数据库隔离级别</a></li><li class="outline-level-2"><a href="#mvcc_3">是否支持 MVCC</a></li><li class="outline-level-2"><a href="#_1_29">是否支持行级锁</a></li><li class="outline-level-2"><a href="#_1_30">自增锁有了解吗？</a></li><li class="outline-level-2"><a href="#_1_31">行级锁的使用有什么注意事项？</a></li><li class="outline-level-2"><a href="#mvcc-readview">详细说说 MVCC 的实现，ReadView 的生成时机是怎样的？</a></li><li class="outline-level-2"><a href="#_1_33">说一下数据库表锁和行锁吧</a></li><li class="outline-level-2"><a href="#_1_34">那数据库事务有什么作用呢？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kff197a27c31d"></a></p>
+<span class="heading-anchor" id="MongoDB 事务"></span><h2 id="mongodb">MongoDB 事务</h2>
+<blockquote>
+<p>MongoDB 事务想要搞懂原理还是比较花费时间的，我自己也没有搞太明白。因此，我这里只是简单介绍一下 MongoDB 事务，想要了解原理的小伙伴，可以自行搜索查阅相关资料。</p>
+<p>这里推荐几篇文章，供大家参考：</p>
+<ul>
+<li><a href="https://mongoing.com/archives/82187">技术干货| MongoDB 事务原理</a></li>
+<li><a href="https://developer.aliyun.com/article/782494">MongoDB 一致性模型设计与实现</a></li>
+<li><a href="https://www.mongodb.com/docs/upcoming/core/transactions/">MongoDB 官方文档对事务的介绍</a></li>
+</ul>
+</blockquote>
+<p>我们在介绍 NoSQL 数据的时候也说过，NoSQL 数据库通常不支持事务，为了可扩展和高性能进行了权衡。不过，也有例外，MongoDB 就支持事务。</p>
+<p>与关系型数据库一样，MongoDB 事务同样具有 ACID 特性：</p>
+<ul>
+<li><strong>原子性</strong>（<code>Atomicity</code>）：事务是最小的执行单位，不允许分割。事务的原子性确保动作要么全部完成，要么完全不起作用；</li>
+<li><strong>一致性</strong>（<code>Consistency</code>）：执行事务前后，数据保持一致，例如转账业务中，无论事务是否成功，转账者和收款人的总额应该是不变的；</li>
+<li><strong>隔离性</strong>（<code>Isolation</code>）：并发访问数据库时，一个用户的事务不被其他事务所干扰，各并发事务之间数据库是独立的。WiredTiger 存储引擎支持读未提交（ read-uncommitted ）、读已提交（ read-committed ）和快照（ snapshot ）隔离，MongoDB 启动时默认选快照隔离。在不同隔离级别下，一个事务的生命周期内，可能出现脏读、不可重复读、幻读等现象。</li>
+<li><strong>持久性</strong>（<code>Durability</code>）：一个事务被提交之后。它对数据库中数据的改变是持久的，即使数据库发生故障也不应该对其有任何影响。</li>
+</ul>
+<p>关于事务的详细介绍这篇文章就不多说了，感兴趣的可以看看我写的<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md">MySQL 常见面试题总结</a>这篇文章，里面有详细介绍到。</p>
+<p>MongoDB 单文档原生支持原子性，也具备事务的特性。当谈论 MongoDB 事务的时候，通常指的是 <strong>多文档</strong> 。MongoDB 4.0 加入了对多文档 ACID 事务的支持，但只支持复制集部署模式下的 ACID 事务，也就是说事务的作用域限制为一个副本集内。MongoDB 4.2 引入了 <strong>分布式事务</strong> ，增加了对分片集群上多文档事务的支持，并合并了对副本集上多文档事务的现有支持。</p>
+<p>根据官方文档介绍：</p>
+<blockquote>
+<p>从 MongoDB 4.2 开始，分布式事务和多文档事务在 MongoDB 中是一个意思。分布式事务是指分片集群和副本集上的多文档事务。从 MongoDB 4.2 开始，多文档事务（无论是在分片集群还是副本集上）也称为分布式事务。</p>
+</blockquote>
+<p>在大多数情况下，多文档事务比单文档写入会产生更大的性能成本。对于大部分场景来说， <a href="https://www.mongodb.com/docs/upcoming/core/data-model-design/#std-label-data-modeling-embedding">非规范化数据模型（嵌入式文档和数组）</a> 依然是最佳选择。也就是说，适当地对数据进行建模可以最大限度地减少对多文档事务的需求。</p>
+<p><strong>注意</strong>：</p>
+<ul>
+<li>从 MongoDB 4.2 开始，多文档事务支持副本集和分片集群，其中：主节点使用 WiredTiger 存储引擎，同时从节点使用 WiredTiger 存储引擎或 In-Memory 存储引擎。在 MongoDB 4.0 中，只有使用 WiredTiger 存储引擎的副本集支持事务。</li>
+<li>在 MongoDB 4.2 及更早版本中，你无法在事务中创建集合。从 MongoDB 4.4 开始，您可以在事务中创建集合和索引。有关详细信息，请参阅 <a href="https://www.mongodb.com/docs/upcoming/core/transactions/#std-label-transactions-create-collections-indexes">在事务中创建集合和索引</a>。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mongodb/mongodb-questions-01.md#L235">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k17af8c006101"></a></p>
+<span class="heading-anchor" id="MySQL 的事务隔离级别有哪些？如何保证一致性？"></span><h2 id="mysql">MySQL 的事务隔离级别有哪些？如何保证一致性？</h2>
+<p><strong>回答：</strong></p>
+<p>MySQL 标准事务隔离级别有四个：读未提交、读已提交、可重复读、串行化。</p>
+<p>读未提交允许读取其他事务未提交的数据，会出现脏读，实际很少使用。读已提交只能读到已提交数据，避免脏读，但同一事务中两次读取同一行可能结果不同，会出现不可重复读。可重复读保证同一事务内多次一致性读看到相同快照，是 InnoDB 默认隔离级别，依靠 MVCC 和必要的锁避免很多并发异常。串行化隔离级别最强，事务近似串行执行，通常通过加锁实现，性能最低。</p>
+<p>一致性可以从 ACID 理解。原子性由 undo log 保证，事务失败可以回滚。持久性由 redo log 保证，提交后的修改即使宕机也能恢复。一致性是目标，依赖原子性、隔离性、持久性以及约束、触发器、业务逻辑共同保证。隔离性由锁和 MVCC 保证。</p>
+<p>在 InnoDB 中，普通一致性读主要靠 MVCC 读快照，写操作和当前读依赖行锁、间隙锁、next-key lock 等控制并发。除此之外，binlog 和 redo log 的两阶段提交保证主从复制和崩溃恢复之间的一致性。</p>
+<p>面试中可以总结：事务一致性不是单个机制保证的，而是 undo log、redo log、锁、MVCC、约束和两阶段提交共同保证的。</p>
+<p><a id="bytedance-ai-agent-hard-20260602-q17"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L633">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf91a998643c2"></a></p>
+<span class="heading-anchor" id="MySQL 的隔离级别是基于锁实现的吗？"></span><h2 id="mysql_1">MySQL 的隔离级别是基于锁实现的吗？</h2>
+<p>MySQL 的隔离级别基于锁和 MVCC 机制共同实现的。</p>
+<p>SERIALIZABLE 隔离级别是通过锁来实现的，READ-COMMITTED 和 REPEATABLE-READ 隔离级别是基于 MVCC 实现的。不过， SERIALIZABLE 之外的其他隔离级别可能也需要用到锁机制，就比如 REPEATABLE-READ 在当前读情况下需要使用加锁读来保证不会出现幻读。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L774">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k51c84ff534c8"></a></p>
+<span class="heading-anchor" id="MySQL 的默认隔离级别是什么?"></span><h2 id="mysql_2">MySQL 的默认隔离级别是什么?</h2>
+<p>MySQL InnoDB 存储引擎的默认隔离级别是 <strong>REPEATABLE READ</strong>。可以通过以下命令查看：</p>
+<ul>
+<li>MySQL 8.0 之前：<code>SELECT @@tx_isolation;</code></li>
+<li>MySQL 8.0 及之后：<code>SELECT @@transaction_isolation;</code></li>
+</ul>
+<pre><code class="language-sql">mysql&gt; SELECT @@tx_isolation;
++-----------------+
+| @@tx_isolation  |
++-----------------+
+| REPEATABLE-READ |
++-----------------+
+</code></pre>
+<p>关于 MySQL 事务隔离级别的详细介绍，可以看看我写的这篇文章：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/transaction-isolation-level.md">MySQL 事务隔离级别详解</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L756">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kb5b7ec9adbd2"></a></p>
+<span class="heading-anchor" id="MySQL 都有哪些锁？它们的作用分别是什么？"></span><h2 id="mysql_3">MySQL 都有哪些锁？它们的作用分别是什么？</h2>
+<p><strong>回答：</strong></p>
+<p>MySQL 锁可以按层次和用途分类。</p>
+<p>全局锁会锁住整个数据库实例，典型命令是 <code>Flush tables with read lock</code>，常用于全库逻辑备份，但会影响写入。</p>
+<p>表级锁锁住整张表，例如 MyISAM 常用表锁，InnoDB 也有表级意向锁和元数据锁。元数据锁 MDL 用于保护表结构，防止查询过程中表结构被修改。意向锁包括 IS 和 IX，用来表示事务准备在表中某些行上加共享锁或排他锁，方便表锁和行锁之间做冲突判断。</p>
+<p>行级锁是 InnoDB 并发控制的核心。记录锁锁住索引记录本身；间隙锁锁住索引记录之间的间隙，防止其他事务插入造成幻读；next-key lock 是记录锁加间隙锁，锁住一个左开右闭区间；插入意向锁表示事务想在某个 gap 中插入记录，多个插入不同位置的事务可以并发。</p>
+<p>按读写关系还可以分为共享锁和排他锁。共享锁允许多个事务同时读，但阻塞写；排他锁用于写操作，会阻塞其他读写锁请求。</p>
+<p>还有自增锁，用于处理 auto_increment 分配；在不同配置下可以有不同的锁粒度。对于外键约束、唯一索引检查，也会引入相应的锁行为。</p>
+<p>面试中要强调：InnoDB 行锁是加在索引上的。如果查询条件没有命中索引，可能扫描更多记录并加更多锁，甚至表现得像锁表。锁的目的不是单纯互斥，而是配合隔离级别解决脏写、不可重复读、幻读和并发一致性问题。</p>
+<p><a id="bytedance-ai-agent-hard-20260602-q20"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L680">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k019bf3e05faf"></a></p>
+<span class="heading-anchor" id="MySQL中为什么要有事务回滚机制？"></span><h2 id="mysql_4">MySQL中为什么要有事务回滚机制？</h2>
+<p>而在 MySQL 中，恢复机制是通过回滚日志（undo log）实现的，所有事务进行的修改都会先记录到这个回滚日志中，然后在对数据库中的对应行进行写入。 当事务已经被提交之后，就无法再次回滚了。</p>
+<p>回滚日志作用：
+1、能够在发生错误或者用户执行 ROLLBACK 时提供回滚相关的信息</p>
+<p>2、在整个系统发生崩溃、数据库进程直接被杀死后，当用户再次启动数据库进程时，还能够立刻通过查询回滚日志将之前未完成的事务进行回滚，这也就需要回滚日志必须先于数据持久化到磁盘上，是我们需要先写日志后写数据库的主要原因。</p>
+<p id="数据库引擎的区别">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L252)，来源许可：Apache-2.0。</p>
+<p><a id="k90e72e572d4f"></a></p>
+<span class="heading-anchor" id="MySQL的 ACID，分别解释一下"></span><h2 id="mysql-acid">MySQL的 ACID，分别解释一下</h2>
+<p><strong>原⼦性：</strong> 事务是最⼩的执⾏单位，不允许分割。事务的原⼦性确保动作要么全部完成，要么全不执行</p>
+<p><strong>一致性：</strong> 执⾏事务前后，数据保持⼀致，多个事务对同⼀个数据读取的结果是相同的</p>
+<p><strong>隔离性：</strong> 并发访问数据库时，⼀个⽤户的事务不被其他事务所⼲扰，各并发事务之间数据库是独⽴的</p>
+<p><strong>持久性：</strong> ⼀个事务被提交之后。它对数据库中数据的改变是持久的，即使数据库发⽣故障也不应该对其有任何影响</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L250">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf20380b7991d"></a></p>
+<span class="heading-anchor" id="不可重复读和幻读区别是什么？可以举个例子吗？"></span><h2 id="_1_6">不可重复读和幻读区别是什么？可以举个例子吗？</h2>
+<p><strong>不可重复读的重点是修改，幻读的重点在于新增或者删除。</strong></p>
+<p>例1（同样的条件, 你读取过的数据, 再次读取出来发现值不一样了 ）：事务1中的A先生读取自己的工资为 1000的操作还没完成，事务2中的B先生就修改了A的工资为2000，导致A再读自己的工资时工资变为 2000；这就是不可重复读。</p>
+<p>例2（同样的条件, 第1次和第2次读出来的记录数不一样 ）：假某工资单表中工资大于3000的有4人，事务1读取了所有工资大于3000的人，共查到4条记录，这时事务2 又插入了一条工资大于3000的记录，事务1再次读取时查到的记 录就变为了5条，这样就导致了幻读。</p>
+<p id="有四种索引类型可以简单说说吗">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L373)，来源许可：Apache-2.0。</p>
+<p><a id="k4059daf9a2ab"></a></p>
+<span class="heading-anchor" id="不可重复读和幻读有什么区别？"></span><h2 id="_1_7">不可重复读和幻读有什么区别？</h2>
+<ul>
+<li>不可重复读：同一事务内，同一条记录被其他事务修改或删除，导致再次读取时记录内容或存在性发生变化。</li>
+<li>幻读：同一事务内，同一个范围条件查询多次执行时，符合条件的记录集合发生变化，出现新增或消失的记录。</li>
+</ul>
+<p>幻读其实可以看作是不可重复读的一种特殊情况，单独把幻读区分出来的原因主要是解决幻读和不可重复读的方案不一样。</p>
+<p>举个例子：执行 <code>delete</code> 和 <code>update</code> 操作的时候，可以直接对记录加锁，保证事务安全。而执行 <code>insert</code> 操作的时候，由于记录锁（Record Lock）只能锁住已经存在的记录，为了避免插入新记录，需要依赖间隙锁（Gap Lock）。也就是说执行 <code>insert</code> 操作的时候需要依赖 Next-Key Lock（Record Lock+Gap Lock） 进行加锁来保证不出现幻读。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L711">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ke365ed2f0ffd"></a></p>
+<span class="heading-anchor" id="事务ACID、隔离级别和MVCC在Agent任务系统中有什么价值？"></span><h2 id="acidmvccagent">事务ACID、隔离级别和MVCC在Agent任务系统中有什么价值？</h2>
+<p>事务是一个不可分割的数据库操作序列，要么全部成功，要么全部失败。ACID分别是：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>含义</th>
+<th>Agent场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原子性</td>
+<td>要么全做，要么全不做</td>
+<td>创建任务、扣费、写状态必须一起成功</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>事务前后满足约束</td>
+<td>任务状态不能从失败跳回运行中</td>
+</tr>
+<tr>
+<td>隔离性</td>
+<td>并发事务互不干扰</td>
+<td>多worker不能重复领取同一任务</td>
+</tr>
+<tr>
+<td>持久性</td>
+<td>提交后可靠保存</td>
+<td>Agent执行记录可恢复、可审计</td>
+</tr>
+</tbody>
+</table></div>
+<p>隔离级别用于控制并发下的脏读、不可重复读、幻读等问题。工程中常用的是读已提交和可重复读。隔离级别越高，一致性越强，但并发性能可能越低。</p>
+<p>MVCC（多版本并发控制）的核心思想是：读操作读取某个版本快照，写操作生成新版本，读写尽量不互相阻塞。它适合读多写少的业务，例如查询Agent任务状态、读取用户配置、查看RAG文档元数据。</p>
+<p>在Agent任务系统中，常见写法是用数据库事务实现“领取任务”：</p>
+<pre><code class="language-sql">UPDATE tasks
+SET status = 'running', worker_id = 'worker-1'
+WHERE id = 1001 AND status = 'pending';
+</code></pre>
+<p>如果影响行数为1，说明领取成功；如果为0，说明已被其他worker领取。这比在应用层先查再改更安全。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%95%B0%E6%8D%AE%E5%BA%93%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L53">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcd419a825929"></a></p>
+<span class="heading-anchor" id="事务四大特性（ACID）原子性、一致性、隔离性、持久性？"></span><h2 id="acid">事务四大特性（ACID）原子性、一致性、隔离性、持久性？</h2>
+<p><strong>常见问法：</strong> 事务四大特性（ACID）原子性、一致性、隔离性、持久性？：第二种回答；事务四大特性（ACID）原子性、一致性、隔离性、持久性？：第一种回答</p>
+<span class="heading-anchor" id="第一种回答"></span><h3 id="_1_9"><strong>第一种回答</strong></h3>
+<p><strong>原子性</strong>：</p>
+<p>一个事务（transaction）中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。
+。事务在执行过程中发生错误，会被恢复（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。</p>
+<p><strong>一致性</strong>：</p>
+<p>在事务开始之前和事务结束以后，数据库的完整性没有被破坏。这表示写入的资料必须完全符合所有的预设规则，这包含资料的精确度、串联性以及后续数据库可以自发性地完成预定的工作。</p>
+<p><strong>隔离性</strong>：</p>
+<p>数据库允许多个并发事务同时对其数据进行读写和修改的能力，隔离性可以防止多个事务并发执行时由于交叉执行而导致数据的不一致。事务隔离分为不同级别，包括读未提交（Read uncommitted）、读提交（read committed）、可重复读（repeatable read）和串行化（Serializable）。</p>
+<p><strong>持久性</strong>：</p>
+<p>事务处理结束后，对数据的修改就是永久的，即便系统故障也不会丢失。</p>
+<span class="heading-anchor" id="第二种回答"></span><h3 id="_2_1"><strong>第二种回答</strong></h3>
+<p><strong>原子性（Atomicity）</strong></p>
+<p>原子性是指事务包含的所有操作要么全部成功，要么全部失败回滚，因此事务的操作如果成功就必须要完全应用到数据库，如果操作失败则不能对数据库有任何影响。</p>
+<p><strong>一致性（Consistency）</strong></p>
+<p>事务开始前和结束后，数据库的完整性约束没有被破坏。比如A向B转账，不可能A扣了钱，B却没收到。</p>
+<p><strong>隔离性（Isolation）</strong></p>
+<p>隔离性是当多个用户并发访问数据库时，比如操作同一张表时，数据库为每一个用户开启的事务，不能被其他事务的操作所干扰，多个并发事务之间要相互隔离。</p>
+<p>同一时间，只允许一个事务请求同一数据，不同的事务之间彼此没有任何干扰。比如A正在从一张银行卡中取钱，在A取钱的过程结束前，B不能向这张卡转账。</p>
+<p>关于事务的隔离性数据库也提供了多种隔离级别，可以根据实际情况选择合适的级别。  </p>
+<p><strong>持久性（Durability）</strong></p>
+<p>持久性是指一个事务一旦被提交了，那么对数据库中的数据的改变就是永久性的，即便是在数据库系统遇到故障的情况下也不会丢失提交事务的操作。</p>
+<p id="两个函数有什么区别">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-02-MySQL.md#L232)，来源许可：Apache-2.0。
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-02-MySQL.md#L255)，来源许可：Apache-2.0。
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-02-MySQL.md#L234)，来源许可：Apache-2.0。</p>
+<p><a id="kb1ff3ff7f978"></a></p>
+<span class="heading-anchor" id="什么是 MVCC？"></span><h2 id="mvcc_1">什么是 MVCC？</h2>
+<p>多版本并发控制（Multi-Version Concurrency Control, MVCC），MVCC在每行记录后面都保存有两个隐藏的列，用来存储<strong>创建版本号</strong>和<strong>删除版本号</strong>。</p>
+<ul>
+<li>创建版本号：创建一个数据行时的事务版本号（<strong>事务版本号</strong>：事务开始时的系统版本号；系统版本号：每开始一个新的事务，系统版本号就会自动递增）；</li>
+<li>删除版本号：删除操作时的事务版本号；</li>
+<li>各种操作：</li>
+<li>插入操作时，记录创建版本号；</li>
+<li>删除操作时，记录删除版本号；</li>
+<li>更新操作时，先记录删除版本号，再新增一行记录创建版本号；</li>
+<li>查询操作时，要符合以下条件才能被查询出来：删除版本号未定义或大于当前事务版本号（删除操作是在当前事务启动之后做的）；创建版本号小于或等于当前事务版本号（创建操作是事务完成或者在事务启动之前完成）</li>
+</ul>
+<p>通过版本号减少了锁的争用，<strong>提高了系统性能</strong>；可以实现<strong>提交读</strong>和<strong>可重复读</strong>两种隔离级别，未提交读无需使用MVCC</p>
+<p>快照读与当前读</p>
+<p>使用 MVCC 读取的是快照中的数据，这样可以减少加锁所带来的开销：</p>
+<pre><code>select * from table ...;
+</code></pre>
+<p>当前读读取的是最新的数据，需要加锁。以下第一个语句需要加 S 锁，其它都需要加 X 锁：</p>
+<pre><code>select * from table where ? lock in share mode;
+select * from table where ? for update;
+insert;
+update;
+delete;
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L128">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k91a61cc3f423"></a></p>
+<span class="heading-anchor" id="什么是三级封锁协议？"></span><h2 id="_1_11">什么是三级封锁协议？</h2>
+<ul>
+<li>一级封锁协议：事务在修改数据之前必须先对其加X锁，直到事务结束才释放。可以解决丢失修改问题（两个事务不能同时对一个数据加X锁，避免了修改被覆盖）；</li>
+<li>二级封锁协议：在一级的基础上，事务在读取数据之前必须先加S锁，读完后释放。可以解决脏读问题（如果已经有事务在修改数据，就意味着已经加了X锁，此时想要读取数据的事务并不能加S锁，也就无法进行读取，避免了读取脏数据）；</li>
+<li>三级封锁协议：在二级的基础上，事务在读取数据之前必须先加S锁，直到事务结束才能释放。可以解决不可重复读问题（避免了在事务结束前其它事务对数据加X锁进行修改，保证了事务期间数据不会被其它事务更新）</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L107">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1b5466e3b583"></a></p>
+<span class="heading-anchor" id="什么是两段锁协议？"></span><h2 id="_1_12">什么是两段锁协议？</h2>
+<p>事务必须严格分为两个阶段对数据进行<strong>加锁和解锁</strong>的操作，第一阶段加锁，第二阶段解锁。也就是说一个事务中一旦释放了锁，就不能再申请新锁了。</p>
+<p><strong>可串行化调度</strong>是指，通过并发控制，使得并发执行的事务结果与某个串行执行的事务结果相同。事务遵循两段锁协议是保证可串行化调度的充分条件。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L122">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3d5bb832e2a3"></a></p>
+<span class="heading-anchor" id="什么是数据库事务？"></span><h2 id="_1_13">什么是数据库事务？</h2>
+<p>大多数情况下，我们在谈论事务的时候，如果没有特指<strong>分布式事务</strong>，往往指的就是<strong>数据库事务</strong>。</p>
+<p>数据库事务在我们日常开发中接触的最多了。如果你的项目属于单体架构的话，你接触到的往往就是数据库事务了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L628">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ke79e9a79adc9"></a></p>
+<span class="heading-anchor" id="介绍 MVCC"></span><h2 id="mvcc_2">介绍 MVCC</h2>
+<p><code>MVCC</code> 是一种多版本并发控制机制，在大多数情况下代替行级锁，使用 <code>MVCC</code>，能降低其系统开销。<code>MVCC</code> 是通过保存数据在某个时间点的快照来实现的.。不同存储引擎的 <code>MVCC</code> 实现是不同的，典型的有乐观并发控制和悲观并发控制。<code>InnoDB</code> 的 <code>MVCC</code> 是通过在每行记录后面保存两个隐藏的列来实现的，这两个列，分别保存了这个行的创建时间，一个保存的是行的删除时间。这里存储的并不是实际的时间值，而是系统版本号(可以理解为事务的 <code>ID</code>)，每开始一个新的事务，系统版本号就会自动递增，事务开始时刻的系统版本号会作为事务的 <code>ID</code>。<code>InnoDB</code> 只会查找版本早于当前事务版本的数据行(也就是行的系统版本号小于或等于事务的系统版本号)，这样可以确保事务读取的行，要么是在事务开始前已经存在的，要么是事务自身插入或者修改过的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L217">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf621880a801c"></a></p>
+<span class="heading-anchor" id="何为事务？ 一言蔽之，事务是逻辑上的一组操作，要么都执行，要么都不执行。"></span><h2 id="_1_15">何为事务？ 一言蔽之，事务是逻辑上的一组操作，要么都执行，要么都不执行。</h2>
+<p>事务最经典也经常被拿出来说例子就是转账了。假如小明要给小红转账 1000 元，这个转账会涉及到两个关键操作，这两个操作必须都成功或者都失败。</p>
+<ol>
+<li>将小明的余额减少 1000 元</li>
+<li>将小红的余额增加 1000 元。</li>
+</ol>
+<p>事务会把这两个操作就可以看成逻辑上的一个整体，这个整体包含的操作要么都成功，要么都要失败。这样就不会出现小明余额减少而小红的余额却并没有增加的情况。</p>
+<p><img alt="事务示意图" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/%E4%BA%8B%E5%8A%A1%E7%A4%BA%E6%84%8F%E5%9B%BE.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L617">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka684999f715f"></a></p>
+<span class="heading-anchor" id="共享锁和排他锁呢？"></span><h2 id="_1_16">共享锁和排他锁呢？</h2>
+<p>不论是表级锁还是行级锁，都存在共享锁（Share Lock，S 锁）和排他锁（Exclusive Lock，X 锁）这两类：</p>
+<p>排他锁与任何的锁都不兼容，共享锁仅和共享锁兼容。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>S 锁</th>
+<th>X 锁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S 锁</td>
+<td>不冲突</td>
+<td>冲突</td>
+</tr>
+<tr>
+<td>X 锁</td>
+<td>冲突</td>
+<td>冲突</td>
+</tr>
+</tbody>
+</table></div>
+<p>由于 MVCC 的存在，对于一般的 <code>SELECT</code> 语句，InnoDB 不会加任何锁。不过， 你可以通过以下语句显式加共享锁或排他锁。</p>
+<pre><code class="language-sql"># 共享锁 可以在 MySQL 5.7 和 MySQL 8.0 中使用
+SELECT ... LOCK IN SHARE MODE;
+# 共享锁 可以在 MySQL 8.0 中使用
+SELECT ... FOR SHARE;
+# 排他锁
+SELECT ... FOR UPDATE;
+</code></pre>
+<p><strong>相关解释：</strong> <a href="n-a72ad4495cae.html#k35bd7af8c907">并发事务的控制方式有哪些？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L811">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k0d6dd8359468"></a></p>
+<span class="heading-anchor" id="四种隔离级别的实现原理？"></span><h2 id="_1_17">四种隔离级别的实现原理？</h2>
+<ul>
+<li>未提交读（Read Uncommited）：啥都不做。；</li>
+<li>（一级封锁协议 ----&gt; 解决丢失修改）；</li>
+<li>提交读（Read Commited）：二级封锁协议 ----&gt; 解决脏读。；</li>
+<li>可重复读（Repeatable Read）:  三级封锁协议 ----&gt; 解决不可重复读。；</li>
+<li>可串行化（Serializable）：强制事务串行执行 ----&gt; 解决幻读问题。；</li>
+<li>（其中提交读和可重复读也可以由MVCC实现）；</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L113">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7682d880b926"></a></p>
+<span class="heading-anchor" id="在高并发写入场景下，MySQL 的间隙锁可能造成什么问题？"></span><h2 id="mysql_5">在高并发写入场景下，MySQL 的间隙锁可能造成什么问题？</h2>
+<p><strong>回答：</strong></p>
+<p>InnoDB 间隙锁作用于索引记录之间的间隙，主要抑制向该区间插入记录。默认可重复读隔离级别下，部分锁定读和写操作会使用 next-key locking，即记录锁与间隙锁的组合，以保护搜索范围。普通一致性快照读通常通过 MVCC 工作，不应笼统说“范围 SELECT 都会加间隙锁”。</p>
+<p>例如事务执行 <code>SELECT ... WHERE tenant_id = 10 AND created_at &gt;= ? FOR UPDATE</code>，具体锁范围由实际使用的索引、扫描边界和记录分布共同决定，不是 SQL 文本中的逻辑条件自动映射为精确最小锁范围。没有合适索引或扫描范围过大，可能阻塞大量本来希望并发执行的插入。</p>
+<p>高并发下主要出现锁等待、事务超时、队列堆积与死锁。不同事务持有的纯间隙锁可以兼容，但插入时申请的插入意向锁仍可能被阻塞；“双方都先锁住空区间，再尝试插入”就可能形成等待环。死锁不是只有更新同一行才会出现。</p>
+<p>处理顺序是：查看 <code>performance_schema.data_locks</code>、<code>data_lock_waits</code> 和死锁记录；把等待映射到 SQL、索引与事务；缩短事务并缩小扫描范围，统一访问顺序，避免在持锁期间调用外部服务。唯一索引上满足条件的完整唯一键等值查找可减少间隙锁使用，但查找不存在的键及部分唯一键条件需要单独分析。</p>
+<p>READ COMMITTED 会减少搜索扫描中的间隙锁，但外键和重复键检查等场景仍有例外，且业务可观察语义改变。必须先验证业务不变量。死锁受害事务需要回滚并进行有限、带随机退避的整事务重试，同时保证业务幂等。</p>
+<p><a id="baidu-agent-20260922-r1-q10"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L886">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke21cbc489b10"></a></p>
+<span class="heading-anchor" id="常见的封锁类型？"></span><h2 id="_1_19">常见的封锁类型？</h2>
+<p>意向锁是 InnoDB 自动加的， 不需用户干预。
+对于 UPDATE、 DELETE 和 INSERT 语句， InnoDB
+会自动给涉及数据集加排他锁（X)；
+对于普通 SELECT 语句，InnoDB 不会加任何锁；
+事务可以通过以下语句显式给记录集加共享锁或排他锁：
+共享锁（S）：SELECT * FROM table_name WHERE ... LOCK IN SHARE MODE。 其他 session 仍然可以查询记录，并也可以对该记录加 share mode 的共享锁。但是如果当前事务需要对该记录进行更新操作，则很有可能造成死锁。
+排他锁（X)：SELECT * FROM table_name WHERE ... FOR UPDATE。其他 session 可以查询该记录，但是不能对该记录加共享锁或排他锁，而是等待获得锁</p>
+<ul>
+<li><strong>排它锁</strong>（Exclusive Lock）/ X锁：事务对数据加上X锁时，只允许此事务读取和修改此数据，并且其它事务不能对该数据加任何锁；</li>
+<li><strong>共享锁</strong>（Shared Lock）/ S锁：加了S锁后，该事务只能对数据进行读取而不能修改，并且其它事务只能加S锁，不能加X锁</li>
+<li><strong>意向锁</strong>（Intention Locks）：</li>
+<li>一个事务在获得某个<strong>数据行</strong>对象的 S 锁之前，必须先获得<strong>整个表</strong>的 IS 锁或更强的锁；</li>
+<li>一个事务在获得某个数据行对象的 X 锁之前，必须先获得整个表的 IX 锁；</li>
+<li>IS/IX 锁之间都是兼容的；</li>
+<li>好处：如果一个事务想要对整个表加X锁，就需要先检测是否有其它事务对该表或者该表中的某一行加了锁，这种检测非常耗时。有了意向锁之后，只需要检测整个表是否存在IX/IS/X/S锁就行了</li>
+</ul>
+<p>锁的作用：用于管理对共享资源的并发访问，保证数据库的完整性和一致性</p>
+<p>封锁粒度的概念</p>
+<p>MySQL 中提供了两种封锁粒度：<strong>行级锁</strong>以及<strong>表级锁</strong>。</p>
+<p>封锁粒度小：</p>
+<ul>
+<li>好处：锁定的数据量越少，发生锁争用的可能就越小，系统的<strong>并发程度</strong>就越高；</li>
+<li>坏处：<strong>系统开销</strong>大（加锁、释放锁、检查锁的状态都需要消耗资源）</li>
+</ul>
+<p>MySQL加锁</p>
+<pre><code>SELECT ... LOCK In SHARE MODE;
+SELECT ... FOR UPDATE;
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L65">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf2a4f268eb5f"></a></p>
+<span class="heading-anchor" id="并发事务带来了哪些问题?"></span><h2 id="_1_20">并发事务带来了哪些问题?</h2>
+<p>在典型的应用程序中，多个事务并发运行，经常会操作相同的数据来完成各自的任务（多个用户对同一数据进行操作）。并发虽然是必须的，但可能会导致以下的问题。</p>
+<span class="heading-anchor" id="脏读（Dirty read）"></span><h3 id="dirty-read">脏读（Dirty read）</h3>
+<p>一个事务读取数据并且对数据进行了修改，这个修改对其他事务来说是可见的，即使当前事务没有提交。这时另外一个事务读取了这个还未提交的数据，但第一个事务突然回滚，导致数据并没有被提交到数据库，那第二个事务读取到的就是脏数据，这也就是脏读的由来。</p>
+<p>例如：事务 1 读取某表中的数据 A=20，事务 1 修改 A=A-1，事务 2 读取到 A = 19,事务 1 回滚导致对 A 的修改并未提交到数据库， A 的值还是 20。</p>
+<p><img alt="脏读" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mysql/concurrency-consistency-issues-dirty-reading.png"/></p>
+<span class="heading-anchor" id="丢失修改（Lost to modify）"></span><h3 id="lost-to-modify">丢失修改（Lost to modify）</h3>
+<p>在一个事务读取一个数据时，另外一个事务也访问了该数据，那么在第一个事务中修改了这个数据后，第二个事务也修改了这个数据。这样第一个事务内的修改结果就被丢失，因此称为丢失修改。</p>
+<p>例如：事务 1 读取某表中的数据 A=20，事务 2 也读取 A=20，事务 1 先修改 A=A-1，事务 2 后来也修改 A=A-1，最终结果 A=19，事务 1 的修改被丢失。</p>
+<p><img alt="丢失修改" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mysql/concurrency-consistency-issues-missing-modifications.png"/></p>
+<span class="heading-anchor" id="不可重复读（Unrepeatable read）"></span><h3 id="unrepeatable-read">不可重复读（Unrepeatable read）</h3>
+<p>指在一个事务内多次读同一数据。在这个事务还没有结束时，另一个事务也访问该数据。那么，在第一个事务中的两次读数据之间，由于第二个事务的修改导致第一个事务两次读取的数据可能不太一样。这就发生了在一个事务内两次读到的数据是不一样的情况，因此称为不可重复读。</p>
+<p>例如：事务 1 读取某表中的数据 A=20，事务 2 也读取 A=20，事务 1 修改 A=A-1，事务 2 再次读取 A =19，此时读取的结果和第一次读取的结果不同。</p>
+<p><img alt="不可重复读" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mysql/concurrency-consistency-issues-unrepeatable-read.png"/></p>
+<span class="heading-anchor" id="幻读（Phantom read）"></span><h3 id="phantom-read">幻读（Phantom read）</h3>
+<p>幻读与不可重复读类似。它发生在一个事务读取了几行数据，接着另一个并发事务插入了一些数据时。在随后的查询中，第一个事务就会发现多了一些原本不存在的记录，就好像发生了幻觉一样，所以称为幻读。</p>
+<p>例如：事务 2 读取某个范围的数据，事务 1 在这个范围插入了新的数据，事务 2 再次读取这个范围的数据发现相比于第一次读取的结果多了新的数据。</p>
+<p><img alt="幻读" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/database/mysql/concurrency-consistency-issues-phantom-read.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L675">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k35bd7af8c907"></a></p>
+<span class="heading-anchor" id="并发事务的控制方式有哪些？"></span><h2 id="_1_21">并发事务的控制方式有哪些？</h2>
+<p>MySQL 中并发事务的控制方式无非就两种：<strong>锁</strong> 和 <strong>MVCC</strong>。锁可以看作是悲观控制的模式，多版本并发控制（MVCC，Multiversion concurrency control）可以看作是乐观控制的模式。</p>
+<p><strong>锁</strong> 控制方式下会通过锁来显式控制共享资源而不是通过调度手段，MySQL 中主要是通过 <strong>读写锁</strong> 来实现并发控制。</p>
+<ul>
+<li><strong>共享锁（S 锁）</strong>：又称读锁，事务在读取记录的时候获取共享锁，允许多个事务同时获取（锁兼容）。</li>
+<li><strong>排他锁（X 锁）</strong>：又称写锁/独占锁，事务在修改记录的时候获取排他锁，不允许多个事务同时获取。如果一个记录已经被加了排他锁，那其他事务不能再对这条记录加任何类型的锁（锁不兼容）。</li>
+</ul>
+<p>读写锁可以做到读读并行，但是无法做到写读、写写并行。另外，根据根据锁粒度的不同，又被分为 <strong>表级锁(table-level locking)</strong> 和 <strong>行级锁(row-level locking)</strong> 。InnoDB 不光支持表级锁，还支持行级锁，默认为行级锁。行级锁的粒度更小，仅对相关的记录上锁即可（对一行或者多行记录加锁），所以对于并发写入操作来说， InnoDB 的性能更高。不论是表级锁还是行级锁，都存在共享锁（Share Lock，S 锁）和排他锁（Exclusive Lock，X 锁）这两类。</p>
+<p><strong>MVCC</strong> 是多版本并发控制方法，即对一份数据会存储多个版本，通过事务的可见性来保证事务能看到自己应该看到的版本。通常会有一个全局的版本分配器来为每一行数据设置版本号，版本号是唯一的。</p>
+<p>MVCC 在 MySQL 中实现所依赖的手段主要是: <strong>隐藏字段、read view、undo log</strong>。</p>
+<ul>
+<li>undo log : undo log 用于记录某行数据的多个版本的数据。</li>
+<li>read view 和 隐藏字段 : 用来判断当前版本数据的可见性。</li>
+</ul>
+<p>关于 InnoDB 对 MVCC 的具体实现可以看这篇文章：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/innodb-implementation-of-mvcc.md">InnoDB 存储引擎对 MVCC 的实现</a> 。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L720">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k606184e06b44"></a></p>
+<span class="heading-anchor" id="意向锁有什么作用？"></span><h2 id="_1_22">意向锁有什么作用？</h2>
+<p>如果需要用到表锁的话，如何判断表中的记录没有行锁呢，一行一行遍历肯定是不行，性能太差。我们需要用到一个叫做意向锁的东东来快速判断是否可以对某个表使用表锁。</p>
+<p>意向锁是表级锁，共有两种：</p>
+<ul>
+<li><strong>意向共享锁（Intention Shared Lock，IS 锁）</strong>：事务有意向对表中的某些记录加共享锁（S 锁），加共享锁前必须先取得该表的 IS 锁。</li>
+<li><strong>意向排他锁（Intention Exclusive Lock，IX 锁）</strong>：事务有意向对表中的某些记录加排他锁（X 锁），加排他锁之前必须先取得该表的 IX 锁。</li>
+</ul>
+<p><strong>意向锁是由数据引擎自己维护的，用户无法手动操作意向锁，在为数据行加共享/排他锁之前，InnoDB 会先获取该数据行所在在数据表的对应意向锁。</strong></p>
+<p>意向锁之间是互相兼容的。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>IS 锁</th>
+<th>IX 锁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IS 锁</td>
+<td>兼容</td>
+<td>兼容</td>
+</tr>
+<tr>
+<td>IX 锁</td>
+<td>兼容</td>
+<td>兼容</td>
+</tr>
+</tbody>
+</table></div>
+<p>意向锁和共享锁和排它锁互斥（这里指的是表级别的共享锁和排他锁，意向锁不会与行级的共享锁和排他锁互斥）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>IS 锁</th>
+<th>IX 锁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S 锁</td>
+<td>兼容</td>
+<td>互斥</td>
+</tr>
+<tr>
+<td>X 锁</td>
+<td>互斥</td>
+<td>互斥</td>
+</tr>
+</tbody>
+</table></div>
+<p>《MySQL 技术内幕 InnoDB 存储引擎》这本书对应的描述应该是笔误了。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/image-20220511171419081.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L836">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf293cd897f18"></a></p>
+<span class="heading-anchor" id="数据库中的锁有了解过吗"></span><h2 id="_1_23">数据库中的锁有了解过吗</h2>
+<p><strong>回答：</strong></p>
+<p>以 MySQL InnoDB 为例，锁用于协调并发访问与修改；事务隔离还依赖 MVCC，因此普通快照读不一定需要对读到的每行加共享锁。需要区分一致性读、锁定读、写操作及它们在具体隔离级别下的行为。</p>
+<p>行级锁主要作用于索引记录，包括记录锁、间隙锁和 Next-Key Lock。Next-Key Lock 结合记录及其前方间隙，在一定的范围锁定读和写场景下帮助防止幻读；间隙锁主要阻止向间隙插入，并非所有类型的间隙锁之间都互斥。意向锁是表级协调机制，用于声明事务计划在表内取得某类行锁，不能把它理解为自动锁住全表数据。</p>
+<p>在常见的 Repeatable Read 配置下，范围锁定可能使用 Next-Key Lock；唯一索引的完整等值查找等场景可以更精确地锁定记录。Read Committed 对普通搜索和索引扫描的间隙锁使用更少，但外键检查、重复键检查等仍有例外。锁范围由执行路径、条件和隔离级别共同决定，缺少合适索引可能扩大扫描与锁定范围。</p>
+<p>死锁是多个事务互相等待形成环；等待超时则不一定存在环。应统一访问顺序、缩短事务、确保更新条件有合适索引，并通过锁等待与死锁诊断定位。数据库选择事务回滚后，应用按业务语义重试整个事务，配合幂等与重试上限；不能只重新执行最后一条 SQL 就假定一致性仍然成立。</p>
+<p>还可以补充乐观锁：通过版本号条件更新检查并发冲突，检查受影响行数并决定重试或提示冲突；它不意味着底层执行更新时完全不使用数据库锁。DDL 还涉及元数据锁，长事务可能阻塞结构变更。回答时始终限定数据库实现，不把 MySQL 的间隙锁规则推广到所有数据库。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2542">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0cd05af58822"></a></p>
+<span class="heading-anchor" id="数据库并发事务会带来哪些问题？"></span><h2 id="_1_24">数据库并发事务会带来哪些问题？</h2>
+<p>数据库并发会带来脏读、幻读、丢弃更改、不可重复读这四个常见问题，其中：</p>
+<p><strong>脏读</strong>：在第一个修改事务和读取事务进行的时候，读取事务读到的数据为100，这是修改之后的数据，但是之后该事务满足一致性等特性而做了回滚操作，那么读取事务得到的结果就是脏数据了。</p>
+<p><strong>幻读</strong>：一般是T1在某个范围内进行修改操作（增加或者删除），而T2读取该范围导致读到的数据是修改之间的了，强调范围。</p>
+<p><strong>丢弃修改</strong>：两个写事务T1 T2同时对A=0进行递增操作，结果T2覆盖T1，导致最终结果是1 而不是2，事务被覆盖</p>
+<p><strong>不可重复读</strong>：T2 读取一个数据，然后T1 对该数据做了修改。如果 T2 再次读取这个数据，此时读取的结果和第一次读取的结果不同。</p>
+<span class="heading-anchor" id="脏读"></span><h3 id="_2_13"><strong>脏读</strong></h3>
+<p><img alt="脏读" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.assets/202205220024781.png"/></p>
+<p>第一个事务首先读取var变量为50，接着准备更新为100的时，并未提交，第二个事务已经读取var为100，此时第一个事务做了回滚。最终第二个事务读取的var和数据库的var不一样。</p>
+<span class="heading-anchor" id="幻读（幻影读）"></span><h3 id="_3"><strong>幻读（幻影读）</strong></h3>
+<p><img alt="幻读" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.assets/202205220024132.png"/></p>
+<p>T1 读取某个范围的数据，T2 在这个范围内插入新的数据，T1 再次读取这个范围的数据，此时读取的结果和和第一次读取的结果不同。</p>
+<span class="heading-anchor" id="丢弃修改"></span><h3 id="_4"><strong>丢弃修改</strong></h3>
+<p><img alt="丢弃修改" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.assets/202205220024561.png"/></p>
+<p>T1 和 T2 两个事务都对一个数据进行修改，T1 先修改，T2 随后修改，T2 的修改覆盖了 T1 的修改。例如：事务1读取某表中的数据A=50，事务2也读取A=50，事务1修改A=A+50，事务2也修改A=A+50，最终结果A=100，事务1的修改被丢失。</p>
+<span class="heading-anchor" id="不可重复读"></span><h3 id="_5"><strong>不可重复读</strong></h3>
+<p><img alt="不可重复读" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.assets/202205220024930.png"/></p>
+<p>T2 读取一个数据，T1 对该数据做了修改。如果 T2 再次读取这个数据，此时读取的结果和第一次读取的结果不同。</p>
+<p id="数据库悲观锁和乐观锁的原理和应用场景分别有什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L292)，来源许可：Apache-2.0。</p>
+<p><a id="kbd1e27901875"></a></p>
+<span class="heading-anchor" id="数据库悲观锁和乐观锁的原理和应用场景分别有什么？"></span><h2 id="_1_25">数据库悲观锁和乐观锁的原理和应用场景分别有什么？</h2>
+<p>悲观锁，先获取锁，再进行业务操作，一般就是利用类似 SELECT … FOR UPDATE 这样的语句，对数据加锁，避免其他事务意外修改数据。
+当数据库执行SELECT … FOR UPDATE时会获取被select中的数据行的行锁，select for update获取的行锁会在当前事务结束时自动释放，因此必须在事务中使用。</p>
+<p>乐观锁，先进行业务操作，只在最后实际更新数据时进行检查数据是否被更新过。Java 并发包中的 AtomicFieldUpdater 类似，也是利用 CAS 机制，并不会对数据加锁，而是通过对比数据的时间戳或者版本号，来实现乐观锁需要的版本判断。</p>
+<p id="索引主要使用的两种数据结构是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L330)，来源许可：Apache-2.0。</p>
+<p><a id="k80da9f3ae2f2"></a></p>
+<span class="heading-anchor" id="数据库的四种隔离级别？"></span><h2 id="_1_26">数据库的四种隔离级别？</h2>
+<ul>
+<li><strong>未提交读</strong>（Read Uncommited）：在一个事务提交之前，它的执行结果对其它事务也是可见的。会导致脏读、不可重复读、幻读；</li>
+<li><strong>提交读</strong>（Read Commited）：一个事务只能看见已经提交的事务所作的改变。可避免脏读问题；</li>
+<li><strong>可重复读</strong>（Repeatable Read）：可以确保同一个事务在多次读取同样的数据时得到相同的结果。（MySQL的默认隔离级别）。可避免不可重复读；</li>
+<li><strong>可串行化</strong>（Serializable）：强制事务串行执行，使之不可能相互冲突，从而解决幻读问题。可能导致大量的超时现象和锁竞争，实际很少使用。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Database.md#L51">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9e43cb41dd52"></a></p>
+<span class="heading-anchor" id="数据库隔离级别"></span><h2 id="_1_27">数据库隔离级别</h2>
+<ul>
+<li><strong>未提交读</strong>，事务中发生了修改，即使没有提交，其他事务也是可见的，比如对于一个数A原来50修改为100，但是我还没有提交修改，另一个事务看到这个修改，而这个时候原事务发生了回滚，这时候A还是50，但是另一个事务看到的A是100.<strong>可能会导致脏读、幻读或不可重复读</strong></li>
+<li><strong>提交读</strong>，对于一个事务从开始直到提交之前，所做的任何修改是其他事务不可见的，举例就是对于一个数A原来是50，然后提交修改成100，这个时候另一个事务在A提交修改之前，读取的A是50，刚读取完，A就被修改成100，这个时候另一个事务再进行读取发现A就突然变成100了；<strong>可以阻止脏读，但是幻读或不可重复读仍有可能发生</strong></li>
+<li><strong>重复读</strong>，就是对一个记录读取多次的记录是相同的，比如对于一个数A读取的话一直是A，前后两次读取的A是一致的；<strong>可以阻止脏读和不可重复读，但幻读仍有可能发生</strong></li>
+<li><strong>可串行化读</strong>，在并发情况下，和串行化的读取的结果是一致的，没有什么不同，比如不会发生脏读和幻读；<strong>该级别可以防止脏读、不可重复读以及幻读</strong></li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>脏读</th>
+<th>不可重复读</th>
+<th>幻影读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>READ-UNCOMMITTED 未提交读</td>
+<td>√</td>
+<td>√</td>
+<td>√</td>
+</tr>
+<tr>
+<td>READ-COMMITTED 提交读</td>
+<td>×</td>
+<td>√</td>
+<td>√</td>
+</tr>
+<tr>
+<td>REPEATABLE-READ 重复读</td>
+<td>×</td>
+<td>×</td>
+<td>√</td>
+</tr>
+<tr>
+<td>SERIALIZABLE 可串行化读</td>
+<td>×</td>
+<td>×</td>
+<td>×</td>
+</tr>
+</tbody>
+</table></div>
+<p>MySQL InnoDB 存储引擎的默认支持的隔离级别是 <strong>REPEATABLE-READ</strong>（可重读）</p>
+<p><strong>这里需要注意的是</strong>：与 SQL 标准不同的地方在于InnoDB 存储引擎在 REPEATABLE-READ（可重读）事务隔离级别 下使用的是<strong>Next-Key Lock 锁</strong>算法，因此可以避免幻读的产生，这与其他数据库系统(如 SQL Server)是不同的。所以 说InnoDB 存储引擎的默认支持的隔离级别是 REPEATABLE-READ（可重读） 已经可以完全保证事务的隔离性要 求，即达到了 SQL标准的SERIALIZABLE(可串行化)隔离级别。</p>
+<p>因为隔离级别越低，事务请求的锁越少，所以大部分数据库系统的隔离级别都是READ-COMMITTED(读取提交内 容):，但是你要知道的是InnoDB 存储引擎默认使用 <strong>REPEATABLE-READ（可重读）并不会有任何性能损失</strong>。</p>
+<p>InnoDB 存储引擎在分布式事务 的情况下一般会用到SERIALIZABLE(可串行化)隔离级别。</p>
+<p id="都知道数据库索引采用原因也有很多主要原因是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-01-MySQL.md#L192)，来源许可：Apache-2.0。</p>
+<p><a id="ke971d27007b5"></a></p>
+<span class="heading-anchor" id="是否支持 MVCC"></span><h2 id="mvcc_3">是否支持 MVCC</h2>
+<p>MyISAM 不支持，而 InnoDB 支持。</p>
+<p>讲真，这个对比有点废话，毕竟 MyISAM 连行级锁都不支持。MVCC 可以看作是行级锁的一个升级，可以有效减少加锁操作，提高性能。</p>
+<p><strong>6、索引实现不一样。</strong></p>
+<p>虽然 MyISAM 引擎和 InnoDB 引擎都是使用 B+Tree 作为索引结构，但是两者的实现方式不太一样。</p>
+<p>InnoDB 引擎中，其数据文件本身就是索引文件。相比 MyISAM，索引文件和数据文件是分离的，其表数据文件本身就是按 B+Tree 组织的一个索引结构，树的叶节点 data 域保存了完整的数据记录。</p>
+<p>详细区别，推荐你看看我写的这篇文章：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-index.md">MySQL 索引详解</a>。</p>
+<p><strong>7、性能有差别。</strong></p>
+<p>InnoDB 的性能比 MyISAM 更强大，不管是在读写混合模式下还是只读模式下，随着 CPU 核数的增加，InnoDB 的读写能力呈线性增长。MyISAM 因为读写不能并发，它的处理能力跟核数没关系。</p>
+<p><img alt="InnoDB 和 MyISAM 性能对比" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/innodb-myisam-performance-comparison.png"/></p>
+<p><strong>8、数据缓存策略和机制实现不同。</strong></p>
+<p>InnoDB 使用缓冲池（Buffer Pool）缓存数据页和索引页，MyISAM 使用键缓存（Key Cache）仅缓存索引页而不缓存数据页。</p>
+<p><strong>总结</strong>：</p>
+<ul>
+<li>InnoDB 支持行级别的锁粒度，MyISAM 不支持，只支持表级别的锁粒度。</li>
+<li>MyISAM 不提供事务支持。InnoDB 提供事务支持，实现了 SQL 标准定义了四个隔离级别。</li>
+<li>MyISAM 不支持外键，而 InnoDB 支持。</li>
+<li>MyISAM 不支持 MVCC，而 InnoDB 支持。</li>
+<li>虽然 MyISAM 引擎和 InnoDB 引擎都是使用 B+Tree 作为索引结构，但是两者的实现方式不太一样。</li>
+<li>MyISAM 不支持数据库异常崩溃后的安全恢复，而 InnoDB 支持。</li>
+<li>InnoDB 的性能比 MyISAM 更强大。</li>
+</ul>
+<p>最后，再分享一张图片给你，这张图片详细对比了常见的几种 MySQL 存储引擎。</p>
+<p><img alt="常见的几种 MySQL 存储引擎对比" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/comparison-of-common-mysql-storage-engines.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L354">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k28705e47ed87"></a></p>
+<span class="heading-anchor" id="是否支持行级锁"></span><h2 id="_1_29">是否支持行级锁</h2>
+<p>MyISAM 只有表级锁(table-level locking)，而 InnoDB 支持行级锁(row-level locking)和表级锁,默认为行级锁。</p>
+<p>也就说，MyISAM 一锁就是锁住了整张表，这在并发写的情况下是多么滴憨憨啊！这也是为什么 InnoDB 在并发写的时候，性能更牛皮了！</p>
+<p><strong>2、是否支持事务</strong></p>
+<p>MyISAM 不提供事务支持。</p>
+<p>InnoDB 提供事务支持，实现了 SQL 标准定义了四个隔离级别，具有提交(commit)和回滚(rollback)事务的能力。并且，InnoDB 默认使用的 REPEATABLE-READ（可重读）隔离级别是可以解决幻读问题发生的（基于 MVCC 和 Next-Key Lock）。</p>
+<p>关于 MySQL 事务的详细介绍，可以看看我写的这篇文章：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/transaction-isolation-level.md">MySQL 事务隔离级别详解</a>。</p>
+<p><strong>3、是否支持外键</strong></p>
+<p>MyISAM 不支持，而 InnoDB 支持。</p>
+<p>外键对于维护数据一致性非常有帮助，但是对性能有一定的损耗。因此，通常情况下，我们是不建议在实际生产项目中使用外键的，在业务代码中进行约束即可！</p>
+<p>阿里的《Java 开发手册》也是明确规定禁止使用外键的。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/image-20220510090309427.png"/></p>
+<p>不过，在代码中进行约束的话，对程序员的能力要求更高，具体是否要采用外键还是要根据你的项目实际情况而定。</p>
+<p>总结：一般我们也是不建议在数据库层面使用外键的，应用层面可以解决。不过，这样会对数据的一致性造成威胁。具体要不要使用外键还是要根据你的项目来决定。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L320">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kdcbc755db2bb"></a></p>
+<span class="heading-anchor" id="自增锁有了解吗？"></span><h2 id="_1_30">自增锁有了解吗？</h2>
+<blockquote>
+<p>不太重要的一个知识点，简单了解即可。</p>
+</blockquote>
+<p>关系型数据库设计表的时候，通常会有一列作为自增主键。InnoDB 中的自增主键会涉及一种比较特殊的表级锁— <strong>自增锁（AUTO-INC Locks）</strong> 。</p>
+<pre><code class="language-sql">CREATE TABLE `sequence_id` (
+  `id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `stub` CHAR(10) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `stub` (`stub`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+</code></pre>
+<p>更准确点来说，不仅仅是自增主键，<code>AUTO_INCREMENT</code>的列都会涉及到自增锁，毕竟非主键也可以设置自增长。</p>
+<p>如果一个事务正在插入数据到有自增列的表时，会先获取自增锁，拿不到就可能会被阻塞住。这里的阻塞行为只是自增锁行为的其中一种，可以理解为自增锁就是一个接口，其具体的实现有多种。具体的配置项为 <code>innodb_autoinc_lock_mode</code> （MySQL 5.1.22 引入），可以选择的值如下：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>innodb_autoinc_lock_mode</th>
+<th>介绍</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>传统模式</td>
+</tr>
+<tr>
+<td>1</td>
+<td>连续模式（MySQL 8.0 之前默认）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>交错模式(MySQL 8.0 之后默认)</td>
+</tr>
+</tbody>
+</table></div>
+<p>交错模式下，所有的“INSERT-LIKE”语句（所有的插入语句，包括：<code>INSERT</code>、<code>REPLACE</code>、<code>INSERT…SELECT</code>、<code>REPLACE…SELECT</code>、<code>LOAD DATA</code>等）都不使用表级锁，使用的是轻量级互斥锁实现，多条插入语句可以并发执行，速度更快，扩展性也更好。</p>
+<p>不过，如果你的 MySQL 数据库有主从同步需求并且 Binlog 存储格式为 Statement 的话，不要将 InnoDB 自增锁模式设置为交叉模式，不然会有数据不一致性问题。这是因为并发情况下插入语句的执行顺序就无法得到保障。</p>
+<blockquote>
+<p>如果 MySQL 采用的格式为 Statement ，那么 MySQL 的主从同步实际上同步的就是一条一条的 SQL 语句。</p>
+</blockquote>
+<p>最后，再推荐一篇文章：<a href="https://draveness.me/whys-the-design-mysql-auto-increment/">为什么 MySQL 的自增主键不单调也不连续</a> 。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L906">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k12330241e0b3"></a></p>
+<span class="heading-anchor" id="行级锁的使用有什么注意事项？"></span><h2 id="_1_31">行级锁的使用有什么注意事项？</h2>
+<p>InnoDB 的行锁是针对索引字段加的锁，表级锁是针对非索引字段加的锁。当我们执行 <code>UPDATE</code>、<code>DELETE</code> 语句时，如果 <code>WHERE</code>条件中字段没有命中唯一索引或者索引失效的话，就会导致扫描全表对表中的所有行记录进行加锁。这个在我们日常工作开发中经常会遇到，一定要多多注意！！！</p>
+<p>不过，很多时候即使用了索引也有可能会走全表扫描，这是因为 MySQL 优化器的原因。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L795">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka0caeb87325c"></a></p>
+<span class="heading-anchor" id="详细说说 MVCC 的实现，ReadView 的生成时机是怎样的？"></span><h2 id="mvcc-readview">详细说说 MVCC 的实现，ReadView 的生成时机是怎样的？</h2>
+<p><strong>回答：</strong></p>
+<p>MVCC 是多版本并发控制，目标是在不加读锁的情况下实现一致性读，提高读写并发。InnoDB 的 MVCC 依赖隐藏字段、undo log 和 ReadView。</p>
+<p>InnoDB 每行记录有隐藏字段，重要的是 <code>trx_id</code> 和 <code>roll_pointer</code>。<code>trx_id</code> 表示最后修改这行记录的事务 ID；<code>roll_pointer</code> 指向 undo log 中的旧版本。每次更新并不是简单覆盖旧值，而是生成新版本，并通过 undo log 保留旧版本链。</p>
+<p>ReadView 是一致性读时生成的快照，里面通常包含：创建 ReadView 时活跃事务 ID 列表 <code>m_ids</code>，最小活跃事务 ID <code>up_limit_id</code>，下一个将分配的事务 ID <code>low_limit_id</code>，以及当前事务 ID。判断某个版本是否可见时，大致规则是：如果版本的 trx_id 小于最小活跃事务 ID，说明在快照前已提交，可见；如果 trx_id 大于等于 low_limit_id，说明是快照后才出现的事务，不可见；如果 trx_id 在活跃事务列表中，说明快照创建时还没提交，不可见；否则可见。</p>
+<p>如果当前记录版本不可见，就沿着 undo log 版本链向前找，直到找到对当前 ReadView 可见的版本，或者找不到。</p>
+<p>ReadView 的生成时机和隔离级别有关。在读已提交下，每次执行一致性读语句都会生成新的 ReadView，所以同一事务里两次 SELECT 可能看到不同已提交结果。在可重复读下，事务中第一次一致性读生成 ReadView，后续一致性读复用这个 ReadView，因此能保证同一事务内快照稳定。</p>
+<p>注意，MVCC 主要针对普通 SELECT 的一致性读。<code>select ... for update</code>、<code>lock in share mode</code>、update、delete 属于当前读，会读取最新已提交版本并加锁。</p>
+<p><a id="bytedance-ai-agent-hard-20260602-q18"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L648">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd44a404fbbdc"></a></p>
+<span class="heading-anchor" id="说一下数据库表锁和行锁吧"></span><h2 id="_1_33">说一下数据库表锁和行锁吧</h2>
+<p><strong>表锁</strong></p>
+<p>不会出现死锁，发生锁冲突几率高，并发低。</p>
+<p>MyISAM在执行查询语句（select）前，会自动给涉及的所有表加读锁，在执行增删改操作前，会自动给涉及的表加写锁。</p>
+<p>MySQL的表级锁有两种模式：表共享读锁和表独占写锁。</p>
+<p>读锁会阻塞写，写锁会阻塞读和写</p>
+<ul>
+<li>对MyISAM表的读操作，不会阻塞其它进程对同一表的读请求，但会阻塞对同一表的写请求。只有当读锁释放后，才会执行其它进程的写操作。</li>
+<li>对MyISAM表的写操作，会阻塞其它进程对同一表的读和写操作，只有当写锁释放后，才会执行其它进程的读写操作。</li>
+</ul>
+<p>MyISAM不适合做写为主表的引擎，因为写锁后，其它线程不能做任何操作，大量的更新会使查询很难得到锁，从而造成永远阻塞。</p>
+<p><strong>行锁</strong></p>
+<p>会出现死锁，发生锁冲突几率低，并发高。</p>
+<p>在MySQL的InnoDB引擎支持行锁，与Oracle不同，MySQL的行锁是通过索引加载的。也就是说，行锁是加在索引响应的行上的，要是对应的SQL语句没有走索引，则会全表扫描，行锁则无法实现，取而代之的是表锁，此时其它事务无法对当前表进行更新或插入操作。</p>
+<p><strong>行锁的实现需要注意：</strong></p>
+<ul>
+<li>行锁必须有索引才能实现，否则会自动锁全表，那么就不是行锁了。</li>
+<li>如果是共享锁，两个事务可以锁同一个索引，排它锁则不能。</li>
+<li>insert，delete，update在事务中都会自动默认加上排它锁。</li>
+</ul>
+<p><strong>行锁的适用场景：</strong></p>
+<p>A用户消费，service层先查询该用户的账户余额，若余额足够，则进行后续的扣款操作；这种情况查询的时候应该对该记录进行加锁。</p>
+<p>否则，B用户在A用户查询后消费前先一步将A用户账号上的钱转走，而此时A用户已经进行了用户余额是否足够的判断，则可能会出现余额已经不足但却扣款成功的情况。</p>
+<p>为了避免此情况，需要在A用户操作该记录的时候进行for update加锁</p>
+<p id="语法中内连接自连接外连接左右全交叉连接的区别分别是什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/04-01-03-MySQL.md#L86)，来源许可：Apache-2.0。</p>
+<p><a id="k582cb78421e4"></a></p>
+<span class="heading-anchor" id="那数据库事务有什么作用呢？"></span><h2 id="_1_34">那数据库事务有什么作用呢？</h2>
+<p>简单来说，数据库事务可以保证多个对数据库的操作（也就是 SQL 语句）构成一个逻辑上的整体。构成这个逻辑上的整体的这些数据库操作遵循：<strong>要么全部执行成功,要么全部不执行</strong> 。</p>
+<pre><code class="language-sql"># 开启一个事务
+START TRANSACTION;
+# 多条 SQL 语句
+SQL1,SQL2...
+## 提交事务
+COMMIT;
+</code></pre>
+<p><img alt="数据库事务示意图" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/%E6%95%B0%E6%8D%AE%E5%BA%93%E4%BA%8B%E5%8A%A1%E7%A4%BA%E6%84%8F%E5%9B%BE.png"/></p>
+<p>另外，关系型数据库（例如：<code>MySQL</code>、<code>SQL Server</code>、<code>Oracle</code> 等）事务都有 <strong>ACID</strong> 特性：</p>
+<p><img alt="ACID" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/ACID.png"/></p>
+<ol>
+<li><strong>原子性</strong>（<code>Atomicity</code>）：事务是最小的执行单位，不允许分割。事务的原子性确保动作要么全部完成，要么完全不起作用；</li>
+<li><strong>一致性</strong>（<code>Consistency</code>）：执行事务前后，数据保持一致，例如转账业务中，无论事务是否成功，转账者和收款人的总额应该是不变的；</li>
+<li><strong>隔离性</strong>（<code>Isolation</code>）：并发访问数据库时，一个用户的事务不被其他事务所干扰，各并发事务之间数据库是独立的；</li>
+<li><strong>持久性</strong>（<code>Durability</code>）：一个事务被提交之后。它对数据库中数据的改变是持久的，即使数据库发生故障也不应该对其有任何影响。</li>
+</ol>
+<p>🌈 这里要额外补充一点：<strong>只有保证了事务的持久性、原子性、隔离性之后，一致性才能得到保障。也就是说 A、I、D 是手段，C 是目的！</strong> 想必大家也和我一样，被 ACID 这个概念被误导了很久! 我也是看周志明老师的公开课<a href="https://time.geekbang.org/opencourse/intro/100064201">《周志明的软件架构课》</a>才搞清楚的（多看好书！！！）。</p>
+<p><img alt="AID-&gt;C" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/mysql/AID-%3EC.png"/></p>
+<p>另外，DDIA 也就是 <a href="https://book.douban.com/subject/30329536/">《Designing Data-Intensive Application（数据密集型应用系统设计）》</a> 的作者在他的这本书中如是说：</p>
+<blockquote>
+<p>Atomicity, isolation, and durability are properties of the database, whereas consis‐
+tency (in the ACID sense) is a property of the application. The application may rely
+on the database’s atomicity and isolation properties in order to achieve consistency,
+but it’s not up to the database alone.</p>
+<p>翻译过来的意思是：原子性，隔离性和持久性是数据库的属性，而一致性（在 ACID 意义上）是应用程序的属性。应用可能依赖数据库的原子性和隔离属性来实现一致性，但这并不仅取决于数据库。因此，字母 C 不属于 ACID 。</p>
+</blockquote>
+<p>《Designing Data-Intensive Application（数据密集型应用系统设计）》这本书强推一波，值得读很多遍！豆瓣有接近 90% 的人看了这本书之后给了五星好评。另外，中文翻译版本已经在 GitHub 开源，地址：<a href="https://github.com/Vonng/ddia">https://github.com/Vonng/ddia</a> 。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/books/ddia.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/database/mysql/mysql-questions-01.md#L634">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-7b2e4830ba95.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>SQL查询与练习</strong></a><a class="page-next" href="n-a8164c1f8779.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>存储、日志与复制</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#mongodb">MongoDB 事务</a></li><li class="outline-level-2"><a href="#mysql">MySQL 的事务隔离级别有哪些？如何保证一致性？</a></li><li class="outline-level-2"><a href="#mysql_1">MySQL 的隔离级别是基于锁实现的吗？</a></li><li class="outline-level-2"><a href="#mysql_2">MySQL 的默认隔离级别是什么?</a></li><li class="outline-level-2"><a href="#mysql_3">MySQL 都有哪些锁？它们的作用分别是什么？</a></li><li class="outline-level-2"><a href="#mysql_4">MySQL中为什么要有事务回滚机制？</a></li><li class="outline-level-2"><a href="#mysql-acid">MySQL的 ACID，分别解释一下</a></li><li class="outline-level-2"><a href="#_1_6">不可重复读和幻读区别是什么？可以举个例子吗？</a></li><li class="outline-level-2"><a href="#_1_7">不可重复读和幻读有什么区别？</a></li><li class="outline-level-2"><a href="#acidmvccagent">事务ACID、隔离级别和MVCC在Agent任务系统中有什么价值？</a></li><li class="outline-level-2"><a href="#acid">事务四大特性（ACID）原子性、一致性、隔离性、持久性？</a></li><li class="outline-level-2"><a href="#mvcc_1">什么是 MVCC？</a></li><li class="outline-level-2"><a href="#_1_11">什么是三级封锁协议？</a></li><li class="outline-level-2"><a href="#_1_12">什么是两段锁协议？</a></li><li class="outline-level-2"><a href="#_1_13">什么是数据库事务？</a></li><li class="outline-level-2"><a href="#mvcc_2">介绍 MVCC</a></li><li class="outline-level-2"><a href="#_1_15">何为事务？ 一言蔽之，事务是逻辑上的一组操作，要么都执行，要么都不执行。</a></li><li class="outline-level-2"><a href="#_1_16">共享锁和排他锁呢？</a></li><li class="outline-level-2"><a href="#_1_17">四种隔离级别的实现原理？</a></li><li class="outline-level-2"><a href="#mysql_5">在高并发写入场景下，MySQL 的间隙锁可能造成什么问题？</a></li><li class="outline-level-2"><a href="#_1_19">常见的封锁类型？</a></li><li class="outline-level-2"><a href="#_1_20">并发事务带来了哪些问题?</a></li><li class="outline-level-2"><a href="#_1_21">并发事务的控制方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_22">意向锁有什么作用？</a></li><li class="outline-level-2"><a href="#_1_23">数据库中的锁有了解过吗</a></li><li class="outline-level-2"><a href="#_1_24">数据库并发事务会带来哪些问题？</a></li><li class="outline-level-2"><a href="#_1_25">数据库悲观锁和乐观锁的原理和应用场景分别有什么？</a></li><li class="outline-level-2"><a href="#_1_26">数据库的四种隔离级别？</a></li><li class="outline-level-2"><a href="#_1_27">数据库隔离级别</a></li><li class="outline-level-2"><a href="#mvcc_3">是否支持 MVCC</a></li><li class="outline-level-2"><a href="#_1_29">是否支持行级锁</a></li><li class="outline-level-2"><a href="#_1_30">自增锁有了解吗？</a></li><li class="outline-level-2"><a href="#_1_31">行级锁的使用有什么注意事项？</a></li><li class="outline-level-2"><a href="#mvcc-readview">详细说说 MVCC 的实现，ReadView 的生成时机是怎样的？</a></li><li class="outline-level-2"><a href="#_1_33">说一下数据库表锁和行锁吧</a></li><li class="outline-level-2"><a href="#_1_34">那数据库事务有什么作用呢？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

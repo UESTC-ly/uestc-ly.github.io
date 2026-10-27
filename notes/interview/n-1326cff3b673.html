@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>架构设计与容量 · 李杨的学习笔记</title><meta name="description" content="对于 MySQL，我们经常有一些复杂的关联查询。在 es 里该怎么玩儿，es 里面的复杂的关联查询尽量别用，一旦用了性能一般都不太好。">
+<meta property="og:type" content="website"><meta property="og:title" content="架构设计与容量 · 李杨的学习笔记"><meta property="og:description" content="对于 MySQL，我们经常有一些复杂的关联查询。在 es 里该怎么玩儿，es 里面的复杂的关联查询尽量别用，一旦用了性能一般都不太好。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-1326cff3b673.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-1326cff3b673.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html" aria-current="page">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">07-分布式与系统设计</p><h1>架构设计与容量</h1><p class="article-question-meta">31 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-90d2ebfcdeb2">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/07-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%8E%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%B9%E9%87%8F.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#document">document 模型设计</a></li><li class="outline-level-2"><a href="#es">ES 生产集群架构：面试官心理分析</a></li><li class="outline-level-2"><a href="#es_1">ES 的分布式架构原理：面试官心理分析</a></li><li class="outline-level-2"><a href="#ha">HA 高可用性</a></li><li class="outline-level-2"><a href="#hystrix">Hystrix 更加细节的设计原则</a></li><li class="outline-level-2"><a href="#hystrix_1">Hystrix 的设计原则</a></li><li class="outline-level-2"><a href="#vllm-v1gpu">vLLM V1如何配置多GPU分布式推理？关键并行参数如何选择？</a></li><li class="outline-level-2"><a href="#_1_8">为什么要将系统进行拆分？</a></li><li class="outline-level-2"><a href="#_1_9">为什么要拆分系统？</a></li><li class="outline-level-2"><a href="#_1_10">为什么要拆分系统？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_11">你训过最大的模型多大，分布式怎么搭的？</a></li><li class="outline-level-2"><a href="#_1_12">假设我现在需要进行分布式的收集和聚合分析，整个处理链路你怎么设计？</a></li><li class="outline-level-2"><a href="#_1_13">分布式协调</a></li><li class="outline-level-2"><a href="#id">分布式唯一ID怎么生成？要求自增怎么办？</a></li><li class="outline-level-2"><a href="#_1_15">分布式锁</a></li><li class="outline-level-2"><a href="#_1_16">大型电商网站的商品详情页系统架构</a></li><li class="outline-level-2"><a href="#zerofsdp">大模型分布式训练的并行策略有哪些（数据并行/模型并行/管道并行/ZeRO/FSDP）？各自原理与适用场景是什么？</a></li><li class="outline-level-2"><a href="#session">如何实现分布式 Session？</a></li><li class="outline-level-2"><a href="#session_2">如何实现分布式 Session？：面试官心理分析</a></li><li class="outline-level-2"><a href="#dubbo">如何自己扩展 dubbo 中的组件</a></li><li class="outline-level-2"><a href="#_1_21">如何设计一个高并发系统</a></li><li class="outline-level-2"><a href="#_1_22">如何设计一个高并发系统：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_23">如何进行系统拆分？</a></li><li class="outline-level-2"><a href="#_1_24">小型电商网站的商品详情页系统架构</a></li><li class="outline-level-2"><a href="#_1_25">怎么从语言模型理解词向量？怎么理解分布式假设？</a></li><li class="outline-level-2"><a href="#ai">有哪些常见的AI模型分布式推理方式？</a></li><li class="outline-level-2"><a href="#ai_1">有哪些常见的AI模型分布式训练方式？</a></li><li class="outline-level-2"><a href="#ai_2">生产级 AI 应用架构</a></li><li class="outline-level-2"><a href="#_1_29">系统设计案例</a></li><li class="outline-level-2"><a href="#_1_30">综合系统设计题</a></li><li class="outline-level-2"><a href="#_1_31">高可用基础</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k1046a8f96675"></a></p>
+<span class="heading-anchor" id="document 模型设计"></span><h2 id="document">document 模型设计</h2>
+<p>对于 MySQL，我们经常有一些复杂的关联查询。在 es 里该怎么玩儿，es 里面的复杂的关联查询尽量别用，一旦用了性能一般都不太好。</p>
+<p>最好是先在 Java 系统里就完成关联，将关联好的数据直接写入 es 中。搜索的时候，就不需要利用 es 的搜索语法来完成 join 之类的关联搜索了。</p>
+<p>document 模型设计是非常重要的，很多操作，不要在搜索的时候才想去执行各种复杂的乱七八糟的操作。es 能支持的操作就那么多，不要考虑用 es 做一些它不好操作的事情。如果真的有那种操作，尽量在 document 模型设计的时候，写入的时候就完成。另外对于一些太复杂的操作，比如 join/nested/parent-child 搜索都要尽量避免，性能都很差的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-optimizing-query-performance.md#L57">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k5f1747f0c3dc"></a></p>
+<span class="heading-anchor" id="ES 生产集群架构：面试官心理分析"></span><h2 id="es">ES 生产集群架构：面试官心理分析</h2>
+<p>这个问题，包括后面的 redis 什么的，谈到 es、redis、mysql 分库分表等等技术，面试必问！就是你生产环境咋部署的？说白了，这个问题没啥技术含量，就是看你有没有在真正的生产环境里干过这事儿！</p>
+<p>有些同学可能是没在生产环境中干过的，没实际去拿线上机器部署过 es 集群，也没实际玩儿过，也没往 es 集群里面导入过几千万甚至是几亿的数据量，可能你就不太清楚这里面的一些生产项目中的细节。</p>
+<p>如果你是自己就玩儿过 demo，没碰过真实的 es 集群，那你可能此时会懵。别懵，你一定要云淡风轻的回答出来这个问题，表示你确实干过这事儿。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-production-cluster.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kc69fa7d8225f"></a></p>
+<span class="heading-anchor" id="ES 的分布式架构原理：面试官心理分析"></span><h2 id="es_1">ES 的分布式架构原理：面试官心理分析</h2>
+<p>在搜索这块，lucene 是最流行的搜索库。几年前业内一般都问，你了解 lucene 吗？你知道倒排索引的原理吗？现在早已经 out 了，因为现在很多项目都是直接用基于 lucene 的分布式搜索引擎—— ElasticSearch，简称为 ES。</p>
+<p>而现在分布式搜索基本已经成为大部分互联网行业的 Java 系统的标配，其中尤为流行的就是 ES，前几年 ES 没火的时候，大家一般用 solr。但是这两年基本大部分企业和项目都开始转向 ES 了。</p>
+<p>所以互联网面试，肯定会跟你聊聊分布式搜索引擎，也就一定会聊聊 ES，如果你确实不知道，那你真的就 out 了。</p>
+<p>如果面试官问你第一个问题，确实一般都会问你 ES 的分布式架构设计能介绍一下么？就看看你对分布式搜索引擎架构的一个基本理解。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-architecture.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k23ed76ca25ef"></a></p>
+<span class="heading-anchor" id="HA 高可用性"></span><h2 id="ha">HA 高可用性</h2>
+<p>这个应该是很常见的，比如 hadoop、hdfs、yarn 等很多大数据系统，都选择基于 zookeeper 来开发 HA 高可用机制，就是一个<strong>重要进程一般会做主备</strong>两个，主进程挂了立马通过 zookeeper 感知到切换到备用进程。</p>
+<p><img alt="zookeeper-active-standby" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/zookeeper-active-standby.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/zookeeper-application-scenarios.md#L42">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k97a140fecb9a"></a></p>
+<span class="heading-anchor" id="Hystrix 更加细节的设计原则"></span><h2 id="hystrix">Hystrix 更加细节的设计原则</h2>
+<ul>
+<li>阻止任何一个依赖服务耗尽所有的资源，比如 tomcat 中的所有线程资源。</li>
+<li>避免请求排队和积压，采用限流和 <code>fail fast</code> 来控制故障。</li>
+<li>提供 fallback 降级机制来应对故障。</li>
+<li>使用资源隔离技术，比如 <code>bulkhead</code>（舱壁隔离技术）、<code>swimlane</code>（泳道技术）、<code>circuit breaker</code>（断路技术）来限制任何一个依赖服务的故障的影响。</li>
+<li>通过近实时的统计、监控、报警功能，来提高故障发现的速度。</li>
+<li>通过近实时的属性和配置<strong>热修改</strong>功能，来提高故障处理和恢复的速度。</li>
+<li>保护依赖服务调用的所有故障情况，而不仅仅只是网络故障情况。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-introduction.md#L43">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k864238eaae3b"></a></p>
+<span class="heading-anchor" id="Hystrix 的设计原则"></span><h2 id="hystrix_1">Hystrix 的设计原则</h2>
+<ul>
+<li>对依赖服务调用时出现的调用延迟和调用失败进行<strong>控制和容错保护</strong>。</li>
+<li>在复杂的分布式系统中，阻止某一个依赖服务的故障在整个系统中蔓延。比如某一个服务故障了，导致其它服务也跟着故障。</li>
+<li>提供 <code>fail-fast</code>（快速失败）和快速恢复的支持。</li>
+<li>提供 fallback 优雅降级的支持。</li>
+<li>支持近实时的监控、报警以及运维操作。</li>
+</ul>
+<p>举个栗子。</p>
+<p>有这样一个分布式系统，服务 A 依赖于服务 B，服务 B 依赖于服务 C/D/E。在这样一个成熟的系统内，比如说最多可能只有 100 个线程资源。正常情况下，40 个线程并发调用服务 C，各 30 个线程并发调用 D/E。</p>
+<p>调用服务 C，只需要 20ms，现在因为服务 C 故障了，比如延迟，或者挂了，此时线程会 hang 住 2s 左右。40 个线程全部被卡住，由于请求不断涌入，其它的线程也用来调用服务 C，同样也会被卡住。这样导致服务 B 的线程资源被耗尽，无法接收新的请求，甚至可能因为大量线程不断的运转，导致自己宕机。这种影响势必会蔓延至服务 A，导致服务 A 也跟着挂掉。</p>
+<p><img alt="service-invoke-road" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/service-invoke-road.png"/></p>
+<p>Hystrix 可以对其进行资源隔离，比如限制服务 B 只有 40 个线程调用服务 C。当此 40 个线程被 hang 住时，其它 60 个线程依然能正常调用工作。从而确保整个系统不会被拖垮。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-introduction.md#L25">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka63708c9b5ff"></a></p>
+<span class="heading-anchor" id="vLLM V1如何配置多GPU分布式推理？关键并行参数如何选择？"></span><h2 id="vllm-v1gpu">vLLM V1如何配置多GPU分布式推理？关键并行参数如何选择？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、vLLM V1多GPU配置的参数"></span><h3 id="vllm-v1gpu_1">一、vLLM V1多GPU配置的参数</h3>
+<p><strong><code>--tensor-parallel-size</code>（张量并行度）</strong></p>
+<ul>
+<li>含义：将单个模型副本的权重矩阵切分到多少张GPU上</li>
+<li>取值：通常为1/2/4/8</li>
+<li>要求：TP内通信频繁，最好限制在同节点NVLink/NVSwitch范围内</li>
+<li>适用：模型权重单卡放不下，或单卡放下后KV Cache空间不足</li>
+</ul>
+<p><strong><code>--pipeline-parallel-size</code>（流水线并行度）</strong></p>
+<ul>
+<li>含义：将模型层切分到多个流水线阶段</li>
+<li>取值：通常为1/2/4</li>
+<li>要求：每个PP stage内部仍可组合TP</li>
+<li>适用：超大模型跨节点部署，或TP不适合跨节点扩展时</li>
+</ul>
+<p><strong><code>--data-parallel-size</code>（数据并行副本数）</strong></p>
+<ul>
+<li>含义：启动多个完整模型副本，每个副本处理不同请求</li>
+<li>要求：每个DP副本内部可以是单卡，也可以是TP/PP组合</li>
+<li>适用：单个模型副本已经能跑，但总吞吐不够</li>
+</ul>
+<p><strong><code>--distributed-executor-backend</code>（分布式执行后端）</strong></p>
+<ul>
+<li>含义：选择分布式Worker/Executor管理方式</li>
+<li>单机部署通常使用默认后端即可</li>
+<li>多节点部署可根据环境选择<code>ray</code>等后端，而不是使用旧版<code>--worker-use-ray</code>口径</li>
+</ul>
+<p><strong>上下文并行参数</strong></p>
+<ul>
+<li><code>--decode-context-parallel-size</code>：Decode阶段上下文并行</li>
+<li><code>--prefill-context-parallel-size</code>：Prefill阶段上下文并行</li>
+<li>适用：超长上下文下单卡/单组GPU处理上下文压力过大时评估</li>
+</ul>
+<span class="heading-anchor" id="二、参数选择指南"></span><h3 id="_1_7">二、参数选择指南</h3>
+<p><strong>确定模型副本形态的方法：</strong></p>
+<ol>
+<li>先估算单卡能否放下模型权重和必要KV Cache</li>
+<li>能放下：优先单卡副本，通过<code>data-parallel-size</code>扩吞吐</li>
+<li>放不下：优先节点内<code>tensor-parallel-size</code></li>
+<li>单节点仍放不下或模型非常大：再组合<code>pipeline-parallel-size</code></li>
+<li>长上下文成为主要瓶颈时，再评估Prefill/Decode上下文并行</li>
+</ol>
+<p><strong>常见模型推荐配置：</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型规模</th>
+<th>精度</th>
+<th>单卡80GB</th>
+<th>推荐配置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>7B</td>
+<td>FP16/BF16</td>
+<td>能放下</td>
+<td>DP多副本</td>
+<td>提高吞吐优先用数据并行</td>
+</tr>
+<tr>
+<td>13B</td>
+<td>FP16/BF16</td>
+<td>能放下</td>
+<td>DP多副本</td>
+<td>单副本通常无需TP</td>
+</tr>
+<tr>
+<td>34B</td>
+<td>FP16/BF16</td>
+<td>接近上限</td>
+<td>TP2或量化+DP</td>
+<td>需要给KV Cache留空间</td>
+</tr>
+<tr>
+<td>70B</td>
+<td>FP16/BF16</td>
+<td>放不下</td>
+<td>TP4/TP8</td>
+<td>节点内高速互联更重要</td>
+</tr>
+<tr>
+<td>70B</td>
+<td>INT4/AWQ</td>
+<td>能放下或接近</td>
+<td>单卡/TP2+DP</td>
+<td>量化后可优先扩副本</td>
+</tr>
+<tr>
+<td>405B</td>
+<td>FP8/BF16</td>
+<td>放不下</td>
+<td>TP+PP跨节点</td>
+<td>需要结合网络和Executor后端</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="三、多GPU部署示例"></span><h3 id="gpu">三、多GPU部署示例</h3>
+<p><strong>单节点4卡部署70B模型：</strong></p>
+<pre><code class="language-bash">vllm serve meta-llama/Llama-2-70b-chat-hf \
+    --tensor-parallel-size 4 \
+    --gpu-memory-utilization 0.9 \
+    --max-model-len 4096
+</code></pre>
+<p><strong>单卡可放下但吞吐不足：使用数据并行扩副本：</strong></p>
+<pre><code class="language-bash">vllm serve Qwen/Qwen2-7B-Instruct \
+    --data-parallel-size 4 \
+    --max-num-seqs 128 \
+    --max-num-batched-tokens 8192
+</code></pre>
+<p><strong>多节点超大模型：TP+PP并指定分布式后端：</strong></p>
+<pre><code class="language-bash">vllm serve meta-llama/Llama-3.1-405B-Instruct \
+    --tensor-parallel-size 4 \
+    --pipeline-parallel-size 2 \
+    --distributed-executor-backend ray
+</code></pre>
+<span class="heading-anchor" id="四、多节点部署的关键判断"></span><h3 id="_2">四、多节点部署的关键判断</h3>
+<p>跨节点部署时，需要考量的是通信是否划算：</p>
+<ul>
+<li><strong>TP跨节点风险最大</strong>：每层都可能有AllReduce/AllGather，网络差会严重拖慢TPOT</li>
+<li><strong>PP跨节点更常见</strong>：层间只传激活，通信频率低于TP，但会有流水线气泡</li>
+<li><strong>DP跨节点更稳妥</strong>：不同副本处理不同请求，模型内部通信较少</li>
+<li><strong>PD分离另算一类</strong>：P/D之间需要KV传输，应重点评估<code>kv-transfer-config</code>、网络带宽和KV大小</li>
+</ul>
+<p>因此一般优先级是：<strong>节点内TP，节点间DP；超大模型再节点间PP；PD分离只在Prefill/Decode瓶颈差异明显时引入。</strong></p>
+<span class="heading-anchor" id="五、常见配置问题"></span><h3 id="_3">五、常见配置问题</h3>
+<p><strong>问题1：TP size不整除注意力头数</strong></p>
+<p>大多数模型的注意力头数是2的幂次或可被常见TP值整除。如果TP size不能整除头数，可能启动失败或性能不佳。</p>
+<p><strong>问题2：跨节点TP延迟高</strong></p>
+<p>如果跨节点没有InfiniBand/RoCE等高速网络，TP通信会成为瓶颈。此时应优先改成节点内TP、跨节点DP或PP。</p>
+<p><strong>问题3：DP副本吞吐没线性提升</strong></p>
+<p>可能瓶颈不在GPU，而在请求路由、CPU Tokenization、网络、限流策略或后端负载不均衡。</p>
+<p><strong>问题4：长上下文下显存不足</strong></p>
+<p>优先检查<code>max-model-len</code>、KV Cache容量、<code>max-num-seqs</code>和Prefix Caching命中率，再考虑上下文并行或PD分离。</p>
+<p>可以总结为：<strong>vLLM V1多GPU部署要区分”模型放不下”和”吞吐不够”两个问题：放不下通常优先评估TP/PP，吞吐不够通常优先评估DP。旧版<code>--worker-use-ray</code>表述应更新为<code>--distributed-executor-backend</code>；跨节点部署时优先让高频通信留在节点内，把DP、PP或PD分离放到节点间。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L2391">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd5f1ae610855"></a></p>
+<span class="heading-anchor" id="为什么要将系统进行拆分？"></span><h2 id="_1_8">为什么要将系统进行拆分？</h2>
+<p>网上查查，答案极度零散和复杂，很琐碎，原因一大坨。但是我这里给大家直观的感受：</p>
+<p>要是<strong>不拆分</strong>，一个大系统几十万行代码，20 个人维护一份代码，简直是悲剧啊。代码经常改着改着就冲突了，各种代码冲突和合并要处理，非常耗费时间；经常我改动了我的代码，你调用了我的，导致你的代码也得重新测试，麻烦的要死；然后每次发布都是几十万行代码的系统一起发布，大家得一起提心吊胆准备上线，几十万行代码的上线，可能每次上线都要做很多的检查，很多异常问题的处理，简直是又麻烦又痛苦；而且如果我现在打算把技术升级到最新的 spring 版本，还不行，因为这可能导致你的代码报错，我不敢随意乱改技术。</p>
+<p>假设一个系统是 20 万行代码，其中 A 在里面改了 1000 行代码，但是此时发布的时候是这个 20 万行代码的大系统一块儿发布。就意味着 20 万上代码在线上就可能出现各种变化，20 个人，每个人都要紧张地等在电脑面前，上线之后，检查日志，看自己负责的那一块儿有没有什么问题。</p>
+<p>A 就检查了自己负责的 1 万行代码对应的功能，确保 ok 就闪人了；结果不巧的是，A 上线的时候不小心修改了线上机器的某个配置，导致另外 B 和 C 负责的 2 万行代码对应的一些功能，出错了。</p>
+<p>几十个人负责维护一个几十万行代码的单块应用，每次上线，准备几个礼拜，上线 -&gt; 部署 -&gt; 检查自己负责的功能。</p>
+<p><strong>拆分了以后</strong>，整个世界清爽了，几十万行代码的系统，拆分成 20 个服务，平均每个服务就 1~2 万行代码，每个服务部署到单独的机器上。20 个工程，20 个 git 代码仓库，20 个开发人员，每个人维护自己的那个服务就可以了，是自己独立的代码，跟别人没关系。再也没有代码冲突了，爽。每次就测试我自己的代码就可以了，爽。每次就发布我自己的一个小服务就可以了，爽。技术上想怎么升级就怎么升级，保持接口不变就可以了，真爽。</p>
+<p>所以简单来说，一句话总结，如果是那种代码量多达几十万行的中大型项目，团队里有几十个人，那么如果不拆分系统，<strong>开发效率极其低下</strong>，问题很多。但是拆分系统之后，每个人就负责自己的一小部分就好了，可以随便玩儿随便弄。分布式系统拆分之后，可以大幅度提升复杂系统大型团队的开发效率。</p>
+<p>但是同时，也要<strong>提醒</strong>的一点是，系统拆分成分布式系统之后，大量的分布式系统面临的问题也是接踵而来，所以后面的问题都是在<strong>围绕分布式系统带来的复杂技术挑战</strong>在说。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/why-dubbo.md#L25">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k7b922f4e6a47"></a></p>
+<span class="heading-anchor" id="为什么要拆分系统？"></span><h2 id="_1_9">为什么要拆分系统？</h2>
+<span class="heading-anchor" id="面试题"></span><h3 id="_2_2">面试题</h3>
+<p>为什么要进行系统拆分？如何进行系统拆分？拆分后不用 dubbo 可以吗？</p>
+<span class="heading-anchor" id="面试官心理分析"></span><h3 id="_3_1">面试官心理分析</h3>
+<p>从这个问题开始就进行分布式系统环节了，现在出去面试分布式都成标配了，没有哪个公司不问问你分布式的事儿。你要是不会分布式的东西，简直这简历没法看，没人会让你去面试。</p>
+<p>其实为啥会这样呢？这就是因为整个大行业技术发展的原因。</p>
+<p>早些年，印象中在 2010 年初的时候，整个 IT 行业，很少有人谈分布式，更不用说微服务，虽然很多 BAT 等大型公司，因为系统的复杂性，很早就是分布式架构，大量的服务，只不过微服务大多基于自己搞的一套框架来实现而已。</p>
+<p>但是确实，那个年代，大家很重视 ssh2，很多中小型公司几乎大部分都是玩儿 struts2、spring、hibernate，稍晚一些，才进入了 spring mvc、spring、mybatis 的组合。那个时候整个行业的技术水平就是那样，当年 oracle 很火，oracle 管理员很吃香，oracle 性能优化啥的都是 IT 男的大杀招啊。连大数据都没人提，当年 OCP、OCM 等认证培训机构，火的不行。</p>
+<p>但是确实随着时代的发展，慢慢的，很多公司开始接受分布式系统架构了，这里面尤为对行业有至关重要影响的，是阿里的 dubbo，<strong>某种程度上而言，阿里在这里推动了行业技术的前进</strong>。</p>
+<p>正是因为有阿里的 dubbo，很多中小型公司才可以基于 dubbo，来把系统拆分成很多的服务，每个人负责一个服务，大家的代码都没有冲突，服务可以自治，自己选用什么技术都可以，每次发布如果就改动一个服务那就上线一个服务好了，不用所有人一起联调，每次发布都是几十万行代码，甚至几百万行代码了。</p>
+<p>直到今日，很高兴看到分布式系统都成行业面试标配了，任何一个普通的程序员都该掌握这个东西，其实这是行业的进步，也是所有 IT 码农的技术进步。所以既然分布式都成标配了，那么面试官当然会问了，因为很多公司现在都是分布式、微服务的架构，那面试官当然得考察考察你了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/why-dubbo.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k3eedf5ff6ac3"></a></p>
+<span class="heading-anchor" id="为什么要拆分系统？：面试官心理分析"></span><h2 id="_1_10">为什么要拆分系统？：面试官心理分析</h2>
+<p>从这个问题开始就进行分布式系统环节了，现在出去面试分布式都成标配了，没有哪个公司不问问你分布式的事儿。你要是不会分布式的东西，简直这简历没法看，没人会让你去面试。</p>
+<p>其实为啥会这样呢？这就是因为整个大行业技术发展的原因。</p>
+<p>但是确实随着时代的发展，慢慢的，很多公司开始接受分布式系统架构了，这里面尤为对行业有至关重要影响的，是阿里的 dubbo，<strong>某种程度上而言，阿里在这里推动了行业技术的前进</strong>。</p>
+<p><strong>相关解释：</strong> <a href="n-1326cff3b673.html#k7b922f4e6a47">为什么要拆分系统？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/why-dubbo.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k7b03e6d2b2f8"></a></p>
+<span class="heading-anchor" id="你训过最大的模型多大，分布式怎么搭的？"></span><h2 id="_1_11">你训过最大的模型多大，分布式怎么搭的？</h2>
+<p><strong>回答：</strong></p>
+<p>这道题应真实报告个人经历，不能把公开训练方案讲成自己做过。可以按“模型规模与架构 -&gt; 实际训练方式 -&gt; 数据与硬件 -&gt; 并行策略 -&gt; 监控与结果 -&gt; 个人负责范围”回答。若只做过适配器微调，就明确说明基座总参数量和实际可训练参数量，不要说成从零预训练。</p>
+<p>例如用真实数据填入：“我实际训练的是［模型/参数量］，做［全量微调或 LoRA］，处理［数据与序列长度］，使用［GPU 型号、数量与节点数］。我负责［明确模块］，记录 tokens/s、峰值显存、验证集效果和断点恢复结果。”没有多机经验时可说明已完成的单机实验与理解的扩展方案。</p>
+<p>技术上，DDP 在各卡复制模型，通过不同数据批次提升吞吐，不能解决单卡装不下完整模型状态的问题。FSDP 或 ZeRO 把不同训练状态分片，按需通信；张量并行拆层内计算，流水线并行拆网络层，适合更大规模，但要承担通信和流水线空泡。应根据单卡容量、机内互联、跨机带宽与序列长度选组合，而不是默认“卡多就全开”。</p>
+<p>以 PyTorch FSDP2 为例，使用 <code>fully_shard</code> 对子模块及根模型分片，参数用 DTensor 表达；计算前聚合所需参数，反向中对梯度做 reduce-scatter，优化器维护分片状态。通常先做分片再构造优化器，配合分布式 checkpoint。代码与混合精度策略必须以实际 PyTorch 版本为准。</p>
+<p>还需解释数据如何跨 rank 划分、随机种子如何管理、变长序列如何按 token 归一化损失、故障恢复如何避免样本漏读或重复。<strong>分布式训练的能力证明，应同时包含正确性、性能和可恢复性。</strong></p>
+<p><a id="xiaohongshu-llm-20260922-q12"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1445">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8c395f8aada3"></a></p>
+<span class="heading-anchor" id="假设我现在需要进行分布式的收集和聚合分析，整个处理链路你怎么设计？"></span><h2 id="_1_12">假设我现在需要进行分布式的收集和聚合分析，整个处理链路你怎么设计？</h2>
+<p><strong>回答：</strong></p>
+<p>可以采用“节点采集、区域网关、持久化缓冲、流式聚合、分层存储、查询告警”的链路：</p>
+<pre><code class="language-text">训练进程 / GPU exporter
+  -&gt; 节点采集器：批量、过滤、限额、本地持久化缓冲
+  -&gt; 网关：鉴权、路由、背压
+  -&gt; 可选消息总线：分区、持久化、重放
+  -&gt; 流处理：去重、事件时间窗口、聚合
+  -&gt; 时序存储 / 分析存储 / 对象存储
+  -&gt; 看板、告警、作业诊断
+</code></pre>
+<p>消息总线并非所有监控系统都必需。若需要跨集群解耦、长时间缓冲、多消费者和可重放分析，可以引入 Kafka；简单指标链路可直接采用采集器到存储的模式。队列和持久化只能在配置容量、重试与保留边界内减少丢失，磁盘满或停机时间过长仍会丢数据。</p>
+<p>按租户与序列键分区，保持同一序列的顺序，避免多个写入者冲突。区分事件时间与处理时间，通过 watermark 和允许迟到策略决定何时关闭窗口；累计值与增量值转换需要处理进程重启和 counter reset。</p>
+<p>聚合必须尊重指标语义：counter 计算速率时处理重置；gauge 按业务选择最后值、最大值或时间加权统计；平均值通过总和与总计数计算；分位数不能简单平均各节点 P99。经典 histogram 需兼容桶边界后聚合桶计数，再估计分位数；native histogram 也要使用支持其兼容与合并语义的实现。</p>
+<p>高可用采集可能产生重复样本，应使用明确的副本标签、序列标识和后端去重策略。流处理状态、消费位点与输出的一致性要一起设计。监控系统自身也需要独立的健康检查，否则采集器宕机可能被误判为业务流量下降。</p>
+<p><a id="alibaba-qwen-20260916-q8"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2040">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k114d8757369f"></a></p>
+<span class="heading-anchor" id="分布式协调"></span><h2 id="_1_13">分布式协调</h2>
+<p>这个其实是 zookeeper 很经典的一个用法，简单来说，就好比，你 A 系统发送个请求到 mq，然后 B 系统消息消费之后处理了。那 A 系统如何知道 B 系统的处理结果？用 zookeeper 就可以实现分布式系统之间的协调工作。A 系统发送请求之后可以在 zookeeper 上<strong>对某个节点的值注册个监听器</strong>，一旦 B 系统处理完了就修改 zookeeper 那个节点的值，A 系统立马就可以收到通知，完美解决。</p>
+<p><img alt="zookeeper-distributed-coordination" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/zookeeper-distributed-coordination.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/zookeeper-application-scenarios.md#L24">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k5ef3f7b1941e"></a></p>
+<span class="heading-anchor" id="分布式唯一ID怎么生成？要求自增怎么办？"></span><h2 id="id">分布式唯一ID怎么生成？要求自增怎么办？</h2>
+<p><strong>面试官：</strong> 多台机器如何生成唯一ID？如果要求自增呢？</p>
+<p><strong>回答：</strong></p>
+<p>先要澄清“自增”的语义，因为唯一、趋势递增、单调递增、严格连续和按真实时间排序是不同要求，成本也完全不同。</p>
+<ul>
+<li>只要求全局唯一：UUIDv4、随机 128 位 ID 等最简单，但索引局部性较差。</li>
+<li>要求大致按时间排序：UUIDv7、ULID、Snowflake 类 ID 更适合数据库索引和日志排序。</li>
+<li>要求每个业务分区单调递增：可以为租户、订单域或分片分别维护 Sequence。</li>
+<li>要求全局严格递增：必须经过某个线性化的排序点，吞吐和可用性会受到约束。</li>
+<li>要求无空洞连续：分布式系统中代价最高，事务回滚、预取和故障都会造成 Gap，通常不应把它作为普通主键需求。</li>
+</ul>
+<p>Snowflake 一般由时间戳、节点 ID 和毫秒内序列组成，吞吐高、趋势递增且无需每次访问中心服务。风险包括时钟回拨、节点 ID 冲突、同毫秒序列耗尽和时间位溢出，因此需要时钟监控、回拨等待或逻辑时钟、节点租约与唯一分配。</p>
+<p>如果要求全局严格递增，可以使用数据库 Sequence/自增主键、Redis <code>INCR</code>、具备共识的 ID 服务或单 Leader 排序服务。但这些方案都把生成过程集中到一个线性化点，需要高可用、持久化、故障切换和热点治理。Redis <code>INCR</code> 在单主正常工作时原子递增，但要结合持久化和故障切换语义评估是否可能回退或重复。</p>
+<p>Leaf Segment 一类号段模式让应用批量领取区间，再在本地递增，显著降低中心压力；代价是趋势递增而非严格按请求时间排序，实例故障还会浪费未使用号段。多数据库设置不同起点和步长能保证不重复，却不能保证按生成时间严格单调，更不能保证无空洞。</p>
+<p>数据库主键还要关注索引写入。完全随机 UUID 会让 B+ 树频繁页分裂；时间有序 ID 更利于追加写，但如果业务暴露连续 ID，又可能泄漏订单量并便于枚举，因此外部标识可与内部主键分离。</p>
+<p><strong>面试时最好的回答不是背三个算法，而是先把唯一性、顺序性、连续性、吞吐、可用性和信息泄漏要求拆开，再选择最低成本的满足方案。</strong></p>
+<p><a id="alibaba-cloud-agent-algo-20260901-q14"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1580">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3c48e3b74f2b"></a></p>
+<span class="heading-anchor" id="分布式锁"></span><h2 id="_1_15">分布式锁</h2>
+<p>举个栗子。对某一个数据连续发出两个修改操作，两台机器同时收到了请求，但是只能一台机器先执行完另外一个机器再执行。那么此时就可以使用 zookeeper 分布式锁，一个机器接收到了请求之后先获取 zookeeper 上的一把分布式锁，就是可以去创建一个 znode，接着执行操作；然后另外一个机器也<strong>尝试去创建</strong>那个 znode，结果发现自己创建不了，因为被别人创建了，那只能等着，等第一个机器执行完了自己再执行。</p>
+<p><img alt="zookeeper-distributed-lock-demo" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/zookeeper-distributed-lock-demo.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/zookeeper-application-scenarios.md#L30">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k7ea26cf005c4"></a></p>
+<span class="heading-anchor" id="大型电商网站的商品详情页系统架构"></span><h2 id="_1_16">大型电商网站的商品详情页系统架构</h2>
+<p>大型电商网站商品详情页的系统设计中，当商品数据发生变更时，会将变更消息压入 MQ 消息队列中。<strong>缓存服务</strong>从消息队列中消费这条消息时，感知到有数据发生变更，便通过调用数据服务接口，获取变更后的数据，然后将整合好的数据推送至 redis 中。Nginx 本地缓存的数据是有一定的时间期限的，比如说 10 分钟，当数据过期之后，它就会从 redis 获取到最新的缓存数据，并且缓存到自己本地。</p>
+<p>用户浏览网页时，动态将 Nginx 本地数据渲染到本地 html 模板并返回给用户。</p>
+<p><img alt="e-commerce-website-detail-page-architecture-2" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/e-commerce-website-detail-page-architecture-2.png"/></p>
+<p>虽然没有直接返回 html 页面那么快，但是因为数据在本地缓存，所以也很快，其实耗费的也就是动态渲染一个 html 页面的性能。如果 html 模板发生了变更，不需要将所有的页面重新静态化，也不需要发送请求，没有网络请求的开销，直接将数据渲染进最新的 html 页面模板后响应即可。</p>
+<p>在这种架构下，我们需要<strong>保证系统的高可用性</strong>。</p>
+<p>如果系统访问量很高，Nginx 本地缓存过期失效了，redis 中的缓存也被 LRU 算法给清理掉了，那么会有较高的访问量，从缓存服务调用商品服务。但如果此时商品服务的接口发生故障，调用出现了延时，缓存服务全部的线程都被这个调用商品服务接口给耗尽了，每个线程去调用商品服务接口的时候，都会卡住很长时间，后面大量的请求过来都会卡在那儿，此时缓存服务没有足够的线程去调用其它一些服务的接口，从而导致整个大量的商品详情页无法正常显示。</p>
+<p>这其实就是一个商品接口服务故障导致缓存服务资源耗尽的现象。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/e-commerce-website-detail-page-architecture.md#L27">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kc7ffa8177fa7"></a></p>
+<span class="heading-anchor" id="大模型分布式训练的并行策略有哪些（数据并行/模型并行/管道并行/ZeRO/FSDP）？各自原理与适用场景是什么？"></span><h2 id="zerofsdp">大模型分布式训练的并行策略有哪些（数据并行/模型并行/管道并行/ZeRO/FSDP）？各自原理与适用场景是什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>单卡装不下大模型——参数、梯度、优化器状态、激活加起来远超单卡显存，于是要把计算和显存切到多卡，顺带靠数据并行提吞吐。</p>
+<span class="heading-anchor" id="1、核心并行策略"></span><h3 id="1">1、核心并行策略</h3>
+<p>（1）数据并行（DP）：每卡完整拷贝一份模型，各处理一部分数据，反向后 all-reduce 同步梯度。优点是实现简单；缺点是每卡存全量模型+优化器状态，显存冗余大，模型超过单卡显存就不能用。</p>
+<p>（2）张量并行（TP，模型并行的一种）：把单层权重切片到多卡（矩阵按列或按行切），各卡算部分矩阵乘，再通信拼回。优点是能训超过单卡显存的宽层；缺点是层内通信频繁，强依赖高速互联（NVLink）。</p>
+<p>（3）管道并行（PP）：把模型按层切到多卡，一卡管若干层，微批次像流水线一样流过去，用 1F1B 调度压气泡。优点是层间通信少；缺点是有流水线气泡（下游等上游），要足够多 micro-batch 填满。</p>
+<p>（4）ZeRO（零冗余优化器，DeepSpeed）：在数据并行基础上分阶段切掉显存冗余：
+   - ZeRO-1：切优化器状态（最省一档，收益最大）；
+   - ZeRO-2：再切梯度；
+   - ZeRO-3：再切参数，每卡只存一部分，前向反向按需 all-gather 取回。最省显存，但通信最多。
+   - 本质是"数据并行 + 显存分片"。</p>
+<p>（5）FSDP（完全分片数据并行，PyTorch 原生）：思路同 ZeRO-3，参数、梯度、优化器状态全分片，前向按需 all-gather 参数。PyTorch 原生集成、易用、生态对接好。</p>
+<p>（6）序列并行（SP）：把激活或序列长度切分到多卡，缓解长序列注意力的显存压力（常配 FlashAttention）。</p>
+<span class="heading-anchor" id="2、对比"></span><h3 id="2">2、对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>切分对象</th>
+<th>通信特点</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DP</td>
+<td>数据</td>
+<td>梯度 all-reduce</td>
+<td>模型装得下单卡</td>
+</tr>
+<tr>
+<td>TP</td>
+<td>单层权重</td>
+<td>层内高频通信，需高速互联</td>
+<td>层宽大、有 NVLink</td>
+</tr>
+<tr>
+<td>PP</td>
+<td>模型按层</td>
+<td>层间少量通信</td>
+<td>深层网络</td>
+</tr>
+<tr>
+<td>ZeRO/FSDP</td>
+<td>参数+梯度+优化器状态</td>
+<td>按需 gather，通信较多</td>
+<td>大模型、通用</td>
+</tr>
+<tr>
+<td>SP</td>
+<td>激活/序列</td>
+<td>层内通信</td>
+<td>长序列</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="3、显存构成（追问常考）"></span><h3 id="3">3、显存构成（追问常考）</h3>
+<p>训练显存 ≈ 参数 + 梯度 + 优化器状态 + 激活。AdamW 的优化器状态约是参数量的 2 倍（一阶动量 <span class="arithmatex">\(m\)</span> + 二阶动量 <span class="arithmatex">\(v\)</span>）。混合精度下（FP16 参数/梯度 + FP32 主权重/<span class="arithmatex">\(m\)</span>/<span class="arithmatex">\(v\)</span>）单参数约 16 字节，ZeRO-3 把这 16 字节分片到 <span class="arithmatex">\(N\)</span> 卡，每卡约 <span class="arithmatex">\(16/N\)</span> 字节，显存显著下降。</p>
+<span class="heading-anchor" id="4、实际组合与选型"></span><h3 id="4">4、实际组合与选型</h3>
+<ul>
+<li>大模型训练多是混合并行：DP/ZeRO + TP + PP + SP，例如 Megatron-LM 的 3D 并行（TP+PP+DP）。</li>
+<li>选型：模型装得下单卡 → DP；超单卡 → ZeRO-3/FSDP；层宽大且节点内 NVLink 充足 → 加 TP；层数极深 → 加 PP；序列特长 → 加 SP。</li>
+<li>并行度越高省显存越多，但通信开销也越大，要在显存和通信之间平衡，不是越切越细越好。</li>
+</ul>
+<p>训练稳定性的损失爆炸、梯度裁剪、梯度累积与混合精度四板块如图4-10所示：</p>
+<p><img alt="训练稳定性四板块" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/ch_04/%E5%9B%BE4-10.png" width="700"/></p>
+<p>图4-10 训练稳定性四板块</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/04_%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E4%BC%98%E5%8C%96.md#L1589">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k54e38c6ab148"></a></p>
+<span class="heading-anchor" id="如何实现分布式 Session？"></span><h2 id="session">如何实现分布式 Session？</h2>
+<span class="heading-anchor" id="面试题"></span><h3 id="_1_18">面试题</h3>
+<p>集群部署时的分布式 Session 如何实现？</p>
+<span class="heading-anchor" id="面试官心理分析"></span><h3 id="_2_9">面试官心理分析</h3>
+<p>面试官问了你一堆 Dubbo 是怎么玩儿的，你会玩儿 Dubbo 就可以把单块系统弄成分布式系统，然后分布式之后接踵而来的就是一堆问题，最大的问题就是<strong>分布式事务</strong>、<strong>接口幂等性</strong>、<strong>分布式锁</strong>，还有最后一个就是<strong>分布式 Session</strong>。</p>
+<p>当然了，分布式系统中的问题何止这么一点，非常之多，复杂度很高，这里只是说一下常见的几个问题，也是面试的时候常问的几个。</p>
+<span class="heading-anchor" id="面试题剖析"></span><h3 id="_3_2">面试题剖析</h3>
+<p>Session 是啥？浏览器有个 Cookie，在一段时间内这个 Cookie 都存在，然后每次发请求过来都带上一个特殊的 <code>jsessionid cookie</code> ，就根据这个东西，在服务端可以维护一个对应的 Session 域，里面可以放点数据。</p>
+<p>一般的话只要你没关掉浏览器，Cookie 还在，那么对应的那个 Session 就在，但是如果 Cookie 没了，Session 也就没了。常见于什么购物车之类的东西，还有登录状态保存之类的。</p>
+<p>这个不多说了，懂 Java 的都该知道这个。</p>
+<p>单块系统的时候这么玩儿 Session 没问题，但是你要是分布式系统呢，那么多的服务，Session 状态在哪儿维护啊？</p>
+<p>其实方法很多，但是常见常用的是以下几种：</p>
+<span class="heading-anchor" id="完全不用 Session"></span><h3 id="session_1">完全不用 Session</h3>
+<p>使用 JWT Token 储存用户身份，然后再从数据库或者 cache 中获取其他的信息。这样无论请求分配到哪个服务器都无所谓。</p>
+<span class="heading-anchor" id="Tomcat + Redis"></span><h3 id="tomcat-redis">Tomcat + Redis</h3>
+<p>这个其实还挺方便的，就是使用 Session 的代码，跟以前一样，还是基于 Tomcat 原生的 Session 支持即可，然后就是用一个叫做 <code>Tomcat RedisSessionManager</code> 的东西，让所有我们部署的 Tomcat 都将 Session 数据存储到 Redis 即可。</p>
+<p>在 Tomcat 的配置文件中配置：</p>
+<pre><code class="language-xml">&lt;Valve className="com.orangefunction.tomcat.redissessions.RedisSessionHandlerValve" /&gt;
+
+&lt;Manager className="com.orangefunction.tomcat.redissessions.RedisSessionManager"
+         host="{redis.host}"
+         port="{redis.port}"
+         database="{redis.dbnum}"
+         maxInactiveInterval="60"/&gt;
+</code></pre>
+<p>然后指定 Redis 的 host 和 port 就 ok 了。</p>
+<pre><code class="language-xml">&lt;Valve className="com.orangefunction.tomcat.redissessions.RedisSessionHandlerValve" /&gt;
+&lt;Manager className="com.orangefunction.tomcat.redissessions.RedisSessionManager"
+     sentinelMaster="mymaster"
+     sentinels="&lt;sentinel1-ip&gt;:26379,&lt;sentinel2-ip&gt;:26379,&lt;sentinel3-ip&gt;:26379"
+     maxInactiveInterval="60"/&gt;
+</code></pre>
+<p>还可以用上面这种方式基于 Redis 哨兵支持的 Redis 高可用集群来保存 Session 数据，都是 ok 的。</p>
+<span class="heading-anchor" id="Spring Session + Redis"></span><h3 id="spring-session-redis">Spring Session + Redis</h3>
+<p>上面所说的第二种方式会与 Tomcat 容器重耦合，如果我要将 Web 容器迁移成 Jetty，难道还要重新把 Jetty 都配置一遍？</p>
+<p>因为上面那种 Tomcat + Redis 的方式好用，但是会<strong>严重依赖于 Web 容器</strong>，不好将代码移植到其他 Web 容器上去，尤其是你要是换了技术栈咋整？比如换成了 Spring Cloud 或者是 Spring Boot 之类的呢？</p>
+<p>所以现在比较好的还是基于 Java 一站式解决方案，也就是 Spring。人家 Spring 基本上承包了大部分我们需要使用的框架，Spirng Cloud 做微服务，Spring Boot 做脚手架，所以用 Spring Session 是一个很好的选择。</p>
+<p>在 pom.xml 中配置：</p>
+<pre><code class="language-xml">&lt;dependency&gt;
+  &lt;groupId&gt;org.springframework.session&lt;/groupId&gt;
+  &lt;artifactId&gt;spring-session-data-redis&lt;/artifactId&gt;
+  &lt;version&gt;1.2.1.RELEASE&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;redis.clients&lt;/groupId&gt;
+  &lt;artifactId&gt;jedis&lt;/artifactId&gt;
+  &lt;version&gt;2.8.1&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>在 Spring 配置文件中配置：</p>
+<pre><code class="language-xml">&lt;bean id="redisHttpSessionConfiguration"
+     class="org.springframework.session.data.redis.config.annotation.web.http.RedisHttpSessionConfiguration"&gt;
+    &lt;property name="maxInactiveIntervalInSeconds" value="600"/&gt;
+&lt;/bean&gt;
+
+&lt;bean id="jedisPoolConfig" class="redis.clients.jedis.JedisPoolConfig"&gt;
+    &lt;property name="maxTotal" value="100" /&gt;
+    &lt;property name="maxIdle" value="10" /&gt;
+&lt;/bean&gt;
+
+&lt;bean id="jedisConnectionFactory"
+      class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" destroy-method="destroy"&gt;
+    &lt;property name="hostName" value="${redis_hostname}"/&gt;
+    &lt;property name="port" value="${redis_port}"/&gt;
+    &lt;property name="password" value="${redis_pwd}" /&gt;
+    &lt;property name="timeout" value="3000"/&gt;
+    &lt;property name="usePool" value="true"/&gt;
+    &lt;property name="poolConfig" ref="jedisPoolConfig"/&gt;
+&lt;/bean&gt;
+</code></pre>
+<p>在 web.xml 中配置：</p>
+<pre><code class="language-xml">&lt;filter&gt;
+    &lt;filter-name&gt;springSessionRepositoryFilter&lt;/filter-name&gt;
+    &lt;filter-class&gt;org.springframework.web.filter.DelegatingFilterProxy&lt;/filter-class&gt;
+&lt;/filter&gt;
+&lt;filter-mapping&gt;
+    &lt;filter-name&gt;springSessionRepositoryFilter&lt;/filter-name&gt;
+    &lt;url-pattern&gt;/*&lt;/url-pattern&gt;
+&lt;/filter-mapping&gt;
+</code></pre>
+<p>示例代码：</p>
+<pre><code class="language-java">@RestController
+@RequestMapping("/test")
+public class TestController {
+
+    @RequestMapping("/putIntoSession")
+    public String putIntoSession(HttpServletRequest request, String username) {
+        request.getSession().setAttribute("name",  "leo");
+        return "ok";
+    }
+
+    @RequestMapping("/getFromSession")
+    public String getFromSession(HttpServletRequest request, Model model){
+        String name = request.getSession().getAttribute("name");
+        return name;
+    }
+}
+</code></pre>
+<p>上面的代码就是 ok 的，给 Spring Session 配置基于 Redis 来存储 Session 数据，然后配置了一个 Spring Session 的过滤器，这样的话，Session 相关操作都会交给 Spring Session 来管了。接着在代码中，就用原生的 Session 操作，就是直接基于 Spring Session 从 Redis 中获取数据了。</p>
+<p>实现分布式的会话有很多种方式，我说的只不过是比较常见的几种方式，Tomcat + Redis 早期比较常用，但是会重耦合到 Tomcat 中；近些年，通过 Spring Session 来实现。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-session.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka643df3a3dc3"></a></p>
+<span class="heading-anchor" id="如何实现分布式 Session？：面试官心理分析"></span><h2 id="session_2">如何实现分布式 Session？：面试官心理分析</h2>
+<p>当然了，分布式系统中的问题何止这么一点，非常之多，复杂度很高，这里只是说一下常见的几个问题，也是面试的时候常问的几个。</p>
+<p><strong>相关解释：</strong> <a href="n-1326cff3b673.html#k54e38c6ab148">如何实现分布式 Session？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-session.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k28ec7a181160"></a></p>
+<span class="heading-anchor" id="如何自己扩展 dubbo 中的组件"></span><h2 id="dubbo">如何自己扩展 dubbo 中的组件</h2>
+<p>下面来说说怎么来自己扩展 dubbo 中的组件。</p>
+<p>自己写个工程，要是那种可以打成 jar 包的，里面的 <code>src/main/resources</code> 目录下，搞一个 <code>META-INF/services</code> ，里面放个文件叫： <code>com.alibaba.dubbo.rpc.Protocol</code> ，文件里搞一个 <code>my=com.bingo.MyProtocol</code> 。自己把 jar 弄到 nexus 私服里去。</p>
+<p>然后自己搞一个 <code>dubbo provider</code> 工程，在这个工程里面依赖你自己搞的那个 jar，然后在 spring 配置文件里给个配置：</p>
+<pre><code class="language-xml">&lt;dubbo:protocol name=”my” port=”20000” /&gt;
+</code></pre>
+<p>provider 启动的时候，就会加载到我们 jar 包里的 <code>my=com.bingo.MyProtocol</code> 这行配置里，接着会根据你的配置使用你定义好的 MyProtocol 了，这个就是简单说明一下，你通过上述方式，可以替换掉大量的 dubbo 内部的组件，就是扔个你自己的 jar 包，然后配置一下即可。</p>
+<p><img alt="dubbo-spi" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/dubbo-spi.png"/></p>
+<p>dubbo 里面提供了大量的类似上面的扩展点，就是说，你如果要扩展一个东西，只要自己写个 jar，让你的 consumer 或者是 provider 工程，依赖你的那个 jar，在你的 jar 里指定目录下配置好接口名称对应的文件，里面通过 <code>key=实现类</code> 。</p>
+<p>然后对于对应的组件，类似 <code>&lt;dubbo:protocol&gt;</code> 用你的那个 key 对应的实现类来实现某个接口，你可以自己去扩展 dubbo 的各种功能，提供你自己的实现。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/dubbo-spi.md#L82">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k36a86647ecc7"></a></p>
+<span class="heading-anchor" id="如何设计一个高并发系统"></span><h2 id="_1_21">如何设计一个高并发系统</h2>
+<span class="heading-anchor" id="面试题"></span><h3 id="_2_10">面试题</h3>
+<p>如何设计一个高并发系统？</p>
+<span class="heading-anchor" id="面试官心理分析"></span><h3 id="_3_3">面试官心理分析</h3>
+<p>说实话，如果面试官问你这个题目，那么你必须要使出全身吃奶劲了。为啥？因为你没看到现在很多公司招聘的 JD 里都是说啥，有高并发经验者优先。</p>
+<p>如果你确实有真才实学，在互联网公司里干过高并发系统，那你确实拿 offer 基本如探囊取物，没啥问题。面试官也绝对不会这样来问你，否则他就是蠢。</p>
+<p>假设你在某知名电商公司干过高并发系统，用户上亿，一天流量几十亿，高峰期并发量上万，甚至是十万。那么人家一定会仔细盘问你的系统架构，你们系统啥架构？怎么部署的？部署了多少台机器？缓存咋用的？MQ 咋用的？数据库咋用的？就是深挖你到底是如何扛住高并发的。</p>
+<p>因为真正干过高并发的人一定知道，脱离了业务的系统架构都是在纸上谈兵，真正在复杂业务场景而且还高并发的时候，那系统架构一定不是那么简单的，用个 redis，用 mq 就能搞定？当然不是，真实的系统架构搭配上业务之后，会比这种简单的所谓“高并发架构”要复杂很多倍。</p>
+<p>如果有面试官问你个问题说，如何设计一个高并发系统？那么不好意思，<strong>一定是因为你实际上没干过高并发系统</strong>。面试官看你简历就没啥出彩的，感觉就不咋地，所以就会问问你，如何设计一个高并发系统？其实说白了本质就是看看你有没有自己研究过，有没有一定的知识积累。</p>
+<p>最好的当然是招聘个真正干过高并发的哥儿们咯，但是这种哥儿们人数稀缺，不好招。所以可能次一点的就是招一个自己研究过的哥儿们，总比招一个啥也不会的哥儿们好吧！</p>
+<p>所以这个时候你必须得做一把个人秀了，秀出你所有关于高并发的知识！</p>
+<span class="heading-anchor" id="面试题剖析"></span><h3 id="_4_3">面试题剖析</h3>
+<p>其实所谓的高并发，如果你要理解这个问题呢，其实就得从高并发的根源出发，为啥会有高并发？为啥高并发就很牛逼？</p>
+<p>我说的浅显一点，很简单，就是因为刚开始系统都是连接数据库的，但是要知道数据库支撑到每秒并发两三千的时候，基本就快完了。所以才有说，很多公司，刚开始干的时候，技术比较 low，结果业务发展太快，有的时候系统扛不住压力就挂了。</p>
+<p>当然会挂了，凭什么不挂？你数据库如果瞬间承载每秒 5000/8000，甚至上万的并发，一定会宕机，因为比如 mysql 就压根儿扛不住这么高的并发量。</p>
+<p>所以为啥高并发牛逼？就是因为现在用互联网的人越来越多，很多 app、网站、系统承载的都是高并发请求，可能高峰期每秒并发量几千，很正常的。如果是什么双十一之类的，每秒并发几万几十万都有可能。</p>
+<p>那么如此之高的并发量，加上原本就如此之复杂的业务，咋玩儿？真正厉害的，一定是在复杂业务系统里玩儿过高并发架构的人，但是你没有，那么我给你说一下你该怎么回答这个问题：</p>
+<p>可以分为以下 6 点：</p>
+<ul>
+<li>系统拆分</li>
+<li>缓存</li>
+<li>MQ</li>
+<li>分库分表</li>
+<li>读写分离</li>
+<li>ElasticSearch</li>
+</ul>
+<p><img alt="high-concurrency-system-design" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/high-concurrency-system-design.png"/></p>
+<span class="heading-anchor" id="系统拆分"></span><h3 id="_5">系统拆分</h3>
+<p>将一个系统拆分为多个子系统，用 dubbo 来搞。然后每个系统连一个数据库，这样本来就一个库，现在多个数据库，不也可以扛高并发么。</p>
+<span class="heading-anchor" id="缓存"></span><h3 id="_6">缓存</h3>
+<p>缓存，必须得用缓存。大部分的高并发场景，都是<strong>读多写少</strong>，那你完全可以在数据库和缓存里都写一份，然后读的时候大量走缓存不就得了。毕竟人家 redis 轻轻松松单机几万的并发。所以你可以考虑考虑你的项目里，那些承载主要请求的<strong>读场景，怎么用缓存来抗高并发</strong>。</p>
+<span class="heading-anchor" id="MQ"></span><h3 id="mq">MQ</h3>
+<p>MQ，必须得用 MQ。可能你还是会出现高并发写的场景，比如说一个业务操作里要频繁搞数据库几十次，增删改增删改，疯了。那高并发绝对搞挂你的系统，你要是用 redis 来承载写那肯定不行，人家是缓存，数据随时就被 LRU 了，数据格式还无比简单，没有事务支持。所以该用 mysql 还得用 mysql 啊。那你咋办？用 MQ 吧，大量的写请求灌入 MQ 里，排队慢慢玩儿，<strong>后边系统消费后慢慢写</strong>，控制在 mysql 承载范围之内。所以你得考虑考虑你的项目里，那些承载复杂写业务逻辑的场景里，如何用 MQ 来异步写，提升并发性。MQ 单机抗几万并发也是 ok 的，这个之前还特意说过。</p>
+<span class="heading-anchor" id="分库分表"></span><h3 id="_7">分库分表</h3>
+<p>分库分表，可能到了最后数据库层面还是免不了抗高并发的要求，好吧，那么就将一个数据库拆分为多个库，多个库来扛更高的并发；然后将一个表<strong>拆分为多个表</strong>，每个表的数据量保持少一点，提高 sql 跑的性能。</p>
+<span class="heading-anchor" id="读写分离"></span><h3 id="_8">读写分离</h3>
+<p>读写分离，这个就是说大部分时候数据库可能也是读多写少，没必要所有请求都集中在一个库上吧，可以搞个主从架构，<strong>主库写</strong>入，<strong>从库读</strong>取，搞一个读写分离。<strong>读流量太多</strong>的时候，还可以<strong>加更多的从库</strong>。</p>
+<span class="heading-anchor" id="ElasticSearch"></span><h3 id="elasticsearch">ElasticSearch</h3>
+<p>Elasticsearch，简称 es。es 是分布式的，可以随便扩容，分布式天然就可以支撑高并发，因为动不动就可以扩容加机器来扛更高的并发。那么一些比较简单的查询、统计类的操作，可以考虑用 es 来承载，还有一些全文搜索类的操作，也可以考虑用 es 来承载。</p>
+<p>上面的 6 点，基本就是高并发系统肯定要干的一些事儿，大家可以仔细结合之前讲过的知识考虑一下，到时候你可以系统的把这块阐述一下，然后每个部分要注意哪些问题，之前都讲过了，你都可以阐述阐述，表明你对这块是有点积累的。</p>
+<p>说句实话，毕竟你真正厉害的一点，不是在于弄明白一些技术，或者大概知道一个高并发系统应该长什么样？其实实际上在真正的复杂的业务系统里，做高并发要远远比上面提到的点要复杂几十倍到上百倍。你需要考虑：哪些需要分库分表，哪些不需要分库分表，单库单表跟分库分表如何 join，哪些数据要放到缓存里去，放哪些数据才可以扛住高并发的请求，你需要完成对一个复杂业务系统的分析之后，然后逐步逐步的加入高并发的系统架构的改造，这个过程是无比复杂的，一旦做过一次，并且做好了，你在这个市场上就会非常的吃香。</p>
+<p>其实大部分公司，真正看重的，不是说你掌握高并发相关的一些基本的架构知识，架构中的一些技术，RocketMQ、Kafka、Redis、Elasticsearch，高并发这一块，你了解了，也只能是次一等的人才。对一个有几十万行代码的复杂的分布式系统，一步一步架构、设计以及实践过高并发架构的人，这个经验是难能可贵的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/high-concurrency-design.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k3c1ea91f4cd5"></a></p>
+<span class="heading-anchor" id="如何设计一个高并发系统：面试官心理分析"></span><h2 id="_1_22">如何设计一个高并发系统：面试官心理分析</h2>
+<p>说实话，如果面试官问你这个题目，那么你必须要使出全身吃奶劲了。为啥？因为你没看到现在很多公司招聘的 JD 里都是说啥，有高并发经验者优先。</p>
+<p>如果你确实有真才实学，在互联网公司里干过高并发系统，那你确实拿 offer 基本如探囊取物，没啥问题。面试官也绝对不会这样来问你，否则他就是蠢。</p>
+<p>最好的当然是招聘个真正干过高并发的哥儿们咯，但是这种哥儿们人数稀缺，不好招。所以可能次一点的就是招一个自己研究过的哥儿们，总比招一个啥也不会的哥儿们好吧！</p>
+<p>所以这个时候你必须得做一把个人秀了，秀出你所有关于高并发的知识！</p>
+<p><strong>相关解释：</strong> <a href="n-1326cff3b673.html#k36a86647ecc7">如何设计一个高并发系统</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/high-concurrency-design.md#L7">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k879b3f64f58e"></a></p>
+<span class="heading-anchor" id="如何进行系统拆分？"></span><h2 id="_1_23">如何进行系统拆分？</h2>
+<p>这个问题说大可以很大，可以扯到领域驱动模型设计上去，说小了也很小，我不太想给大家太过于学术的说法，因为你也不可能背这个答案，过去了直接说吧。还是说的简单一点，大家自己到时候知道怎么回答就行了。</p>
+<p>系统拆分为分布式系统，拆成多个服务，拆成微服务的架构，是需要拆很多轮的。并不是说上来一个架构师一次就给拆好了，而以后都不用拆。</p>
+<p>第一轮；团队继续扩大，拆好的某个服务，刚开始是 1 个人维护 1 万行代码，后来业务系统越来越复杂，这个服务是 10 万行代码，5 个人；第二轮，1 个服务 -&gt; 5 个服务，每个服务 2 万行代码，每人负责一个服务。</p>
+<p>如果是多人维护一个服务，最理想的情况下，几十个人，1 个人负责 1 个或 2~3 个服务；某个服务工作量变大了，代码量越来越多，某个同学，负责一个服务，代码量变成了 10 万行了，他自己不堪重负，他现在一个人拆开，5 个服务，1 个人顶着，负责 5 个人，接着招人，2 个人，给那个同学带着，3 个人负责 5 个服务，其中 2 个人每个人负责 2 个服务，1 个人负责 1 个服务。</p>
+<p>个人建议，一个服务的代码不要太多，1 万行左右，两三万撑死了吧。</p>
+<p>大部分的系统，是要进行<strong>多轮拆分</strong>的，第一次拆分，可能就是将以前的多个模块该拆分开来了，比如说将电商系统拆分成订单系统、商品系统、采购系统、仓储系统、用户系统，等等吧。</p>
+<p>但是后面可能每个系统又变得越来越复杂了，比如说采购系统里面又分成了供应商管理系统、采购单管理系统，订单系统又拆分成了购物车系统、价格系统、订单管理系统。</p>
+<p>扯深了实在很深，所以这里先给大家举个例子，你自己感受一下，<strong>核心意思就是根据情况，先拆分一轮，后面如果系统更复杂了，可以继续分拆</strong>。你根据自己负责系统的例子，来考虑一下就好了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/why-dubbo.md#L43">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kf58c417e059c"></a></p>
+<span class="heading-anchor" id="小型电商网站的商品详情页系统架构"></span><h2 id="_1_24">小型电商网站的商品详情页系统架构</h2>
+<p>小型电商网站的页面展示采用页面全量静态化的思想。数据库中存放了所有的商品信息，页面静态化系统，将数据填充进静态模板中，形成静态化页面，推入 Nginx 服务器。用户浏览网站页面时，取用一个已经静态化好的 html 页面，直接返回回去，不涉及任何的业务逻辑处理。</p>
+<p><img alt="e-commerce-website-detail-page-architecture-1" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/e-commerce-website-detail-page-architecture-1.png"/></p>
+<p>下面是页面模板的简单 Demo 。</p>
+<pre><code class="language-html">&lt;html&gt;
+    &lt;body&gt;
+        商品名称：#{productName}&lt;br /&gt;
+        商品价格：#{productPrice}&lt;br /&gt;
+        商品描述：#{productDesc}
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<p>这样做，<strong>好处</strong>在于，用户每次浏览一个页面，不需要进行任何的跟数据库的交互逻辑，也不需要执行任何的代码，直接返回一个 html 页面就可以了，速度和性能非常高。</p>
+<p>对于小网站，页面很少，很实用，非常简单，Java 中可以使用 velocity、freemarker、thymeleaf 等等，然后做个 cms 页面内容管理系统，模板变更的时候，点击按钮或者系统自动化重新进行全量渲染。</p>
+<p><strong>坏处</strong>在于，仅仅适用于一些小型的网站，比如页面的规模在几十到几万不等。对于一些大型的电商网站，亿级数量的页面，你说你每次页面模板修改了，都需要将这么多页面全量静态化，靠谱吗？每次渲染花个好几天时间，那你整个网站就废掉了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/e-commerce-website-detail-page-architecture.md#L3">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k29bacad68a80"></a></p>
+<span class="heading-anchor" id="怎么从语言模型理解词向量？怎么理解分布式假设？"></span><h2 id="_1_25">怎么从语言模型理解词向量？怎么理解分布式假设？</h2>
+<blockquote>
+<p>词向量是语言模型的一个副产物，可以理解为，在语言模型训练的过程中，势必在一定程度上理解了每个单词的含义。而这在计算机的表示下就是词向量。</p>
+<p>分布式假设指的是相同上下文语境的词有似含义。</p>
+</blockquote>
+<p><strong>参考资料</strong></p>
+<p>word2vec 中的数学原理详解 https://blog.csdn.net/itplus/article/details/37969519</p>
+<p>Word2Vec原理介绍 https://www.cnblogs.com/pinard/p/7160330.html</p>
+<p>词向量介绍 https://www.cnblogs.com/sandwichnlp/p/11596848.html</p>
+<p>一些关于词向量的问题 https://zhuanlan.zhihu.com/p/56382372</p>
+<p>一个在线尝试Word2Vec的小demo https://ronxin.github.io/wevi/</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/nlp/text-representation.md#L175">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kefa59f41755a"></a></p>
+<span class="heading-anchor" id="有哪些常见的AI模型分布式推理方式？"></span><h2 id="ai">有哪些常见的AI模型分布式推理方式？</h2>
+<p>在AI行业中，不管是AIGC、传统深度学习还是自动驾驶领域，都可以进行<strong>分布式推理</strong>，将模型的推理过程分散到多个计算节点，以满足对处理速度、吞吐量和资源使用效率的需求。</p>
+<span class="heading-anchor" id="1. 数据并行推理（Data Parallel Inference）"></span><h3 id="1-data-parallel-inference">1. 数据并行推理（Data Parallel Inference）</h3>
+<p><strong>数据并行推理</strong> 是一种将输入数据分批分配到不同的设备上，每个设备独立加载模型并对其分配的数据进行推理的方式。这种方法在批量推理中非常高效，可以显著提高吞吐量。</p>
+<span class="heading-anchor" id="2. 模型并行推理（Model Parallel Inference）"></span><h3 id="2-model-parallel-inference">2. 模型并行推理（Model Parallel Inference）</h3>
+<p><strong>模型并行推理</strong> 适用于单个设备内存不足以加载整个模型的情况。通过将模型切分成多个部分，分布到多个设备上，推理时各设备协同工作完成推理任务。</p>
+<span class="heading-anchor" id="3. 混合并行推理（Hybrid Parallel Inference）"></span><h3 id="3-hybrid-parallel-inference">3. 混合并行推理（Hybrid Parallel Inference）</h3>
+<p><strong>混合并行推理</strong> 是结合数据并行和模型并行的方式，以处理既有大数据量输入、又需要大模型计算的推理任务。通常用于超大规模推理任务。</p>
+<span class="heading-anchor" id="4. 流水线并行推理（Pipeline Parallel Inference）"></span><h3 id="4-pipeline-parallel-inference">4. 流水线并行推理（Pipeline Parallel Inference）</h3>
+<p><strong>流水线并行推理</strong> 是一种将模型切分为多个阶段，按流水线方式依次处理输入数据的推理方法，适合长时间推理任务或层级非常深的模型（如 Transformer）。</p>
+<span class="heading-anchor" id="5. 异构推理（Heterogeneous Inference）"></span><h3 id="5-heterogeneous-inference">5. 异构推理（Heterogeneous Inference）</h3>
+<p><strong>异构推理</strong> 是利用不同种类的计算资源（如 CPU、GPU、TPU 等）同时执行模型的不同部分或任务。异构推理可最大化利用不同硬件的特点。</p>
+<span class="heading-anchor" id="6. 参数服务器推理（Parameter Server Inference）"></span><h3 id="6-parameter-server-inference">6. 参数服务器推理（Parameter Server Inference）</h3>
+<p><strong>参数服务器推理</strong> 模式适用于需要共享和同步模型参数的场景，尤其在分布式推理系统中较为常用。参数服务器充当中央节点，存储和管理模型参数，多个计算节点同时使用这些参数进行推理。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L420">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k976770e8ddeb"></a></p>
+<span class="heading-anchor" id="有哪些常见的AI模型分布式训练方式？"></span><h2 id="ai_1">有哪些常见的AI模型分布式训练方式？</h2>
+<p>在AI行业中，不管是AIGC、传统深度学习还是自动驾驶领域，分布式训练都是非常有价值的一种将模型训练任务分配到多个计算节点上，以加速训练过程的方法。分布式训练的主要方式包括 <strong>数据并行（Data Parallelism）</strong>、<strong>模型并行（Model Parallelism）</strong>、<strong>混合并行（Hybrid Parallelism）</strong> 和 <strong>流水线并行（Pipeline Parallelism）</strong> 等。</p>
+<span class="heading-anchor" id="1. 数据并行（Data Parallelism）"></span><h3 id="1-data-parallelism">1. 数据并行（Data Parallelism）</h3>
+<p><strong>数据并行</strong> 是分布式训练中最常用的方法。数据并行的核心思想是将训练数据分成多个部分，分别交给多个计算设备（如 GPU）进行训练。每个设备独立计算梯度，最后在所有设备之间汇总梯度并更新模型参数。</p>
+<span class="heading-anchor" id="2. 模型并行（Model Parallelism）"></span><h3 id="2-model-parallelism">2. 模型并行（Model Parallelism）</h3>
+<p><strong>模型并行</strong> 的核心思想是将模型切分成多个部分，并将这些部分分布在不同设备上训练。模型并行适合处理那些单个 GPU 显存不足以容纳的超大模型。</p>
+<span class="heading-anchor" id="3. 混合并行（Hybrid Parallelism）"></span><h3 id="3-hybrid-parallelism">3. 混合并行（Hybrid Parallelism）</h3>
+<p><strong>混合并行</strong> 结合了数据并行和模型并行的优点，适合超大规模模型或特别复杂的模型训练。</p>
+<span class="heading-anchor" id="4. 流水线并行（Pipeline Parallelism）"></span><h3 id="4-pipeline-parallelism">4. 流水线并行（Pipeline Parallelism）</h3>
+<p><strong>流水线并行</strong> 是一种将模型的不同部分分配到不同设备上并分阶段执行的策略。流水线并行通常结合模型并行，将模型按层或模块切分为不同的“段”，并依次执行不同阶段的前向和后向传播。</p>
+<span class="heading-anchor" id="5. 参数服务器（Parameter Server）架构"></span><h3 id="5-parameter-server">5. 参数服务器（Parameter Server）架构</h3>
+<p><strong>参数服务器架构</strong> 是一种较为传统的分布式训练架构，通常与数据并行结合使用。参数服务器在分布式系统中充当中央节点，负责存储和更新模型参数，而其他计算节点（工作节点）进行前向和后向传播，并在训练中定期与参数服务器同步参数。</p>
+<span class="heading-anchor" id="6. 异步分布式训练（Asynchronous Distributed Training）"></span><h3 id="6-asynchronous-distributed-training">6. 异步分布式训练（Asynchronous Distributed Training）</h3>
+<p>在异步分布式训练中，各节点不必等待其他节点完成训练，而是独立进行计算并更新参数。这种方法通常与参数服务器结合使用，减少同步等待时间，提高计算效率。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L315">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3e561d2fe7d9"></a></p>
+<span class="heading-anchor" id="生产级 AI 应用架构"></span><h2 id="ai_2">生产级 AI 应用架构</h2>
+<p>相关内容：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/system-design/ai-application-architecture.md">《AI 应用系统设计：从 Prompt Demo 到生产级架构》</a></p>
+<p>架构题会从一次请求的完整链路问起，随后检查各个模块的职责，以及同步、流式和异步任务应该如何选择。Prompt、RAG、Memory 和 Tool 也需要放在各自负责的环节中讨论。</p>
+<p>常见面试题：</p>
+<ul>
+<li>Prompt Demo 到生产系统之间有哪些工程差距？</li>
+<li>如何设计一个生产级 AI 应用的整体架构？</li>
+<li>一次 AI 请求从接入到返回结果，会经过哪些模块？</li>
+<li>入口层、编排层、Prompt/Context、RAG/Memory/Tool、模型网关和评测观测分别负责什么？</li>
+<li>同步返回、流式返回和异步任务分别适合什么场景？</li>
+<li>Prompt 为什么要做版本管理？模板、变量和模型版本应该如何关联？</li>
+<li>RAG、Memory 和 Tool 分别管理什么信息？为什么要分开治理？</li>
+<li>长任务的中间状态如何保存？服务重启后怎么恢复？</li>
+<li>为了支持问题回放，一次请求至少要记录哪些数据？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/ai-system-design-interview-questions.md#L19">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1ea3dc0471a1"></a></p>
+<span class="heading-anchor" id="系统设计案例"></span><h2 id="_1_29">系统设计案例</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>核心知识点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>如何设计一个动态线程池？</strong></td>
+<td>线程池参数动态调整、监控告警、拒绝策略、优雅停机</td>
+</tr>
+<tr>
+<td><strong>如何设计一个站内消息系统？</strong></td>
+<td>消息推送、未读数统计、WebSocket、消息队列</td>
+</tr>
+<tr>
+<td><strong>如何设计微博 Feed 流/信息流系统？</strong></td>
+<td>推拉模型、Timeline、智能推荐、读写扩散、缓存策略</td>
+</tr>
+<tr>
+<td><strong>如何设计一个排行榜？</strong></td>
+<td>Redis Sorted Set、实时更新、分页查询、海量数据排序</td>
+</tr>
+<tr>
+<td><strong>几种典型的系统设计案例（整理补充）</strong></td>
+<td>点赞、优惠券、红包等综合案例分享</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L51">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k33cce337592d"></a></p>
+<span class="heading-anchor" id="综合系统设计题"></span><h2 id="_1_30">综合系统设计题</h2>
+<p>系统设计题不会提前告诉你该用哪种组件。先确认业务目标和容量，再定位最可能的瓶颈；方案落地后还要用压测和监控验证，不能只用平均 RT 或单机 QPS 证明系统已经满足要求。</p>
+<p>相关内容：<a href="https://javaguide.cn/high-availability/performance-test.html">性能测试入门</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>如何设计一个高性能订单系统？查询、下单和异步任务分别怎样处理？</li>
+<li>接口变慢时，如何利用 Trace、慢 SQL、线程池、连接池和系统资源指标定位瓶颈？</li>
+<li>QPS、TPS、并发数、P95/P99 和错误率分别反映什么？</li>
+<li>怎样从业务峰值估算容量，并为数据库、缓存、MQ 和下游接口留出安全水位？</li>
+<li>缓存、读写分离、分库分表和消息队列应该按什么顺序引入？</li>
+<li>优化上线后，怎样通过灰度、压测、监控和回滚验证效果？</li>
+<li>性能提高后，一致性、可用性、成本和运维复杂度会发生什么变化？</li>
+</ul>
+<p>社招和中高级岗位通常会继续追问项目证据。例如“优化后接口更快了”，需要补充优化前后的流量、延迟分位数、错误率、资源使用率、压测环境和观察周期。没有参与过的部分按学习结果回答即可，不要编造生产指标。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-performance/high-performance-system-interview-questions.md#L116">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k9555b0a9e576"></a></p>
+<span class="heading-anchor" id="高可用基础"></span><h2 id="_1_31">高可用基础</h2>
+<p>高可用并不等于永不故障。系统设计要回答的是：怎样减少故障，故障发生后如何限制影响，以及多久能够恢复服务。多部署几个实例只能减少应用层单点，数据库、缓存、消息队列、配置中心、DNS 和负载均衡仍可能成为故障源。</p>
+<p><img alt="提高系统可用性的三层方法" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-availability/ha-interview-availability-methods.png"/></p>
+<p>相关内容：<a href="https://javaguide.cn/high-availability/high-availability-system-design.html">高可用系统设计指南</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>什么是高可用？它和“多部署几台机器”有什么区别？</li>
+<li>可用性 99.9%、99.99% 和 99.999% 分别允许多长时间的中断？</li>
+<li>代码、发布、流量、基础设施和外部依赖会怎样导致系统不可用？</li>
+<li>提高系统可用性通常要从哪些方面入手？</li>
+<li>什么是单点故障？有冗余实例为什么还不一定消除了单点？</li>
+<li>灰度发布怎样控制变更风险？放量、监控和回滚如何配合？</li>
+</ul>
+<p>回答可用性指标时要先说明统计口径。按自然月还是自然年计算，计划内维护是否计入，不同接口是否使用同一套 SLA，都会影响最终数字。小数点后多一个 9，也会增加冗余、运维和演练成本。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md#L37">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-c66fc670cfcc.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>微服务与服务治理</strong></a><a class="page-next" href="n-18cb0c4c67a8.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>消息队列与事件流</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#document">document 模型设计</a></li><li class="outline-level-2"><a href="#es">ES 生产集群架构：面试官心理分析</a></li><li class="outline-level-2"><a href="#es_1">ES 的分布式架构原理：面试官心理分析</a></li><li class="outline-level-2"><a href="#ha">HA 高可用性</a></li><li class="outline-level-2"><a href="#hystrix">Hystrix 更加细节的设计原则</a></li><li class="outline-level-2"><a href="#hystrix_1">Hystrix 的设计原则</a></li><li class="outline-level-2"><a href="#vllm-v1gpu">vLLM V1如何配置多GPU分布式推理？关键并行参数如何选择？</a></li><li class="outline-level-2"><a href="#_1_8">为什么要将系统进行拆分？</a></li><li class="outline-level-2"><a href="#_1_9">为什么要拆分系统？</a></li><li class="outline-level-2"><a href="#_1_10">为什么要拆分系统？：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_11">你训过最大的模型多大，分布式怎么搭的？</a></li><li class="outline-level-2"><a href="#_1_12">假设我现在需要进行分布式的收集和聚合分析，整个处理链路你怎么设计？</a></li><li class="outline-level-2"><a href="#_1_13">分布式协调</a></li><li class="outline-level-2"><a href="#id">分布式唯一ID怎么生成？要求自增怎么办？</a></li><li class="outline-level-2"><a href="#_1_15">分布式锁</a></li><li class="outline-level-2"><a href="#_1_16">大型电商网站的商品详情页系统架构</a></li><li class="outline-level-2"><a href="#zerofsdp">大模型分布式训练的并行策略有哪些（数据并行/模型并行/管道并行/ZeRO/FSDP）？各自原理与适用场景是什么？</a></li><li class="outline-level-2"><a href="#session">如何实现分布式 Session？</a></li><li class="outline-level-2"><a href="#session_2">如何实现分布式 Session？：面试官心理分析</a></li><li class="outline-level-2"><a href="#dubbo">如何自己扩展 dubbo 中的组件</a></li><li class="outline-level-2"><a href="#_1_21">如何设计一个高并发系统</a></li><li class="outline-level-2"><a href="#_1_22">如何设计一个高并发系统：面试官心理分析</a></li><li class="outline-level-2"><a href="#_1_23">如何进行系统拆分？</a></li><li class="outline-level-2"><a href="#_1_24">小型电商网站的商品详情页系统架构</a></li><li class="outline-level-2"><a href="#_1_25">怎么从语言模型理解词向量？怎么理解分布式假设？</a></li><li class="outline-level-2"><a href="#ai">有哪些常见的AI模型分布式推理方式？</a></li><li class="outline-level-2"><a href="#ai_1">有哪些常见的AI模型分布式训练方式？</a></li><li class="outline-level-2"><a href="#ai_2">生产级 AI 应用架构</a></li><li class="outline-level-2"><a href="#_1_29">系统设计案例</a></li><li class="outline-level-2"><a href="#_1_30">综合系统设计题</a></li><li class="outline-level-2"><a href="#_1_31">高可用基础</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

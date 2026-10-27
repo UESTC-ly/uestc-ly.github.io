@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>文件系统与I-O · 李杨的学习笔记</title><meta name="description" content="为了减少 AI 任务中的 I/O 开销，通常可以采用以下策略：">
+<meta property="og:type" content="website"><meta property="og:title" content="文件系统与I-O · 李杨的学习笔记"><meta property="og:description" content="为了减少 AI 任务中的 I/O 开销，通常可以采用以下策略："><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-82e28515574c.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-82e28515574c.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html" aria-current="page">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">02-操作系统与Linux</p><h1>文件系统与I-O</h1><p class="article-question-meta">21 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-cc613822f5f5">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/02-%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E4%B8%8ELinux/%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E4%B8%8EI-O.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#aiio">AI行业中如何降低计算机I/O开销？</a></li><li class="outline-level-2"><a href="#linux">Linux中有哪些常用的查看文件夹占用空间的命令？</a></li><li class="outline-level-2"><a href="#open">open 一个文件时发生了什么？</a></li><li class="outline-level-2"><a href="#reactorproactorepoll-ltetai">Reactor、Proactor、epoll LT/ET在高并发AI服务中如何理解？</a></li><li class="outline-level-2"><a href="#selectpollepollio_uring">select、poll、epoll和io_uring有什么区别？</a></li><li class="outline-level-2"><a href="#io">什么是 I/O 多路复用？</a></li><li class="outline-level-2"><a href="#io_1">什么是 I/O 开销？</a></li><li class="outline-level-2"><a href="#linux_1">介绍一下Linux中修改文件权限的命令</a></li><li class="outline-level-2"><a href="#_1_8">多文件查看</a></li><li class="outline-level-2"><a href="#_1_9">如何消除碎片文件</a></li><li class="outline-level-2"><a href="#ai_1">实时监控文件（AI行业高价值命令）</a></li><li class="outline-level-2"><a href="#_1_11">持续监控文件变化并进行高级操作</a></li><li class="outline-level-2"><a href="#_1_12">按文件名搜索</a></li><li class="outline-level-2"><a href="#_1_13">按文件大小搜索</a></li><li class="outline-level-2"><a href="#_1_14">按文件时间搜索</a></li><li class="outline-level-2"><a href="#_1_15">按文件类型搜索</a></li><li class="outline-level-2"><a href="#_1_16">提高文件系统性能的方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_17">文件在磁盘上怎么存放？</a></li><li class="outline-level-2"><a href="#_1_18">文件系统主要做了什么？</a></li><li class="outline-level-2"><a href="#_1_19">日志文件系统解决了什么问题？</a></li><li class="outline-level-2"><a href="#_1_20">硬链接为什么不能跨文件系统？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k14920e2227ad"></a></p>
+<span class="heading-anchor" id="AI行业中如何降低计算机I/O开销？"></span><h2 id="aiio">AI行业中如何降低计算机I/O开销？</h2>
+<span class="heading-anchor" id="2. 减少 I/O 开销的优化策略"></span><h3 id="2-io">2. <strong>减少 I/O 开销的优化策略</strong></h3>
+<p>为了减少 AI 任务中的 I/O 开销，通常可以采用以下策略：</p>
+<span class="heading-anchor" id="3. I/O 开销在 AI 系统设计中的深远影响"></span><h3 id="3-io-ai">3. <strong>I/O 开销在 AI 系统设计中的深远影响</strong></h3>
+<p>在 AI 系统设计中，I/O 开销对整个系统性能有着重要影响。在处理海量数据的任务（如自然语言处理、图像处理、视频分析）中，I/O 往往会成为系统性能的瓶颈。设计一个高效的 AI 系统时，必须综合考虑 I/O 开销，并通过缓存、并行数据加载、文件格式优化等方式减少这种开销。</p>
+<p>随着模型和数据规模的增长，I/O 开销将越来越显著，特别是在大规模分布式系统中，网络 I/O 和存储 I/O 都可能限制系统的扩展性。因此，合理优化 I/O 是 AI 系统性能调优的关键步骤之一。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1491">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc8c079b46ca6"></a></p>
+<span class="heading-anchor" id="Linux中有哪些常用的查看文件夹占用空间的命令？"></span><h2 id="linux">Linux中有哪些常用的查看文件夹占用空间的命令？</h2>
+<p>在AIGC、传统深度学习、自动驾驶领域，我们经常需要进行大规模的数据整理与迁移等工作，所以掌握Linux系统中的不同文件夹的占用空间，对我们日常的工作能够降本增效。下面是Linux系统中常用的查看文件夹占用空间的命令：</p>
+<p>在 Linux 中，有多种命令可以用来查看文件夹占用的空间。以下是几种常用的方法和工具：</p>
+<span class="heading-anchor" id="1. du（Disk Usage）"></span><h3 id="1-dudisk-usage">1. <code>du</code>（Disk Usage）</h3>
+<p><code>du</code> 是一个非常强大的命令，用于检查文件和目录的磁盘使用情况。它的基本用法和常见选项如下：</p>
+<span class="heading-anchor" id="查看当前目录下的每个文件夹的大小"></span><h3 id="_1_1">查看当前目录下的每个文件夹的大小</h3>
+<pre><code class="language-bash">du -h --max-depth=1
+</code></pre>
+<ul>
+<li><code>-h</code>：以人类可读的格式显示（例如：K，M，G）。</li>
+<li><code>--max-depth=1</code>：限制显示深度为1层，只显示当前目录下的文件夹大小。</li>
+</ul>
+<span class="heading-anchor" id="查看特定目录下的每个文件夹的大小"></span><h3 id="_2">查看特定目录下的每个文件夹的大小</h3>
+<pre><code class="language-bash">du -h --max-depth=1 /path/to/directory
+</code></pre>
+<span class="heading-anchor" id="只显示总大小"></span><h3 id="_3">只显示总大小</h3>
+<pre><code class="language-bash">du -sh /path/to/directory
+</code></pre>
+<ul>
+<li><code>-s</code>：只显示总计。</li>
+</ul>
+<p>在 Ubuntu 系统中，你可以使用 <code>du</code>（disk usage）命令来查看每个文件夹占用的磁盘空间。以下是一些常见的方法和选项，可以帮助你获取所需的信息。</p>
+<span class="heading-anchor" id="查看当前目录下的每个文件夹的大小"></span><h3 id="_4">查看当前目录下的每个文件夹的大小</h3>
+<pre><code class="language-bash">du -h --max-depth=1
+</code></pre>
+<ul>
+<li><code>-h</code>：以人类可读的格式显示（例如：K，M，G）。</li>
+<li><code>--max-depth=1</code>：仅显示当前目录下的文件夹大小。</li>
+</ul>
+<span class="heading-anchor" id="查看特定目录下的每个文件夹的大小"></span><h3 id="_5">查看特定目录下的每个文件夹的大小</h3>
+<p>例如，要查看 <code>/var</code> 目录下每个文件夹的大小，可以使用：</p>
+<pre><code class="language-bash">du -h --max-depth=1 /var
+</code></pre>
+<span class="heading-anchor" id="查看所有子目录的大小"></span><h3 id="_6">查看所有子目录的大小</h3>
+<p>如果你想查看所有子目录的详细大小，可以省略 <code>--max-depth</code> 选项：</p>
+<pre><code class="language-bash">du -h /var
+</code></pre>
+<span class="heading-anchor" id="只显示总大小"></span><h3 id="_7">只显示总大小</h3>
+<p>如果你只想查看某个目录的总大小，可以使用 <code>-s</code> 选项：</p>
+<pre><code class="language-bash">du -sh /var
+</code></pre>
+<span class="heading-anchor" id="结合 sort 命令查看占用空间最大的文件夹"></span><h3 id="sort">结合 <code>sort</code> 命令查看占用空间最大的文件夹</h3>
+<p>我们可以结合 <code>sort</code> 命令查看占用空间最大的文件夹：</p>
+<pre><code class="language-bash">du -h --max-depth=1 /home | sort -hr
+</code></pre>
+<ul>
+<li><code>sort -hr</code>：根据大小进行降序排序。</li>
+</ul>
+<span class="heading-anchor" id="示例解释"></span><h3 id="_8">示例解释</h3>
+<p>假设我们在 <code>/home</code> 目录下运行 <code>du -h --max-depth=1</code>，输出可能如下所示：</p>
+<pre><code class="language-bash">4.0K    ./WeThinkIn
+16K     ./Documents
+3.1G    ./Downloads
+8.0K    ./Music
+24K     ./Pictures
+5.2M    ./Videos
+3.2G    .
+</code></pre>
+<p>这里每一行表示每个子目录的大小，最后一行 <code>3.2G .</code> 表示当前目录（即 <code>/home</code> 目录）的总大小。</p>
+<span class="heading-anchor" id="2. ncdu（NCurses Disk Usage）"></span><h3 id="2-ncduncurses-disk-usage">2. <code>ncdu</code>（NCurses Disk Usage）</h3>
+<p><code>ncdu</code> 是一个基于文本的磁盘使用分析工具，提供了交互式的界面。</p>
+<span class="heading-anchor" id="安装 ncdu"></span><h3 id="ncdu">安装 <code>ncdu</code></h3>
+<pre><code class="language-bash">sudo apt install ncdu  # 对于Debian/Ubuntu
+sudo yum install ncdu  # 对于RHEL/CentOS
+</code></pre>
+<span class="heading-anchor" id="使用 ncdu"></span><h3 id="ncdu_1">使用 <code>ncdu</code></h3>
+<pre><code class="language-bash">ncdu /path/to/directory
+</code></pre>
+<span class="heading-anchor" id="3. df（Disk Free）"></span><h3 id="3-dfdisk-free">3. <code>df</code>（Disk Free）</h3>
+<p>虽然 <code>df</code> 主要用于显示文件系统的总的磁盘空间使用情况，但也可以用来查看特定挂载点的使用情况。</p>
+<span class="heading-anchor" id="查看所有文件系统的使用情况"></span><h3 id="_9">查看所有文件系统的使用情况</h3>
+<pre><code class="language-bash">df -h
+</code></pre>
+<ul>
+<li><code>-h</code>：以人类可读的格式显示。</li>
+</ul>
+<span class="heading-anchor" id="查看特定目录的文件系统使用情况"></span><h3 id="_10">查看特定目录的文件系统使用情况</h3>
+<pre><code class="language-bash">df -h /path/to/directory
+</code></pre>
+<span class="heading-anchor" id="4. duf（Disk Usage/Free Utility）"></span><h3 id="4-dufdisk-usagefree-utility">4. <code>duf</code>（Disk Usage/Free Utility）</h3>
+<p><code>duf</code> 是一个现代的磁盘使用情况查看工具，具有彩色输出和交互式界面。</p>
+<span class="heading-anchor" id="安装 duf"></span><h3 id="duf">安装 <code>duf</code></h3>
+<pre><code class="language-bash">sudo apt install duf  # 对于Debian/Ubuntu
+sudo yum install duf  # 对于RHEL/CentOS
+</code></pre>
+<span class="heading-anchor" id="使用 duf"></span><h3 id="duf_1">使用 <code>duf</code></h3>
+<pre><code class="language-bash">duf
+</code></pre>
+<span class="heading-anchor" id="5. ls 和 find 配合使用"></span><h3 id="5-ls-find">5. <code>ls</code> 和 <code>find</code> 配合使用</h3>
+<p>通过组合 <code>ls</code> 和 <code>find</code> 命令，可以获取每个文件夹和文件的大小。</p>
+<span class="heading-anchor" id="查看当前目录下所有文件和文件夹的大小"></span><h3 id="_11">查看当前目录下所有文件和文件夹的大小</h3>
+<pre><code class="language-bash">find . -type f -exec ls -lh {} + | awk '{print $9 ": " $5}'
+</code></pre>
+<span class="heading-anchor" id="6. tree 命令"></span><h3 id="6-tree">6. <code>tree</code> 命令</h3>
+<p><code>tree</code> 可以以树状结构显示目录内容，并提供每个文件和目录的大小。</p>
+<span class="heading-anchor" id="安装 tree"></span><h3 id="tree">安装 <code>tree</code></h3>
+<pre><code class="language-bash">sudo apt install tree  # 对于Debian/Ubuntu
+sudo yum install tree  # 对于RHEL/CentOS
+</code></pre>
+<span class="heading-anchor" id="使用 tree"></span><h3 id="tree_1">使用 <code>tree</code></h3>
+<pre><code class="language-bash">tree -h /path/to/directory
+</code></pre>
+<ul>
+<li><code>-h</code>：以人类可读的格式显示大小。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L596">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5a9afb1c1efa"></a></p>
+<span class="heading-anchor" id="open 一个文件时发生了什么？"></span><h2 id="open">open 一个文件时发生了什么？</h2>
+<p><code>open()</code> 不会把整个文件读进内存，它主要做路径解析和打开对象创建。</p>
+<p><img alt="路径到文件描述符" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/file-path-to-fd.webp"/></p>
+<p>大致流程是：</p>
+<ol>
+<li>从根目录或当前目录开始解析路径，逐级查目录项和 dentry 缓存。</li>
+<li>找到目标 inode 后，检查权限、打开标志和文件类型。</li>
+<li>创建内核里的打开文件对象，记录当前文件偏移量、打开状态、读写标志等。</li>
+<li>在当前进程的文件描述符表里分配一个最小可用的非负整数，也就是 fd。</li>
+</ol>
+<p>fd 是进程文件描述符表里的索引，不是 inode。<code>dup()</code>、<code>fork()</code> 之后，多个 fd 可能引用同一个打开文件对象，所以它们共享文件偏移量；两个进程分别 <code>open()</code> 同一个文件，通常会得到不同的打开文件对象，各自维护偏移量。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L547">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k190c7cc185a5"></a></p>
+<span class="heading-anchor" id="Reactor、Proactor、epoll LT/ET在高并发AI服务中如何理解？"></span><h2 id="reactorproactorepoll-ltetai">Reactor、Proactor、epoll LT/ET在高并发AI服务中如何理解？</h2>
+<p>Reactor和Proactor都是高并发网络服务模型，区别在于“谁负责真正执行IO”。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>核心思想</th>
+<th>典型理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reactor</td>
+<td>内核通知“可以读/写”，应用自己执行读写</td>
+<td>同步非阻塞IO + 事件分发</td>
+</tr>
+<tr>
+<td>Proactor</td>
+<td>应用提交异步IO，内核完成后通知结果</td>
+<td>真正异步IO + 完成事件</td>
+</tr>
+</tbody>
+</table></div>
+<p>Reactor常见流程：</p>
+<ol>
+<li>服务端把socket注册到事件循环。</li>
+<li><code>epoll_wait</code> 等待连接、读、写事件。</li>
+<li>有事件后分发给handler。</li>
+<li>handler执行读写、解析请求、投递任务到线程池。</li>
+</ol>
+<p>Proactor常见流程：</p>
+<ol>
+<li>应用提交异步读写请求。</li>
+<li>内核或运行时完成IO。</li>
+<li>应用收到完成通知并处理结果。</li>
+</ol>
+<p><code>epoll</code> 的 LT/ET 是两个触发模式：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>含义</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LT</td>
+<td>Level Trigger，水平触发</td>
+<td>只要fd仍可读/可写，就会反复通知，编程更稳</td>
+</tr>
+<tr>
+<td>ET</td>
+<td>Edge Trigger，边缘触发</td>
+<td>状态变化时通知一次，效率高，但必须一次读到 <code>EAGAIN</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>AI服务中的实践建议：</p>
+<ol>
+<li>普通HTTP服务和管理接口，LT模式更稳。</li>
+<li>高并发长连接、流式token返回，可以使用ET模式提升效率，但必须配合非阻塞fd和完整读写循环。</li>
+<li>网络线程不要执行耗时推理，应把请求投递到调度队列，由GPU worker处理。</li>
+<li>流式输出要处理客户端慢读和断开连接，否则会堆积缓冲并浪费GPU计算。</li>
+</ol>
+<p>面试金句：Reactor解决的是“连接多但多数在等待”的问题，GPU推理解决的是“计算重”的问题。高并发AI服务要把IO事件循环、CPU线程池和GPU worker边界拆清楚。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L3179">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k64d80842ecf9"></a></p>
+<span class="heading-anchor" id="select、poll、epoll和io_uring有什么区别？"></span><h2 id="selectpollepollio_uring">select、poll、epoll和io_uring有什么区别？</h2>
+<p>这些都是Linux下处理高并发IO的重要机制：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>特点</th>
+<th>局限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>select</code></td>
+<td>跨平台、接口简单</td>
+<td>fd数量受限，需要每次复制和扫描集合</td>
+</tr>
+<tr>
+<td><code>poll</code></td>
+<td>无固定fd上限</td>
+<td>仍需线性扫描，连接很多时效率低</td>
+</tr>
+<tr>
+<td><code>epoll</code></td>
+<td>事件驱动，适合大量连接</td>
+<td>主要处理网络IO就绪通知</td>
+</tr>
+<tr>
+<td><code>io_uring</code></td>
+<td>异步提交/完成队列，减少系统调用开销</td>
+<td>编程复杂，对内核版本和场景有要求</td>
+</tr>
+</tbody>
+</table></div>
+<p>在AIGC服务中，<code>epoll</code>适合大量HTTP/WebSocket/SSE连接，例如流式token返回；<code>io_uring</code>更适合高性能文件和网络异步IO，例如大规模数据加载、日志写入或代理转发。</p>
+<p>面试中可以这样总结：<code>select/poll</code>是早期多路复用，<code>epoll</code>是高并发网络服务主力，<code>io_uring</code>进一步把异步IO做成提交队列和完成队列，减少阻塞和系统调用成本。但是否使用 <code>io_uring</code> 要看团队复杂度承受能力，不是所有服务都值得引入。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L3103">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcc132827f94e"></a></p>
+<span class="heading-anchor" id="什么是 I/O 多路复用？"></span><h2 id="io">什么是 I/O 多路复用？</h2>
+<p>I/O 多路复用解决的不是“单次读写更快”，而是<strong>一个线程如何同时等待多个文件描述符（fd）的就绪事件</strong>。</p>
+<p>一次网络读取通常分成两个阶段：先等数据从网卡到达并进入内核缓冲区，再把数据从内核缓冲区拷贝到用户缓冲区。阻塞 I/O 的问题在第一阶段：一个线程调用 <code>recv</code> 后，如果这个连接没数据，线程就只能卡在那里等。</p>
+<p><img alt="网络读取中的两个阶段：先等待网卡数据进入内核缓冲区，再通过 copy_to_user 拷贝到用户缓冲区" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/io-multiplexing-io-two-phases.png"/></p>
+<p>I/O 多路复用把一批 fd 交给内核，让线程阻塞在 <code>select</code>、<code>poll</code> 或 <code>epoll</code> 这类系统调用上。只要其中任意 fd 就绪，调用就返回，应用再去处理对应的连接。这样一个线程就能管理成千上万个连接，特别适合大量连接空闲、少量连接活跃的场景，比如 Redis、Nginx、Netty 这类高性能网络程序。</p>
+<p>需要注意：I/O 多路复用仍然属于<strong>同步 I/O</strong>。内核只是通知“可以读/可以写了”，真正的 <code>read</code>/<code>recv</code> 还得应用自己调用，数据从内核缓冲区拷到用户缓冲区这一步并没有被省掉。</p>
+<p>详细介绍：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/io-multiplexing.md">I/O 多路复用详解：select、poll、epoll 原理与区别</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L449">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kc96c8023d037"></a></p>
+<span class="heading-anchor" id="什么是 I/O 开销？"></span><h2 id="io_1">什么是 I/O 开销？</h2>
+<p>在计算机科学中，<strong>I/O 开销</strong>（Input/Output Overhead）指的是在执行数据传输时，系统为<strong>输入（Input）</strong>和<strong>输出（Output）</strong>操作所消耗的资源和时间。I/O 操作包括<strong>从存储设备读取数据</strong>（如硬盘、SSD）或<strong>将数据写入存储设备</strong>，以及与其他外部设备（如网络、显卡、外部硬件）之间的通信。在AI行业中，I/O开销主要涉及在AI模型的训练和推理时，从磁盘读取数据、从内存到GPU的传输，以及将结果输出到存储设备或网络。</p>
+<p><strong>由于 I/O 操作通常比内存操作或 CPU、GPU 上的计算速度慢得多，因此 I/O 开销往往成为系统的性能瓶颈</strong>，尤其在需要处理大量数据的任务中，例如AI模型的训练和推理。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1454">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7358185ec52a"></a></p>
+<span class="heading-anchor" id="介绍一下Linux中修改文件权限的命令"></span><h2 id="linux_1">介绍一下Linux中修改文件权限的命令</h2>
+<span class="heading-anchor" id="一、Linux 文件权限修改命令详解"></span><h3 id="linux_1_1"><strong>一、Linux 文件权限修改命令详解</strong></h3>
+<span class="heading-anchor" id="1. 核心命令"></span><h3 id="1"><strong>1. 核心命令</strong></h3>
+<ul>
+<li><strong><code>chmod</code></strong>（修改权限）  </li>
+<li><strong>符号模式</strong>：<code>u/g/o/a</code>（用户/组/其他/全部） + <code>+/-/=</code>（添加/移除/设置） + <code>r/w/x</code>（读/写/执行）<br/>
+    示例：<code>chmod u+x script.sh</code>（赋予所有者执行权限）  </li>
+<li>
+<p><strong>数字模式</strong>：三位八进制数（如 <code>755</code>），分别代表 <strong>所有者、组、其他用户</strong> 的权限组合（r=4, w=2, x=1）。<br/>
+    示例：<code>chmod 755 model.pth</code> → 所有者 <code>rwx</code>，组和其他用户 <code>r-x</code>。</p>
+</li>
+<li>
+<p><strong><code>chown</code></strong>（修改所有者/组）<br/>
+  示例：<code>chown alice:ai_team model.log</code>（将文件所有者和组改为 <code>alice</code> 和 <code>ai_team</code>）。</p>
+</li>
+<li>
+<p><strong><code>chgrp</code></strong>（仅修改组）<br/>
+  示例：<code>chgrp researchers data/</code>（将目录所属组设为 <code>researchers</code>）。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="2. 实际案例：团队协作中的权限管理"></span><h3 id="2"><strong>2. 实际案例：团队协作中的权限管理</strong></h3>
+<p><strong>场景</strong>：<br/>
+某 AI 团队需要共享训练脚本和数据集，但需确保：<br/>
+- <strong>脚本</strong>（如 <code>train.py</code>）：仅所有者可修改，其他成员可读可执行。<br/>
+- <strong>数据集</strong>（如 <code>dataset/</code>）：组成员可读写，其他用户无权限。<br/>
+- <strong>日志</strong>（如 <code>logs/</code>）：所有成员可读，但仅运维组可删除。</p>
+<p><strong>操作</strong>：  </p>
+<pre><code class="language-bash"># 1. 脚本权限：rwxr-xr-x（所有者可执行，其他用户只读和执行）
+chmod 755 train.py
+
+# 2. 数据集目录：组可读写，其他用户无权限（rwxrwx---）
+chmod 770 dataset/
+chgrp ai_team dataset/
+
+# 3. 日志目录：组成员可读写，其他用户只读，并设置 Sticky Bit（仅所有者可删除文件）
+chmod 1774 logs/
+</code></pre>
+<span class="heading-anchor" id="二、在 AI 领域中的实际应用"></span><h3 id="ai"><strong>二、在 AI 领域中的实际应用</strong></h3>
+<span class="heading-anchor" id="1. AIGC（生成式 AI）场景"></span><h3 id="1-aigc-ai"><strong>1. AIGC（生成式 AI）场景</strong></h3>
+<ul>
+<li><strong>应用背景</strong>：<br/>
+  多团队协作开发扩散模型（如 Stable Diffusion），需隔离不同角色的权限：  </li>
+<li><strong>算法工程师</strong>：可修改模型训练脚本（<code>chmod 750 train.py</code>）。  </li>
+<li><strong>数据工程师</strong>：仅能读写训练数据目录（<code>chgrp data_team /data/images</code>）。  </li>
+<li>
+<p><strong>运维人员</strong>：管理推理服务日志（<code>chmod 640 inference.log</code>）。</p>
+</li>
+<li>
+<p><strong>意义</strong>：<br/>
+  防止误删或篡改关键模型文件，保障生成结果的一致性（如保护预训练权重文件权限为 <code>600</code>）。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="2. 传统深度学习场景"></span><h3 id="2_1"><strong>2. 传统深度学习场景</strong></h3>
+<ul>
+<li><strong>应用背景</strong>：<br/>
+  分布式训练集群中，权限管理用于：  </li>
+<li><strong>训练脚本</strong>：确保仅调度节点可执行（<code>chmod +x distributed_train.sh</code>）。  </li>
+<li><strong>共享存储</strong>：组内成员可读写中间结果（<code>chmod 775 /shared_results</code>）。  </li>
+<li>
+<p><strong>敏感数据</strong>：限制非授权用户访问标注数据（<code>chmod 600 labels.txt</code>）。</p>
+</li>
+<li>
+<p><strong>意义</strong>：<br/>
+  避免训练任务因权限冲突中断（如权限错误导致数据加载失败），同时保护标注数据隐私。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="3. 自动驾驶场景"></span><h3 id="3"><strong>3. 自动驾驶场景</strong></h3>
+<ul>
+<li><strong>应用背景</strong>：<br/>
+  车端-云端协同系统中，权限控制用于：  </li>
+<li><strong>传感器数据</strong>：仅车载系统用户可读写（<code>chown caros:caros /sensor_data</code>）。  </li>
+<li><strong>实时日志</strong>：设置 Sticky Bit 防止日志被非特权进程删除（<code>chmod +t /var/log/autodrive</code>）。  </li>
+<li>
+<p><strong>OTA 更新包</strong>：仅校验通过后赋予执行权限（<code>chmod 744 update.bin</code>）。</p>
+</li>
+<li>
+<p><strong>意义</strong>：<br/>
+  确保行车关键数据的安全性（如防止恶意篡改高精地图权限），同时满足车规级系统的实时性要求。</p>
+</li>
+</ul>
+<span class="heading-anchor" id="三、面试回答技巧"></span><h3 id="_1_7"><strong>三、面试回答技巧</strong></h3>
+<ol>
+<li>
+<p><strong>强调系统思维</strong>：<br/>
+   “权限管理是 AI 工程化的基础设施，直接影响团队协作效率和系统安全性。例如在自动驾驶中，权限错误可能导致传感器数据泄漏或 OTA 升级失败。”</p>
+</li>
+<li>
+<p><strong>结合调试经验</strong>：<br/>
+   “我曾遇到因 <code>Permission Denied</code> 导致训练任务卡死的问题，最终通过 <code>chmod</code> 修复数据集目录权限，并添加 <code>set -e</code> 和错误日志监控。”</p>
+</li>
+<li>
+<p><strong>延伸扩展</strong>：<br/>
+   - <strong>特殊权限</strong>：如 <code>SUID</code> 用于部署工具链（如 Docker 容器内的权限继承）。<br/>
+   - <strong>ACL 高级控制</strong>：复杂场景下使用 <code>setfacl</code> 精细化授权。<br/>
+   - <strong>安全合规</strong>：符合 GDPR/ISO 27001 的数据访问权限设计。</p>
+</li>
+</ol>
+<p>通过将 Linux 权限命令与 AI 行业场景结合，既能展示技术深度，又能体现工程化思维，这正是算法岗面试中脱颖而出的关键！</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L2044">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0ae453d3bd1d"></a></p>
+<span class="heading-anchor" id="多文件查看"></span><h2 id="_1_8">多文件查看</h2>
+<ul>
+<li><strong>查看多个文件的尾部</strong>：可以同时查看多个文件的尾部，<code>tail</code> 会在输出中显示文件名作为标识。</li>
+</ul>
+<pre><code class="language-bash">  tail -n 20 /path/to/your/file1 /path/to/your/file2
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L554">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k47fa7ed22681"></a></p>
+<span class="heading-anchor" id="如何消除碎片文件"></span><h2 id="_1_9">如何消除碎片文件</h2>
+<p>对于外部碎片，通过<strong>紧凑技术</strong>消除，就是操作系统不时地对进程进行移动和整理。但是这需要动态重定位寄存器地支持，且相对费时。紧凑地过程实际上类似于Windows系统中地磁盘整理程序，只不过后者是对外存空间地紧凑</p>
+<p>解决外部内存碎片的问题就是<strong>内存交换</strong>。</p>
+<p>可以把音乐程序占用的那 256MB 内存写到硬盘上，然后再从硬盘上读回来到内存里。不过再读回的时候，我们不能装载回原来的位置，而是紧紧跟着那已经被占用了的 512MB 内存后面。这样就能空缺出连续的 256MB 空间，于是新的 200MB 程序就可以装载进来。</p>
+<p>回收内存时要尽可能地将相邻的空闲空间合并。</p>
+<p id="冯诺依曼结构有哪几个模块分别对应现代计算机的哪几个部分百度安全一面">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-04-os.md#L72)，来源许可：Apache-2.0。</p>
+<p><a id="k586c6d1f3f1c"></a></p>
+<span class="heading-anchor" id="实时监控文件（AI行业高价值命令）"></span><h2 id="ai_1">实时监控文件（AI行业高价值命令）</h2>
+<ul>
+<li><strong>持续跟踪文件更新</strong>：使用 <code>-f</code> 选项，<code>tail</code> 会显示文件的最后几行并在文件有新内容追加时，实时显示新增内容。这对于监控实时日志非常有用。</li>
+</ul>
+<pre><code class="language-bash">  tail -f /path/to/your/file
+</code></pre>
+<ul>
+<li><strong>结合 <code>-n</code> 和 <code>-f</code></strong>：可以结合 <code>-n</code> 和 <code>-f</code> 选项，先显示文件的最后几行并持续跟踪文件更新。</li>
+</ul>
+<pre><code class="language-bash">  tail -n 20 -f /path/to/your/file
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L542">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5799506d5e63"></a></p>
+<span class="heading-anchor" id="持续监控文件变化并进行高级操作"></span><h2 id="_1_11">持续监控文件变化并进行高级操作</h2>
+<ul>
+<li><strong>附加模式</strong>：使用 <code>--follow</code> 选项的 <code>name</code> 参数，可以在文件重命名或旋转（如日志文件轮转）后继续跟踪。</li>
+</ul>
+<pre><code class="language-bash">  tail --follow=name /path/to/your/file
+</code></pre>
+<ul>
+<li><strong>与其他命令结合使用</strong>：结合管道和其他命令进行更复杂的操作。例如，过滤实时日志输出中的某些关键字：</li>
+</ul>
+<pre><code class="language-bash">  tail -f /path/to/your/file | grep "keyword"
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L568">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8f5c99db1739"></a></p>
+<span class="heading-anchor" id="按文件名搜索"></span><h2 id="_1_12">按文件名搜索</h2>
+<pre><code class="language-bash"># 按名称精确匹配
+find /path/to/start -name "filename"
+# 按名称模糊匹配（大小写敏感）
+find /path/to/start -name "*.txt"
+# 按名称模糊匹配（大小写不敏感）
+find /path/to/start -iname "*.txt"
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L382">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k21d0d4b7185b"></a></p>
+<span class="heading-anchor" id="按文件大小搜索"></span><h2 id="_1_13">按文件大小搜索</h2>
+<pre><code class="language-bash"># 查找大于 100MB 的文件
+find /path/to/start -size +100M
+# 查找小于 10KB 的文件
+find /path/to/start -size -10k
+# 查找正好 1GB 的文件
+find /path/to/start -size 1G
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L402">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k11f7e59906b5"></a></p>
+<span class="heading-anchor" id="按文件时间搜索"></span><h2 id="_1_14">按文件时间搜索</h2>
+<pre><code class="language-bash"># 查找在最近 7 天内修改的文件
+find /path/to/start -mtime -7
+# 查找在最近 30 分钟内修改的文件
+find /path/to/start -mmin -30
+# 查找在最近 7 天内访问的文件
+find /path/to/start -atime -7
+# 查找在最近 30 分钟内访问的文件
+find /path/to/start -amin -30
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L412">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8ab56216f2d5"></a></p>
+<span class="heading-anchor" id="按文件类型搜索"></span><h2 id="_1_15">按文件类型搜索</h2>
+<pre><code class="language-bash"># 查找目录
+find /path/to/start -type d
+# 查找普通文件
+find /path/to/start -type f
+# 查找符号链接
+find /path/to/start -type l
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L392">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbfabbc94e4ff"></a></p>
+<span class="heading-anchor" id="提高文件系统性能的方式有哪些？"></span><h2 id="_1_16">提高文件系统性能的方式有哪些？</h2>
+<p>可以从访问模式、缓存、元数据和硬件几方面答：</p>
+<ul>
+<li><strong>尽量顺序读写</strong>：顺序 I/O 更容易被预读、合并写和 extent 这类连续空间映射利用。</li>
+<li><strong>利用 Page Cache</strong>：普通文件读写会经过 Page Cache，命中时可以少访问磁盘；但缓存不是越大越好，还要看内存压力和回写压力。</li>
+<li><strong>减少小文件和元数据操作</strong>：大量小文件会放大 inode、目录项、权限检查、创建删除等元数据成本。</li>
+<li><strong>控制刷盘频率</strong>：频繁 <code>fsync()</code> 会降低吞吐，但完全不刷盘又会扩大掉电丢数据窗口，需要按业务持久性要求取舍。</li>
+<li><strong>选择合适的文件系统和挂载参数</strong>：ext4、XFS、Btrfs 等实现不同，日志模式、atime、barrier 等参数也会影响性能和可靠性。</li>
+<li><strong>使用更合适的硬件</strong>：SSD、NVMe、RAID、磁盘缓存策略都会影响读写延迟和吞吐。</li>
+</ul>
+<p>排查时常看这些命令：</p>
+<pre><code class="language-bash">df -h
+df -i
+lsof +L1
+iostat -x 1
+</code></pre>
+<p><code>df</code> 很满但 <code>du</code> 找不到大文件时，优先查被删除但仍被进程打开的文件；小文件特别多时，<code>df -i</code> 可能比 <code>df -h</code> 更早暴露问题。</p>
+<p>详细介绍：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/file-system.md">操作系统文件系统详解：inode、VFS、Page Cache 与日志机制</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L639">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k26a654ac2c8b"></a></p>
+<span class="heading-anchor" id="文件在磁盘上怎么存放？"></span><h2 id="_1_17">文件在磁盘上怎么存放？</h2>
+<p>文件系统会把一个分区或卷划分成很多块，再用元数据记录文件内容和块之间的关系。教材里常见三种分配方式：</p>
+<p><img alt="文件数据块定位方式" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/file-block-allocation.webp"/></p>
+<ul>
+<li><strong>连续分配</strong>：文件占用一段连续块，顺序读写和随机访问都快；缺点是文件增长麻烦，容易产生外部碎片。</li>
+<li><strong>链式分配</strong>：每个块指向下一个块，不要求连续空间；缺点是随机访问差。</li>
+<li><strong>索引分配</strong>：把数据块地址集中放在索引块中，随机访问更方便；缺点是需要额外索引空间。</li>
+</ul>
+<p>经典 ext2/ext3 使用直接块指针、一级间接、二级间接和三级间接块定位文件数据。ext4 通常使用 extent tree，一个 extent 记录一段连续物理块的逻辑起点、物理起点和长度；对连续大文件来说，它比“每个块记录一个地址”更省元数据。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L562">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kbf725a74df4a"></a></p>
+<span class="heading-anchor" id="文件系统主要做了什么？"></span><h2 id="_1_18">文件系统主要做了什么？</h2>
+<p>文件系统负责把存储设备上的块组织成应用能理解的文件和目录。面试里可以从这 6 件事回答：</p>
+<p><img alt="文件系统职责概览" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/file-system-responsibilities.webp"/></p>
+<ol>
+<li><strong>命名</strong>：用路径和文件名找到目标文件，例如 <code>/var/log/app.log</code>。</li>
+<li><strong>组织</strong>：用目录树管理文件和目录，让不同文件有清晰层次。</li>
+<li><strong>定位</strong>：把文件的第 N 个字节映射到底层数据块。</li>
+<li><strong>空间管理</strong>：分配、释放和复用磁盘块，记录哪些块空闲、哪些块已使用。</li>
+<li><strong>权限保护</strong>：记录所有者、权限、时间戳等元数据，并在访问时做检查。</li>
+<li><strong>缓存和恢复</strong>：用 Page Cache 提升读写性能，用日志机制减少崩溃后的文件系统结构损坏。</li>
+</ol>
+<p>不是所有文件系统都对应本地磁盘。<code>tmpfs</code> 主要以内存作为后端，<code>procfs</code> 暴露内核运行状态，NFS 则把远端文件系统接入本地目录树。Linux 通过 VFS 给这些文件系统提供统一接口。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L511">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k7d80907e7962"></a></p>
+<span class="heading-anchor" id="日志文件系统解决了什么问题？"></span><h2 id="_1_19">日志文件系统解决了什么问题？</h2>
+<p>文件系统一次操作常常要改多处元数据。比如创建文件时，要分配 inode、分配数据块、更新目录项、更新位图。机器在中途断电，文件系统可能停在不一致状态。</p>
+<p>日志文件系统会先把即将进行的元数据变更写入日志区域，再更新正式位置。系统恢复时扫描日志，已经完整提交但还没写回正式位置的事务可以重放，没有完整提交的事务会被丢弃。</p>
+<p>以 ext4 为例，常见数据模式有三种：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data=writeback</code></td>
+<td>只保证元数据日志，不保证相关数据块先于元数据写入</td>
+</tr>
+<tr>
+<td><code>data=ordered</code></td>
+<td>默认模式，元数据进日志前，相关数据块会先写到主文件系统</td>
+</tr>
+<tr>
+<td><code>data=journal</code></td>
+<td>数据和元数据都先写日志，再写最终位置，写放大更明显</td>
+</tr>
+</tbody>
+</table></div>
+<p>日志文件系统主要保证文件系统结构一致性，不等于帮应用保证所有业务数据都不丢。事务级持久性仍然要靠应用正确使用 <code>fsync()</code>、写入顺序和恢复逻辑。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L623">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ke07ddba2486c"></a></p>
+<span class="heading-anchor" id="硬链接为什么不能跨文件系统？"></span><h2 id="_1_20">硬链接为什么不能跨文件系统？</h2>
+<p>硬链接指向的是 inode，而 inode 号只在当前文件系统内有意义。每个文件系统都有自己的 inode 表，另一个文件系统里的同一个 inode 号不代表同一个文件。</p>
+<p>软链接保存的是路径字符串，解析时按路径重新查找目标文件，所以可以跨文件系统。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L600">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-9614c1d3f4b9.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>内存管理</strong></a><a class="page-next" href="n-4528d4a7abcf.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>系统机制与实践</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#aiio">AI行业中如何降低计算机I/O开销？</a></li><li class="outline-level-2"><a href="#linux">Linux中有哪些常用的查看文件夹占用空间的命令？</a></li><li class="outline-level-2"><a href="#open">open 一个文件时发生了什么？</a></li><li class="outline-level-2"><a href="#reactorproactorepoll-ltetai">Reactor、Proactor、epoll LT/ET在高并发AI服务中如何理解？</a></li><li class="outline-level-2"><a href="#selectpollepollio_uring">select、poll、epoll和io_uring有什么区别？</a></li><li class="outline-level-2"><a href="#io">什么是 I/O 多路复用？</a></li><li class="outline-level-2"><a href="#io_1">什么是 I/O 开销？</a></li><li class="outline-level-2"><a href="#linux_1">介绍一下Linux中修改文件权限的命令</a></li><li class="outline-level-2"><a href="#_1_8">多文件查看</a></li><li class="outline-level-2"><a href="#_1_9">如何消除碎片文件</a></li><li class="outline-level-2"><a href="#ai_1">实时监控文件（AI行业高价值命令）</a></li><li class="outline-level-2"><a href="#_1_11">持续监控文件变化并进行高级操作</a></li><li class="outline-level-2"><a href="#_1_12">按文件名搜索</a></li><li class="outline-level-2"><a href="#_1_13">按文件大小搜索</a></li><li class="outline-level-2"><a href="#_1_14">按文件时间搜索</a></li><li class="outline-level-2"><a href="#_1_15">按文件类型搜索</a></li><li class="outline-level-2"><a href="#_1_16">提高文件系统性能的方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_17">文件在磁盘上怎么存放？</a></li><li class="outline-level-2"><a href="#_1_18">文件系统主要做了什么？</a></li><li class="outline-level-2"><a href="#_1_19">日志文件系统解决了什么问题？</a></li><li class="outline-level-2"><a href="#_1_20">硬链接为什么不能跨文件系统？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>内存管理 · 李杨的学习笔记</title><meta name="description" content="结论： 要改数据，用 mmap；只是文件到 Socket 原样转发，用 sendfile；更一般的 fd 之间转发，再考虑 splice 。">
+<meta property="og:type" content="website"><meta property="og:title" content="内存管理 · 李杨的学习笔记"><meta property="og:description" content="结论： 要改数据，用 mmap；只是文件到 Socket 原样转发，用 sendfile；更一般的 fd 之间转发，再考虑 splice 。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-9614c1d3f4b9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-9614c1d3f4b9.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html" aria-current="page">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">02-操作系统与Linux</p><h1>内存管理</h1><p class="article-question-meta">32 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-cc613822f5f5">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/02-%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E4%B8%8ELinux/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#mmapsendfile-splice">mmap、sendfile 和 splice 有什么区别？</a></li><li class="outline-level-2"><a href="#overcommit-oom">Overcommit 和 OOM 是什么关系？</a></li><li class="outline-level-2"><a href="#swap">Swap、工作集和抖动分别是什么？</a></li><li class="outline-level-2"><a href="#tlb-tlb">TLB 有什么用？使用 TLB 之后的地址翻译流程是怎样的？</a></li><li class="outline-level-2"><a href="#windowslinux">Windows和Linux环境下内存分布情况</a></li><li class="outline-level-2"><a href="#_1_5">什么时候会进行内存的交换？</a></li><li class="outline-level-2"><a href="#_1_6">什么是内存碎片？</a></li><li class="outline-level-2"><a href="#_1_7">什么是虚拟内存？有什么用？</a></li><li class="outline-level-2"><a href="#_1_8">什么是虚拟地址和物理地址？</a></li><li class="outline-level-2"><a href="#_1_9">从堆和栈上建立对象哪个快？（考察堆和栈的分配效率比较）</a></li><li class="outline-level-2"><a href="#mmappipe">共享内存、mmap、消息队列和Pipe在推理服务中如何选择？</a></li><li class="outline-level-2"><a href="#_1_11">内存交换你知道有哪些需要注意的关键点吗？</a></li><li class="outline-level-2"><a href="#_1_12">内存交换是什么？有什么特点？</a></li><li class="outline-level-2"><a href="#_1_13">内存的覆盖是什么？有什么特点？</a></li><li class="outline-level-2"><a href="#_1_14">内存管理主要做了什么？</a></li><li class="outline-level-2"><a href="#_1_15">分段机制为什么会导致内存外部碎片？</a></li><li class="outline-level-2"><a href="#_1_16">分页和分段的区别</a></li><li class="outline-level-2"><a href="#_1_17">分页机制和分段机制有哪些共同点和区别？</a></li><li class="outline-level-2"><a href="#_1_18">单级页表有什么问题？为什么需要多级页表？</a></li><li class="outline-level-2"><a href="#malloc">在执行malloc申请内存的时候，操作系统是怎么做的？</a></li><li class="outline-level-2"><a href="#_1_19">如何进行地址空间到物理内存的映射？</a></li><li class="outline-level-2"><a href="#cpugpu">容器中的CPU、内存、GPU和文件句柄限制如何影响模型服务？</a></li><li class="outline-level-2"><a href="#_1_21">常见内存分配内存错误</a></li><li class="outline-level-2"><a href="#_1_22">常见内存分配方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_23">常见的内存管理方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_24">操作系统在对内存进行管理的时候需要做些什么?</a></li><li class="outline-level-2"><a href="#_1_25">没有虚拟内存有什么问题？</a></li><li class="outline-level-2"><a href="#_1_26">程序从堆中动态分配内存时，虚拟内存上怎么操作的</a></li><li class="outline-level-2"><a href="#_1_27">虚拟内存</a></li><li class="outline-level-2"><a href="#_1_28">虚拟技术你了解吗？</a></li><li class="outline-level-2"><a href="#free">被free回收的内存是立即返还给操作系统吗？</a></li><li class="outline-level-2"><a href="#ram">计算机的「内存」和「RAM」是同一个概念吗？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kb266d2f91fab"></a></p>
+<span class="heading-anchor" id="mmap、sendfile 和 splice 有什么区别？"></span><h2 id="mmapsendfile-splice">mmap、sendfile 和 splice 有什么区别？</h2>
+<p>结论：<strong>要改数据，用 mmap；只是文件到 Socket 原样转发，用 sendfile；更一般的 fd 之间转发，再考虑 splice</strong>。</p>
+<p><code>mmap + write</code> 利用虚拟内存映射，把文件映射到进程地址空间。应用访问这段内存时，实际访问的是 Page Cache 对应的物理页，省掉了传统 <code>read</code> 中“内核缓冲区 -&gt; 用户缓冲区”的那次 CPU 拷贝。不过后续 <code>write</code> 到 Socket 缓冲区通常还会有一次 CPU 拷贝。它适合需要在发送前读取、修改、解析数据的场景。</p>
+<p><code>sendfile</code> 更适合“文件 -&gt; Socket”的原样发送。数据不进入用户态，系统调用次数也更少；在支持 SG-DMA 的网卡上，还能把 CPU payload 拷贝降到 0。静态文件服务器、Kafka 日志段发送这类场景很典型。</p>
+<p><code>splice</code> 借助 pipe 在内核中移动页引用，适合更一般的描述符之间转发，比如 socket 到 socket、文件到管道再到 socket。它的限制是路径里通常要有 pipe，而且文件到 socket 往往需要两次 <code>splice</code> 调用，代码复杂度和系统调用次数都要考虑。</p>
+<p><img alt="传统 read/write、mmap + write、sendfile + SG-DMA 和 splice 的拷贝次数与模式切换对比" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/zero-copy-four-ways-comparison.png"/></p>
+<p>零拷贝也有失效场景：TLS 加密、压缩、格式转换、内容过滤、水印处理等都需要应用真正处理 payload，数据就很难一直停留在内核路径里。小文件或随机访问下，映射、缺页、管道的固定成本也可能盖过收益。</p>
+<p>详细介绍：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/zero-copy.md">零拷贝详解：mmap、sendfile 与 splice</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L493">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kb9ca9d6ab6d8"></a></p>
+<span class="heading-anchor" id="Overcommit 和 OOM 是什么关系？"></span><h2 id="overcommit-oom">Overcommit 和 OOM 是什么关系？</h2>
+<p>Linux 允许进程申请的虚拟内存超过当前 RAM 和 Swap，这叫 <strong>Overcommit</strong>。它适合那些会预留很大地址空间、但不一定真正使用完的程序。</p>
+<p>因此，<code>malloc()</code> 或 <code>mmap()</code> 成功，通常只表示虚拟地址空间申请成功，并不代表所有物理页已经准备好。很多物理页要等到首次访问时才会真正分配。</p>
+<p>当进程实际访问页面时，如果内核无法通过回收、写回或 Swap 获得足够内存，就可能触发 <strong>OOM Killer</strong>，选择一个或多个进程杀掉来释放内存。</p>
+<p>在容器环境里，还要看 cgroup 限制。宿主机还有空闲内存，不代表容器还能继续用；容器达到 <code>memory.max</code> 后，也可能先触发 cgroup 范围内的 OOM。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L358">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kbe5aab0e7ff7"></a></p>
+<span class="heading-anchor" id="Swap、工作集和抖动分别是什么？"></span><h2 id="swap">Swap、工作集和抖动分别是什么？</h2>
+<p><strong>Swap</strong> 是磁盘上的后备空间。匿名页没有对应的文件来源，物理内存紧张时，如果内核要回收这类页面，就可能把它们写入 Swap；以后进程再次访问，再从 Swap 读回内存。</p>
+<p>Swap 不是免费的内存扩容。磁盘比内存慢很多，Swap 活跃时，业务延迟通常会变差。</p>
+<p><strong>工作集</strong> 是进程在一段时间内真正频繁访问的页面集合。只要物理内存能放下主要进程的工作集，缺页就比较可控；如果放不下，页面会被频繁换出又换入。</p>
+<p>这种状态叫 <strong>抖动（Thrashing）</strong>。抖动时，CPU 不一定忙在业务计算上，可能大量时间耗在缺页处理、页面回收和磁盘 I/O 上。</p>
+<p>排查时可以看这些指标：</p>
+<pre><code class="language-bash">free -h
+vmstat 1
+grep -E 'pgfault|pgmajfault|pswpin|pswpout|pgscan|pgsteal' /proc/vmstat
+cat /proc/pressure/memory
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L339">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k6df15f180a98"></a></p>
+<span class="heading-anchor" id="TLB 有什么用？使用 TLB 之后的地址翻译流程是怎样的？"></span><h2 id="tlb-tlb">TLB 有什么用？使用 TLB 之后的地址翻译流程是怎样的？</h2>
+<p>为了提高虚拟地址到物理地址的转换速度，CPU/MMU 会使用 <strong>转址旁路缓存（Translation Lookaside Buffer，TLB，也被称为快表）</strong> 缓存近期的地址转换结果。</p>
+<p><img alt="加入 TLB 之后的地址翻译" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/physical-virtual-address-translation-mmu.png"/></p>
+<p>在主流的 AArch64 和 x86-64 体系结构下，TLB 是 MMU 使用的硬件缓存。可以把它理解为按虚拟页匹配物理页框的高速缓存，但不能把具体硬件结构等同于软件哈希表。操作系统负责维护页表；页表映射发生变化后，还要按体系结构要求使相关 TLB 项失效，避免 CPU 继续使用旧映射。</p>
+<p>使用 TLB 之后的地址翻译流程是这样的：</p>
+<ol>
+<li>CPU 使用虚拟页号以及地址空间标识等信息匹配 TLB 项；</li>
+<li>如果能查到对应的物理页的话，就不用再查询页表了，这种情况称为 TLB 命中（TLB hit）。</li>
+<li>如果不能查到对应的物理页的话，还是需要去查询主存中的页表，同时将页表中的该映射表项添加到 TLB 中，这种情况称为 TLB 未命中（TLB miss）。</li>
+<li>当 TLB 填满后，又要登记新页时，就按照一定的淘汰策略淘汰掉快表中的一个页。</li>
+</ol>
+<p><img alt="TLB 缓存地址转换结果的流程：CPU 先查 TLB，命中直接访问内存，未命中再查多级页表并更新 TLB" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/virtual-memory-tlb-cache.png"/></p>
+<p>由于页表也在主存中，因此在没有 TLB 之前，CPU 访问一个虚拟地址，往往要先访问内存查页表，再访问真正的数据；多级页表下查表次数还会更多。有了 TLB 之后，命中时可以跳过页表查询，直接拿到物理页帧号，地址转换会快很多。</p>
+<p>TLB 的设计思想非常简单，但命中率往往很高，效果很好。这依赖的还是局部性原理：程序在一段时间内频繁访问的页通常只是少数几个。</p>
+<p>看完了之后你会发现快表和我们平时经常在开发系统中使用的缓存（比如 Redis）很像，的确是这样的，操作系统中的很多思想、很多经典的算法，你都可以在我们日常开发使用的各种工具或者框架中找到它们的影子。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L255">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k95ffa9f5c22b"></a></p>
+<span class="heading-anchor" id="Windows和Linux环境下内存分布情况"></span><h2 id="windowslinux">Windows和Linux环境下内存分布情况</h2>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.assets/202205212344868.png"/></p>
+<p>通过这张图你可以看到，用户空间内存，从<strong>低到高</strong>分别是 7 种不同的内存段：</p>
+<ul>
+<li>程序文件段，包括二进制可执行代码；</li>
+<li>已初始化数据段，包括静态常量；</li>
+<li>未初始化数据段，包括未初始化的静态变量；</li>
+<li>堆段，包括动态分配的内存，从低地址开始向上增长；</li>
+<li>文件映射段，包括动态库、共享内存等，从低地址开始向上增长（跟硬件和内核版本有关）</li>
+<li>栈段，包括局部变量和函数调用的上下文等。栈的大小是固定的，一般是 <code>8 MB</code>。当然系统也提供了参数，以便我们自定义大小；</li>
+</ul>
+<p id="一个由西加加编译的程序占用的内存分为哪几个部分">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L54)，来源许可：Apache-2.0。</p>
+<p><a id="k8de1e67ee929"></a></p>
+<span class="heading-anchor" id="什么时候会进行内存的交换？"></span><h2 id="_1_5">什么时候会进行内存的交换？</h2>
+<p>内存交换通常在许多进程运行且内存吃紧时进行，而系统负荷降低就暂停。</p>
+<p>例如:在发现许多进程运行时经常发生缺页，就说明内存紧张，此时可以换出一些进程;如果缺页率明显下降，就可以暂停换出。</p>
+<p id="终端退出终端运行的进程会怎样">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-02-os.md#L295)，来源许可：Apache-2.0。</p>
+<p><a id="k5d443ee94a10"></a></p>
+<span class="heading-anchor" id="什么是内存碎片？"></span><h2 id="_1_6">什么是内存碎片？</h2>
+<p>内存碎片是由内存的申请和释放产生的，通常分为下面两种：</p>
+<ul>
+<li><strong>内部内存碎片（Internal Memory Fragmentation，简称为内存碎片）</strong>：已经分配给进程使用但未被使用的内存。导致内部内存碎片的主要原因是，当采用固定比例比如 2 的幂次方进行内存分配时，进程所分配的内存可能会比其实际所需要的大。举个例子，一个进程只需要 65 字节的内存，但为其分配了 128（2^7）大小的内存，那 63 字节的内存就成为了内部内存碎片。</li>
+<li><strong>外部内存碎片（External Memory Fragmentation，简称为外部碎片）</strong>：由于未分配的连续内存区域太小，以至于不能满足任意进程所需要的内存分配请求，这些小片段且不连续的内存空间被称为外部碎片。也就是说，外部内存碎片指的是那些并未分配给进程但又不能使用的内存。我们后面介绍的分段机制就会导致外部内存碎片。</li>
+</ul>
+<p><img alt="连续内存分配与碎片" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/memory-fragmentation.webp"/></p>
+<p>内存碎片会导致内存利用率下降，如何减少内存碎片是内存管理要非常重视的一件事情。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L54">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd2e3096c1a6f"></a></p>
+<span class="heading-anchor" id="什么是虚拟内存？有什么用？"></span><h2 id="_1_7">什么是虚拟内存？有什么用？</h2>
+<p><strong>虚拟内存（Virtual Memory）</strong> 是操作系统提供的一层内存抽象。程序看到的是连续、私有的虚拟地址空间，真正的数据放在物理内存的哪些位置，由操作系统和硬件共同决定。</p>
+<p>简单来说，虚拟内存把“程序使用的地址”和“内存条上的真实地址”隔开了。进程访问虚拟地址时，CPU 中的 MMU 会根据页表等映射关系，把虚拟地址转换成物理地址，再去访问真正的内存。</p>
+<p><img alt="虚拟内存作为进程访问主存的桥梁" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/xingqiu/virtual-memory.png"/></p>
+<p>总结来说，虚拟内存主要提供了下面这些能力：</p>
+<ul>
+<li><strong>隔离进程</strong>：每个进程都有自己的虚拟地址空间和页表。不同进程即使使用相同的虚拟地址，也可以映射到不同的物理页，彼此不会直接踩内存。</li>
+<li><strong>提升物理内存利用率</strong>：操作系统不需要把进程的全部代码和数据一次性装进物理内存，只把当前真正会用到的页加载进来。</li>
+<li><strong>简化内存管理</strong>：进程看到的是一片连续的虚拟地址空间，物理内存可以是离散的页帧，复杂的拼接工作交给页表和 MMU。</li>
+<li><strong>多个进程共享物理内存</strong>：进程在运行过程中会加载许多操作系统动态库，这些库对于多个进程而言可以共用同一份物理页；多个进程也可以通过共享内存 IPC 主动映射同一块物理内存，用于高效交换数据。</li>
+<li><strong>提高内存使用安全性</strong>：控制进程对物理内存的访问，隔离不同进程的访问权限，提高系统的安全性。</li>
+<li><strong>提供更大的可使用内存空间</strong>：当物理内存不够用时，可以把暂时不用的页换出到磁盘，需要时再换回来。这样程序感知到的可用内存空间可以超过实际物理内存，不过频繁换页会明显拖慢系统。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L100">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k3bb712170994"></a></p>
+<span class="heading-anchor" id="什么是虚拟地址和物理地址？"></span><h2 id="_1_8">什么是虚拟地址和物理地址？</h2>
+<p><strong>物理地址（Physical Address）</strong> 是真正的物理内存中地址，更具体点来说是内存地址寄存器中的地址。程序中访问的内存地址不是物理地址，而是 <strong>虚拟地址（Virtual Address）</strong>。</p>
+<p>也就是说，我们编程开发的时候实际就是在和虚拟地址打交道。比如在 C 语言中，指针里面存储的数值就可以理解成为内存里的一个地址，这个地址也就是我们说的虚拟地址。</p>
+<p>操作系统一般通过 CPU 芯片中的一个重要组件 <strong>MMU（Memory Management Unit，内存管理单元）</strong> 将虚拟地址转换为物理地址，这个过程被称为 <strong>地址翻译/地址转换（Address Translation）</strong>。在现代系统里，这个转换通常依赖页表完成，TLB 会缓存最近使用过的地址转换结果，减少查页表的开销。</p>
+<p><img alt="地址翻译过程" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/physical-virtual-address-translation.png"/></p>
+<p>通过 MMU 将虚拟地址转换为物理地址后，CPU 再访问对应的物理内存位置，完成读写请求。也正是因为有这层转换，不同进程里数值相同的虚拟地址，最终可以落到完全不同的物理页上。</p>
+<p>这也是进程隔离和进程间通信的基础：默认情况下，一个进程不能直接读写另一个进程的用户态地址空间；如果两个进程确实需要交换数据，就要借助管道、消息队列、共享内存、Socket 等 IPC 机制。关于 IPC 的系统总结可以看：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/ipc.md">进程间通信（IPC）详解：管道、消息队列、共享内存、Socket 与 Binder</a>。</p>
+<p>MMU 将虚拟地址翻译为物理地址的主要机制有两种：<strong>分段机制</strong> 和 <strong>分页机制</strong>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L128">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k04fcfde8f085"></a></p>
+<span class="heading-anchor" id="从堆和栈上建立对象哪个快？（考察堆和栈的分配效率比较）"></span><h2 id="_1_9">从堆和栈上建立对象哪个快？（考察堆和栈的分配效率比较）</h2>
+<p>从两方面来考虑：</p>
+<p><strong>1、分配和释放</strong>，堆在分配和释放时都要调用函数（malloc,free)，比如分配时会到堆空间去寻找足够大小的空间（因为多次分配释放后会造成内存碎片），这些都会花费一定的时间。具体可以看看malloc和free的源代码，函数做了很多额外的工作，而栈却不需要这些。</p>
+<p><strong>2、访问时间</strong>，访问堆的一个具体单元，需要两次访问内存，第一次得取得指针，第二次才是真正的数据，而栈只需访问一次。另外，堆的内容被操作系统交换到外存的概率比栈大，栈一般是不会被交换出去的。</p>
+<p id="常见内存分配方式有哪些">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L205)，来源许可：Apache-2.0。</p>
+<p><a id="k8c60039ff5d9"></a></p>
+<span class="heading-anchor" id="共享内存、mmap、消息队列和Pipe在推理服务中如何选择？"></span><h2 id="mmappipe">共享内存、mmap、消息队列和Pipe在推理服务中如何选择？</h2>
+<p>进程间通信方式要根据数据大小、实时性、可靠性和开发复杂度选择：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>IPC方式</th>
+<th>特点</th>
+<th>适合场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipe/命名管道</td>
+<td>简单、字节流、适合同机父子进程</td>
+<td>启动脚本、简单日志流、轻量控制命令</td>
+</tr>
+<tr>
+<td>消息队列</td>
+<td>内核维护消息边界，适合异步通信</td>
+<td>任务通知、控制消息、低频事件</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>速度快，但需要同步机制</td>
+<td>大图像帧、音频buffer、embedding批次传递</td>
+</tr>
+<tr>
+<td><code>mmap</code></td>
+<td>文件映射到内存，可共享也可持久化</td>
+<td>大模型权重映射、数据集读取、只读大文件共享</td>
+</tr>
+<tr>
+<td>Socket</td>
+<td>可跨机器，协议成熟</td>
+<td>分布式推理服务、微服务通信</td>
+</tr>
+</tbody>
+</table></div>
+<p>AI推理服务中，大块数据不要频繁通过Pipe或消息队列复制。更好的方式是：控制消息走队列或socket，大块数据放共享内存、mmap、对象存储或GPU显存句柄，消息里只传引用、offset、shape和metadata。</p>
+<p>注意共享内存本身不提供并发安全，必须配合互斥锁、信号量、原子变量或无锁队列协议。否则数据写到一半被另一个进程读取，会出现非常隐蔽的错误。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L3086">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5c2761e81c94"></a></p>
+<span class="heading-anchor" id="内存交换你知道有哪些需要注意的关键点吗？"></span><h2 id="_1_11">内存交换你知道有哪些需要注意的关键点吗？</h2>
+<ol>
+<li>交换需要备份存储，通常是快速磁盘，它必须足够大，并且提供对这些内存映像的直接访问。</li>
+<li>为了有效使用CPU，需要每个进程的执行时间比交换时间长，而影响交换时间的主要是转移时间，转移时间与所交换的空间内存成正比。</li>
+<li>如果换出进程，比如确保该进程的内存空间成正比。</li>
+<li>交换空间通常作为磁盘的一整块，且独立于文件系统，因此使用就可能很快。</li>
+<li>交换通常在有许多进程运行且内存空间吃紧时开始启动，而系统负荷降低就暂停。</li>
+<li>普通交换使用不多，但交换的策略的某些变种在许多系统中（如UNIX系统）仍然发挥作用。</li>
+</ol>
+<p id="系统并发和并行分得清吗">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L368)，来源许可：Apache-2.0。</p>
+<p><a id="k3b4ac3dfb061"></a></p>
+<span class="heading-anchor" id="内存交换是什么？有什么特点？"></span><h2 id="_1_12">内存交换是什么？有什么特点？</h2>
+<p><strong>交换(对换)技术的设计思想</strong>：内存空间紧张时，系统将内存中某些进程暂时换出外存，把外存中某些已具备运行条件的进程换入内存(进程在内存与磁盘间动态调度)</p>
+<p>换入：把准备好竞争CPU运行的程序从辅存移到内存。</p>
+<p>换出：把处于等待状态（或CPU调度原则下被剥夺运行权力）的程序从内存移到辅存，把内存空间腾出来。</p>
+<p id="什么时候会进行内存的交换">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-02-os.md#L284)，来源许可：Apache-2.0。</p>
+<p><a id="kb5e19fa9e278"></a></p>
+<span class="heading-anchor" id="内存的覆盖是什么？有什么特点？"></span><h2 id="_1_13">内存的覆盖是什么？有什么特点？</h2>
+<p>由于程序运行时并非任何时候都要访问程序及数据的各个部分（尤其是大程序），因此可以把用户空间分成为一个固定区和若干个覆盖区。</p>
+<p>将经常活跃的部分放在固定区，其余部分按照调用关系分段，首先将那些即将要访问的段放入覆盖区，其他段放在外存中，在需要调用前，系统将其调入覆盖区，替换覆盖区中原有的段。</p>
+<p>覆盖技术的特点：是打破了必须将一个进程的全部信息装入内存后才能运行的限制，但当同时运行程序的代码量大于主存时仍不能运行，再而，大家要注意到，内存中能够更新的地方只有覆盖区的段，不在覆盖区的段会常驻内存。</p>
+<p id="内存交换是什么有什么特点">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-02-os.md#L273)，来源许可：Apache-2.0。</p>
+<p><a id="kc7f82d01215e"></a></p>
+<span class="heading-anchor" id="内存管理主要做了什么？"></span><h2 id="_1_14">内存管理主要做了什么？</h2>
+<p><img alt="内存管理职责概览" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/memory-management-responsibilities.webp"/></p>
+<p>面试里回答“内存管理做什么”，可以从 5 件事说起：</p>
+<ul>
+<li><strong>分配和回收内存</strong>：用户态分配器会通过 <code>brk()</code>、<code>mmap()</code> 等接口向内核申请或释放虚拟地址区域；内核再管理物理页和内核对象。</li>
+<li><strong>地址转换</strong>：程序访问虚拟地址，CPU 中的 MMU 配合页表和 TLB，把虚拟地址翻译成物理地址。</li>
+<li><strong>进程隔离和权限保护</strong>：每个进程都有自己的地址空间，页表项还能记录读、写、执行、用户态/内核态等权限。</li>
+<li><strong>页面回收和换页</strong>：物理内存紧张时，内核会回收文件页或匿名页，必要时把匿名页写入 Swap。</li>
+<li><strong>共享和映射</strong>：动态库共享、共享内存 IPC、<code>mmap()</code> 文件映射、写时复制（COW）都依赖虚拟地址到物理页的映射能力。</li>
+</ul>
+<p>面试里可以抓住一条主线：内存管理把程序看到的地址和真实物理内存隔开，再用分配、映射、保护和回收把内存管起来。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L23">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kd6722eee28db"></a></p>
+<span class="heading-anchor" id="分段机制为什么会导致内存外部碎片？"></span><h2 id="_1_15">分段机制为什么会导致内存外部碎片？</h2>
+<p>分段机制容易出现外部内存碎片，根本原因是<strong>段的长度不固定，并且每个段通常需要一块连续的物理内存</strong>。进程不断创建和释放段后，物理内存里会留下很多零散空洞；这些空洞总量可能够用，但单个空洞不够大，仍然无法分配给新的大段。</p>
+<p>举个例子：假设可用物理内存为 5G 的系统使用分段机制分配内存。现在有 4 个进程，每个进程的内存占用情况如下：</p>
+<ul>
+<li>进程 1：0~1G（第 1 段）</li>
+<li>进程 2：1~3G（第 2 段）</li>
+<li>进程 3：3~4.5G（第 3 段）</li>
+<li>进程 4：4.5~5G（第 4 段）</li>
+</ul>
+<p>此时，我们关闭了进程 1 和进程 4，则第 1 段和第 4 段的内存会被释放，空闲物理内存还有 1.5 GB。由于这 1.5 GB 物理内存并不是连续的，导致没办法将空闲的物理内存分配给一个需要 1.5 GB 连续物理内存的进程。</p>
+<p><img alt="分段机制导致外部内存碎片" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/segment-external-memory-fragmentation.png"/></p>
+<p>外部碎片可以通过内存紧凑来缓解，也就是把还在使用的段搬到一起，腾出连续空间。但搬移大段很费时间，如果还伴随换出、换入磁盘，系统会明显变慢。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L185">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k455b5615700b"></a></p>
+<span class="heading-anchor" id="分页和分段的区别"></span><h2 id="_1_16">分页和分段的区别</h2>
+<p><strong>常见问法：</strong> 分页和分段有什么区别？</p>
+<ul>
+<li>段是信息的逻辑单位，它是根据用户的需要划分的，因此段对用户是可见的 ；页是信息的物理单位，是为了管理主存的方便而划分的，对用户是透明的；</li>
+<li>段的大小不固定，由它所完成的功能决定；页的大小固定，由系统决定；</li>
+<li>段向用户提供二维地址空间；页向用户提供的是一维地址空间；</li>
+<li>段是信息的逻辑单位，便于存储保护和信息的共享，页的保护和共享受到限制。</li>
+</ul>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_5">补充说明</h3>
+<ul>
+<li>页式存储：用户空间划分为大小相等的部分称为页（page），内存空间划分为同样大小的区域称为页框，分配时以页为单位，按进程需要的页数分配，逻辑上相邻的页物理上不一定相邻；</li>
+<li>段式存储：用户进程地址空间按照自身逻辑关系划分为若干个段（segment）（如代码段，数据段，堆栈段），内存空间被动态划分为长度不同的区域，分配时以段为单位，每段在内存中占据连续空间，各段可以不相邻；</li>
+<li>段页式存储：用户进程先按段划分，段内再按页划分，内存划分和分配按页。</li>
+</ul>
+<p>区别：
+- 目的不同：分页的目的是管理内存，用于虚拟内存以获得更大的地址空间；分段的目的是满足用户的需要，使程序和数据可以被划分为逻辑上独立的地址空间；
+- 大小不同：段的大小不固定，由其所完成的功能决定；页的大小固定，由系统决定；
+- 地址空间维度不同：分段是二维地址空间（段号+段内偏移），分页是一维地址空间（每个进程一个页表/多级页表，通过一个逻辑地址就能找到对应的物理地址）；
+- 分段便于信息的保护和共享；分页的共享收到限制；
+- 碎片：分段没有内碎片，但会产生外碎片；分页没有外碎片，但会产生内碎片（一个页填不满）</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/03-computer-basics/operating-system/processes-and-threads.md#L96">Datawhale</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L556">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k422ff5f97a44"></a></p>
+<span class="heading-anchor" id="分页机制和分段机制有哪些共同点和区别？"></span><h2 id="_1_17">分页机制和分段机制有哪些共同点和区别？</h2>
+<p><strong>共同点</strong>：</p>
+<ul>
+<li>都是非连续内存管理的方式。</li>
+<li>都采用了地址映射的方法，将虚拟地址映射到物理地址，以实现对内存的管理和保护。</li>
+</ul>
+<p><strong>区别</strong>：</p>
+<ul>
+<li><strong>划分依据不同</strong>：分页按固定大小切分地址空间和物理内存，页是内存管理的物理粒度；分段按程序的逻辑结构切分，比如代码段、数据段、堆、栈，段是更贴近程序语义的逻辑单位。</li>
+<li><strong>大小是否固定不同</strong>：页大小固定，常见为 4 KB；段大小不固定，取决于程序中对应逻辑区域的大小。</li>
+<li><strong>碎片问题不同</strong>：分段容易产生外部碎片，因为每个段需要连续空间；分页基本消除了外部碎片，但最后一页可能装不满，会产生少量内部碎片。</li>
+<li><strong>地址结构不同</strong>：分页地址通常由页号和页内偏移组成，通过页表完成映射；分段地址由段号和段内偏移组成，通过段表完成映射。</li>
+<li><strong>工程使用不同</strong>：现代通用操作系统主要依赖分页管理内存。以 x86 为例，硬件历史上支持分段和分页，但 Linux 基本把段基址设为 0，让分段“弱化”为权限和兼容机制，实际内存管理主要靠分页完成。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L378">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka65282ad9551"></a></p>
+<span class="heading-anchor" id="单级页表有什么问题？为什么需要多级页表？"></span><h2 id="_1_18">单级页表有什么问题？为什么需要多级页表？</h2>
+<p>以 32 位环境为例，虚拟地址空间范围共有 2^32（4 GB）。假设一页大小是 2^12（4 KB），那就需要 4 GB / 4 KB = 2^20 个页表项。每个页表项占用 4 字节，整张单级页表大约就是 4 MB。也就是说，一个进程即使只用了一小段虚拟地址空间，单级页表也要为整个 4 GB 地址空间预留页表项。</p>
+<p>系统运行的进程多起来后，这部分开销就很明显。更要命的是，绝大多数进程只会使用虚拟地址空间中的一小部分，单级页表里的大量页表项其实都是空的。</p>
+<p>为了解决这个问题，操作系统引入了 <strong>多级页表</strong>。多级页表的核心思路是：顶层页表覆盖整个虚拟地址空间，下级页表按需创建；某段虚拟地址完全没用到，就不需要为它创建下级页表。</p>
+<p>这里以二级页表为例进行介绍：一级页表共有 1024 个页表项，每个一级页表项可以指向一张二级页表；每张二级页表同样有 1024 个页表项。只有某个一级页表项覆盖的地址范围真的被使用时，才需要创建对应的二级页表。</p>
+<p>假设只需要 2 个二级页表，那两级页表的内存占用情况为：4 KB（一级页表占用） + 4 KB * 2（二级页表占用） = 12 KB。</p>
+<p><img alt="多级页表示意图：PGD、PUD、PMD、PTE 分层索引，只为实际使用的地址范围创建下级页表" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/virtual-memory-multi-level-page-table.png"/></p>
+<p>多级页表是在省页表空间：多走几层索引，换来更小的页表内存占用。实际系统会配合 TLB 缓存常用页表项，所以多级页表的额外查表开销不会每次都完整发生。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L239">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k101a6239cba9"></a></p>
+<span class="heading-anchor" id="在执行malloc申请内存的时候，操作系统是怎么做的？"></span><h2 id="malloc">在执行malloc申请内存的时候，操作系统是怎么做的？</h2>
+<p>从操作系统层面上看，malloc是通过两个系统调用来实现的： brk和mmap</p>
+<ul>
+<li>brk是将进程数据段(.data)的最高地址指针向高处移动，这一步可以扩大进程在运行时的堆大小</li>
+<li>mmap是在进程的虚拟地址空间中寻找一块空闲的虚拟内存，这一步可以获得一块可以操作的堆内存。</li>
+</ul>
+<p>通常，分配的内存小于128k时，使用brk调用来获得虚拟内存，大于128k时就使用mmap来获得虚拟内存。</p>
+<p>进程先通过这两个系统调用获取或者扩大进程的虚拟内存，获得相应的虚拟地址，在访问这些虚拟地址的时候，通过缺页中断，让内核分配相应的物理内存，这样内存分配才算完成。</p>
+<p id="守护进程僵尸进程和孤儿进程">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-02-os.md#L350)，来源许可：Apache-2.0。</p>
+<p><a id="kc06ce689c095"></a></p>
+<span class="heading-anchor" id="如何进行地址空间到物理内存的映射？"></span><h2 id="_1_19">如何进行地址空间到物理内存的映射？</h2>
+<p><strong>内存管理单元</strong>（MMU）管理着逻辑地址和物理地址的转换，其中的页表（Page table）存储着页（逻辑地址）和页框（物理内存空间）的映射表，页表中还包含包含有效位（是在内存还是磁盘）、访问位（是否被访问过）、修改位（内存中是否被修改过）、保护位（只读还是可读写）。逻辑地址：页号+页内地址（偏移）；每个进程一个页表，放在内存，页表起始地址在PCB/寄存器中。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L576">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k137a8b29e124"></a></p>
+<span class="heading-anchor" id="容器中的CPU、内存、GPU和文件句柄限制如何影响模型服务？"></span><h2 id="cpugpu">容器中的CPU、内存、GPU和文件句柄限制如何影响模型服务？</h2>
+<p>容器不是虚拟机，它共享宿主机内核，但通过cgroup、namespace等机制限制资源。模型服务在容器中常见问题包括：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>限制</th>
+<th>影响</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU quota</td>
+<td>tokenization、预处理、后处理变慢</td>
+<td><code>docker stats</code>、cgroup配置</td>
+</tr>
+<tr>
+<td>memory limit</td>
+<td>OOMKilled、缓存被频繁回收</td>
+<td><code>docker inspect</code>、容器日志</td>
+</tr>
+<tr>
+<td>GPU可见性</td>
+<td>程序看不到GPU或只看到部分GPU</td>
+<td><code>NVIDIA_VISIBLE_DEVICES</code>、<code>nvidia-smi</code></td>
+</tr>
+<tr>
+<td>shared memory</td>
+<td>DataLoader或多进程通信失败</td>
+<td><code>--shm-size</code></td>
+</tr>
+<tr>
+<td>文件句柄</td>
+<td>高并发连接报too many open files</td>
+<td><code>ulimit -n</code></td>
+</tr>
+<tr>
+<td>网络模式</td>
+<td>服务不可访问或端口冲突</td>
+<td>bridge/host端口映射</td>
+</tr>
+</tbody>
+</table></div>
+<p>部署AIGC服务时，除了模型参数，还要明确容器资源规格：CPU核数、内存、显存、共享内存、最大连接数、日志路径、模型权重挂载路径。很多线上故障不是模型本身问题，而是容器资源上限与实际负载不匹配。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L3163">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdae4e2ffd7d3"></a></p>
+<span class="heading-anchor" id="常见内存分配内存错误"></span><h2 id="_1_21">常见内存分配内存错误</h2>
+<p>（1）内存分配未成功，却使用了它。</p>
+<p>编程新手常犯这种错误，因为他们没有意识到内存分配会不成功。常用解决办法是，在使用内存之前检查指针是否为NULL。如果指针p是函数的参数，那么在函数的入口处用assert(p!=NULL)进行检查。如果是用malloc或new来申请内存，应该用if(p==NULL) 或if(p!=NULL)进行防错处理。</p>
+<p>（2）内存分配虽然成功，但是尚未初始化就引用它。</p>
+<p>犯这种错误主要有两个起因：一是没有初始化的观念；二是误以为内存的缺省初值全为零，导致引用初值错误（例如数组）。内存的缺省初值究竟是什么并没有统一的标准，尽管有些时候为零值，我们宁可信其无不可信其有。所以无论用何种方式创建数组，都别忘了赋初值，即便是赋零值也不可省略，不要嫌麻烦。</p>
+<p>（3）内存分配成功并且已经初始化，但操作越过了内存的边界。</p>
+<p>例如在使用数组时经常发生下标“多1”或者“少1”的操作。特别是在for循环语句中，循环次数很容易搞错，导致数组操作越界。</p>
+<p>（4）忘记了释放内存，造成内存泄露。</p>
+<p>含有这种错误的函数每被调用一次就丢失一块内存。刚开始时系统的内存充足，你看不到错误。终有一次程序突然挂掉，系统出现提示：内存耗尽。动态内存的申请与释放必须配对，程序中malloc与free的使用次数一定要相同，否则肯定有错误（new/delete同理）。</p>
+<p>（5）释放了内存却继续使用它。常见于以下有三种情况：</p>
+<ul>
+<li>
+<p>程序中的对象调用关系过于复杂，实在难以搞清楚某个对象究竟是否已经释放了内存，此时应该重新设计数据结构，从根本上解决对象管理的混乱局面。</p>
+</li>
+<li>
+<p>函数的return语句写错了，注意不要返回指向“栈内存”的“指针”或者“引用”，因为该内存在函数体结束时被自动销毁。</p>
+</li>
+<li>
+<p>使用free或delete释放了内存后，没有将指针设置为NULL。导致产生“空悬指针”。</p>
+</li>
+</ul>
+<p id="内存交换中被换出的进程保存在哪里">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L229)，来源许可：Apache-2.0。</p>
+<p><a id="k8e1980bd378d"></a></p>
+<span class="heading-anchor" id="常见内存分配方式有哪些？"></span><h2 id="_1_22">常见内存分配方式有哪些？</h2>
+<p><strong>内存分配方式</strong></p>
+<p>（1） 从静态存储区域分配。内存在程序编译的时候就已经分配好，这块内存在程序的整个运行期间都存在。例如全局变量，static变量。</p>
+<p>（2） 在栈上创建。在执行函数时，函数内局部变量的存储单元都可以在栈上创建，函数执行结束时这些存储单元自动被释放。栈内存分配运算内置于处理器的指令集中，效率很高，但是分配的内存容量有限。</p>
+<p>（3） 从堆上分配，亦称动态内存分配。程序在运行的时候用malloc或new申请任意多少的内存，程序员自己负责在何时用free或delete释放内存。动态内存的生存期由我们决定，使用非常灵活，但问题也最多。</p>
+<p id="常见内存分配内存错误">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L216)，来源许可：Apache-2.0。</p>
+<p><a id="k285b509c9295"></a></p>
+<span class="heading-anchor" id="常见的内存管理方式有哪些？"></span><h2 id="_1_23">常见的内存管理方式有哪些？</h2>
+<p>内存管理方式可以简单分为下面两种：</p>
+<ul>
+<li><strong>连续内存管理</strong>：为一个用户程序分配一个连续的内存空间，内存利用率一般不高。</li>
+<li><strong>非连续内存管理</strong>：允许一个程序使用的内存分布在离散或者说不相邻的内存中，相对更加灵活一些。</li>
+</ul>
+<span class="heading-anchor" id="连续内存管理"></span><h3 id="_2_9">连续内存管理</h3>
+<p><strong>块式管理</strong> 是早期计算机操作系统的一种连续内存管理方式，存在严重的内存碎片问题。块式管理会将内存分为几个固定大小的块，每个块中只包含一个进程。如果程序运行需要内存的话，操作系统就分配给它一块，如果程序运行只需要很小的空间的话，分配的这块内存很大一部分几乎被浪费了。这些在每个块中未被利用的空间，我们称之为内部内存碎片。除了内部内存碎片之外，由于两个内存块之间可能还会有外部内存碎片，这些不连续的外部内存碎片由于太小了无法再进行分配。</p>
+<p>在 Linux 系统中，连续内存管理采用了 <strong>伙伴系统（Buddy System）算法</strong> 来实现，这是一种经典的连续内存分配算法，可以有效解决外部内存碎片的问题。伙伴系统的主要思想是将内存按 2 的幂次划分（每一块内存大小都是 2 的幂次比如 2^6=64 KB），并将相邻的内存块组合成一对伙伴（注意：<strong>必须是相邻的才是伙伴</strong>）。</p>
+<p>当进行内存分配时，伙伴系统会尝试找到大小最合适的内存块。如果找到的内存块过大，就将其一分为二，分成两个大小相等的伙伴块。如果还是大的话，就继续切分，直到到达合适的大小为止。</p>
+<p>假设两块相邻的内存块都被释放，系统会将这两个内存块合并，进而形成一个更大的内存块，以便后续的内存分配。这样就可以减少内存碎片的问题，提高内存利用率。</p>
+<p><img alt="伙伴系统（Buddy System）内存管理" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/linux-buddy-system.png"/></p>
+<p>虽然解决了外部内存碎片的问题，但伙伴系统仍然存在内存利用率不高的问题（内部内存碎片）。这主要是因为伙伴系统只能分配大小为 2^n 的内存块，因此当需要分配的内存大小不是 2^n 的整数倍时，会浪费一定的内存空间。举个例子：如果要分配 65 大小的内存块，依然需要分配 2^7=128 大小的内存块。</p>
+<p><img alt="伙伴系统内存浪费问题" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/buddy-system-memory-waste.png"/></p>
+<p>对于小对象频繁分配带来的内部内存碎片和性能问题，Linux 还会使用 <strong>SLAB/SLUB</strong> 这类分配器优化。它们会把常用内核对象缓存起来，按对象类型复用已经初始化过的内存块，减少重复分配、初始化和释放的成本。由于这部分内容不是本篇文章的重点，这里点到为止。</p>
+<span class="heading-anchor" id="非连续内存管理"></span><h3 id="_3_1">非连续内存管理</h3>
+<p>非连续内存管理存在下面 3 种方式：</p>
+<ul>
+<li><strong>段式管理</strong>：以段（一段连续的物理内存）的形式管理/分配物理内存。应用程序的虚拟地址空间被分为大小不等的段，段是有实际意义的，每个段定义了一组逻辑信息，例如有主程序段 MAIN、子程序段 X、数据段 D 及栈段 S 等。</li>
+<li><strong>页式管理</strong>：把物理内存分为连续等长的物理页，应用程序的虚拟地址空间也被划分为连续等长的虚拟页，是现代操作系统广泛使用的一种内存管理方式。</li>
+<li><strong>段页式管理机制</strong>：结合了段式管理和页式管理。程序的地址空间先按逻辑分段，每个段再划分为固定大小的页，物理内存仍按页框分配。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L65">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kab091d06017a"></a></p>
+<span class="heading-anchor" id="操作系统在对内存进行管理的时候需要做些什么?"></span><h2 id="_1_24">操作系统在对内存进行管理的时候需要做些什么?</h2>
+<ul>
+<li>操作系统负责内存空间的分配与回收。</li>
+<li>操作系统需要提供某种技术从逻辑上对内存空间进行扩充。</li>
+<li>操作系统需要提供地址转换功能，负责程序的逻辑地址与物理地址的转换。</li>
+<li>操作系统需要提供内存保护功能。保证各进程在各自存储空间内运行，互不干扰</li>
+</ul>
+<p id="进程通信方法下线程通信方法里牛客死下">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L777)，来源许可：Apache-2.0。</p>
+<p><a id="k804568552b96"></a></p>
+<span class="heading-anchor" id="没有虚拟内存有什么问题？"></span><h2 id="_1_25">没有虚拟内存有什么问题？</h2>
+<p>如果没有虚拟内存的话，程序直接访问和操作的都是物理内存，看似少了一层中介，但多了很多问题。</p>
+<p><strong>具体有什么问题呢？</strong> 这里举几个例子说明（参考虚拟内存提供的能力回答这个问题）：</p>
+<ol>
+<li>用户程序可以访问任意物理内存，可能会不小心操作到系统运行必需的内存，进而造成操作系统崩溃，严重影响系统的安全。</li>
+<li>同时运行多个程序容易崩溃。比如你想同时运行一个微信和一个 QQ 音乐，微信在运行的时候给内存地址 1xxx 赋值后，QQ 音乐也同样给内存地址 1xxx 赋值，那么 QQ 音乐对内存的赋值就会覆盖微信之前所赋的值，这就可能会造成微信这个程序会崩溃。</li>
+<li>程序运行过程中使用的所有数据或指令都要载入物理内存，根据局部性原理，其中很大一部分可能都不会用到，白白占用了宝贵的物理内存资源。</li>
+<li>……</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L117">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k5a5e0628fda3"></a></p>
+<span class="heading-anchor" id="程序从堆中动态分配内存时，虚拟内存上怎么操作的"></span><h2 id="_1_26">程序从堆中动态分配内存时，虚拟内存上怎么操作的</h2>
+<p>页表：是一个存放在物理内存中的数据结构，它记录了虚拟页与物理页的映射关系</p>
+<p>在进行动态内存分配时，例如malloc()函数或者其他高级语言中的new关键字，操作系统会在硬盘中创建或申请一段虚拟内存空间，并更新到页表（分配一个页表条目（PTE），使该PTE指向硬盘上这个新创建的虚拟页），通过PTE建立虚拟页和物理页的映射关系。</p>
+<p id="常见的几种磁盘调度算法">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L121)，来源许可：Apache-2.0。</p>
+<p><a id="k30a919109294"></a></p>
+<span class="heading-anchor" id="虚拟内存"></span><h2 id="_1_27">虚拟内存</h2>
+<p>虚拟内存是文件数据交叉链接的活动文件。是WINDOWS目录下的一个"WIN386.SWP"文件，这个文件会不断地扩大和自动缩小。 </p>
+<p>就速度方面而言,CPU的L1和L2缓存速度最快，内存次之，硬盘再次之。但是<strong>虚拟内存使用的是硬盘的空间</strong>，为什么我们要使用速度最慢的硬盘来做 为虚拟内存呢？</p>
+<p>因为电脑中所有运行的程序都需要经过内存来执行，如果执行的程序很大或很多，就会导致我们只有可怜的256M/512M内存消耗殆尽，而硬盘空间动辄几十G上百G。</p>
+<p>为了解决这个问题，Windows中运用了虚拟内存技术，即拿出一部分硬盘空间来充当内存使用。 </p>
+<p id="抖动你知道是什么吗它也叫颠簸现象">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L179)，来源许可：Apache-2.0。</p>
+<p><a id="k6f2d1572e692"></a></p>
+<span class="heading-anchor" id="虚拟技术你了解吗？"></span><h2 id="_1_28">虚拟技术你了解吗？</h2>
+<p>虚拟技术把一个物理实体转换为多个逻辑实体。</p>
+<p>主要有两种虚拟技术：时（时间）分复用技术和空（空间）分复用技术。</p>
+<p>多进程与多线程：多个进程能在同一个处理器上并发执行使用了时分复用技术，让每个进程轮流占用处理器，每次只执行一小个时间片并快速切换。</p>
+<p>虚拟内存使用了空分复用技术，它将物理内存抽象为地址空间，每个进程都有各自的地址空间。地址空间的页被映射到物理内存，地址空间的页并不需要全部在物理内存中，当使用到一个没有在物理内存的页时，执行页面置换算法，将该页置换到内存中。</p>
+<p id="进程状态的切换你知道多少">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L475)，来源许可：Apache-2.0。</p>
+<p><a id="k894da301d42a"></a></p>
+<span class="heading-anchor" id="被free回收的内存是立即返还给操作系统吗？"></span><h2 id="free">被free回收的内存是立即返还给操作系统吗？</h2>
+<p>不是的，被free回收的内存会首先被ptmalloc使用双链表保存起来，当用户下一次申请内存的时候，会尝试从这些内存中寻找合适的返回。这样就避免了频繁的系统调用，占用过多的系统资源。同时ptmalloc也会尝试对小块内存进行合并，避免过多的内存碎片。</p>
+<p id="宏定义和函数有何区别">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/01-01-01-basic.md#L402)，来源许可：Apache-2.0。</p>
+<p><a id="kddd4e51a3acc"></a></p>
+<span class="heading-anchor" id="计算机的「内存」和「RAM」是同一个概念吗？"></span><h2 id="ram">计算机的「内存」和「RAM」是同一个概念吗？</h2>
+<p><strong>不完全等同</strong>。<br/>
+<strong>内存（Memory）</strong> 是一个广义概念，泛指计算机中用于临时或永久存储数据的部件，包含 RAM、ROM、Cache 等多种类型；<br/>
+<strong>RAM（Random Access Memory）</strong> 是内存中最核心的部分，属于 <strong>临时性存储设备</strong> ，负责 <strong>高速临时存储</strong> 。<br/>
+两者的关系可以理解为：<strong>RAM 是内存的一部分，但内存不全是 RAM</strong>。日常所说的「电脑内存 16GB」特指 RAM 容量，但技术上需区分广义内存和狭义 RAM。  </p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L2278">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-9e11d77d70b6.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Linux命令与排障</strong></a><a class="page-next" href="n-82e28515574c.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>文件系统与I-O</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#mmapsendfile-splice">mmap、sendfile 和 splice 有什么区别？</a></li><li class="outline-level-2"><a href="#overcommit-oom">Overcommit 和 OOM 是什么关系？</a></li><li class="outline-level-2"><a href="#swap">Swap、工作集和抖动分别是什么？</a></li><li class="outline-level-2"><a href="#tlb-tlb">TLB 有什么用？使用 TLB 之后的地址翻译流程是怎样的？</a></li><li class="outline-level-2"><a href="#windowslinux">Windows和Linux环境下内存分布情况</a></li><li class="outline-level-2"><a href="#_1_5">什么时候会进行内存的交换？</a></li><li class="outline-level-2"><a href="#_1_6">什么是内存碎片？</a></li><li class="outline-level-2"><a href="#_1_7">什么是虚拟内存？有什么用？</a></li><li class="outline-level-2"><a href="#_1_8">什么是虚拟地址和物理地址？</a></li><li class="outline-level-2"><a href="#_1_9">从堆和栈上建立对象哪个快？（考察堆和栈的分配效率比较）</a></li><li class="outline-level-2"><a href="#mmappipe">共享内存、mmap、消息队列和Pipe在推理服务中如何选择？</a></li><li class="outline-level-2"><a href="#_1_11">内存交换你知道有哪些需要注意的关键点吗？</a></li><li class="outline-level-2"><a href="#_1_12">内存交换是什么？有什么特点？</a></li><li class="outline-level-2"><a href="#_1_13">内存的覆盖是什么？有什么特点？</a></li><li class="outline-level-2"><a href="#_1_14">内存管理主要做了什么？</a></li><li class="outline-level-2"><a href="#_1_15">分段机制为什么会导致内存外部碎片？</a></li><li class="outline-level-2"><a href="#_1_16">分页和分段的区别</a></li><li class="outline-level-2"><a href="#_1_17">分页机制和分段机制有哪些共同点和区别？</a></li><li class="outline-level-2"><a href="#_1_18">单级页表有什么问题？为什么需要多级页表？</a></li><li class="outline-level-2"><a href="#malloc">在执行malloc申请内存的时候，操作系统是怎么做的？</a></li><li class="outline-level-2"><a href="#_1_19">如何进行地址空间到物理内存的映射？</a></li><li class="outline-level-2"><a href="#cpugpu">容器中的CPU、内存、GPU和文件句柄限制如何影响模型服务？</a></li><li class="outline-level-2"><a href="#_1_21">常见内存分配内存错误</a></li><li class="outline-level-2"><a href="#_1_22">常见内存分配方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_23">常见的内存管理方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_24">操作系统在对内存进行管理的时候需要做些什么?</a></li><li class="outline-level-2"><a href="#_1_25">没有虚拟内存有什么问题？</a></li><li class="outline-level-2"><a href="#_1_26">程序从堆中动态分配内存时，虚拟内存上怎么操作的</a></li><li class="outline-level-2"><a href="#_1_27">虚拟内存</a></li><li class="outline-level-2"><a href="#_1_28">虚拟技术你了解吗？</a></li><li class="outline-level-2"><a href="#free">被free回收的内存是立即返还给操作系统吗？</a></li><li class="outline-level-2"><a href="#ram">计算机的「内存」和「RAM」是同一个概念吗？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

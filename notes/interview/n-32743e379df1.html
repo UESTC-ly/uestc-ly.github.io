@@ -1,0 +1,1728 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>Agent、工具与工作流 · 李杨的学习笔记</title><meta name="description" content="这道题必须诚实区分“完整读过源码”“读过公开部分”“了解其设计思想但没有逐文件阅读”。如果没有实际阅读，就不应声称知道内部模块、性能数字或线上架构。基于公开代码能够确认的内容，应具体指向模块、调用路径和可复现实验；无法确认的部分直接标记为推测。">
+<meta property="og:type" content="website"><meta property="og:title" content="Agent、工具与工作流 · 李杨的学习笔记"><meta property="og:description" content="这道题必须诚实区分“完整读过源码”“读过公开部分”“了解其设计思想但没有逐文件阅读”。如果没有实际阅读，就不应声称知道内部模块、性能数字或线上架构。基于公开代码能够确认的内容，应具体指向模块、调用路径和可复现实验；无法确认的部分直接标记为推测。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-32743e379df1.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-32743e379df1.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html" aria-current="page">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">10-RAG与Agent</p><h1>Agent、工具与工作流</h1><p class="article-question-meta">64 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9eca3f1333eb">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/10-RAG%E4%B8%8EAgent/Agent%E3%80%81%E5%B7%A5%E5%85%B7%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81-04.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#deepseek-harness">你读过 DeepSeek-Harness 的源码吗？——你觉得它的核心设计亮点是什么？有什么你觉得可以改进的地方？</a></li><li class="outline-level-2"><a href="#agent_1">候选人：团队 Agent 目前主要负责什么垂类业务方向？</a></li><li class="outline-level-2"><a href="#agent_2">全都是实习相关问题，涉及Agent就狂追问，问了问数字指标，还有业务上下游，代码框架。</a></li><li class="outline-level-2"><a href="#_1_3">分钟版本怎么展开？</a></li><li class="outline-level-2"><a href="#agentmulti-agent">单Agent处理复杂长周期任务时，引入多智能体（Multi Agent）架构的核心优势有哪些？</a></li><li class="outline-level-2"><a href="#llmagentagent">单次LLM打分评判算不算Agent？和多轮工具调用Agent核心区别在哪？</a></li><li class="outline-level-2"><a href="#_1_6">原生多模态工具调用如何弥补文本式工具调用的不足？</a></li><li class="outline-level-2"><a href="#agent_3">回顾一下你们整个agent的开发和设计，如果让你重新开发，你会有哪些方面的优化或者修改？</a></li><li class="outline-level-2"><a href="#agent_4">在Agent开发过程中，上下文为什么需要进行压缩？压缩后可能导致信息缺失，应该如何解决？</a></li><li class="outline-level-2"><a href="#agentplanningmemorytool-use">在Agent项目中，常见的规划（Planning）、记忆（Memory）、工具调用（Tool Use）和执行模块分别承担什么职责？</a></li><li class="outline-level-2"><a href="#agent_5">在做视频剪辑Agent项目遇到的最大挑战是什么？</a></li><li class="outline-level-2"><a href="#langchain-agent">基于 LangChain 开发 Agent 时，如果工具调用连续失败，如何设计一套不会失控的容错机制？</a></li><li class="outline-level-2"><a href="#agent-a2a-harness">多 Agent / A2A Harness 应该如何设计？</a></li><li class="outline-level-2"><a href="#agent_6">多 Agent 协作可以采用哪些控制结构？</a></li><li class="outline-level-2"><a href="#agent-agent-agent">多 Agent 协作是怎么实现的？——通信模式是什么？如果子 Agent 返回的结果是自然语言（而不是结构化数据），主 Agent 怎么解析？怎么保证解析不出错？</a></li><li class="outline-level-2"><a href="#agent-supervisorworker-agent">多 Agent 导购系统架构（Supervisor/Worker 角色、各 Agent 模型、通信机制）</a></li><li class="outline-level-2"><a href="#agent_7">多 Agent 并发有什么性能问题？</a></li><li class="outline-level-2"><a href="#agent-workspaceauthsession">多 Agent 系统如何做到 workspace、auth、session 隔离？</a></li><li class="outline-level-2"><a href="#agent_8">多 Agent 系统的评测方案，如何验证功能正确性和反幻觉能力</a></li><li class="outline-level-2"><a href="#agent_9">多Agent之间通信方式是什么？如何做任务分发和结果合并？</a></li><li class="outline-level-2"><a href="#agent_10">多个Agent同时修改同一个文件，如何避免冲突？</a></li><li class="outline-level-2"><a href="#agent_11">多个子 Agent 如何分工、分发任务和合并全局状态？为什么没有采用去中心化协作？</a></li><li class="outline-level-2"><a href="#_1_22">多任务共享为什么会产生负迁移，如何定位和缓解？</a></li><li class="outline-level-2"><a href="#agent-gateway">多平台 Agent Gateway 的核心价值是什么？</a></li><li class="outline-level-2"><a href="#agent_12">多平台 Agent 的可观测性和本地行为画像如何设计？</a></li><li class="outline-level-2"><a href="#_1_25">多条件控制发生冲突时，统一系统应该如何处理？</a></li><li class="outline-level-2"><a href="#_1_26">多租户平台应怎样建立身份与资源边界？</a></li><li class="outline-level-2"><a href="#agent_13">多通道 Agent 如何做会话路由和用户隔离？</a></li><li class="outline-level-2"><a href="#function-calling">大模型如何获得 Function Calling 能力？</a></li><li class="outline-level-2"><a href="#agent_14">如何判断一个图片理解 Agent 的评测指标是否足够完整？</a></li><li class="outline-level-2"><a href="#agent-harness">如何回答“请设计一个企业级 Agent Harness 平台”？</a></li><li class="outline-level-2"><a href="#agent_15">如何回答“请设计一个企业级 Agent 协议平台”？</a></li><li class="outline-level-2"><a href="#agent_16">如何回答“请设计一个自进化、多平台、可长期运行的 Agent 系统”？</a></li><li class="outline-level-2"><a href="#_1_33">如何处理远程会话或云端执行中的权限请求？</a></li><li class="outline-level-2"><a href="#agent_17">如何按运行、编排和接入职责选择 Agent 框架？</a></li><li class="outline-level-2"><a href="#_1_35">如何提升工具调用正确率？</a></li><li class="outline-level-2"><a href="#agent_18">如何理解 Agent，开发中会遇到哪些问题</a></li><li class="outline-level-2"><a href="#spec-codingharnessharnessagent">如何理解Spec Coding和Harness？你认为Harness为什么能够提升Agent完成复杂任务的能力？</a></li><li class="outline-level-2"><a href="#harness">如何用 Harness 做失败样本回流和持续优化？</a></li><li class="outline-level-2"><a href="#trace-agent">如何用 Trace 还原 Agent 的执行过程？</a></li><li class="outline-level-2"><a href="#agent_19">如何用一个案例讲清 Agent 项目？</a></li><li class="outline-level-2"><a href="#agent-agent">如何组织主 Agent、子 Agent 与技能资源？</a></li><li class="outline-level-2"><a href="#agent-loop">如何给 Agent Loop 设置退出边界？</a></li><li class="outline-level-2"><a href="#_1_43">如何编写一个智能体，帮助用户规划一次包含机票预订、酒店安排和景点游览的旅行？需要配置哪些工具？如何确保系统在面对不完整或矛盾的信息时仍能提供合理建议？</a></li><li class="outline-level-2"><a href="#agent-marketplace-skill-marketplace">如何设计 Agent Marketplace / Skill Marketplace？</a></li><li class="outline-level-2"><a href="#ai-agent">如何设计一个企业级 AI Agent 系统？</a></li><li class="outline-level-2"><a href="#agent_20">如何设计一个能够避免循环调用的 Agent 状态机？</a></li><li class="outline-level-2"><a href="#agent_21">如何设计企业内可用的编码 Agent？</a></li><li class="outline-level-2"><a href="#agent_22">如何评估一个 Agent 场景是否值得做？</a></li><li class="outline-level-2"><a href="#_1_49">如何避免把无关文件塞满上下文？</a></li><li class="outline-level-2"><a href="#agent_23">如果 Agent 在调用工具时出现参数类型正确但业务含义错误，如何发现并阻止？</a></li><li class="outline-level-2"><a href="#agent_24">如果 Agent 效果不达预期，你怎么判断瓶颈在哪？——是模型能力不够？工具调用不准？上下文丢失？还是评测标准有问题？怎么区分？</a></li><li class="outline-level-2"><a href="#agent-20">如果 Agent 跑了 20 分钟还没结束，用户等不及了要取消，你的系统怎么响应？——取消后，已经在执行的工具调用怎么处理？任务状态怎么回滚？</a></li><li class="outline-level-2"><a href="#agentprompt">如果Agent接入大量工具，如何避免工具描述过长导致Prompt膨胀？有哪些优化方式？</a></li><li class="outline-level-2"><a href="#deepseek-harness_1">如果你来做 DeepSeek-Harness 的下一个版本，你会加什么功能？</a></li><li class="outline-level-2"><a href="#_1_55">如果单一智能体的提示词过长，导致性能下降，如何将其拆分为多个智能体，并在合适的时机调用不同的智能体？</a></li><li class="outline-level-2"><a href="#_1_56">如果工具调用一直没有达到成功条件，任务不断重试并最终卡死，你会如何处理？</a></li><li class="outline-level-2"><a href="#promptagent">如果工具调用超时或返回空值，你如何设计Prompt让Agent反馈用户？</a></li><li class="outline-level-2"><a href="#harness-agent">如果把这些 Harness 和你实习中的 Agent 项目结合，你会怎么做？是否有必要替换当前方案？</a></li><li class="outline-level-2"><a href="#agent_25">如果要设计一个好的 Agent，除了大模型，还会设计哪些部分</a></li><li class="outline-level-2"><a href="#agent_26">如果让你从零开始设计一个Agent系统，你认为需要包含哪些关键模块？</a></li><li class="outline-level-2"><a href="#qwen35-copilot-pdf-agent">如果设计一个基于 Qwen3.5 的企业级多模态 Copilot（比如能看 PDF、看报表、看界面截图，还能写代码、查文档），会怎么搭架构？怎么用好它的多模态和 Agent 能力？</a></li><li class="outline-level-2"><a href="#agent_27">子 Agent 适合处理哪些任务？</a></li><li class="outline-level-2"><a href="#qwen35-rl-rl">官方博客提到为 Qwen3.5 搭建了一套异步强化学习框架，用来支撑大规模智能体训练。你能具体说明异步 RL 相对传统同步 RL 的改进点，以及它如何在工具使用、多轮对话等场景中发挥作用吗？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="k3cb7a7a568bb"></a></p>
+<span class="heading-anchor" id="你读过 DeepSeek-Harness 的源码吗？——你觉得它的核心设计亮点是什么？有什么你觉得可以改进的地方？"></span><h2 id="deepseek-harness">你读过 DeepSeek-Harness 的源码吗？——你觉得它的核心设计亮点是什么？有什么你觉得可以改进的地方？</h2>
+<p><strong>回答：</strong></p>
+<p>这道题必须诚实区分“完整读过源码”“读过公开部分”“了解其设计思想但没有逐文件阅读”。如果没有实际阅读，就不应声称知道内部模块、性能数字或线上架构。基于公开代码能够确认的内容，应具体指向模块、调用路径和可复现实验；无法确认的部分直接标记为推测。</p>
+<p>阅读一个 Agent Harness，我会沿着一条任务从入口到终态的路径检查：任务对象怎样创建；上下文怎样组装；模型输出怎样解析；工具怎样注册和调用；状态怎样持久化；错误怎样传播；取消和超时怎样处理；事件怎样记录；测试怎样覆盖循环和恢复。比起文件数量，我更关注三个不变量：</p>
+<ol>
+<li>任意工具副作用是否都经过权限、参数和幂等检查；</li>
+<li>任意一步失败后是否能恢复或明确进入失败终态；</li>
+<li>任意最终答案是否能追溯到模型决策、工具结果和证据。</li>
+</ol>
+<p>如果公开实现确实把模型调用、工具执行、状态管理和事件观测放在清晰的运行时边界内，这会是核心亮点：模型不再直接驱动不可控代码，而是通过协议向 Harness 提议动作。另一个亮点可能是把 Loop 设计成可插拔组件，使不同任务可以替换规划、验证和停止策略；但具体是否如此必须以代码为证。</p>
+<p>改进方向通常包括：严格的类型化状态和 schema 版本；工具调用的取消、幂等和副作用分类；持久化 checkpoint 与崩溃恢复；长 Observation 的结构化裁剪；多租户凭证隔离；故障注入和隐藏评测；以及对模型、Prompt、工具版本的可复现锁定。源码阅读的最终结论应落到调用链和测试证据上，而不是泛泛评价“架构先进”。</p>
+<p><a id="deepseek-agent-20260908-q16"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L760">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0a6429a28dd0"></a></p>
+<span class="heading-anchor" id="候选人：团队 Agent 目前主要负责什么垂类业务方向？"></span><h2 id="agent_1">候选人：团队 Agent 目前主要负责什么垂类业务方向？</h2>
+<p><strong>回答：</strong></p>
+<p>这是向招聘团队了解业务的问题，无法从题目确定该团队实际方向。不能把“字节”推导成必然做电商、广告或内部效率工具。</p>
+<p>有效追问应落到任务形态：服务内部员工还是外部客户；主要做知识问答、代码开发、经营分析还是业务执行；Agent 能执行哪些真实动作；线上成功如何定义；目前最大瓶颈是模型、数据、工具、工程还是用户流程。</p>
+<p>还可以了解岗位负责的边界：偏模型训练、Harness 与工具工程、业务集成还是评测平台，实习生能否参与完整反馈循环。团队若能清晰描述真实用户、任务指标、失败案例与迭代机制，比仅列举技术名词更能帮助判断岗位匹配度。</p>
+<p><a id="bytedance-agent-autumn-20260916-q28"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1741">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke1ba8f66cb22"></a></p>
+<span class="heading-anchor" id="全都是实习相关问题，涉及Agent就狂追问，问了问数字指标，还有业务上下游，代码框架。"></span><h2 id="agent_2">全都是实习相关问题，涉及Agent就狂追问，问了问数字指标，还有业务上下游，代码框架。</h2>
+<p><strong>回答：</strong></p>
+<p>这一条将第 3～12 题概括为连续的实习追问，没有展开十道独立问题，因此应直接回答项目深挖的组织方法，而不补造题目。可以提前把同一段实习整理成一张“可追问地图”，保证每一层都能回到真实证据。</p>
+<p>建议准备六个层次：</p>
+<ol>
+<li><strong>业务上下游：</strong> 谁提出请求、输入数据来自哪里、Agent 输出给哪个系统、失败会影响谁、人工在哪个环节接管。</li>
+<li><strong>系统架构：</strong> 接入、任务状态、Context Builder、模型、RAG/Memory、工具、消息队列、数据库、缓存、评测和监控如何连接。</li>
+<li><strong>Agent 决策：</strong> 为什么使用 Workflow、ReAct 或 Planner-Executor；哪些步骤由模型决策，哪些规则必须由代码控制。</li>
+<li><strong>代码边界：</strong> 自己负责哪些包、接口、状态结构和工具；使用了哪些开源组件；为什么改造默认实现；关键异常路径如何测试。</li>
+<li><strong>数字指标：</strong> 数据量、并发、P95、Token、成本、任务成功率、工具正确率、恢复率以及实验置信度。每个数字都要知道计算公式和数据来源。</li>
+<li><strong>失败案例：</strong> 最难的 bad case、定位证据、根因、替代方案、最终结果和仍未解决的边界。</li>
+</ol>
+<p>回答项目追问时采用“先结论、再机制、后证据”的三段式。例如先说瓶颈是工具结果不确定导致重复副作用，再解释超时、幂等和状态回读机制，最后给 trace、故障注入或线上指标。这样既不会想到什么说什么，也能让面试官清楚地区分团队架构、个人贡献和真实效果。</p>
+<p><a id="xiaohongshu-agent-dev-20260812-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L918">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3c2a240562f1"></a></p>
+<span class="heading-anchor" id="分钟版本怎么展开？"></span><h2 id="_1_3">分钟版本怎么展开？</h2>
+<p>3 分钟版本可以按下面的顺序：</p>
+<ol>
+<li>业务问题与成功标准；</li>
+<li>一次请求的完整链路；</li>
+<li>两个关键技术选择；</li>
+<li>一个最有代表性的 Badcase；</li>
+<li>结果与自己的职责边界。</li>
+</ol>
+<p>不要按“Spring AI、Redis、Milvus、MCP……”的顺序报技术栈。技术栈应该出现在具体决策里，而不是单独占一段。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/agent-project-interview-guide.md#L108">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf20ff77ff6bc"></a></p>
+<span class="heading-anchor" id="单Agent处理复杂长周期任务时，引入多智能体（Multi Agent）架构的核心优势有哪些？"></span><h2 id="agentmulti-agent">单Agent处理复杂长周期任务时，引入多智能体（Multi Agent）架构的核心优势有哪些？</h2>
+<p><a id="batch4-p2-q15"></a></p>
+<p><strong>相关解释：</strong> <a href="n-8ad95d55bba4.html#k93a12d0c9256">Agent常见模式（ReAct/Plan and Execute等）</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L416">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k505991f276cc"></a></p>
+<span class="heading-anchor" id="单次LLM打分评判算不算Agent？和多轮工具调用Agent核心区别在哪？"></span><h2 id="llmagentagent">单次LLM打分评判算不算Agent？和多轮工具调用Agent核心区别在哪？</h2>
+<p><strong>回答：</strong></p>
+<p>通常不算。单次 LLM 打分是一个模型推理组件：输入一次、输出一次，系统没有持续状态，也没有根据环境反馈自主决定下一步。把 LLM 放进流程，并不会自动把流程变成 Agent。</p>
+<p>更严格地说，Agent 至少包含一个闭环：感知当前状态，围绕目标做决策，执行动作，读取环境观察，再更新状态并决定继续、重试、改计划还是停止。可以写成：</p>
+<div class="arithmatex">\[
+s_t \rightarrow a_t \rightarrow o_{t+1} \rightarrow s_{t+1}
+\]</div>
+<p>单次打分只有 <span class="arithmatex">\(x\rightarrow score\)</span>；多轮工具调用 Agent 则需要维护任务状态、选择工具、生成参数、消费工具返回、处理失败，并在预算或完成条件下终止。它面对的是动态环境，不只是静态文本映射。</p>
+<p>但“调用很多次工具”也不是 Agent 的充分条件。如果工具顺序完全由固定代码写死，它更接近 Workflow。Agent 的关键是模型对分支和动作有一定决策权，并且这种决策受到权限、状态机、预算、重试策略和人工审批约束。</p>
+<p>工程风险也不同。一次打分主要关注准确率、校准、时延和一致性；Agent 还要评估任务完成率、工具选择正确率、参数正确率、无效步骤数、失败恢复率、越权率和总成本。轨迹越长，单步错误越容易累积。</p>
+<p>因此更本质的边界是：LLM Scorer 是“认知函数”，Agent 是“带状态的目标驱动控制系统”。模型是不是用了 ReAct、有没有显式输出思维链，都不是决定性标准。</p>
+<p><a id="alibaba-taotian-agent-20260722-q7"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L606">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbefe23906816"></a></p>
+<span class="heading-anchor" id="原生多模态工具调用如何弥补文本式工具调用的不足？"></span><h2 id="_1_6">原生多模态工具调用如何弥补文本式工具调用的不足？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>多模态模型的下一步是从看懂走向能执行，也就是多模态智能体。2025 年 12 月发布的 GLM-4.6V 把原生多模态工具调用作为主要特性[20]。</p>
+<p>传统的文本式工具调用为纯文本场景设计，要么先由 MLLM 把图像转成文字描述再驱动工具，要么用纯文本 LLM 加旁挂视觉模型的级联管线。放到多模态智能体场景里，会暴露三类问题：</p>
+<ol>
+<li>
+<p><strong>输入侧丢信息。</strong> 图像、截图、文档页要先转成文字描述才能进入工具调用，版式、细节和视觉证据大量丢失。</p>
+</li>
+<li>
+<p><strong>输出侧看不懂视觉结果。</strong> 工具返回的统计图表、渲染后的网页截图、检索到的商品图本身是图像，纯文本模型无法理解，难以纳入后续推理。</p>
+</li>
+<li>
+<p><strong>感知和动作割裂。</strong> 看懂和执行分属不同的模型或环节，管线复杂，误差逐级累积，形成感知和动作之间的鸿沟（perception-action gap）。</p>
+</li>
+</ol>
+<p>GLM-4.6V 用原生多模态工具调用（native multimodal tool calling）把感知和动作接起来，具体做法有三项：</p>
+<ol>
+<li>
+<p><strong>图像直接作为工具参数。</strong> 图像、截图、文档页可以直接作为工具参数传入，不用先转成文字，信息损失少，管线也更简单[20]。</p>
+</li>
+<li>
+<p><strong>看懂工具返回的图像。</strong> 搜索结果、统计图表、渲染后的网页截图、检索到的商品图等工具返回内容，模型能直接理解，并纳入后续推理和最终输出[20]。</p>
+</li>
+<li>
+<p><strong>工具调用纳入强化学习目标。</strong> 训练时把工具调用行为放进通用的强化学习目标，提升模型在复杂工具链中的任务规划、指令遵循和格式遵循能力[20]。</p>
+</li>
+</ol>
+<p>GLM-4.6V 训练时上下文扩到 128K，提供 GLM-4.6V（106B 总参数，激活 12B）和 GLM-4.6V-Flash（9B）两个版本[17,20]，用同一个模型完成以图像为主的端到端智能体流程。</p>
+<blockquote>
+<p><strong>面试速答</strong>：文本式工具调用要先把图像转成文字，丢版式和细节；工具返回的图表、截图看不懂；感知和执行分在不同模型里，误差累积。GLM-4.6V 让图像直接作为工具参数，能理解工具返回的图像并继续推理，还把工具调用纳入强化学习目标，用一个模型完成看图、调用和执行。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/4_AI%E5%A4%9A%E6%A8%A1%E6%80%81%E4%B8%BB%E6%B5%81%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E6%8A%80%E6%9C%AF%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L672">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k582c28478775"></a></p>
+<span class="heading-anchor" id="回顾一下你们整个agent的开发和设计，如果让你重新开发，你会有哪些方面的优化或者修改？"></span><h2 id="agent_3">回顾一下你们整个agent的开发和设计，如果让你重新开发，你会有哪些方面的优化或者修改？</h2>
+<p><strong>回答：</strong></p>
+<p>复盘应从已观察到的失败和维护成本出发，按影响与投入排序。可以先统一任务、会话、步骤和事件模型，明确终态、取消、重试、检查点与副作用；这样上下文压缩、断线重连和模型切换才能共享可靠状态基础。</p>
+<p>其次建立模型与工具能力适配层：业务逻辑不绑定某个供应商的原始消息对象，工具接口版本化，鉴权与幂等放在运行时。对简单确定任务使用工作流，对开放探索任务使用受控 loop，避免所有请求都经过昂贵规划。</p>
+<p>第三，把评测与可观测性前置。每个变更都有回归任务、真实结果校验和成本记录；历史事故进入故障注入集，长任务保留可恢复产物。第四，优化上下文和数据链路：按预算检索、按需加载工具、限制高基数指标、统一队列背压与版本管理。</p>
+<p>推进时采用逐模块迁移与灰度，保留可用基线和回滚路径。优先修复高频失败与不可恢复状态，再优化局部 Token 或推理耗时。框架替换只有在明确减少维护成本或提升指标时才值得做。</p>
+<p><a id="alibaba-qwen-20260916-q32"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L2326">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5797ee3d1742"></a></p>
+<span class="heading-anchor" id="在Agent开发过程中，上下文为什么需要进行压缩？压缩后可能导致信息缺失，应该如何解决？"></span><h2 id="agent_4">在Agent开发过程中，上下文为什么需要进行压缩？压缩后可能导致信息缺失，应该如何解决？</h2>
+<p><strong>回答：</strong></p>
+<p>上下文压缩不仅因为窗口有限，还因为长上下文会增加成本与延迟、稀释注意力，并让重复日志、过期状态和失败轨迹干扰当前决策。增长最快的内容往往是工具 schema、搜索结果、代码和日志，而不只是聊天轮数。</p>
+<p>一次调用的预算可以写成：</p>
+<div class="arithmatex">\[
+B_{\text{system}}+B_{\text{tools}}+B_{\text{state}}+
+B_{\text{history}}+B_{\text{retrieval}}+B_{\text{query}}+
+B_{\text{reserved output}} \le B_{\text{window}}
+\]</div>
+<p>解决信息缺失的关键不是写一个更长的摘要，而是采用“<strong>分层状态 + 可逆引用 + 按需展开</strong>”：</p>
+<ul>
+<li>系统规则、权限、当前目标、硬约束和输出契约固定保留，不交给有损摘要决定；</li>
+<li>最近交互和未完成步骤保留原文，已完成阶段压缩为 <code>goal / decisions / completed / open / artifacts / risks</code> 等结构化字段；</li>
+<li>原始消息、工具结果和大文件保存在外部事件/对象存储中，摘要记录事件 ID 与 artifact 句柄，需要时精确回读；</li>
+<li>对关键实体、数字、否定条件、截止时间和审批状态做确定性抽取与一致性校验；</li>
+<li>按 Token 软水位、阶段完成、工具返回突增或目标切换触发压缩，不按固定轮数机械总结；</li>
+<li>使用“增量摘要 + 周期性从原始事件重建”，避免摘要的摘要不断累积误差。</li>
+</ul>
+<p>评测应构造必须依赖早期约束的长任务，比较简单截断、滑动窗口、结构化摘要和检索式压缩的任务成功率、关键信息保留率、Token、延迟与恢复能力。Rocky认为，上下文压缩的本质不是删字，而是把不可管理的对话流水升级为可恢复、可验证的任务状态。</p>
+<p><a id="insta360-agent-20260809-q9"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BD%B1%E7%9F%B3%E5%88%9B%E6%96%B0%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L175">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k87449d9076bc"></a></p>
+<span class="heading-anchor" id="在Agent项目中，常见的规划（Planning）、记忆（Memory）、工具调用（Tool Use）和执行模块分别承担什么职责？"></span><h2 id="agentplanningmemorytool-use">在Agent项目中，常见的规划（Planning）、记忆（Memory）、工具调用（Tool Use）和执行模块分别承担什么职责？</h2>
+<p><strong>回答：</strong></p>
+<ul>
+<li><strong>Planning：</strong> 把用户目标、约束和可用资源拆成有依赖关系的步骤，明确每一步的输入、产物、工具和完成条件。复杂任务要把计划外置、版本化；环境变化或步骤失败时进行局部重规划，而不是每轮无条件重写全部计划。</li>
+<li><strong>Memory：</strong> 保存当前任务状态和跨会话可复用的信息。短期记忆负责目标、计划、最近对话和工具结果的连续性；长期记忆保存经过筛选的偏好、事实、事件或经验，并带作用域、来源、置信度、时间和权限。</li>
+<li><strong>Tool Use：</strong> 把模型意图映射为结构化工具调用，负责工具发现、Schema、参数、权限、超时、幂等和结果回传。工具不是模型的“外挂函数”，而是有副作用、有容量限制和失败语义的外部系统。</li>
+<li><strong>Execution：</strong> 驱动状态机或 Agent Loop，执行当前可执行步骤，写入 Observation 和 checkpoint，运行验证器，并决定继续、重试、重规划、降级或人工接管。</li>
+</ul>
+<p>四者不是四个必须独立部署的模型。小任务可以由一个编排器完成，长任务则应把规划和状态外置、把工具执行交给确定性运行时。面试时应说明哪些动作由模型决定、哪些规则由代码强制，以及失败后如何恢复，这比单纯背诵模块名更重要。</p>
+<p><a id="bilibili-ai-agent-20260818-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L70">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbe43c6881b70"></a></p>
+<span class="heading-anchor" id="在做视频剪辑Agent项目遇到的最大挑战是什么？"></span><h2 id="agent_5">在做视频剪辑Agent项目遇到的最大挑战是什么？</h2>
+<p><strong>回答：</strong></p>
+<p>最大挑战不是“调用模型生成脚本”，而是把一个开放式创作任务拆成稳定、可验证、可恢复的工程流程。视频剪辑 Agent 涉及文本理解、素材检索、镜头规划、时间轴对齐、字幕生成、音频处理、画面渲染和质量评估，任何一个环节出错都会让最终成片不可用。</p>
+<p>我会把挑战拆成三层。第一层是任务结构化。用户说“帮我剪一个小红书风格的视频”，这不是一个确定指令，需要先抽取主题、目标受众、视频时长、节奏、镜头风格、口播/字幕比例、素材约束，再生成可执行的剪辑脚本。这里必须让大模型输出结构化 JSON 或 DSL，而不是自由文本。</p>
+<p>第二层是多模态一致性。文案、镜头、字幕、配音、BGM、转场必须在时间轴上对齐。文本生成模型只懂语义，不天然理解帧率、时长、采样率、分辨率、字幕安全区，所以需要工程规则和媒体处理工具做约束。</p>
+<p>第三层是稳定性与可恢复。Agent 链路长，模型调用、素材下载、转码、ASR/TTS、渲染都可能失败。我的做法是把流程拆成可重试节点，每个节点有输入输出 schema、超时、重试、降级和日志 trace。真正的挑战是把创意工作流变成“非确定性生成 + 确定性校验 + 可回滚执行”的系统。</p>
+<p><a id="xiaohongshu-ai-fullstack-20260702-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L155">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k374c9dccdf7f"></a></p>
+<span class="heading-anchor" id="基于 LangChain 开发 Agent 时，如果工具调用连续失败，如何设计一套不会失控的容错机制？"></span><h2 id="langchain-agent">基于 LangChain 开发 Agent 时，如果工具调用连续失败，如何设计一套不会失控的容错机制？</h2>
+<p><strong>回答：</strong></p>
+<p>把容错分为工具适配层、编排层和业务提交层。LangChain 可以组织模型和工具调用，LangGraph 一类状态编排可以提供检查点与恢复能力，但框架本身不自动保证业务幂等、总预算或外部事务一致性。</p>
+<p><strong>工具适配层</strong>设置连接超时、读取超时和每次调用 deadline，返回结构化错误码。对网络抖动、限流或暂时不可用，按操作是否可重试进行退避；对参数错误，交给模型有限次数修正；对权限拒绝，不让模型通过变换参数绕过策略。404 是否可以重试要结合数据最终一致性等业务契约，不能只看 HTTP 码。</p>
+<p><strong>编排层</strong>保存任务状态、证据、预算与在途调用。重试由一层统筹，避免 SDK 重试、工具重试和 Agent 重规划相乘。比如三层各最多尝试三次，极端情况下会放大到 27 次下游请求。按依赖设置熔断与并发隔离，预算超限进入明确终止或人工接管状态。LangGraph 的递归／步数限制是兜底，不是主要业务停止条件。</p>
+<p><strong>业务提交层</strong>处理副作用：同一业务动作在重试和恢复中使用同一个幂等键，参数变化视为新动作并重新授权。请求发送后超时，先查询操作状态；幂等记录与业务更新应在服务端原子完成。仅在本地写入“已执行”后再调用远端，会产生漏执行；远端成功后才写本地状态，又会出现重复窗口。</p>
+<p>可以把决策规则明确为：</p>
+<pre><code class="language-text">cancelled or budget exhausted -&gt; terminate
+write outcome unknown        -&gt; reconcile by idempotency key
+permission denied            -&gt; fail or await valid authorization
+invalid arguments            -&gt; bounded repair + validation
+safe transient failure       -&gt; bounded retry with backoff
+repeated invalid trajectory  -&gt; bounded replan or escalate
+verified postcondition       -&gt; finish
+</code></pre>
+<p>检查点记录了图执行进度，并不等于外部系统执行了“恰好一次”。恢复时必须核对副作用。在实现中使用与锁定版本相符的工具包装器、middleware 或图节点重试策略，避免把旧教程里的 API 名称当作跨版本通用接口。验收用故障注入覆盖请求前失败、执行后回包丢失、限流、进程重启与预算耗尽，同时检查请求放大率和重复写入数。</p>
+<p><a id="baidu-agent-20260922-r3-q3"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1197">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0dc348a59373"></a></p>
+<span class="heading-anchor" id="多 Agent / A2A Harness 应该如何设计？"></span><h2 id="agent-a2a-harness">多 Agent / A2A Harness 应该如何设计？</h2>
+<p>多 Agent Harness 要评估的不只是单个 Agent 能力，还包括任务分配、handoff、协作协议、冲突处理和最终一致性。</p>
+<p>需要记录：</p>
+<ul>
+<li>哪个 Agent 接收任务。</li>
+<li>是否选择了正确协作者。</li>
+<li>handoff message 是否包含足够上下文。</li>
+<li>remote Agent 返回的 artifact 是否被正确使用。</li>
+<li>多 Agent 是否重复工作或互相覆盖。</li>
+<li>失败时是否回退到单 Agent 或人审。</li>
+<li>A2A 调用链是否可追踪。</li>
+</ul>
+<p>评测任务：</p>
+<ul>
+<li>研究 Agent 调用数据分析 Agent。</li>
+<li>编码 Agent 调用代码审查 Agent。</li>
+<li>客服 Agent 调用退款审批 Agent。</li>
+<li>办公 Agent 调用日程、邮件、知识库多个 Agent。</li>
+</ul>
+<p>判分维度：</p>
+<ul>
+<li>最终任务完成率。</li>
+<li>handoff 成功率。</li>
+<li>上下文丢失率。</li>
+<li>artifact 可用性。</li>
+<li>冲突解决能力。</li>
+<li>调用成本。</li>
+<li>责任边界是否清晰。</li>
+</ul>
+<p>多 Agent Harness 最容易漏掉的是“协作成本”。如果多个 Agent 带来大量重复搜索、互相等待和状态不一致，即使最终成功，也可能不适合生产。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/08_Agent_Harness_Engineering%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L543">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd5df390031b3"></a></p>
+<span class="heading-anchor" id="多 Agent 协作可以采用哪些控制结构？"></span><h2 id="agent_6">多 Agent 协作可以采用哪些控制结构？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>多 Agent 编排的目标是让多个具有不同角色、工具、记忆或权限的 Agent 协同完成任务。常见模式包括：</p>
+<ul>
+<li>Supervisor：一个上级 Agent 分配任务和汇总结果。</li>
+<li>Router：根据输入类型选择最合适的 Agent。</li>
+<li>Swarm：多个 Agent 自组织协作或交接。</li>
+<li>Debate：多个 Agent 生成不同观点，再由 judge 决策。</li>
+<li>Crew / Team：角色固定的团队协作。</li>
+<li>Pipeline：多个 Agent 按固定顺序处理任务。</li>
+<li>Blackboard：多个 Agent 读写共享工作区。</li>
+<li>Market / Bidding：Agent 根据能力声明竞争任务。</li>
+</ul>
+<p>实际工程里，最常见的是 Supervisor、Router、Pipeline 和 Team，因为它们可控、可观测、容易落地。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/03_Agent%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%BC%96%E6%8E%92%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L502">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbd32361ec093"></a></p>
+<span class="heading-anchor" id="多 Agent 协作是怎么实现的？——通信模式是什么？如果子 Agent 返回的结果是自然语言（而不是结构化数据），主 Agent 怎么解析？怎么保证解析不出错？"></span><h2 id="agent-agent-agent">多 Agent 协作是怎么实现的？——通信模式是什么？如果子 Agent 返回的结果是自然语言（而不是结构化数据），主 Agent 怎么解析？怎么保证解析不出错？</h2>
+<p><strong>回答：</strong></p>
+<p>多 Agent 协作首先要定义角色和边界，而不是简单复制多个模型。常见通信模式包括：</p>
+<ul>
+<li><strong>编排器-工作者：</strong> 主 Agent 拆分任务，子 Agent 返回结果，适合有明确依赖的任务。</li>
+<li><strong>黑板模式：</strong> 子 Agent 把中间结果写入共享任务空间，其他 Agent 订阅或读取，适合并行研究。</li>
+<li><strong>流水线模式：</strong> 一个 Agent 的结构化输出作为下一个 Agent 的输入，适合固定阶段。</li>
+<li><strong>评审模式：</strong> 生成 Agent 与验证 Agent 分离，适合高风险结论，但要防止评审也只是重复生成。</li>
+</ul>
+<p>我更倾向于让通信协议以结构化消息为主，至少包含 <code>task_id</code>、<code>agent_id</code>、<code>schema_version</code>、<code>status</code>、<code>result</code>、<code>evidence</code>、<code>confidence</code>、<code>errors</code> 和 <code>side_effects</code>。主 Agent 不应直接相信自然语言结果，而应做以下降级处理：</p>
+<ol>
+<li>优先要求子 Agent 按 JSON Schema 输出，并在接收端使用严格解析器校验类型、必填字段、枚举和长度；</li>
+<li>对 Markdown、代码块或带解释的 JSON 做受限提取，但把它视为兼容层，不把正则表达式当成可靠协议；</li>
+<li>解析失败时返回可定位的校验错误，允许子 Agent 只修复格式，不重新生成整个事实结论；</li>
+<li>对关键字段做确定性校验，例如 ID 是否存在、数值是否越界、证据引用是否可回查；</li>
+<li>对有副作用的结果采用两阶段提交或人工确认，解析成功不等于允许执行。</li>
+</ol>
+<p>自然语言不可避免时，可以通过“语义解析器 -&gt; schema 校验 -&gt; 事实验证 -&gt; 置信度门控”转成内部对象；无法验证的字段应标记为 <code>unknown</code>，不能默认为空字符串或模型猜测。这样保证的是协议和风险边界，而不是保证模型永远不出错。多 Agent 还要处理消息重复、乱序、超时、版本冲突和权限隔离，最好用任务 ID、消息 ID、状态版本和幂等键贯穿全链路。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L506">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kca70017e7074"></a></p>
+<span class="heading-anchor" id="多 Agent 导购系统架构（Supervisor/Worker 角色、各 Agent 模型、通信机制）"></span><h2 id="agent-supervisorworker-agent">多 Agent 导购系统架构（Supervisor/Worker 角色、各 Agent 模型、通信机制）</h2>
+<p><strong>回答：</strong></p>
+<p>Supervisor 负责意图解析、任务拆分、预算和最终合并；Worker 按领域承担商品检索、库存、价格、优惠、配送和售后等职责。通信消息应带 <code>trace_id/task_id/attempt/schema_version</code>、权限和 Deadline，长任务用可靠队列和持久化状态，不能只依赖易丢消息的 Pub/Sub。</p>
+<p>结果合并优先使用确定性规则和业务状态校验：价格、库存、优惠由工具回执决定，模型只负责解释；冲突时保留证据和版本，必要时转人工。评估要覆盖正常、缺货、价格变化、工具超时、恶意商品描述和多 Agent 重复操作。</p>
+<p><a id="tencent-llm-collection-20260903-q49"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L843">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2806b70ad913"></a></p>
+<span class="heading-anchor" id="多 Agent 并发有什么性能问题？"></span><h2 id="agent_7">多 Agent 并发有什么性能问题？</h2>
+<p><strong>回答：</strong></p>
+<p>多 Agent 并发不是简单把多个协程一起启动。它会同时放大模型、工具、状态和协调四类瓶颈。</p>
+<ol>
+<li><strong>模型网关瓶颈。</strong> Fan-out 会快速消耗 RPM/TPM，并触发 429；每个子 Agent 重复携带系统 Prompt、工具 schema 和公共上下文，Token 与费用近似随分支数增长。</li>
+<li><strong>尾延迟放大。</strong> 汇总节点通常等待最慢分支。并发分支越多，出现一个慢模型、慢工具或重试的概率越高，最终 P95/P99 可能反而上升。</li>
+<li><strong>下游资源争用。</strong> 浏览器、数据库连接池、Redis、向量库、文件句柄和第三方 API 都有容量上限；上游无限并发只会把等待转移到下游队列。</li>
+<li><strong>共享状态竞争。</strong> 多个 Agent 同时修改计划、Memory、文件或业务记录会产生丢失更新、重复副作用和顺序不一致，需要版本、锁、幂等与单写者策略。</li>
+<li><strong>重复探索和上下文膨胀。</strong> 子 Agent 可能检索同一资料、调用同一工具；汇总全部轨迹会挤占上下文并增加信息冲突。</li>
+<li><strong>协调故障。</strong> 可能出现互相等待、循环交接、部分成功、取消传播失败，以及 Supervisor 成为串行瓶颈。</li>
+</ol>
+<p>因此要比较的不是单 Agent 与多 Agent 的“智能感”，而是单位成功任务成本、临界路径延迟、工具负载、重复工作率和最终质量。任务不可并行、共享状态强耦合或结果聚合困难时，多 Agent 往往比单 Agent + 工具更差。</p>
+<p><a id="xiaohongshu-agent-dev-20260812-q8"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L989">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3458b5313467"></a></p>
+<span class="heading-anchor" id="多 Agent 系统如何做到 workspace、auth、session 隔离？"></span><h2 id="agent-workspaceauthsession">多 Agent 系统如何做到 workspace、auth、session 隔离？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>多 Agent 系统中，“一个 Agent”不只是一个 prompt，而是一组隔离资源：</p>
+<ul>
+<li>persona / system prompt。</li>
+<li>workspace / cwd。</li>
+<li>agent directory / state。</li>
+<li>session store。</li>
+<li>memory store。</li>
+<li>auth profile。</li>
+<li>tool policy。</li>
+<li>sandbox policy。</li>
+<li>channel binding。</li>
+</ul>
+<p>推荐设计：</p>
+<ol>
+<li><strong>Workspace 隔离</strong></li>
+</ol>
+<p>不同 Agent 默认使用不同工作区。即使共享同一仓库，也要明确只读/读写边界和文件所有权。</p>
+<ol>
+<li><strong>Auth 隔离</strong></li>
+</ol>
+<p>不同 Agent 使用不同 token、cookie、MCP credential、云账号或最小权限角色。不要让客服 Agent 复用工程 Agent 的代码仓库权限。</p>
+<ol>
+<li><strong>Session 隔离</strong></li>
+</ol>
+<p>每个 Agent 维护独立会话历史和压缩摘要，避免人格、任务和上下文混杂。</p>
+<ol>
+<li><strong>Tool Policy 隔离</strong></li>
+</ol>
+<p>不同 Agent 可用工具不同。例如代码 Agent 可以读写仓库，客服 Agent 只能查知识库和创建工单。</p>
+<ol>
+<li><strong>Memory 隔离</strong></li>
+</ol>
+<p>长期记忆默认分域保存。跨 Agent 检索必须做权限过滤、脱敏和来源标注。</p>
+<ol>
+<li><strong>Channel Binding</strong></li>
+</ol>
+<p>将特定 channel、account、peer 绑定到特定 Agent，并支持最具体规则优先。</p>
+<p>一个常见误区是只给不同 Agent 换 system prompt，却复用同一工作目录、会话存储和凭证。这样看起来是多 Agent，实际上只是多个名字共用同一个安全边界。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L970">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd2570c3b418d"></a></p>
+<span class="heading-anchor" id="多 Agent 系统的评测方案，如何验证功能正确性和反幻觉能力"></span><h2 id="agent_8">多 Agent 系统的评测方案，如何验证功能正确性和反幻觉能力</h2>
+<p><strong>回答：</strong></p>
+<p><a id="tencent-llm-collection-20260903-q50"></a></p>
+<p><strong>相关解释：</strong> <a href="n-173f593a1458.html#ke63b7edb3e39">介绍最终各个指标</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L852">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k99a3ce542707"></a></p>
+<span class="heading-anchor" id="多Agent之间通信方式是什么？如何做任务分发和结果合并？"></span><h2 id="agent_9">多Agent之间通信方式是什么？如何做任务分发和结果合并？</h2>
+<p><strong>面试官：</strong> 多Agent之间怎么通信？如何做任务分发和结果合并？</p>
+<p><strong>回答：</strong></p>
+<p>多 Agent 通信首先要选择协作拓扑，而不是先选择 Redis 还是 gRPC。常见结构包括 Supervisor-Worker、Planner-Executor、黑板系统、事件驱动协作和点对点会话。生产中通常优先采用中心编排或共享任务状态，因为它更容易控制权限、预算、重试和审计。</p>
+<p>通信方式可按可靠性需求选择：</p>
+<ul>
+<li>同进程低延迟协作：内存队列、Channel、<code>asyncio.Queue</code>，但进程退出后状态会丢失。</li>
+<li>同集群同步调用：gRPC/HTTP，适合短请求和明确响应，不适合把长任务可靠性全部压在连接上。</li>
+<li>异步可靠任务：Kafka、RabbitMQ、Redis Streams 或云消息队列，支持确认、重试、消费组和死信。Redis Pub/Sub 不保存消息，消费者离线时会丢失，不能直接作为关键任务总线。</li>
+<li>长周期工作流：使用持久化工作流引擎或事件溯源状态机，支持 Checkpoint、补偿和恢复。</li>
+</ul>
+<p>任务分发时，Planner 应输出结构化任务：<code>task_id</code>、父任务、依赖、输入 Artifact、能力标签、优先级、Deadline、预算、权限和验收条件。Router 根据 Agent 能力、负载、数据位置、风险等级和历史质量调度。Worker 通过租约领取任务，使用幂等键执行，并通过 Heartbeat 防止任务永久卡死；租约到期后可以重派，但必须用 Fencing Token 防止旧 Worker 迟到写入。</p>
+<p>结果合并不能只依赖“多数投票”。多个 Agent 可能共享同一模型和同一错误，因此错误高度相关。更可靠的方法是按任务类型选择 Verifier：代码用测试和静态分析，检索用证据覆盖与引用，计算用程序复算，业务操作用环境状态和事务回执。对可拼接结果按 Schema 合并；对互斥结论保留证据、置信度和冲突原因，再由独立 Judge 或人工决策。</p>
+<p>所有消息应至少带有 <code>trace_id</code>、<code>task_id</code>、<code>attempt</code>、<code>schema_version</code>、<code>producer</code>、时间、幂等键和 Artifact 引用，并限制 Agent 只能访问完成任务所需的工具与数据。</p>
+<p><strong>多 Agent 系统的价值不在于“Agent 数量更多”，而在于能否把任务分解、隔离执行、可靠传递和可验证合并做成一条闭环。</strong></p>
+<p><a id="alibaba-cloud-agent-algo-20260901-q11"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1508">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka840d342d24b"></a></p>
+<span class="heading-anchor" id="多个Agent同时修改同一个文件，如何避免冲突？"></span><h2 id="agent_10">多个Agent同时修改同一个文件，如何避免冲突？</h2>
+<p><strong>面试官：</strong> 多个Agent同时修改同一个文件，如何避免冲突？</p>
+<p><strong>回答：</strong></p>
+<p>最优先的原则不是“给同一个文件加一把更大的锁”，而是尽量减少共享可变状态。可以先按模块、目录、函数或任务所有权拆分，让多个 Agent 在独立 Workspace、分支或 Git Worktree 中工作，最后通过 Patch 合并。只有确实需要修改同一逻辑区域时，才进入冲突控制。</p>
+<p>一种可靠的工程链路是：</p>
+<ol>
+<li>每个 Agent 从同一个基线提交或文件哈希开始，在隔离工作区产生结构化 Patch。</li>
+<li>提交前执行 Compare-And-Swap：确认目标文件当前哈希仍等于读取时的基线哈希。</li>
+<li>若基线未变化，原子应用 Patch；若已变化，使用三方合并，即 Base、Current、Agent Result，而不是覆盖写入。</li>
+<li>只在“检查版本 + 应用 Patch + 更新版本”的短临界区加锁，避免把模型思考和工具执行时间放进锁内。</li>
+<li>合并后运行解析器、格式化、类型检查、测试和领域不变量校验。文本无冲突不代表语义无冲突。</li>
+</ol>
+<p>乐观并发控制适合冲突概率低、Agent 任务较长的场景；悲观锁适合短事务和高冲突热点，但必须设置租约、持有者 Token、超时和 Fencing Token，避免锁过期后旧持有者继续写入。仅使用 Redis <code>SET NX PX</code> 而没有 Fencing，无法完全防止暂停进程恢复后的陈旧写。</p>
+<p>对于代码仓库，Git 的 Patch 和三方合并通常优于直接共享文件锁；对于结构化文档，可以按 AST、JSON Patch 或数据库行级版本合并。所谓“让 LLM 仲裁冲突”只能作为生成候选合并结果，最终仍要由确定性校验和测试验证。</p>
+<p>还要处理原子落盘：先写临时文件、<code>fsync</code>，再原子重命名，避免进程崩溃留下半个文件。写操作应带 <code>operation_id</code>，重试时保持幂等。</p>
+<p><strong>多 Agent 协同的关键是隔离、版本、Patch、短临界区和验证闭环；锁只是其中一个工具，不能替代语义合并。</strong></p>
+<p><a id="alibaba-cloud-agent-algo-20260901-q9"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1459">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcce78385b484"></a></p>
+<span class="heading-anchor" id="多个子 Agent 如何分工、分发任务和合并全局状态？为什么没有采用去中心化协作？"></span><h2 id="agent_11">多个子 Agent 如何分工、分发任务和合并全局状态？为什么没有采用去中心化协作？</h2>
+<p><strong>回答：</strong></p>
+<p>可以采用中心编排器维护权威任务图和全局状态。Planner 把目标拆成带输入、输出 schema、依赖、预算和权限的子任务；Router 根据能力注册表、工具、负载和历史质量选择子 Agent；无依赖任务并发执行，有依赖任务由 DAG/状态机调度。每个子 Agent 只接收完成任务所需的最小上下文。</p>
+<p>子 Agent 返回结构化结果、证据、置信度、版本和副作用记录，而不是任意自然语言。Reducer 根据任务 ID 和状态版本合并：集合结果去重，数值按业务规则聚合，事实保留来源，冲突进入仲裁。共享状态使用单写者、乐观锁或事件溯源，避免多个 Agent 静默覆盖。</p>
+<p>没有采用去中心化协作，通常因为任务需要统一权限、预算、停止条件、审计和最终输出。点对点自治会引入消息风暴、重复劳动、环路、状态分叉与难以复现的问题；对于一个组织内的受控业务系统，中心编排更容易保证不变量和故障恢复。</p>
+<p>中心化不等于单点。编排服务可以多副本部署，状态持久化，任务按键分区，Worker 横向扩展。只有当参与方跨组织自治、中心信任不可接受或网络长期分区时，才值得承担去中心化协议的成本。</p>
+<p><a id="pinduoduo-ai-agent-20260816-q31"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%8B%BC%E5%A4%9A%E5%A4%9A%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L647">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7b8be9550a78"></a></p>
+<span class="heading-anchor" id="多任务共享为什么会产生负迁移，如何定位和缓解？"></span><h2 id="_1_22">多任务共享为什么会产生负迁移，如何定位和缓解？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>负迁移是指引入其他任务后，目标任务的验证表现反而低于单任务训练或原有基线。它不只来自梯度方向冲突，也可能来自采样比例、损失尺度、共享容量和训练阶段切换。</p>
+<p><strong>先区分四类来源。</strong> 生成希望保留多样性，编辑强调输入保持，理解追求语义判别，目标本身可能拉动共享参数朝不同方向更新。高频或高损失任务还会主导优化；长视频任务占用更多 token 和显存时，按 batch 计数相同也不代表训练贡献相同。共享层容量不足、归一化统计不兼容，以及后期只微调一个任务，也会造成容量竞争或任务遗忘。</p>
+<p><strong>定位要从分任务曲线开始。</strong> 固定评测集和推理配置，分别对照单任务模型、共享前的 checkpoint 与联合训练版本。同步记录各任务的采样量、有效 token 数、损失尺度和共享层梯度范数；必要时查看梯度余弦相似度，判断是持续冲突，还是某个任务仅因更新量过大而占优。随后依次做任务配比、共享深度和任务分支消融，避免一次更改多个因素。</p>
+<p><strong>修复手段要对应原因。</strong> 数据或更新量失衡时调整任务采样和损失归一化；梯度持续冲突时可尝试 GradNorm、PCGrad 等权重或梯度处理方法；共享容量不足时增加任务专用适配器、归一化层或稀疏专家；阶段微调造成遗忘时保留任务回放与全任务回归。若隔离后仍无正迁移，继续强行共享通常没有收益，应减少共享层或改为任务路由。</p>
+<blockquote>
+<p><strong>面试速答</strong>：负迁移可能来自目标和梯度冲突，也可能只是任务采样、损失尺度、token 数或共享容量失衡。排查时先固定评测协议，对照单任务与联合训练结果，再看分任务曲线、更新量、梯度范数和共享深度消融。修复应与原因对应：调采样和损失、处理冲突梯度、增加任务专用路径或减少共享，并用全任务回归确认没有把问题转移到其他能力。</p>
+</blockquote>
+<p>参考资料：<a href="https://arxiv.org/abs/1711.02257">GradNorm</a>、<a href="https://arxiv.org/abs/2001.06782">Gradient Surgery for Multi-Task Learning（PCGrad）</a>、<a href="https://arxiv.org/abs/1810.04650">Multi-Task Learning as Multi-Objective Optimization</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/06_AI%E8%A7%86%E9%A2%91%E7%BB%9F%E4%B8%80%E7%B3%BB%E7%BB%9F%E3%80%81%E5%88%9B%E4%BD%9C%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%B8%8E%E6%9C%AA%E6%9D%A5%E8%B6%8B%E5%8A%BF.md#L156">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k50653773e002"></a></p>
+<span class="heading-anchor" id="多平台 Agent Gateway 的核心价值是什么？"></span><h2 id="agent-gateway">多平台 Agent Gateway 的核心价值是什么？</h2>
+<p>多平台 Agent Gateway 是把不同用户入口统一接入同一个 Agent Runtime 的控制平面。它让 Agent 不只活在终端或网页里，而能从 CLI、TUI、Telegram、Discord、Slack、邮件、Webhook、智能家居、会议工具等多个入口接收任务、发送结果、请求审批和恢复会话。</p>
+<p>典型架构：</p>
+<div class="arithmatex">\[
+\text{CLI / TUI / IM / Email / Webhook}
+\rightarrow \text{Gateway}
+\rightarrow \text{Session Router}
+\rightarrow \text{Agent Runtime}
+\rightarrow \text{Tools / Memory / Skills}
+\]</div>
+<p>核心价值：</p>
+<ul>
+<li>多端入口统一。</li>
+<li>会话连续性。</li>
+<li>平台权限隔离。</li>
+<li>消息格式适配。</li>
+<li>媒体和文件处理。</li>
+<li>工具进度推送。</li>
+<li>权限审批回调。</li>
+<li>cron / background task 通知。</li>
+<li>统一日志、审计和可观测性。</li>
+</ul>
+<p>Hermes Agent 的多平台 Gateway 启发是：长期运行 Agent 的“用户界面”不应该绑定在一个终端窗口，而应通过统一 Gateway 在不同平台保持同一个智能体工作流。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/09_%E8%87%AA%E8%BF%9B%E5%8C%96Agent%E4%B8%8E%E5%A4%9A%E5%B9%B3%E5%8F%B0%E8%BF%90%E8%A1%8C%E6%97%B6%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L145">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb1c04e215bbe"></a></p>
+<span class="heading-anchor" id="多平台 Agent 的可观测性和本地行为画像如何设计？"></span><h2 id="agent_12">多平台 Agent 的可观测性和本地行为画像如何设计？</h2>
+<p>多平台 Agent 的可观测性要同时服务 debug、安全审计、成本治理和用户体验优化。</p>
+<p>建议记录：</p>
+<ul>
+<li>session / user / platform / channel / workspace。</li>
+<li>模型和 provider。</li>
+<li>slash command。</li>
+<li>工具调用和结果。</li>
+<li>Skill 加载和使用。</li>
+<li>Memory 读写。</li>
+<li>Context compression。</li>
+<li>任务状态和后台事件。</li>
+<li>权限审批。</li>
+<li>成本、token、延迟。</li>
+<li>错误和重试。</li>
+<li>插件触发事件。</li>
+</ul>
+<p>本地行为画像可以用于：</p>
+<ul>
+<li>展示用户 Agent 使用情况。</li>
+<li>发现高价值技能。</li>
+<li>识别低效工具链。</li>
+<li>生成成就或使用洞察。</li>
+<li>辅助 Curator 判断 Skill 生命周期。</li>
+<li>构造个人化推荐。</li>
+</ul>
+<p>注意：</p>
+<ul>
+<li>行为画像必须本地优先或租户隔离。</li>
+<li>敏感内容脱敏。</li>
+<li>用户可关闭、导出、删除。</li>
+<li>不应把娱乐化指标凌驾于安全和隐私之上。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/09_%E8%87%AA%E8%BF%9B%E5%8C%96Agent%E4%B8%8E%E5%A4%9A%E5%B9%B3%E5%8F%B0%E8%BF%90%E8%A1%8C%E6%97%B6%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L564">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbb6a2f3f9751"></a></p>
+<span class="heading-anchor" id="多条件控制发生冲突时，统一系统应该如何处理？"></span><h2 id="_1_25">多条件控制发生冲突时，统一系统应该如何处理？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p>多条件控制不能简单做特征相加或统一调高引导强度（guidance）。冲突可能发生在语义、空间、时间和约束强度四个层面，处理顺序应从输入约束开始，再进入模型融合和采样调度。</p>
+<ol>
+<li><strong>先统一坐标并识别硬冲突。</strong> 把 mask、轨迹、首尾帧和音频事件转换到同一分辨率、帧率与时间轴，检查是否存在无法同时满足的要求。例如两个条件修改同一区域却要求不同结果，属于显式冲突；参考图只有正脸而文本要求转身，更接近信息不足和外推风险，不能直接归为逻辑矛盾。</li>
+<li><strong>明确硬约束和软偏好。</strong> 非编辑区域保持、指定首尾帧或安全规则通常需要更高优先级；风格、构图和运动幅度可以作为软约束。优先级应来自任务协议或用户选择，不能把 identity、pose、text 等模态预先排成一张固定顺序表。</li>
+<li><strong>按空间和时间隔离作用域。</strong> 不同条件尽量控制不同区域、帧段或网络层。作用域重叠时再使用门控、条件权重或分阶段生成，减少多个条件同时争夺同一批 token。</li>
+<li><strong>训练和推理分别处理。</strong> 训练阶段需要覆盖常见条件组合、随机缺失和不同强度；推理阶段可以调节引导强度、门控或时间调度。条件 dropout 能提高缺失条件下的鲁棒性，却不会自动教会模型解决语义矛盾。</li>
+<li><strong>无法可靠裁决时交给用户确认。</strong> 对高影响且互斥的要求，直接让用户确认优先级通常比模型自行猜测更稳妥。自动降权适合低风险偏好，不适合悄悄改写明确指令。</li>
+</ol>
+<p>验证时既要看每个条件单独的遵循度，也要看联合成功率和非目标区域保持。可以固定随机种子，依次移除或替换某个条件，观察结果是否只在预期作用域内变化；再按条件组合建立失败矩阵，定位是某条条件路径失效，还是两条路径同时存在时发生竞争。</p>
+<blockquote>
+<p><strong>面试速答</strong>：多条件冲突先在输入层解决：统一坐标和时间轴，区分真正互斥、信息不足与强度失衡；随后明确硬约束和软偏好，再按空间、时间和网络层隔离作用域。模型侧可以用门控、引导强度和分阶段生成，但高影响冲突应让用户确认。评估时逐个移除条件并检查变化范围，不能只看最终视频的整体观感。</p>
+</blockquote>
+<p>参考资料：<a href="https://arxiv.org/abs/2306.02018">VideoComposer</a>、<a href="https://arxiv.org/abs/2503.07598">VACE</a>、<a href="https://arxiv.org/abs/2207.12598">Classifier-Free Diffusion Guidance</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E8%A7%86%E9%A2%91%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/06_AI%E8%A7%86%E9%A2%91%E7%BB%9F%E4%B8%80%E7%B3%BB%E7%BB%9F%E3%80%81%E5%88%9B%E4%BD%9C%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%B8%8E%E6%9C%AA%E6%9D%A5%E8%B6%8B%E5%8A%BF.md#L225">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k00a5e70c0d24"></a></p>
+<span class="heading-anchor" id="多租户平台应怎样建立身份与资源边界？"></span><h2 id="_1_26">多租户平台应怎样建立身份与资源边界？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>企业平台必须支持多租户、多部门、多角色和多数据域。Agent 的权限治理比普通应用更复杂，因为 Agent 既代表用户行动，又有自己的工具、记忆、策略和运行环境。</p>
+<p>关键治理对象：</p>
+<ul>
+<li>用户。</li>
+<li>租户。</li>
+<li>部门。</li>
+<li>Agent。</li>
+<li>工具。</li>
+<li>数据源。</li>
+<li>知识库。</li>
+<li>记忆。</li>
+<li>会话。</li>
+<li>工作流。</li>
+<li>模型。</li>
+<li>外部系统凭证。</li>
+</ul>
+<p>权限判断不应只问“用户有没有权限”，还要问：</p>
+<ul>
+<li>当前 Agent 有没有权限？</li>
+<li>当前任务有没有权限？</li>
+<li>当前工具有没有权限？</li>
+<li>当前参数是否越界？</li>
+<li>当前环境是否允许？</li>
+<li>是否需要审批？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L336">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbfbe8152a422"></a></p>
+<span class="heading-anchor" id="多通道 Agent 如何做会话路由和用户隔离？"></span><h2 id="agent_13">多通道 Agent 如何做会话路由和用户隔离？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>多通道 Agent 会同时面对私聊、群聊、工作区、Webhook、定时任务、IDE、CLI 等来源。核心问题是：同一条消息应该进入哪个 session，以及哪些上下文绝不能互相看到。</p>
+<p>常见路由维度：</p>
+<ul>
+<li>channel：Slack、Discord、Telegram、Web、CLI、IDE、Email。</li>
+<li>account：同一平台上的不同账号或 workspace。</li>
+<li>peer：私聊对象、群、频道、组织。</li>
+<li>agent：不同人格、职责或工作区的 Agent。</li>
+<li>source type：用户消息、系统事件、cron、webhook、后台任务回调。</li>
+</ul>
+<p>常见 session scope：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>适用场景</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>main session</td>
+<td>单用户本地 Agent</td>
+<td>简单但不适合多人</td>
+</tr>
+<tr>
+<td>per-peer session</td>
+<td>每个私聊对象独立上下文</td>
+<td>能避免用户间上下文泄露</td>
+</tr>
+<tr>
+<td>per-channel-peer session</td>
+<td>同一平台不同群/频道隔离</td>
+<td>适合团队协作</td>
+</tr>
+<tr>
+<td>per-account-channel-peer session</td>
+<td>多账号、多组织、多平台</td>
+<td>最安全但管理复杂</td>
+</tr>
+</tbody>
+</table></div>
+<p>关键原则：</p>
+<ul>
+<li>私聊默认必须隔离，不能让 Alice 的上下文出现在 Bob 的会话中。</li>
+<li>群聊与私聊应分离，群聊中的上下文不能自动进入私人会话。</li>
+<li>自动任务和 webhook 应有独立上下文或明确绑定上下文。</li>
+<li>路由规则要可解释，冲突时采用“最具体规则优先”。</li>
+<li>session reset、daily reset、idle reset、manual reset 要有明确策略。</li>
+<li>transcript、memory、tool trace 要跟 session id 强绑定。</li>
+</ul>
+<p>面试回答时可以强调：多通道 Agent 的安全事故往往不是模型能力不足，而是会话边界设计错误导致上下文串线。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L932">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k498f62c9e095"></a></p>
+<span class="heading-anchor" id="大模型如何获得 Function Calling 能力？"></span><h2 id="function-calling">大模型如何获得 Function Calling 能力？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>Function Calling 能力通常来自多阶段训练和产品工程配合：</p>
+<ol>
+<li><strong>预训练</strong></li>
+</ol>
+<p>模型学习大量代码、JSON、API 文档和自然语言结构，为格式化输出打基础。</p>
+<ol>
+<li><strong>监督微调</strong></li>
+</ol>
+<p>使用带工具描述、用户请求、函数选择、参数生成的样本，让模型学会根据语义选择工具。</p>
+<ol>
+<li><strong>偏好优化</strong></li>
+</ol>
+<p>通过人类或自动评估反馈，让模型更倾向于正确工具、正确参数和合适的拒绝。</p>
+<ol>
+<li><strong>工具调用运行时</strong></li>
+</ol>
+<p>模型 API 或 Agent Runtime 提供 tool schema、tool choice、parallel tool calls、structured output、retry 等工程能力。</p>
+<ol>
+<li><strong>在线评测与纠错</strong></li>
+</ol>
+<p>用真实日志评估工具选择准确率、参数正确率、调用成功率和安全违规率。</p>
+<p>训练数据通常包含：</p>
+<ul>
+<li>用户自然语言请求。</li>
+<li>可用工具列表。</li>
+<li>工具描述和参数 Schema。</li>
+<li>正确工具选择。</li>
+<li>正确参数 JSON。</li>
+<li>工具返回结果。</li>
+<li>最终自然语言回答。</li>
+<li>不应调用工具的负样本。</li>
+</ul>
+<p>面试中可以说：Function Calling 不是“模型天生会调用工具”，而是模型能力、结构化输出训练、API 运行时和工具治理共同形成的结果。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L225">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfa545507153e"></a></p>
+<span class="heading-anchor" id="如何判断一个图片理解 Agent 的评测指标是否足够完整？"></span><h2 id="agent_14">如何判断一个图片理解 Agent 的评测指标是否足够完整？</h2>
+<p><strong>回答：</strong></p>
+<p>先明确任务是图片问答、OCR、定位、审核还是编辑，再建立“感知 → 推理与工具 → 最终任务 → 成本与风险”的分层指标。分类准确率只能描述其中一小部分能力，不能代表整个 Agent 的可用性。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>指标示例</th>
+<th>容易漏掉的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>感知识别</td>
+<td>OCR 字符错误率、检测 AP、区域 IoU</td>
+<td>小字、旋转、低清、跨语言与遮挡</td>
+</tr>
+<tr>
+<td>回答与证据</td>
+<td>任务正确率、事实支持率、对象幻觉率</td>
+<td>看不清仍肯定回答、证据与结论错配</td>
+</tr>
+<tr>
+<td>工具轨迹</td>
+<td>工具选择、参数正确率、恢复成功率</td>
+<td>反复调用、坐标转换错误、执行越界</td>
+</tr>
+<tr>
+<td>编辑约束</td>
+<td>目标编辑成功、区域外差异、文字识别结果</td>
+<td>非目标对象变形、文字残留、多轮漂移</td>
+</tr>
+<tr>
+<td>审核决策</td>
+<td>分类别 precision/recall、误放与误拦率</td>
+<td>低频高风险类别被总体准确率掩盖</td>
+</tr>
+<tr>
+<td>线上运行</td>
+<td>p95/p99 延迟、失败率、人工接管、成功任务成本</td>
+<td>队列等待、超大图和并发显存不足</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如高风险内容只占 1%，一个全部判正常的系统也能达到 99% 准确率，却没有审核价值。需按类别、尺寸、语言、来源设备和困难样本切片，报告置信区间，并检查高风险类别的漏检。</p>
+<p>图片编辑中的像素一致性、感知相似度和语义约束分别回答不同问题：PSNR/SSIM 高不代表没有改错关键文字，语义相似也不保证区域外像素未变。对于严格局部编辑，区域外应做直接差异检查；对于重新编码的输出，还要把编码误差与模型改动分开。</p>
+<p>人工或模型评审应有明确 rubric、盲评和冲突复核。模型裁判可以扩展覆盖面，但要用人工标注评估偏差；相同图像或同源近重复不能跨训练集和测试集泄漏。<strong>完整性意味着覆盖真实失败模式，并将指标与业务损失关联，而不是把指标列表写得很长。</strong></p>
+<p><a id="baidu-agent-20260922-r2-q10"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1108">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="keada3668c63e"></a></p>
+<span class="heading-anchor" id="如何回答“请设计一个企业级 Agent Harness 平台”？"></span><h2 id="agent-harness">如何回答“请设计一个企业级 Agent Harness 平台”？</h2>
+<p>可以按八层架构回答：</p>
+<ol>
+<li><strong>Dataset 层</strong></li>
+</ol>
+<p>管理任务集、风险标签、数据版本、脱敏样本、历史失败样本。</p>
+<ol>
+<li><strong>Environment 层</strong></li>
+</ol>
+<p>提供 Docker / VM / 浏览器 / 数据库 / API mock / 用户模拟器 / 多 Agent 网络。</p>
+<ol>
+<li><strong>Runner 层</strong></li>
+</ol>
+<p>批量运行 Agent，固定版本组合，支持并发、重试、timeout、取消和清理。</p>
+<ol>
+<li><strong>Trace 层</strong></li>
+</ol>
+<p>采集模型调用、工具调用、状态变化、权限审批、成本和 artifact。</p>
+<ol>
+<li><strong>Grading 层</strong></li>
+</ol>
+<p>支持规则判分、测试判分、状态比较、LLM-as-Judge、人审和组合评分。</p>
+<ol>
+<li><strong>Report 层</strong></li>
+</ol>
+<p>展示通过率、失败分类、版本对比、成本、延迟、风险和趋势。</p>
+<ol>
+<li><strong>Gate 层</strong></li>
+</ol>
+<p>接入 CI/CD、Prompt 发布、Tool 发布、模型切换、策略变更和灰度门禁。</p>
+<ol>
+<li><strong>Feedback 层</strong></li>
+</ol>
+<p>将线上失败、人工反馈、事故复盘自动转成新 eval case。</p>
+<p>关键设计原则：</p>
+<ul>
+<li>任务和环境必须版本化。</li>
+<li>能确定性判分就不要依赖 LLM-as-Judge。</li>
+<li>每次运行必须有 trace 和 artifact。</li>
+<li>安全集必须独立于普通功能集。</li>
+<li>评测要覆盖多次运行稳定性，而不只看 pass@1。</li>
+<li>Harness 不能拥有生产高危权限，只能 dry-run 或在沙箱执行。</li>
+<li>报告必须能告诉团队“该修模型、工具、上下文、策略还是产品流程”。</li>
+</ul>
+<p><strong>高分总结：</strong></p>
+<p>企业级 Agent Harness 平台的核心不是做排行榜，而是做持续质量门禁。它把 Agent 的每一次变更都变成可复现、可比较、可审计的实验。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/08_Agent_Harness_Engineering%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L727">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k34f241f7733e"></a></p>
+<span class="heading-anchor" id="如何回答“请设计一个企业级 Agent 协议平台”？"></span><h2 id="agent_15">如何回答“请设计一个企业级 Agent 协议平台”？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>注意这里设计的是“协议平台”，不是完整 Agent 平台。回答重点应落在 MCP/A2A 接入、能力发现、认证授权、调用链审计和协议兼容；完整平台架构题见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_企业级Agent平台与产品落地高频考点.md">07_企业级Agent平台与产品落地高频考点.md</a>。</p>
+<p>可以按六层回答：</p>
+<ol>
+<li><strong>接入层</strong></li>
+</ol>
+<p>支持 Web、IDE、IM、API、Webhook、Cron 等入口。</p>
+<ol>
+<li><strong>Agent Host / Runtime 层</strong></li>
+</ol>
+<p>管理模型调用、工具调用、上下文、session、流式响应、任务状态和 tracing。</p>
+<ol>
+<li><strong>MCP 工具层</strong></li>
+</ol>
+<p>建设 MCP Registry 和 Tool Gateway，统一接入数据库、知识库、文件系统、Git、工单、日志、浏览器等工具。</p>
+<ol>
+<li><strong>A2A Agent 层</strong></li>
+</ol>
+<p>建设 Agent Registry，通过 Agent Card 管理远程 Agent 能力、认证方式、输入输出模式和 SLA。</p>
+<ol>
+<li><strong>编排层</strong></li>
+</ol>
+<p>使用工作流或图状态机编排复杂流程，支持人审、重试、补偿、断点恢复和任务队列。</p>
+<ol>
+<li><strong>治理层</strong></li>
+</ol>
+<p>统一 IAM、RBAC、租户隔离、审计日志、敏感信息脱敏、Prompt Injection 防御、评测、灰度发布、成本控制和监控告警。</p>
+<p>关键指标：</p>
+<ul>
+<li>工具调用成功率。</li>
+<li>参数正确率。</li>
+<li>任务完成率。</li>
+<li>平均延迟和成本。</li>
+<li>人工接管率。</li>
+<li>权限违规率。</li>
+<li>Prompt Injection 拦截率。</li>
+<li>Agent 间调用链可追踪性。</li>
+</ul>
+<p>最后补一句：企业级 Agent 协议平台的核心不是“接入最多工具和 Agent”，而是让工具和 Agent 在统一协议、统一权限、统一审计和统一评测下可规模化运行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/04_MCP%E4%B8%8EA2A%E5%8D%8F%E8%AE%AE%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L792">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k61bad8279b63"></a></p>
+<span class="heading-anchor" id="如何回答“请设计一个自进化、多平台、可长期运行的 Agent 系统”？"></span><h2 id="agent_16">如何回答“请设计一个自进化、多平台、可长期运行的 Agent 系统”？</h2>
+<p>可以按九层架构回答：</p>
+<ol>
+<li><strong>入口层</strong></li>
+</ol>
+<p>CLI、TUI、Web、IM、Email、Webhook、Cron、API Server。</p>
+<ol>
+<li><strong>Gateway 层</strong></li>
+</ol>
+<p>平台适配、消息归一化、session 路由、命令注册、事件分发、权限回调。</p>
+<ol>
+<li><strong>Runtime 层</strong></li>
+</ol>
+<p>模型循环、工具调用、interrupt、resume、streaming、task state、background task。</p>
+<ol>
+<li><strong>Provider Router 层</strong></li>
+</ol>
+<p>多模型接入、能力路由、fallback、凭证解析、成本统计。</p>
+<ol>
+<li><strong>Tool / Skill / Plugin 层</strong></li>
+</ol>
+<p>Tool Registry、Skill Hub、Plugin System、MCP Client、企业工具网关。</p>
+<ol>
+<li><strong>Memory / Context 层</strong></li>
+</ol>
+<p>长期记忆、session search、context engine、compression、user profile、project context。</p>
+<ol>
+<li><strong>Self-improvement 层</strong></li>
+</ol>
+<p>后台复盘、Skill 生成、Curator、知识评分、合并、归档、回滚。</p>
+<ol>
+<li><strong>Safety / Governance 层</strong></li>
+</ol>
+<p>文件安全、命令安全、tool loop guardrails、sandbox、checkpoint、approval、audit。</p>
+<ol>
+<li><strong>Eval / Training 层</strong></li>
+</ol>
+<p>trace、trajectory、harness、reward function、RL environment、失败回流。</p>
+<p>关键原则：</p>
+<ul>
+<li>入口和运行时解耦。</li>
+<li>工具和技能注册化。</li>
+<li>自进化只作用于受控知识资产。</li>
+<li>后台复盘使用受限工具集。</li>
+<li>所有副作用可审计、可回滚。</li>
+<li>生产写操作默认需要审批。</li>
+<li>轨迹数据既用于评测，也用于训练，但必须脱敏和授权。</li>
+<li>通过 Harness 验证自进化是否真的提升，而不是只相信自我评价。</li>
+</ul>
+<p>高分总结：</p>
+<p>自进化多平台 Agent 的核心不是“接很多平台、装很多工具”，而是构建一个长期运行的智能操作系统：它能接收多端任务、稳定执行、沉淀经验、维护知识资产，并在严格安全和评测闭环中持续改进。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/09_%E8%87%AA%E8%BF%9B%E5%8C%96Agent%E4%B8%8E%E5%A4%9A%E5%B9%B3%E5%8F%B0%E8%BF%90%E8%A1%8C%E6%97%B6%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L689">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf98c7cd63aeb"></a></p>
+<span class="heading-anchor" id="如何处理远程会话或云端执行中的权限请求？"></span><h2 id="_1_33">如何处理远程会话或云端执行中的权限请求？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>远程 Agent 通常在云端容器或远程 worker 中执行工具，而用户在本地 UI。此时权限请求需要跨会话桥接：</p>
+<ol>
+<li>远程执行器生成工具权限请求。</li>
+<li>本地 UI 收到请求并展示工具名、参数、风险说明。</li>
+<li>用户允许或拒绝。</li>
+<li>本地把 permission response 发回远程 session。</li>
+<li>远程继续执行或终止。</li>
+</ol>
+<p>关键设计：</p>
+<ul>
+<li>请求必须有唯一 ID。</li>
+<li>权限请求可以被取消。</li>
+<li>断线后要能恢复 pending 状态。</li>
+<li>本地没有完整工具实现时，也要能展示工具 stub。</li>
+<li>所有响应要进入审计日志。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L306">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k889900e2cc13"></a></p>
+<span class="heading-anchor" id="如何按运行、编排和接入职责选择 Agent 框架？"></span><h2 id="agent_17">如何按运行、编排和接入职责选择 Agent 框架？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>可以按工程定位分为五类：</p>
+<ol>
+<li><strong>通用 Agent SDK</strong></li>
+</ol>
+<p>代表：OpenAI Agents SDK。重点是 agent、tool、handoff、guardrails、tracing、MCP。</p>
+<ol>
+<li><strong>图式工作流/状态机框架</strong></li>
+</ol>
+<p>代表：LangGraph。重点是状态图、持久化执行、人类介入、可恢复任务。</p>
+<ol>
+<li><strong>多 Agent 协作框架</strong></li>
+</ol>
+<p>代表：CrewAI、AutoGen、Google ADK。重点是角色分工、通信、协作、任务编排。</p>
+<ol>
+<li><strong>知识型 Agent/RAG 框架</strong></li>
+</ol>
+<p>代表：LlamaIndex Agent/Workflow。重点是数据连接、检索、索引、知识增强。</p>
+<ol>
+<li><strong>编码 Agent 产品</strong></li>
+</ol>
+<p>代表：Claude Code、Codex、Cursor、Devin、Jules。重点是真实代码仓库读写、测试、提交、审查和任务执行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L430">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke70757dc7866"></a></p>
+<span class="heading-anchor" id="如何提升工具调用正确率？"></span><h2 id="_1_35">如何提升工具调用正确率？</h2>
+<p><a id="batch4-p1-q6"></a></p>
+<p><strong>相关解释：</strong> <a href="n-8ad95d55bba4.html#k93a12d0c9256">Agent常见模式（ReAct/Plan and Execute等）</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L199">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc82b29c6dac5"></a></p>
+<span class="heading-anchor" id="如何理解 Agent，开发中会遇到哪些问题"></span><h2 id="agent_18">如何理解 Agent，开发中会遇到哪些问题</h2>
+<p><strong>回答：</strong></p>
+<p>Agent 与单次问答的区别，在于它能根据中间结果选择行动并改变外部状态。一个典型循环是：接收目标和约束，形成下一步动作，校验后调用工具，读取结果，决定继续、请求用户补充或结束。</p>
+<p>开发中的问题可分为四类：理解错误导致目标偏移；工具名称、参数或顺序选择错误；外部系统超时、限流或部分成功；多轮任务状态丢失、重复执行或预算失控。它们需要不同处理，不能统一靠“让模型再试一次”。</p>
+<p>工程上给工具建立明确的输入输出契约，用状态机记录执行过程，为可重试动作配置幂等机制和退避策略，为长任务设置最大步骤、成本与截止时间。把外部文本和工具输出视为待验证数据，避免其中的指令改变系统权限。最终衡量用户目标是否完成，同时记录失败阶段、时延、成本和人工接管率。</p>
+<p><strong>最难的故障往往是执行结果未知。</strong> 例如模型调用“生成素材”后客户端超时，服务器实际上已经创建了任务。此时立即重试可能重复扣费、重复生成；单纯返回“失败”又可能让用户重复提交。可以按下面的状态语义处理：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>观察到的情况</th>
+<th>系统应记录的状态</th>
+<th>后续动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>参数在执行前校验失败</td>
+<td>rejected</td>
+<td>修正输入，不调用业务服务</td>
+</tr>
+<tr>
+<td>服务返回任务 ID</td>
+<td>submitted / running</td>
+<td>保存 ID，查询或订阅进度</td>
+</tr>
+<tr>
+<td>写请求超时，无法确认是否受理</td>
+<td>unknown</td>
+<td>用幂等键或业务查询核对结果</td>
+</tr>
+<tr>
+<td>工具响应成功但产物不符合约束</td>
+<td>validation_failed</td>
+<td>保留产物与原因，进入修正步骤</td>
+</tr>
+<tr>
+<td>产物满足格式、内容和交付约束</td>
+<td>completed</td>
+<td>保存产物版本及验收结果</td>
+</tr>
+</tbody>
+</table></div>
+<p>幂等键需要绑定租户、业务操作和用户这一次意图，并记录请求参数摘要。同一个键携带不同参数应报冲突；用户主动要求“再生成一版”则属于新操作。服务端还需要原子去重或唯一约束，客户端仅生成一个字符串不构成幂等保证。数据库提交和外部调用分离时，可以使用事务 outbox、状态核对及补偿机制，但不能据此声称跨所有外部服务严格 exactly-once。</p>
+<p><img alt="Agent任务从决策到验收的闭环" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/imgs/baidu_multimodal_agent_20260922_20260924/01_Agent任务闭环.png"/></p>
+<p>图中把“工具调用成功”与“任务验收通过”分开，是因为 HTTP 200 只能说明某次请求在接口层成功。素材是否包含指定人物、是否保持正确尺寸、是否写入正确工作区，需要进一步校验。<strong>Rocky认为，讲项目时能说明这种状态边界，比只列出使用过的框架更能体现工程判断。</strong></p>
+<p><a id="baidu-aigc-multimodal-agent-20260922-20260924-r2-q3-2"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1747">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfecc833643cf"></a></p>
+<span class="heading-anchor" id="如何理解Spec Coding和Harness？你认为Harness为什么能够提升Agent完成复杂任务的能力？"></span><h2 id="spec-codingharnessharnessagent">如何理解Spec Coding和Harness？你认为Harness为什么能够提升Agent完成复杂任务的能力？</h2>
+<p><strong>回答：</strong></p>
+<p><strong>Spec Coding</strong> 是先把模糊意图沉淀为可执行、可验证的规格，再由人和 Agent 围绕规格实现。Spec 不只是需求文档，至少应包含目标、非目标、接口与数据契约、不变量、边界场景、验收测试和风险约束。它解决的是“要做对什么”。</p>
+<p><strong>Harness</strong> 是模型外部的运行与治理环境，负责上下文组装、工具发现、权限、执行沙箱、任务状态、checkpoint、超时重试、验证、trace、成本预算和人工接管。它解决的是“模型如何在真实环境中持续行动，并且让每一步可控、可恢复、可评估”。模型是概率决策内核，Harness 更接近 Agent 的运行时与控制系统。</p>
+<p>二者的关系是：Spec 为任务提供目标函数和验收条件，Harness 把这些条件落实为运行约束和反馈。复杂任务之所以受益于 Harness，主要有五个原因：</p>
+<ul>
+<li>把大目标拆成有状态的多步循环，模型每次只基于当前状态选择下一动作；</li>
+<li>将代码搜索、编译、测试、浏览器或业务 API 的真实结果反馈给模型，减少纯语言猜测；</li>
+<li>用权限、schema、状态机和预算约束动作空间，降低越权、死循环和无效调用；</li>
+<li>通过 checkpoint、幂等、重试和回滚，让长任务能从局部失败恢复；</li>
+<li>记录完整轨迹并用最终状态、测试、安全和成本判分，支持回归优化。</li>
+</ul>
+<p>因此，同一个模型放进不同 Harness，复杂任务成功率可能差很多。Rocky认为，Spec 决定“终点和护栏”，Harness 决定“道路、仪表盘和故障恢复”；二者共同把一次性代码生成升级为可交付的软件工程。</p>
+<p><a id="insta360-agent-20260809-q4"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BD%B1%E7%9F%B3%E5%88%9B%E6%96%B0%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L68">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k73b81f1a3210"></a></p>
+<span class="heading-anchor" id="如何用 Harness 做失败样本回流和持续优化？"></span><h2 id="harness">如何用 Harness 做失败样本回流和持续优化？</h2>
+<p>失败样本回流流程：</p>
+<ol>
+<li>从线上 trace、用户反馈、人工接管、事故复盘中收集失败。</li>
+<li>给失败打标签：理解失败、上下文失败、工具失败、权限失败、策略失败、环境失败。</li>
+<li>清洗敏感信息。</li>
+<li>固化初始环境和期望状态。</li>
+<li>写成可复现 Task Spec。</li>
+<li>加入 regression / safety / business set。</li>
+<li>修复 prompt、工具、上下文、策略或产品流程。</li>
+<li>重新运行 Harness 验证。</li>
+</ol>
+<p>注意：</p>
+<ul>
+<li>不是所有失败都应该靠改 prompt。</li>
+<li>工具错误应修工具 schema 或返回结构。</li>
+<li>权限错误应修 policy。</li>
+<li>上下文错误应修 retrieval / memory / compaction。</li>
+<li>用户目标模糊应修产品交互和澄清流程。</li>
+</ul>
+<p>成熟团队会把 Harness 当作 Agent 的“质量飞轮”：线上失败越多，评测集越强，发布越稳。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/08_Agent_Harness_Engineering%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L620">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k26821153f516"></a></p>
+<span class="heading-anchor" id="如何用 Trace 还原 Agent 的执行过程？"></span><h2 id="trace-agent">如何用 Trace 还原 Agent 的执行过程？</h2>
+<p>普通接口抛出异常时，状态码和异常栈通常能指出出错位置。Agent 即使没有抛异常，也可能在前几轮拿错文档、选错工具，最后生成一段看起来合理的错误答案。Trace 按时间还原这段执行过程，记录系统实际看到的输入、产生的输出和执行的动作。它不保存模型的私有思维链，也不能证明模型内部为什么作出某个判断。</p>
+<p>以一次售后工单请求为例，Trace 可以按下面的顺序记录。</p>
+<ol>
+<li>请求进入系统时生成 <code>requestId</code> 和 <code>runId</code>，同时关联脱敏后的用户、租户标识，以及本次运行使用的代码、Prompt 和工具 Schema 版本。</li>
+<li>每次调用模型时保存脱敏后的输入摘要与模型输出，并记录 Token、耗时和停止原因，避免只留下最终回答。</li>
+<li>发生检索时记录查询内容、命中文档 ID、分数和真正注入模型的片段，并带上知识库版本。</li>
+<li>调用工具时生成 <code>toolCallId</code>，记录参数摘要、权限判定、执行结果和错误类型。重试还要带上 <code>attempt</code>、父 Span 和幂等键摘要，才能看出同一个动作执行了几次。</li>
+<li>任务结束或暂停时记录状态变化、Checkpoint、人工确认、最终 Outcome、总调用数、总成本和降级原因。</li>
+</ol>
+<p>排查时从最终结果往前看，找到第一次偏离预期的位置。检索阶段拿错文档，就查切块、召回和 Reranker；证据已经正确，Agent 却选错工具，再查上下文与模型；工具返回成功而业务状态没有变化，则检查工具适配器和结果核验。这样能把“回答错了”缩小到某一次检索、模型调用或工具执行。</p>
+<p>模型输入、工具参数和检索片段可能包含个人信息或业务机密，生产环境通常只保存脱敏摘要，并配合采样、访问控制和保留期限。排障需要的字段可以留下，完整原文不应默认长期保存。</p>
+<p>回放某一次请求看 Trace，观察一段时间的延迟和错误率看 Metrics，核对谁批准了退款等外部操作看 Audit，比较不同模型或 Prompt 版本看 Eval Record。具体异常日志可以挂到对应 Span 上。这些记录通过同一个 <code>runId</code> 关联，不需要塞进一张大表。</p>
+<p><code>Session</code>、<code>Run</code>、<code>Trace</code>、<code>Span</code> 和 <code>Attempt</code> 的划分、异步任务的上下文传播，以及采样和敏感数据处理，详见 <a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/system-design/ai-observability.md">AI 可观测性与 Trace</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_39">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/agent-project-interview-guide.md#L399">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k23cdeb32b268"></a></p>
+<span class="heading-anchor" id="如何用一个案例讲清 Agent 项目？"></span><h2 id="agent_19">如何用一个案例讲清 Agent 项目？</h2>
+<p>假设项目是一个智能售后工单 Agent。用户可以用自然语言描述问题，系统会查询订单、检索售后政策、判断还缺哪些信息，并在用户确认后创建售后工单。</p>
+<p>这里故意同时放入了三类能力：</p>
+<ul>
+<li>检索售后政策，属于 RAG；</li>
+<li>查询订单、创建工单，属于工具调用；</li>
+<li>根据当前信息决定继续查询、追问还是结束，属于 Agent 决策。</li>
+</ul>
+<p>其中，“创建工单”会修改外部状态，不能只依赖模型输出一个合法 JSON。权限校验、用户确认、幂等和执行结果核验都必须由业务系统负责。</p>
+<p>项目中的 Agent Loop 可以采用 ReAct 这类执行方式：模型提出下一步动作，拿到环境返回的 Observation 后，再决定继续调用工具还是结束。</p>
+<p>ReAct 指的是动作与观察交错推进，不是调用一次工具就算完成了 Agent 设计。生产 Trace 记录动作、工具结果、状态摘要和可核验依据即可，不需要保存模型的私有思维链。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_40">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/agent-project-interview-guide.md#L80">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k51f65012686a"></a></p>
+<span class="heading-anchor" id="如何组织主 Agent、子 Agent 与技能资源？"></span><h2 id="agent-agent">如何组织主 Agent、子 Agent 与技能资源？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>复杂编码任务常常需要并行探索、分工实现和专业流程。子 Agent 和 Skills 分别解决两个问题：</p>
+<ul>
+<li><strong>子 Agent</strong>：把任务拆给另一个模型会话，隔离上下文，支持并行。</li>
+<li><strong>Skills</strong>：把可复用的专业知识、流程、模板和脚本打包，按需加载。</li>
+</ul>
+<p>它们能降低主 Agent 上下文压力，并提升复杂任务的专业度。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_41">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L474">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1d6112ce2e1c"></a></p>
+<span class="heading-anchor" id="如何给 Agent Loop 设置退出边界？"></span><h2 id="agent-loop">如何给 Agent Loop 设置退出边界？</h2>
+<p>Agent 拿不到关键信息时，可能反复查询同一个订单，或者连续调用参数相同的工具。模型仍在返回下一步动作，任务却没有任何进展。如果执行器不主动终止，这个循环会一直消耗时间和 Token。</p>
+<p>任务开始时，执行器要确定总截止时间、模型和工具的最大调用次数，以及 Token 和费用预算。每次准备调用模型或工具前，先检查剩余预算；单个工具还要有自己的超时时间，避免一次慢调用占满整条任务的期限。</p>
+<p>次数没有超限也可能陷入死循环。系统可以比较连续几步的工具名、规范化参数和 State 版本。相同动作反复出现，或者执行多步后状态仍未变化，就按“无进展”停止。遇到退款等高风险动作则暂停任务，等待用户确认。</p>
+<p>停止后要记录具体原因，并根据已完成的部分决定返回当前结果还是转人工。这些判断由执行框架或业务代码执行，Prompt 里的“最多调用十次”只能作为行为提示，不能代替系统限制。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_42">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/agent-project-interview-guide.md#L322">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kdf0fb91fc52e"></a></p>
+<span class="heading-anchor" id="如何编写一个智能体，帮助用户规划一次包含机票预订、酒店安排和景点游览的旅行？需要配置哪些工具？如何确保系统在面对不完整或矛盾的信息时仍能提供合理建议？"></span><h2 id="_1_43">如何编写一个智能体，帮助用户规划一次包含机票预订、酒店安排和景点游览的旅行？需要配置哪些工具？如何确保系统在面对不完整或矛盾的信息时仍能提供合理建议？</h2>
+<p>采用基于工具调用的智能体架构</p>
+<blockquote>
+<p>用户输入 → 智能体分析任务意图 → 规划任务流程 → 多工具调用 → 整合回复结果</p>
+</blockquote>
+<p><img alt="img" loading="lazy" referrerpolicy="no-referrer" src="https://pic3.zhimg.com/v2-0bd6934418581ff5cf5c232fef6bd5d8_1440w.jpg"/></p>
+<p>方法：</p>
+<ul>
+<li>利用 LLM 分析用户输入中缺失的关键信息（如日期、预算、偏好），主动进行“反问式追问”</li>
+<li>设定默认值与容错机制，未指定预算则设定默认中档；未指定具体日期，则提示最近可用时间段。</li>
+<li>多轮规划修正能力，使用 ReAct 思维链提示结构，支持思考—行动—观察—再决策循环，自动纠偏</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L271">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k2a567f622930"></a></p>
+<span class="heading-anchor" id="如何设计 Agent Marketplace / Skill Marketplace？"></span><h2 id="agent-marketplace-skill-marketplace">如何设计 Agent Marketplace / Skill Marketplace？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<p>本节从企业平台治理角度讨论 Marketplace 的上架、审核、权限和下架；Skill 在长期运行 Agent 中如何被自动评分、合并、归档和回滚，见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/09_自进化Agent与多平台运行时高频考点.md">09_自进化Agent与多平台运行时高频考点.md</a>。</p>
+<p>Agent Marketplace 管可复用 Agent，Skill Marketplace 管可复用能力包或流程。</p>
+<p>核心字段：</p>
+<ul>
+<li>名称和描述。</li>
+<li>适用场景。</li>
+<li>owner 和维护团队。</li>
+<li>输入输出。</li>
+<li>所需工具和数据权限。</li>
+<li>风险等级。</li>
+<li>版本。</li>
+<li>示例任务。</li>
+<li>评测结果。</li>
+<li>安全审核状态。</li>
+<li>SLA 和支持方式。</li>
+</ul>
+<p>上架流程：</p>
+<ol>
+<li>提交 Agent / Skill。</li>
+<li>自动检查元数据、依赖、权限。</li>
+<li>运行安全评测和功能评测。</li>
+<li>人工审核高风险能力。</li>
+<li>灰度给小范围用户。</li>
+<li>收集反馈和 trace。</li>
+<li>正式发布。</li>
+</ol>
+<p>下架机制同样重要：</p>
+<ul>
+<li>owner 失联。</li>
+<li>工具依赖失效。</li>
+<li>评测回归。</li>
+<li>安全风险。</li>
+<li>成本过高。</li>
+<li>业务规则过期。</li>
+</ul>
+<p>Marketplace 的核心不是数量，而是可信、可评测、可治理。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_44">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L437">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb38a5c20737c"></a></p>
+<span class="heading-anchor" id="如何设计一个企业级 AI Agent 系统？"></span><h2 id="ai-agent">如何设计一个企业级 AI Agent 系统？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>这里给出的是总览型答题框架，适合面试开场快速搭骨架；企业级 Agent Builder、Runtime、模型网关、Registry、多租户、Marketplace、平台选型等展开内容，见 <a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_企业级Agent平台与产品落地高频考点.md">07_企业级Agent平台与产品落地高频考点.md</a>。</p>
+<p>可以按以下框架回答：</p>
+<ol>
+<li><strong>场景定义</strong></li>
+</ol>
+<p>明确是客服、数据分析、研发提效、运营自动化、企业搜索还是流程审批。</p>
+<ol>
+<li><strong>能力边界</strong></li>
+</ol>
+<p>定义 Agent 能做什么、不能做什么、哪些动作需要人工确认。</p>
+<ol>
+<li><strong>模型与路由</strong></li>
+</ol>
+<p>简单任务用便宜模型，复杂规划用强模型，敏感任务走人工。</p>
+<ol>
+<li><strong>工具和协议</strong></li>
+</ol>
+<p>用 Function Calling 接业务 API，用 MCP 接标准工具，用 A2A 接远程专用 Agent。</p>
+<ol>
+<li><strong>状态和记忆</strong></li>
+</ol>
+<p>会话状态、任务状态、长期记忆、企业知识库分开管理。</p>
+<ol>
+<li><strong>工作流编排</strong></li>
+</ol>
+<p>确定性流程用 workflow，开放任务用 Agent，复杂流程用状态图。</p>
+<ol>
+<li><strong>安全与权限</strong></li>
+</ol>
+<p>RBAC、审批、沙箱、审计、数据脱敏、prompt injection 防护。</p>
+<ol>
+<li><strong>评估与观测</strong></li>
+</ol>
+<p>离线任务集、线上 tracing、人工反馈、失败样本回流。</p>
+<ol>
+<li><strong>上线策略</strong></li>
+</ol>
+<p>从只读建议模式开始，再开放低风险工具，最后逐步开放写操作。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_45">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/01_AIGC%E6%97%B6%E4%BB%A3AI%20Agent%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L808">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf5cc165eaff5"></a></p>
+<span class="heading-anchor" id="如何设计一个能够避免循环调用的 Agent 状态机？"></span><h2 id="agent_20">如何设计一个能够避免循环调用的 Agent 状态机？</h2>
+<p><strong>回答：</strong></p>
+<p>由运行时控制合法迁移，模型仅提出候选动作。可以设计如下路径，其中每个箭头都带有守卫条件和预算检查：</p>
+<pre><code class="language-text">INIT -&gt; PLAN -&gt; VALIDATE_ACTION -&gt; EXECUTE -&gt; VERIFY_RESULT
+                      |                         |
+                      v                         v
+               WAIT_APPROVAL              DONE / REPLAN
+                      |                         |
+                      +----&gt; VALIDATE_ACTION &lt;--+
+
+任何活动状态 -&gt; FAILED / CANCELLED / DEADLINE_EXCEEDED
+执行结果未知 -&gt; RECONCILE -&gt; VERIFY_RESULT
+</code></pre>
+<p>状态中保存任务契约、计划版本、已完成步骤、证据版本、在途动作、幂等键、错误分类与剩余预算。检查点应落在可恢复位置；恢复后先核对在途工具的真实状态，防止进程崩溃把已经完成的外部写入再执行一次。</p>
+<p>循环检测至少有三层：相同状态版本下的同参数无效重复；多个动作之间的往返循环；计划不断改写但成功条件距离没有改善。动作指纹用于告警与拦截，不能把所有重复查询视为非法，因为轮询和瞬时故障恢复本来就需要重复。</p>
+<p>真正保证运行在资源意义上有界的是步数、时间、调用和费用预算，每个回到计划或执行的循环都必须消耗预算，不能在重规划时补回。每个外部调用有有限超时，等待审批有明确挂起与恢复状态，终止状态不得自动重新进入执行。</p>
+<p>这能保证本地编排不无限执行，不能承诺任何任务都成功，也不能保证失联的远端操作已经取消。用故障注入验证重复参数、A/B 往返、工具永不返回、重启恢复和审批后状态变化，才算验证了状态机，而不只是画了一张流程图。</p>
+<p><a id="baidu-agent-20260922-r2-q9"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1081">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k357cf18a8c8a"></a></p>
+<span class="heading-anchor" id="如何设计企业内可用的编码 Agent？"></span><h2 id="agent_21">如何设计企业内可用的编码 Agent？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>建议路线：</p>
+<ol>
+<li><strong>只读阶段</strong></li>
+</ol>
+<p>先做代码问答、搜索、解释、review，不允许写文件。</p>
+<ol>
+<li><strong>建议阶段</strong></li>
+</ol>
+<p>生成 patch，但由开发者应用。</p>
+<ol>
+<li><strong>受控写入阶段</strong></li>
+</ol>
+<p>允许修改分支内文件，但所有 diff 需审查。</p>
+<ol>
+<li><strong>验证阶段</strong></li>
+</ol>
+<p>允许运行测试、lint、构建，但禁止危险命令。</p>
+<ol>
+<li><strong>PR 阶段</strong></li>
+</ol>
+<p>自动创建 PR，必须人工 review 后合并。</p>
+<ol>
+<li><strong>持续优化</strong></li>
+</ol>
+<p>用真实任务、失败 case、review 反馈优化工具、prompt 和策略。</p>
+<p>企业必备能力：</p>
+<ul>
+<li>SSO/RBAC。</li>
+<li>仓库权限继承。</li>
+<li>审计日志。</li>
+<li>网络隔离。</li>
+<li>secret scanning。</li>
+<li>私有 MCP Server。</li>
+<li>模型和数据策略。</li>
+<li>评测集和灰度发布。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_47">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L793">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0cad2a10920d"></a></p>
+<span class="heading-anchor" id="如何评估一个 Agent 场景是否值得做？"></span><h2 id="agent_22">如何评估一个 Agent 场景是否值得做？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>可以从八个维度评估：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>判断问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>频率</td>
+<td>任务是否高频重复？</td>
+</tr>
+<tr>
+<td>价值</td>
+<td>自动化后能节省多少时间或提升多少收入？</td>
+</tr>
+<tr>
+<td>可验证性</td>
+<td>结果是否容易判断对错？</td>
+</tr>
+<tr>
+<td>风险</td>
+<td>失败是否可接受、可回滚？</td>
+</tr>
+<tr>
+<td>工具完备性</td>
+<td>Agent 是否能拿到必要工具和数据？</td>
+</tr>
+<tr>
+<td>权限清晰度</td>
+<td>数据和动作权限是否明确？</td>
+</tr>
+<tr>
+<td>人审成本</td>
+<td>人类能否快速审核结果？</td>
+</tr>
+<tr>
+<td>数据可用性</td>
+<td>是否有历史样本和评测集？</td>
+</tr>
+</tbody>
+</table></div>
+<p>优先做：</p>
+<ul>
+<li>高频、低风险、可验证、工具齐全的任务。</li>
+<li>人类审核成本低的任务。</li>
+<li>已有 SOP 的任务。</li>
+<li>能从历史数据构造评测集的任务。</li>
+</ul>
+<p>慎重做：</p>
+<ul>
+<li>低频高风险任务。</li>
+<li>结果难验证任务。</li>
+<li>需要大量主观判断的任务。</li>
+<li>权限边界不清的任务。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_48">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/07_%E4%BC%81%E4%B8%9A%E7%BA%A7Agent%E5%B9%B3%E5%8F%B0%E4%B8%8E%E4%BA%A7%E5%93%81%E8%90%BD%E5%9C%B0%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L568">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0dc2748971ac"></a></p>
+<span class="heading-anchor" id="如何避免把无关文件塞满上下文？"></span><h2 id="_1_49">如何避免把无关文件塞满上下文？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>策略：</p>
+<ul>
+<li>先搜索后读取，避免盲目打开大量文件。</li>
+<li>只读相关片段，而不是整文件。</li>
+<li>对重复工具输出做折叠。</li>
+<li>对日志只保留错误附近上下文。</li>
+<li>用子 Agent 探索并返回摘要。</li>
+<li>用结构化计划记录状态，而不是保留所有历史。</li>
+<li>将低价值历史压缩成 summary。</li>
+<li>根据任务阶段切换上下文：探索、实现、验证、总结。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L453">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k457af1ede4c3"></a></p>
+<span class="heading-anchor" id="如果 Agent 在调用工具时出现参数类型正确但业务含义错误，如何发现并阻止？"></span><h2 id="agent_23">如果 Agent 在调用工具时出现参数类型正确但业务含义错误，如何发现并阻止？</h2>
+<p><strong>回答：</strong></p>
+<p>JSON Schema 能限制类型、枚举和结构，也能表达部分静态值域，但无法自动知道当前订单归谁、操作人是否有权限、状态是否允许迁移。这类错误必须在模型之外设置<strong>语义验证与执行授权关卡</strong>。</p>
+<p>第一层解析和协议校验：拒绝未知字段、非法枚举、缺失参数、超过范围的值，以及单位不明确的金额。第二层业务校验：读取权威状态，检查租户归属、资源版本、金额单位、合法状态迁移和时间范围。第三层授权：由服务端身份绑定权限，不信任模型自己填写的 <code>tenant_id</code>、<code>is_admin</code> 或审批结果。</p>
+<p>高风险动作先生成具体预览，审批必须绑定操作内容、资源版本、有效期和请求主体。仅仅存在一个 <code>approval_id</code> 字符串，并不代表审批有效；参数变化后不能沿用旧审批。工具返回文本和检索文档属于数据，不能因其写着“管理员已批准”就提升权限。</p>
+<p>还要避免检查与执行之间的竞态。比如校验时订单可取消，执行前已经发货，应在事务中再次确认，或者通过条件更新验证版本与状态：</p>
+<pre><code class="language-sql">UPDATE orders
+SET status = 'CANCELLED', version = version + 1
+WHERE tenant_id = :trusted_tenant
+  AND order_id = :order_id
+  AND version = :expected_version
+  AND status = 'PENDING';
+</code></pre>
+<p>该语句假设取消 <code>PENDING</code> 订单符合业务规则；仍须先校验身份、审批与业务幂等。影响行数为零表示条件未满足，要查明是状态冲突、版本变化还是资源不存在，不能让模型反复尝试不同订单号。</p>
+<p>对模型解释出的业务意图也要验证。即使所有参数都合法，取消 A 订单与用户要求修改 B 订单仍然不一致。最终需将候选动作与用户任务契约对照；存在关键歧义时澄清，不猜测执行。</p>
+<p><a id="baidu-agent-20260922-r2-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_50">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L994">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9c7d5287de93"></a></p>
+<span class="heading-anchor" id="如果 Agent 效果不达预期，你怎么判断瓶颈在哪？——是模型能力不够？工具调用不准？上下文丢失？还是评测标准有问题？怎么区分？"></span><h2 id="agent_24">如果 Agent 效果不达预期，你怎么判断瓶颈在哪？——是模型能力不够？工具调用不准？上下文丢失？还是评测标准有问题？怎么区分？</h2>
+<p><strong>回答：</strong></p>
+<p>先固定模型、Prompt、工具版本、检索索引和评测集，建立一条可回放的基线，然后将端到端失败拆成阶段性指标。不能看到最终回答错误就直接归因于模型。</p>
+<p>可以采用“分层替换 + 轨迹定位”的诊断矩阵：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>替换或对照实验</th>
+<th>主要判断</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>评测标准</td>
+<td>人工复核、双标注、对照参考答案</td>
+<td>标准是否不可判定或偏置</td>
+</tr>
+<tr>
+<td>模型能力</td>
+<td>用强模型/人工 oracle 固定工具和证据</td>
+<td>强模型也失败则不一定是当前模型</td>
+</tr>
+<tr>
+<td>工具调用</td>
+<td>给定正确工具和参数，跳过模型选参</td>
+<td>仍失败则检查工具或执行器</td>
+</tr>
+<tr>
+<td>上下文</td>
+<td>注入人工整理的最小充分上下文</td>
+<td>恢复成功说明检索/压缩/组装有问题</td>
+</tr>
+<tr>
+<td>检索</td>
+<td>给定 gold evidence，比较召回与生成</td>
+<td>gold 成功而真实检索失败，瓶颈在知识链路</td>
+</tr>
+<tr>
+<td>规划</td>
+<td>给定人工计划，只评估执行</td>
+<td>区分计划错误与执行错误</td>
+</tr>
+</tbody>
+</table></div>
+<p>同时检查轨迹事件：是否选择了错误工具、参数是否通过 schema、检索是否命中支持证据、压缩前后关键事实是否保留、Observation 是否被下一步消费、是否提前停止或陷入循环。用受控 ablation 比较：</p>
+<div class="arithmatex">\[
+\Delta_i = M(\text{system with component }i\text{ replaced by oracle})
+-M(\text{baseline})
+\]</div>
+<p>其中 <span class="arithmatex">\(M\)</span> 可以是任务成功率或事实支持率。<span class="arithmatex">\(\Delta_i\)</span> 越大，说明该组件更可能是当前瓶颈，但还需要统计显著性和分桶验证。</p>
+<p>最后要关注评测与线上目标是否一致。若离线评分下降但用户任务完成率提升，可能是评测标准错配；若离线提升而线上没有变化，可能是数据分布、延迟、权限或交互流程问题。模型能力不足只能在工具、证据、上下文和评测均被控制后再下结论。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_51">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L568">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbf85dd70544e"></a></p>
+<span class="heading-anchor" id="如果 Agent 跑了 20 分钟还没结束，用户等不及了要取消，你的系统怎么响应？——取消后，已经在执行的工具调用怎么处理？任务状态怎么回滚？"></span><h2 id="agent-20">如果 Agent 跑了 20 分钟还没结束，用户等不及了要取消，你的系统怎么响应？——取消后，已经在执行的工具调用怎么处理？任务状态怎么回滚？</h2>
+<p><strong>回答：</strong></p>
+<p>取消是跨层传播的控制信号，不是前端断开连接就结束。请求层生成 <code>cancel_token</code>，通过任务队列、Agent Loop、模型流式请求和工具执行器逐层传递；每个耗时阶段在安全点检查，并将任务状态从 <code>RUNNING</code> 原子地改为 <code>CANCELLING</code>，防止新的步骤继续提交。</p>
+<p>工具调用分三类处理：</p>
+<ol>
+<li><strong>可安全中断的纯读操作：</strong> 取消 HTTP 请求、释放连接和临时资源，标记为 cancelled。</li>
+<li><strong>支持取消协议的可中断写操作：</strong> 向工具发送 cancel，等待确认或超时后进入补偿流程。</li>
+<li><strong>不可撤销的副作用：</strong> 不能假设取消等于回滚。必须使用幂等键、操作状态查询、事务或补偿动作；例如支付提交后取消，只能查询最终状态并做业务允许的退款/冲正，不能重新执行。</li>
+</ol>
+<p>任务状态最好使用显式状态机：</p>
+<div class="arithmatex">\[
+RUNNING\rightarrow CANCELLING\rightarrow
+\begin{cases}
+CANCELLED, &amp; \text{所有可控子任务已停止};\\
+UNKNOWN\_IN\_FLIGHT, &amp; \text{副作用状态无法确认};\\
+COMPLETED, &amp; \text{取消到达前已完成}.
+\end{cases}
+\]</div>
+<p>“回滚”也要分层：内存中的规划和未提交状态可以恢复到最近 checkpoint；数据库事务可以回滚未提交写入；已经提交的外部副作用只能通过查询和补偿，不能把事件日志删掉假装没发生。用户界面应收到明确状态和任务 ID，允许稍后查询；后台还要设置 orphan task 扫描、资源租约、最大运行时和告警，防止客户端断开后任务泄漏。</p>
+<p><a id="deepseek-agent-20260908-q11"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_52">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L644">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0c7321546627"></a></p>
+<span class="heading-anchor" id="如果Agent接入大量工具，如何避免工具描述过长导致Prompt膨胀？有哪些优化方式？"></span><h2 id="agentprompt">如果Agent接入大量工具，如何避免工具描述过长导致Prompt膨胀？有哪些优化方式？</h2>
+<p><strong>回答：</strong></p>
+<p>核心原则是<strong>工具渐进披露</strong>：模型不需要在每一轮看到所有工具的完整 Schema。可以采用以下方案：</p>
+<ol>
+<li>先用规则、小模型或轻量 LLM 做意图/领域路由，只暴露当前任务可能用到的工具；</li>
+<li>建立工具目录，第一阶段只给工具名、短描述、标签和能力摘要，模型选定候选后再加载详细 Schema；</li>
+<li>合并高度相似的工具，统一参数模型，减少重复描述；</li>
+<li>将稳定的工具文档放在外部检索库，按需获取示例、错误码和约束；</li>
+<li>对多 Agent 采用按角色分配工具，子 Agent 只看到自己的最小权限集合；</li>
+<li>对参数枚举、默认值和必填项使用结构化 Schema，减少自然语言冗余；</li>
+<li>缓存版本化的公共工具描述，监控工具 Token 占比和选择错误率；</li>
+<li>对工具结果做裁剪、摘要和结构化投影，避免 Observation 反过来造成上下文膨胀。</li>
+</ol>
+<p>工具发现本身也要可验证。目录搜索不能把不存在的工具、过期版本或越权工具暴露给模型；工具被选中后仍要由服务端做权限和 Schema 校验。应通过任务成功率、工具选择准确率、参数解析率、Token、P95 延迟和错误率比较“全量工具描述”和渐进披露，而不是只看 Prompt 变短。</p>
+<p><a id="bilibili-ai-agent-20260818-q13"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_53">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L217">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1c526c028d57"></a></p>
+<span class="heading-anchor" id="如果你来做 DeepSeek-Harness 的下一个版本，你会加什么功能？"></span><h2 id="deepseek-harness_1">如果你来做 DeepSeek-Harness 的下一个版本，你会加什么功能？</h2>
+<p><strong>回答：</strong></p>
+<p>在没有把某个具体实现细节当成已确认事实的前提下，我会优先补强以下能力：</p>
+<ol>
+<li><strong>可恢复任务状态机。</strong> 原生支持事件日志、版本化 checkpoint、暂停/恢复、取消和重放；每次模型决策、工具调用和 Observation 都能关联 <code>task_id</code> 与 <code>step_id</code>。</li>
+<li><strong>策略门控。</strong> 在工具执行前统一检查 schema、权限、预算、数据分级、幂等键和人工确认策略，并允许按工具风险配置不同门槛。</li>
+<li><strong>可靠的上下文管理。</strong> 将消息、摘要、证据、记忆和工具结果分层管理，提供 token 预算、关键事实保护、压缩评估和原文回溯，而不是只做字符串截断。</li>
+<li><strong>仿真与回放评测。</strong> 支持固定环境、mock 工具、故障注入、隐藏测试、轨迹回放和单步对比，使模型、Prompt、工具描述和策略可以做可重复消融。</li>
+<li><strong>失败分类与自动回流。</strong> 从 trace 中区分模型、检索、工具、权限、执行和评测失败，生成待人工确认的修复候选，不直接把失败轨迹当训练正样本。</li>
+<li><strong>多租户与密钥隔离。</strong> 让工具凭证、上下文、缓存、事件和长期记忆在租户边界内隔离，默认禁止把敏感信息写入模型 Prompt 和普通日志。</li>
+<li><strong>成本与可靠性调度。</strong> 根据任务风险和剩余预算选择模型、并行度、上下文规模和验证强度，对长任务设置阶段性预算和自动降级。</li>
+</ol>
+<p>每个功能都要有验收指标。例如恢复能力看 checkpoint 恢复成功率和重复副作用率；上下文能力看关键事实保留率和任务成功率；评测能力看线上 badcase 到回归用例的闭环时间。Harness 的下一个版本不应只增加“更强的自主性”，而应增加“自主性可被验证和撤销”的能力。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_54">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/DeepSeek%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L741">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf477a0e10e45"></a></p>
+<span class="heading-anchor" id="如果单一智能体的提示词过长，导致性能下降，如何将其拆分为多个智能体，并在合适的时机调用不同的智能体？"></span><h2 id="_1_55">如果单一智能体的提示词过长，导致性能下降，如何将其拆分为多个智能体，并在合适的时机调用不同的智能体？</h2>
+<p>当单一智能体的提示词过长，影响性能时，我会采用“模块化智能体架构”解决，具体如下：</p>
+<ol>
+<li>功能拆分：将大智能体按功能划分为多个子智能体，例如：行程规划、机票预订、酒店推荐等，每个子体负责单一任务，提示词更短、聚焦。</li>
+<li>主控调度器：设计一个主控Agent作为“路由器”，根据用户请求类型或上下文意图，动态调用对应子体。例如：识别“订酒店”意图后，调用酒店智能体。</li>
+<li>上下文共享：通过共享存储（如Memory模块）或摘要传递，实现子体间信息协同，避免重复问询。</li>
+<li>提示词压缩：对每个子体使用结构化提示+嵌入指令压缩技术，确保上下文长度控制在合理范围内。</li>
+</ol>
+<p>这种方式能提升系统响应效率、增强可维护性，并保持智能体的扩展性。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L285">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k04d1b58fcb37"></a></p>
+<span class="heading-anchor" id="如果工具调用一直没有达到成功条件，任务不断重试并最终卡死，你会如何处理？"></span><h2 id="_1_56">如果工具调用一直没有达到成功条件，任务不断重试并最终卡死，你会如何处理？</h2>
+<p><strong>回答：</strong></p>
+<p>先把“任务成功”定义为外部可验证的后置条件，再区分瞬时故障、参数错误、执行结果未知和规划无进展。不能让模型通过不断说“再试一次”延长任务，也不能用“状态没变”一个条件直接否决所有重试。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失败类型</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只读请求限流、暂时不可用</td>
+<td>有界重试，遵守 <code>Retry-After</code>，指数退避加随机抖动</td>
+</tr>
+<tr>
+<td>参数缺失或不符合约束</td>
+<td>返回结构化错误，有限次数修正参数并重新校验</td>
+</tr>
+<tr>
+<td>权限拒绝、明确不允许的业务操作</td>
+<td>终止该动作，必要时等待正规授权</td>
+</tr>
+<tr>
+<td>写操作超时，是否提交未知</td>
+<td>先按幂等键查询执行状态，不立即重复写入</td>
+</tr>
+<tr>
+<td>工具成功但任务仍无进展</td>
+<td>检查计划假设和证据，有限重规划或澄清</td>
+</tr>
+</tbody>
+</table></div>
+<p>任务运行时维护总体 deadline、调用次数、模型 token、费用、重规划次数和在途调用。预算要跨工具与模型统一累计，不能每次换工具就重置。指数退避可采用 full jitter：</p>
+<div class="arithmatex">\[
+\Delta t_k\sim U\!\left(0,\min(t_{\max},t_0 2^k)\right)
+\]</div>
+<p>其中 <span class="arithmatex">\(k\)</span> 是本轮重试序号。等待时间与下一次调用都必须落在剩余 deadline 内，取消应传播到可取消的底层请求。客户端停止等待不代表外部操作已经停止，应继续核对副作用状态。</p>
+<p>“没有状态变化”要按任务解释：读取服务暂时 503 后状态未变，仍允许预算内重试；数据库异步任务正在运行，需要退避轮询；同一个模型反复输出相同无效参数，才更像无进展循环。动作指纹应结合工具、规范化参数、任务状态版本和证据变化判断。</p>
+<p>超过预算后输出已完成步骤、确定失败项、状态未知项和恢复入口。<strong>能明确终止并保留现场的失败，比伪装成持续工作的死循环更可控。</strong></p>
+<p><a id="baidu-agent-20260922-r2-q6"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E7%99%BE%E5%BA%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1020">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9c41e56640c4"></a></p>
+<span class="heading-anchor" id="如果工具调用超时或返回空值，你如何设计Prompt让Agent反馈用户？"></span><h2 id="promptagent">如果工具调用超时或返回空值，你如何设计Prompt让Agent反馈用户？</h2>
+<p><a id="batch4-p1-q7"></a></p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_1_57">补充说明</h3>
+<p><a id="batch4-p2-q7"></a></p>
+<p><strong>相关解释：</strong> <a href="n-8ad95d55bba4.html#k93a12d0c9256">Agent常见模式（ReAct/Plan and Execute等）</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L181">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L270">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb4389438fafa"></a></p>
+<span class="heading-anchor" id="如果把这些 Harness 和你实习中的 Agent 项目结合，你会怎么做？是否有必要替换当前方案？"></span><h2 id="harness-agent">如果把这些 Harness 和你实习中的 Agent 项目结合，你会怎么做？是否有必要替换当前方案？</h2>
+<p><strong>回答：</strong></p>
+<p>首先定位现有系统的瓶颈：是模型能力、检索质量、工具接口，还是执行状态不可恢复、上下文管理混乱、扩展成本过高。只有后几类问题直接属于 Harness 的主要职责。</p>
+<p>接入采用适配方式：企业身份与权限、知识库和消息队列保留独立服务边界，把业务查询、文档读取和受控操作包装为稳定工具；Harness 负责上下文与执行循环。原有 tracing、预算、取消、审计与评测接到扩展点，避免让某个框架专有对象成为业务数据库的核心数据模型。</p>
+<p>先选择低风险只读任务做离线回放，再在小流量场景灰度。固定模型、任务、工具和预算，对比任务成功率、工具错误、P95 延迟、成本、摘要后续接成功率与恢复时间。检查状态迁移、多租户隔离、模型供应商切换和框架升级是否可控。</p>
+<p>如果现有方案任务边界清楚、运行稳定、扩展成本低，可以只吸收摘要、事件日志和工具中间件等设计。若框架确实能减少大量自建运行时维护，并在相同约束下提升指标，再逐模块替换。替换必须有回退路径，不能同时更换模型、检索、工具和 Harness 后再声称某一项带来了收益。</p>
+<p><a id="bytedance-agent-autumn-20260916-q11"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_58">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1390">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbbd003a09b95"></a></p>
+<span class="heading-anchor" id="如果要设计一个好的 Agent，除了大模型，还会设计哪些部分"></span><h2 id="agent_25">如果要设计一个好的 Agent，除了大模型，还会设计哪些部分</h2>
+<p><strong>回答：</strong></p>
+<p><a id="tencent-llm-collection-20260903-q107"></a></p>
+<p><strong>相关解释：</strong> <a href="n-bafa092ed5bd.html#k98cb3547adb1">agent 调用工具这个过程是怎么优化的？</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_59">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L1409">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kba373d1341d4"></a></p>
+<span class="heading-anchor" id="如果让你从零开始设计一个Agent系统，你认为需要包含哪些关键模块？"></span><h2 id="agent_26">如果让你从零开始设计一个Agent系统，你认为需要包含哪些关键模块？</h2>
+<p><strong>回答：</strong></p>
+<p>我会先问清任务是否真的需要 Agent。固定、低风险、步骤确定的业务优先使用 Workflow；只有任务路径依赖动态观察、工具反馈或开放环境时，才引入 Agent 决策循环。</p>
+<p>从零设计时可以分成八层：</p>
+<ol>
+<li><strong>接入与身份层：</strong> 用户、租户、会话、鉴权、配额、输入校验和风险等级。</li>
+<li><strong>任务与状态层：</strong> 目标、计划、已完成步骤、待办、artifact 引用、checkpoint 和终止条件。状态应外置，不能只存在模型上下文里。</li>
+<li><strong>Context Builder：</strong> 组装系统规则、当前工作状态、近期对话、按需长期记忆、RAG 证据和候选工具，并管理 Token 预算。</li>
+<li><strong>模型与编排层：</strong> 意图路由、规划、结构化输出、模型选择、Workflow/状态机/Agent loop，以及最大步数和重规划策略。</li>
+<li><strong>工具层：</strong> 工具注册、JSON Schema、权限、超时、幂等、速率限制、结果裁剪、沙箱与副作用确认。</li>
+<li><strong>知识与记忆层：</strong> 文档检索、用户/项目长期记忆、事件日志、写入门控、冲突更新、过期与删除。</li>
+<li><strong>可靠性与安全层：</strong> 验证器、重试/熔断/降级、回滚、人工审批、Prompt Injection 防护、密钥隔离和审计。</li>
+<li><strong>可观测与评测层：</strong> trace、模型/Prompt/工具版本、Token、延迟、任务成功率、工具正确率、恢复率、安全违规率和回归门禁。</li>
+</ol>
+<p>运行时可以抽象为：</p>
+<div class="arithmatex">\[
+s_t \xrightarrow{\pi_\theta(\cdot\mid c_t)} a_t
+\xrightarrow{\text{tool/env}} o_{t+1}
+\xrightarrow{\text{validate/update}} s_{t+1}
+\]</div>
+<p>其中 <span class="arithmatex">\(c_t\)</span> 是 Context Builder 从完整状态中投影出的当前上下文。终止不能只靠模型输出“完成”，还要检查任务目标、业务状态、测试或验证器。架构的关键不是模块越多越好，而是每个概率决策后都有外部证据，每个副作用前都有确定性约束，每个长任务都有可恢复状态。</p>
+<p><a id="insta360-agent-20260809-q5"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_60">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BD%B1%E7%9F%B3%E5%88%9B%E6%96%B0%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L87">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k637303320d6f"></a></p>
+<span class="heading-anchor" id="如果设计一个基于 Qwen3.5 的企业级多模态 Copilot（比如能看 PDF、看报表、看界面截图，还能写代码、查文档），会怎么搭架构？怎么用好它的多模态和 Agent 能力？"></span><h2 id="qwen35-copilot-pdf-agent">如果设计一个基于 Qwen3.5 的企业级多模态 Copilot（比如能看 PDF、看报表、看界面截图，还能写代码、查文档），会怎么搭架构？怎么用好它的多模态和 Agent 能力？</h2>
+<p>从“<strong>模型层 – Agent 层 – 工具层 – 数据/知识层 – 监控与反馈层</strong>”五层来设计：</p>
+<ol>
+<li>
+<p><strong>模型层</strong>
+   - 主力模型：托管版 Qwen3.5-Plus（享受 1M 上下文、多模态和工具生态）；
+   - 备选/本地模型：开源 Qwen3.5-397B-A17B 或中型变体（用于内部高敏场景）。</p>
+</li>
+<li>
+<p><strong>Agent 层</strong>
+   - 使用 Qwen 官方的 Agent 框架或类似 LangChain 的 orchestration：</p>
+<ul>
+<li><strong>Planner：</strong> 负责把用户需求分解为一系列子任务（阅读文档→抽取要点→比对多个来源→生成报告）；</li>
+<li><strong>Controller：</strong> 根据当前上下文决定调用哪些工具/检索/代码执行；</li>
+<li><strong>Memory：</strong> 采用向量数据库存储长期记忆（历史对话、文档索引、任务执行结果）。</li>
+</ul>
+</li>
+<li>
+<p><strong>工具层（Tooling）</strong>
+   - <strong>搜索工具</strong>：内置 Web 搜索，用于实时知识获取；
+   - <strong>代码执行工具</strong>：连接沙箱执行环境（Python/R/SQL），支持数据分析、脚本运行；
+   - <strong>文件解析工具</strong>：将企业 PDF、Word、Excel、PPT 等转为结构化文本/表格，作为多模态输入；
+   - <strong>UI 操作工具</strong>：结合 Qwen3.5 的视觉能力，对 UI 截图进行语义理解并驱动自动化操作（相当于 GUI Agent）。</p>
+</li>
+<li>
+<p><strong>数据/知识层</strong>
+   - 建立企业内部知识索引：</p>
+<ul>
+<li>文档向量化（包括文本和截图/扫描件），使用 Qwen3.5 的多模态编码能力；</li>
+<li>插件形式的“知识库检索”工具，Agent 在回答问题前先检索相关文档再总结（RAG）。</li>
+<li>对财报、报表等结构化数据，构造专门的数据 API 工具，Agent 可通过调用这些工具做精准分析。</li>
+</ul>
+</li>
+<li>
+<p><strong>监控与反馈层</strong>
+   - 日志与度量：</p>
+<ul>
+<li>监控调用频次、延迟、失败率、token 消耗；</li>
+<li>监控错误类型（事实性错误、安全越权、工具调用失败等）。</li>
+<li>反馈闭环：</li>
+<li>收集用户评分 + 漏标问题作为 RL 训练数据；</li>
+<li>利用 Qwen3.5 的异步 RL 框架持续进行对齐和策略优化。</li>
+</ul>
+</li>
+</ol>
+<p>通过这样分层设计，可以充分用好 Qwen3.5 的：
+- 原生多模态能力（看图/看 PDF/看界面）；
+- 长上下文（跨文档、跨会话关联分析）；
+- Agent + 工具使用能力（检索、代码执行、自动化操作）；</p>
+<p>最终形成一个“<strong>既能读懂复杂企业信息，又能主动操作工具和系统</strong>”的企业级 Copilot，而不仅仅是一个聊天问答机器人。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_61">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/Qwen-VL%E7%B3%BB%E5%88%97%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E8%80%83%E7%82%B9.md#L1737">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k85f9c7c4bf88"></a></p>
+<span class="heading-anchor" id="子 Agent 适合处理哪些任务？"></span><h2 id="agent_27">子 Agent 适合处理哪些任务？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>适合：</p>
+<ul>
+<li>大仓库并行探索。</li>
+<li>独立模块实现。</li>
+<li>测试修复。</li>
+<li>代码审查。</li>
+<li>文档补充。</li>
+<li>问题复现。</li>
+<li>多方案对比。</li>
+</ul>
+<p>不适合：</p>
+<ul>
+<li>需要立即阻塞主流程的下一步。</li>
+<li>写同一文件的并行任务。</li>
+<li>模糊且高度耦合的决策。</li>
+<li>需要强全局一致性的核心设计。</li>
+</ul>
+<p>设计要点：</p>
+<ul>
+<li>子任务要具体、边界清晰。</li>
+<li>明确可写文件范围。</li>
+<li>返回变更文件和结论。</li>
+<li>不要重复分派同一个问题。</li>
+<li>主 Agent 负责整合和最终验证。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_62">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%20Agent%E5%9F%BA%E7%A1%80/02_%E7%BC%96%E7%A0%81Agent%E4%B8%8EAgentOS%E5%B7%A5%E7%A8%8B%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L485">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k273d4cca5a44"></a></p>
+<span class="heading-anchor" id="官方博客提到为 Qwen3.5 搭建了一套异步强化学习框架，用来支撑大规模智能体训练。你能具体说明异步 RL 相对传统同步 RL 的改进点，以及它如何在工具使用、多轮对话等场景中发挥作用吗？"></span><h2 id="qwen35-rl-rl">官方博客提到为 Qwen3.5 搭建了一套异步强化学习框架，用来支撑大规模智能体训练。你能具体说明异步 RL 相对传统同步 RL 的改进点，以及它如何在工具使用、多轮对话等场景中发挥作用吗？</h2>
+<p>传统的同步 RL（如经典 PPO pipeline）通常是“<strong>采样端 – 训练端 强耦合</strong>”：<br/>
+采样（rollout）完成一批 episode → 汇总 → 统一更新 → 再开始下一轮，整个过程容易被最慢的任务拖慢，扩展到大规模 Agent 场景会非常低效。</p>
+<p>Qwen3.5 的 <strong>异步 RL 框架</strong>在三个维度上做了拆分和解耦：</p>
+<ol>
+<li>
+<p><strong>采样与训练彻底异步</strong>
+   - 大量智能体进程（可能是数万甚至百万级）在不同环境中并行运行（网页、GUI、API 工具等），实时生成 (state, action, reward) 序列；
+   - 这些数据被写入分布式缓冲区/消息队列，训练服务端按需拉取，而不是等待“所有人一起结束”；
+   - 这样快任务不会被慢任务阻塞，新数据可以源源不断补充，训练端处于持续高负载状态，GPU 利用率更高。</p>
+</li>
+<li>
+<p><strong>多模态、多任务统一框架</strong>
+   - 文本生成、多轮对话、工具调用、视觉交互（比如 UI 截图分析）都以统一的“序列决策”形式表征；
+   - 奖励可以来自：</p>
+<ul>
+<li>规则（例如工具调用是否成功）；</li>
+<li>判别模型（例如一个评估模型给出的质量打分）；</li>
+<li>人类反馈（如评级）。</li>
+<li>这些多源奖励通过异步框架统一汇入训练过程。</li>
+</ul>
+</li>
+<li>
+<p><strong>稳定性和工程可运维性</strong>
+   - 可在训练端做 <strong>优先级重放</strong>（优先使用有信息量的样本）、多任务混合；
+   - 遇到单个环境故障、网络抖动不会影响整体训练，只会少一部分采样源；
+   - 易于做 A/B 测试：不同策略的 Agent 可以并行跑，异步汇总结果进行对比更新。</p>
+</li>
+</ol>
+<p>在工具使用、多轮对话场景中，这意味着模型可以通过<strong>持续在线交互</strong>，不断从“真实任务执行结果”中学习，而不是只依赖静态监督数据；也为“会自己用搜索、会调用代码执行器”的 System 2 型智能体打下基础。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_63">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/Qwen-VL%E7%B3%BB%E5%88%97%E6%A8%A1%E5%9E%8B%E6%A0%B8%E5%BF%83%E8%80%83%E7%82%B9.md#L1624">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-651f094164a5.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Agent、工具与工作流</strong></a><a class="page-next" href="n-e9e9c2abaac1.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>Agent、工具与工作流</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#deepseek-harness">你读过 DeepSeek-Harness 的源码吗？——你觉得它的核心设计亮点是什么？有什么你觉得可以改进的地方？</a></li><li class="outline-level-2"><a href="#agent_1">候选人：团队 Agent 目前主要负责什么垂类业务方向？</a></li><li class="outline-level-2"><a href="#agent_2">全都是实习相关问题，涉及Agent就狂追问，问了问数字指标，还有业务上下游，代码框架。</a></li><li class="outline-level-2"><a href="#_1_3">分钟版本怎么展开？</a></li><li class="outline-level-2"><a href="#agentmulti-agent">单Agent处理复杂长周期任务时，引入多智能体（Multi Agent）架构的核心优势有哪些？</a></li><li class="outline-level-2"><a href="#llmagentagent">单次LLM打分评判算不算Agent？和多轮工具调用Agent核心区别在哪？</a></li><li class="outline-level-2"><a href="#_1_6">原生多模态工具调用如何弥补文本式工具调用的不足？</a></li><li class="outline-level-2"><a href="#agent_3">回顾一下你们整个agent的开发和设计，如果让你重新开发，你会有哪些方面的优化或者修改？</a></li><li class="outline-level-2"><a href="#agent_4">在Agent开发过程中，上下文为什么需要进行压缩？压缩后可能导致信息缺失，应该如何解决？</a></li><li class="outline-level-2"><a href="#agentplanningmemorytool-use">在Agent项目中，常见的规划（Planning）、记忆（Memory）、工具调用（Tool Use）和执行模块分别承担什么职责？</a></li><li class="outline-level-2"><a href="#agent_5">在做视频剪辑Agent项目遇到的最大挑战是什么？</a></li><li class="outline-level-2"><a href="#langchain-agent">基于 LangChain 开发 Agent 时，如果工具调用连续失败，如何设计一套不会失控的容错机制？</a></li><li class="outline-level-2"><a href="#agent-a2a-harness">多 Agent / A2A Harness 应该如何设计？</a></li><li class="outline-level-2"><a href="#agent_6">多 Agent 协作可以采用哪些控制结构？</a></li><li class="outline-level-2"><a href="#agent-agent-agent">多 Agent 协作是怎么实现的？——通信模式是什么？如果子 Agent 返回的结果是自然语言（而不是结构化数据），主 Agent 怎么解析？怎么保证解析不出错？</a></li><li class="outline-level-2"><a href="#agent-supervisorworker-agent">多 Agent 导购系统架构（Supervisor/Worker 角色、各 Agent 模型、通信机制）</a></li><li class="outline-level-2"><a href="#agent_7">多 Agent 并发有什么性能问题？</a></li><li class="outline-level-2"><a href="#agent-workspaceauthsession">多 Agent 系统如何做到 workspace、auth、session 隔离？</a></li><li class="outline-level-2"><a href="#agent_8">多 Agent 系统的评测方案，如何验证功能正确性和反幻觉能力</a></li><li class="outline-level-2"><a href="#agent_9">多Agent之间通信方式是什么？如何做任务分发和结果合并？</a></li><li class="outline-level-2"><a href="#agent_10">多个Agent同时修改同一个文件，如何避免冲突？</a></li><li class="outline-level-2"><a href="#agent_11">多个子 Agent 如何分工、分发任务和合并全局状态？为什么没有采用去中心化协作？</a></li><li class="outline-level-2"><a href="#_1_22">多任务共享为什么会产生负迁移，如何定位和缓解？</a></li><li class="outline-level-2"><a href="#agent-gateway">多平台 Agent Gateway 的核心价值是什么？</a></li><li class="outline-level-2"><a href="#agent_12">多平台 Agent 的可观测性和本地行为画像如何设计？</a></li><li class="outline-level-2"><a href="#_1_25">多条件控制发生冲突时，统一系统应该如何处理？</a></li><li class="outline-level-2"><a href="#_1_26">多租户平台应怎样建立身份与资源边界？</a></li><li class="outline-level-2"><a href="#agent_13">多通道 Agent 如何做会话路由和用户隔离？</a></li><li class="outline-level-2"><a href="#function-calling">大模型如何获得 Function Calling 能力？</a></li><li class="outline-level-2"><a href="#agent_14">如何判断一个图片理解 Agent 的评测指标是否足够完整？</a></li><li class="outline-level-2"><a href="#agent-harness">如何回答“请设计一个企业级 Agent Harness 平台”？</a></li><li class="outline-level-2"><a href="#agent_15">如何回答“请设计一个企业级 Agent 协议平台”？</a></li><li class="outline-level-2"><a href="#agent_16">如何回答“请设计一个自进化、多平台、可长期运行的 Agent 系统”？</a></li><li class="outline-level-2"><a href="#_1_33">如何处理远程会话或云端执行中的权限请求？</a></li><li class="outline-level-2"><a href="#agent_17">如何按运行、编排和接入职责选择 Agent 框架？</a></li><li class="outline-level-2"><a href="#_1_35">如何提升工具调用正确率？</a></li><li class="outline-level-2"><a href="#agent_18">如何理解 Agent，开发中会遇到哪些问题</a></li><li class="outline-level-2"><a href="#spec-codingharnessharnessagent">如何理解Spec Coding和Harness？你认为Harness为什么能够提升Agent完成复杂任务的能力？</a></li><li class="outline-level-2"><a href="#harness">如何用 Harness 做失败样本回流和持续优化？</a></li><li class="outline-level-2"><a href="#trace-agent">如何用 Trace 还原 Agent 的执行过程？</a></li><li class="outline-level-2"><a href="#agent_19">如何用一个案例讲清 Agent 项目？</a></li><li class="outline-level-2"><a href="#agent-agent">如何组织主 Agent、子 Agent 与技能资源？</a></li><li class="outline-level-2"><a href="#agent-loop">如何给 Agent Loop 设置退出边界？</a></li><li class="outline-level-2"><a href="#_1_43">如何编写一个智能体，帮助用户规划一次包含机票预订、酒店安排和景点游览的旅行？需要配置哪些工具？如何确保系统在面对不完整或矛盾的信息时仍能提供合理建议？</a></li><li class="outline-level-2"><a href="#agent-marketplace-skill-marketplace">如何设计 Agent Marketplace / Skill Marketplace？</a></li><li class="outline-level-2"><a href="#ai-agent">如何设计一个企业级 AI Agent 系统？</a></li><li class="outline-level-2"><a href="#agent_20">如何设计一个能够避免循环调用的 Agent 状态机？</a></li><li class="outline-level-2"><a href="#agent_21">如何设计企业内可用的编码 Agent？</a></li><li class="outline-level-2"><a href="#agent_22">如何评估一个 Agent 场景是否值得做？</a></li><li class="outline-level-2"><a href="#_1_49">如何避免把无关文件塞满上下文？</a></li><li class="outline-level-2"><a href="#agent_23">如果 Agent 在调用工具时出现参数类型正确但业务含义错误，如何发现并阻止？</a></li><li class="outline-level-2"><a href="#agent_24">如果 Agent 效果不达预期，你怎么判断瓶颈在哪？——是模型能力不够？工具调用不准？上下文丢失？还是评测标准有问题？怎么区分？</a></li><li class="outline-level-2"><a href="#agent-20">如果 Agent 跑了 20 分钟还没结束，用户等不及了要取消，你的系统怎么响应？——取消后，已经在执行的工具调用怎么处理？任务状态怎么回滚？</a></li><li class="outline-level-2"><a href="#agentprompt">如果Agent接入大量工具，如何避免工具描述过长导致Prompt膨胀？有哪些优化方式？</a></li><li class="outline-level-2"><a href="#deepseek-harness_1">如果你来做 DeepSeek-Harness 的下一个版本，你会加什么功能？</a></li><li class="outline-level-2"><a href="#_1_55">如果单一智能体的提示词过长，导致性能下降，如何将其拆分为多个智能体，并在合适的时机调用不同的智能体？</a></li><li class="outline-level-2"><a href="#_1_56">如果工具调用一直没有达到成功条件，任务不断重试并最终卡死，你会如何处理？</a></li><li class="outline-level-2"><a href="#promptagent">如果工具调用超时或返回空值，你如何设计Prompt让Agent反馈用户？</a></li><li class="outline-level-2"><a href="#harness-agent">如果把这些 Harness 和你实习中的 Agent 项目结合，你会怎么做？是否有必要替换当前方案？</a></li><li class="outline-level-2"><a href="#agent_25">如果要设计一个好的 Agent，除了大模型，还会设计哪些部分</a></li><li class="outline-level-2"><a href="#agent_26">如果让你从零开始设计一个Agent系统，你认为需要包含哪些关键模块？</a></li><li class="outline-level-2"><a href="#qwen35-copilot-pdf-agent">如果设计一个基于 Qwen3.5 的企业级多模态 Copilot（比如能看 PDF、看报表、看界面截图，还能写代码、查文档），会怎么搭架构？怎么用好它的多模态和 Agent 能力？</a></li><li class="outline-level-2"><a href="#agent_27">子 Agent 适合处理哪些任务？</a></li><li class="outline-level-2"><a href="#qwen35-rl-rl">官方博客提到为 Qwen3.5 搭建了一套异步强化学习框架，用来支撑大规模智能体训练。你能具体说明异步 RL 相对传统同步 RL 的改进点，以及它如何在工具使用、多轮对话等场景中发挥作用吗？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

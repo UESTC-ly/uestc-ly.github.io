@@ -1,0 +1,1828 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>进程、线程与同步 · 李杨的学习笔记</title><meta name="description" content="我们知道，Go scheduler 采用的是一种称为协作式的抢占式调度，就是说并不强制调度，大家保持协作关系，互相信任。对于长时间运行的 P，或者说绑定在 P 上的长时间运行的 goroutine，sysmon 会检测到这种情况，然后设置一些标志，表示 goroutine 自己让出 CPU 的执行权，给其他 gorou">
+<meta property="og:type" content="website"><meta property="og:title" content="进程、线程与同步 · 李杨的学习笔记"><meta property="og:description" content="我们知道，Go scheduler 采用的是一种称为协作式的抢占式调度，就是说并不强制调度，大家保持协作关系，互相信任。对于长时间运行的 P，或者说绑定在 P 上的长时间运行的 goroutine，sysmon 会检测到这种情况，然后设置一些标志，表示 goroutine 自己让出 CPU 的执行权，给其他 gorou"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-676c81a162d4.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-676c81a162d4.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html" aria-current="page">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">02-操作系统与Linux</p><h1>进程、线程与同步</h1><p class="article-question-meta">51 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-cc613822f5f5">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/02-%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E4%B8%8ELinux/%E8%BF%9B%E7%A8%8B%E3%80%81%E7%BA%BF%E7%A8%8B%E4%B8%8E%E5%90%8C%E6%AD%A5-02.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#p">抢占长时间运行的 P</a></li><li class="outline-level-2"><a href="#_1_2">有了进程为什么还需要线程？</a></li><li class="outline-level-2"><a href="#_1_3">核心线程空闲时处于什么状态？</a></li><li class="outline-level-2"><a href="#_1_4">步骤五：检查线程池/队列/信号量是否已满</a></li><li class="outline-level-2"><a href="#_1_5">死锁产生原因</a></li><li class="outline-level-2"><a href="#_1_6">死锁必要条件</a></li><li class="outline-level-2"><a href="#_1_7">死锁有哪些处理方法？</a></li><li class="outline-level-2"><a href="#_1_8">死锁检测与死锁恢复</a></li><li class="outline-level-2"><a href="#_1_9">死锁演示</a></li><li class="outline-level-2"><a href="#_1_10">死锁预防</a></li><li class="outline-level-2"><a href="#_1_11">磁盘调度</a></li><li class="outline-level-2"><a href="#_1_12">系统调用一定会发生上下文切换吗？</a></li><li class="outline-level-2"><a href="#_1_13">线性池了解吗？参数有哪些？任务到达线程池的过程？线程池的大小如何设置？</a></li><li class="outline-level-2"><a href="#_1_14">线程之间的通信方式</a></li><li class="outline-level-2"><a href="#_1_15">线程同步有哪些方式？</a></li><li class="outline-level-2"><a href="#_1_16">线程和进程的区别？</a></li><li class="outline-level-2"><a href="#_1_17">线程持有读锁还能获取写锁吗？</a></li><li class="outline-level-2"><a href="#_1_18">线程池与信号量区别</a></li><li class="outline-level-2"><a href="#_1_19">线程池与进程池的区别是什么?</a></li><li class="outline-level-2"><a href="#_1_20">线程池中线程异常后，销毁还是复用？</a></li><li class="outline-level-2"><a href="#_1_21">线程池常用的阻塞队列有哪些？</a></li><li class="outline-level-2"><a href="#_1_22">线程池机制的优点</a></li><li class="outline-level-2"><a href="#_1_23">线程池机制的缺点</a></li><li class="outline-level-2"><a href="#_1_24">线程池的拒绝策略有哪些？</a></li><li class="outline-level-2"><a href="#_1_25">线程池的核心线程会被回收吗？</a></li><li class="outline-level-2"><a href="#_1_26">线程池隔离技术的设计</a></li><li class="outline-level-2"><a href="#_1_27">线程独占哪些资源？</a></li><li class="outline-level-2"><a href="#_1_28">线程间的同步的方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_29">终端退出，终端运行的进程会怎样</a></li><li class="outline-level-2"><a href="#_1_30">能写一个模拟产生死锁的代码吗？</a></li><li class="outline-level-2"><a href="#_1_31">虚拟内存是如何实现地址转换和进程隔离的？</a></li><li class="outline-level-2"><a href="#_1_32">虚拟线程</a></li><li class="outline-level-2"><a href="#_1_33">解决死锁的方法</a></li><li class="outline-level-2"><a href="#_1_34">解决计算机文件系统死锁的经典方法有哪些？</a></li><li class="outline-level-2"><a href="#_1_35">计算机多线程和多进程的区别？</a></li><li class="outline-level-2"><a href="#_1_36">说说线程的生命周期和状态？</a></li><li class="outline-level-2"><a href="#_1_37">请简要描述线程与进程的关系，区别及优缺点？</a></li><li class="outline-level-2"><a href="#cpu">进程、线程、协程的区别，单线程多协程模型能否有效利用多核 CPU</a></li><li class="outline-level-2"><a href="#_1_39">进程、线程和协程有什么区别？它们分别适合处理什么任务？</a></li><li class="outline-level-2"><a href="#_1_40">进程、线程和协程的区别和联系</a></li><li class="outline-level-2"><a href="#_1_41">进程之间的通信方式以及优缺点</a></li><li class="outline-level-2"><a href="#_1_42">进程同步的四种方法？</a></li><li class="outline-level-2"><a href="#_1_43">进程有哪几种状态？</a></li><li class="outline-level-2"><a href="#_1_44">进程状态的切换你知道多少？</a></li><li class="outline-level-2"><a href="#_1_45">进程的异常控制流：陷阱、中断、异常和信号</a></li><li class="outline-level-2"><a href="#_1_46">进程的调度算法有哪些？</a></li><li class="outline-level-2"><a href="#_1_47">进程级资源监控</a></li><li class="outline-level-2"><a href="#_1_48">进程线程模型你知道多少？</a></li><li class="outline-level-2"><a href="#processgroup">进程组（ProcessGroup）管理</a></li><li class="outline-level-2"><a href="#_1_50">进程绑定与映射（性能优化关键）</a></li><li class="outline-level-2"><a href="#_1_51">进程调度算法你了解多少？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kc789e14231e4"></a></p>
+<span class="heading-anchor" id="抢占长时间运行的 P"></span><h2 id="p">抢占长时间运行的 P</h2>
+<p>我们知道，Go scheduler 采用的是一种称为协作式的抢占式调度，就是说并不强制调度，大家保持协作关系，互相信任。对于长时间运行的 P，或者说绑定在 P 上的长时间运行的 goroutine，sysmon 会检测到这种情况，然后设置一些标志，表示 goroutine 自己让出 CPU 的执行权，给其他 goroutine 一些机会。</p>
+<p>接下来我们就来分析当 P 处于 <code>_Prunning</code> 状态的情况。<code>sysmon</code> 扫描每个 p 时，都会记录下当前调度器调度的次数和当前时间，数据记录在结构体：</p>
+<pre><code class="language-golang">type sysmontick struct {
+    schedtick   uint32
+    schedwhen   int64
+    syscalltick uint32
+    syscallwhen int64
+}
+</code></pre>
+<p>前面两个字段记录调度器调度的次数和时间，后面两个字段记录系统调用的次数和时间。</p>
+<p>在下一次扫描时，对比 sysmon 记录下的 p 的调度次数和时间，与当前 p 自己记录下的调度次数和时间对比，如果一致。说明 P 在这一段时间内一直在运行同一个 goroutine。那就来计算一下运行时间是否太长了。</p>
+<p>如果发现运行时间超过了 10 ms，则要调用 <code>preemptone(_p_)</code> 发起抢占的请求：</p>
+<pre><code class="language-golang">func preemptone(_p_ *p) bool {
+    mp := _p_.m.ptr()
+    if mp == nil || mp == getg().m {
+        return false
+    }
+    // 被抢占的 goroutine
+    gp := mp.curg
+    if gp == nil || gp == mp.g0 {
+        return false
+    }
+
+    // 设置抢占标志
+    gp.preempt = true
+
+    // 在 goroutine 内部的每次调用都会比较栈顶指针和 g.stackguard0，
+    // 来判断是否发生了栈溢出。stackPreempt 非常大的一个数，比任何栈都大
+    // stackPreempt = 0xfffffade
+    gp.stackguard0 = stackPreempt
+    return true
+}
+</code></pre>
+<p>基本上只是将 stackguard0 设置了一个很大的值，而检查 stackguard0 的地方在函数调用前的一段汇编代码里进行。</p>
+<p>举一个简单的例子：</p>
+<pre><code class="language-golang">package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("hello qcrao.com!")
+}
+</code></pre>
+<p>执行命令：</p>
+<pre><code class="language-shell">go tool compile -S main.go
+</code></pre>
+<p>得到汇编代码：</p>
+<pre><code class="language-asm">"".main STEXT size=120 args=0x0 locals=0x48
+    0x0000 00000 (test26.go:5)  TEXT    "".main(SB), $72-0
+    0x0000 00000 (test26.go:5)  MOVQ    (TLS), CX
+    0x0009 00009 (test26.go:5)  CMPQ    SP, 16(CX)
+    0x000d 00013 (test26.go:5)  JLS 113
+    0x000f 00015 (test26.go:5)  SUBQ    $72, SP
+    0x0013 00019 (test26.go:5)  MOVQ    BP, 64(SP)
+    0x0018 00024 (test26.go:5)  LEAQ    64(SP), BP
+    0x001d 00029 (test26.go:5)  FUNCDATA    $0, gclocals·69c1753bd5f81501d95132d08af04464(SB)
+    0x001d 00029 (test26.go:5)  FUNCDATA    $1, gclocals·e226d4ae4a7cad8835311c6a4683c14f(SB)
+    0x001d 00029 (test26.go:6)  MOVQ    $0, ""..autotmp_0+48(SP)
+    0x0026 00038 (test26.go:6)  MOVQ    $0, ""..autotmp_0+56(SP)
+    0x002f 00047 (test26.go:6)  LEAQ    type.string(SB), AX
+    0x0036 00054 (test26.go:6)  MOVQ    AX, ""..autotmp_0+48(SP)
+    0x003b 00059 (test26.go:6)  LEAQ    "".statictmp_0(SB), AX
+    0x0042 00066 (test26.go:6)  MOVQ    AX, ""..autotmp_0+56(SP)
+    0x0047 00071 (test26.go:6)  LEAQ    ""..autotmp_0+48(SP), AX
+    0x004c 00076 (test26.go:6)  MOVQ    AX, (SP)
+    0x0050 00080 (test26.go:6)  MOVQ    $1, 8(SP)
+    0x0059 00089 (test26.go:6)  MOVQ    $1, 16(SP)
+    0x0062 00098 (test26.go:6)  PCDATA  $0, $1
+    0x0062 00098 (test26.go:6)  CALL    fmt.Println(SB)
+    0x0067 00103 (test26.go:7)  MOVQ    64(SP), BP
+    0x006c 00108 (test26.go:7)  ADDQ    $72, SP
+    0x0070 00112 (test26.go:7)  RET
+    0x0071 00113 (test26.go:7)  NOP
+    0x0071 00113 (test26.go:5)  PCDATA  $0, $-1
+    0x0071 00113 (test26.go:5)  CALL    runtime.morestack_noctxt(SB)
+    0x0076 00118 (test26.go:5)  JMP 0
+</code></pre>
+<p>以前看这段代码的时候会直接跳过前面的几行代码，看不懂。这次能看懂了！所以，那些暂时看不懂的，先放一放，没关系，让子弹飞一会儿，很多东西回过头再来看就会豁然开朗，这就是一个很好的例子。</p>
+<pre><code class="language-asm">0x0000 00000 (test26.go:5)  MOVQ    (TLS), CX
+</code></pre>
+<p>将本地存储 tls 保存到 CX 寄存器中，（TLS）表示它所关联的 g，这里就是前面所讲到的 main gouroutine。</p>
+<pre><code class="language-asm">0x0009 00009 (test26.go:5)  CMPQ    SP, 16(CX)
+</code></pre>
+<p>比较 SP 寄存器（代表当前 main goroutine 的栈顶寄存器）和 16(CX)，我们看下 g 结构体：</p>
+<pre><code class="language-golang">type g struct {
+    // goroutine 使用的栈
+    stack       stack   // offset known to runtime/cgo
+    // 用于栈的扩张和收缩检查
+    stackguard0 uintptr // offset known to liblink
+    // ……………………
+}
+</code></pre>
+<p>对象 g 的第一个字段是 stack 结构体：</p>
+<pre><code class="language-golang">type stack struct {
+    lo uintptr
+    hi uintptr
+}
+</code></pre>
+<p>共 16 字节。而 <code>16(CX)</code> 表示 g 对象的第 16 个字节，跳过了 g 的第一个字段，也就是 <code>g.stackguard0</code> 字段。</p>
+<p>如果 SP 小于 g.stackguard0，这是必然的，因为前面已经把 g.stackguard0 设置成了一个非常大的值，因此跳转到了 113 行。</p>
+<pre><code class="language-asm">0x0071 00113 (test26.go:7)  NOP
+0x0071 00113 (test26.go:5)  PCDATA  $0, $-1
+0x0071 00113 (test26.go:5)  CALL    runtime.morestack_noctxt(SB)
+0x0076 00118 (test26.go:5)  JMP 0
+</code></pre>
+<p>调用 <code>runtime.morestack_noctxt</code> 函数：</p>
+<pre><code class="language-asm">// src/runtime/asm_amd64.s
+TEXT runtime·morestack_noctxt(SB),NOSPLIT,$0
+    MOVL    $0, DX
+    JMP runtime·morestack(SB)
+</code></pre>
+<p>直接跳转到 <code>morestack</code> 函数：</p>
+<pre><code class="language-asm">TEXT runtime·morestack(SB),NOSPLIT,$0-0
+    // Cannot grow scheduler stack (m-&gt;g0).
+    get_tls(CX)
+    // BX = g，g 表示 main goroutine
+    MOVQ    g(CX), BX
+    // BX = g.m
+    MOVQ    g_m(BX), BX
+    // SI = g.m.g0
+    MOVQ    m_g0(BX), SI
+    CMPQ    g(CX), SI
+    JNE 3(PC)
+    CALL    runtime·badmorestackg0(SB)
+    INT $3
+
+    // ……………………
+
+    // Set g-&gt;sched to context in f.
+    // 将函数的返回地址保存到 AX 寄存器
+    MOVQ    0(SP), AX // f's PC
+    // 将函数的返回地址保存到 g.sched.pc
+    MOVQ    AX, (g_sched+gobuf_pc)(SI)
+    // g.sched.g = g
+    MOVQ    SI, (g_sched+gobuf_g)(SI)
+    // 取地址操作符，调用 morestack_noctxt 之前的 rsp
+    LEAQ    8(SP), AX // f's SP
+    // 将 main 函数的栈顶地址保存到 g.sched.sp
+    MOVQ    AX, (g_sched+gobuf_sp)(SI)
+    // 将 BP 寄存器保存到 g.sched.bp
+    MOVQ    BP, (g_sched+gobuf_bp)(SI)
+    // newstack will fill gobuf.ctxt.
+
+    // Call newstack on m-&gt;g0's stack.
+    // BX = g.m.g0
+    MOVQ    m_g0(BX), BX
+    // 将 g0 保存到本地存储 tls
+    MOVQ    BX, g(CX)
+    // 把 g0 栈的栈顶寄存器的值恢复到 CPU 的寄存器 SP，达到切换栈的目的，下面这一条指令执行之前，
+    // CPU 还是使用的调用此函数的 g 的栈，执行之后 CPU 就开始使用 g0 的栈了
+    MOVQ    (g_sched+gobuf_sp)(BX), SP
+    // 准备参数
+    PUSHQ   DX  // ctxt argument
+    // 不返回
+    CALL    runtime·newstack(SB)
+    MOVQ    $0, 0x1003  // crash if newstack returns
+    POPQ    DX  // keep balance check happy
+    RET
+</code></pre>
+<p>主要做的工作就是将当前 goroutine，也就是 main goroutine 的和调度相关的信息保存到 g.sched 中，以便在调度到它执行时，可以恢复。</p>
+<p>最后，将 g0 的地址保存到 tls 本地存储，并且切到 g0 栈执行之后的代码。继续调用 newstack 函数：</p>
+<pre><code class="language-golang">func newstack(ctxt unsafe.Pointer) {
+    // thisg = g0
+    thisg := getg()
+
+    // ……………………
+
+    // gp = main goroutine
+    gp := thisg.m.curg
+    // Write ctxt to gp.sched. We do this here instead of in
+    // morestack so it has the necessary write barrier.
+    gp.sched.ctxt = ctxt
+
+    // ……………………
+
+    morebuf := thisg.m.morebuf
+    thisg.m.morebuf.pc = 0
+    thisg.m.morebuf.lr = 0
+    thisg.m.morebuf.sp = 0
+    thisg.m.morebuf.g = 0
+
+    // 检查 g.stackguard0 是否被设置成抢占标志
+    preempt := atomic.Loaduintptr(&amp;gp.stackguard0) == stackPreempt
+
+    if preempt {
+        if thisg.m.locks != 0 || thisg.m.mallocing != 0 || thisg.m.preemptoff != "" || thisg.m.p.ptr().status != _Prunning {
+            // 还原 stackguard0 为正常值，表示我们已经处理过抢占请求了
+            gp.stackguard0 = gp.stack.lo + _StackGuard
+            // 不抢占，调用 gogo 继续运行当前这个 g，不需要调用 schedule 函数去挑选另一个 goroutine
+            gogo(&amp;gp.sched) // never return
+        }
+    }
+
+    // ……………………
+
+    if preempt {
+        if gp == thisg.m.g0 {
+            throw("runtime: preempt g0")
+        }
+        if thisg.m.p == 0 &amp;&amp; thisg.m.locks == 0 {
+            throw("runtime: g is running but p is not")
+        }
+        // Synchronize with scang.
+        casgstatus(gp, _Grunning, _Gwaiting)
+
+        // ……………………
+
+        // Act like goroutine called runtime.Gosched.
+        // 修改为 running，调度起来运行
+        casgstatus(gp, _Gwaiting, _Grunning)
+        // 调用 gopreempt_m 把 gp 切换出去
+        gopreempt_m(gp) // never return
+    }
+
+    // ……………………
+}
+</code></pre>
+<p>去掉了很多暂时还看不懂的地方，留到后面再研究。只关注有关抢占相关的。第一次判断 preempt 标志是 true 时，检查了 g 的状态，发现不能抢占，例如它所绑定的 P 的状态不是 <code>_Prunning</code>，那就恢复它的 stackguard0 字段，下次就不会走这一套流程了。然后，调用 <code>gogo(&amp;gp.sched)</code> 继续执行当前的 goroutine。</p>
+<p>中间又处理了很多判断流程，再次判断 preempt 标志是 true 时，调用 <code>gopreempt_m(gp)</code> 将 gp 切换出去。</p>
+<pre><code class="language-golang">func gopreempt_m(gp *g) {
+    if trace.enabled {
+        traceGoPreempt()
+    }
+    goschedImpl(gp)
+}
+</code></pre>
+<p>最终调用 <code>goschedImpl</code> 函数：</p>
+<pre><code class="language-golang">func goschedImpl(gp *g) {
+    status := readgstatus(gp)
+    if status&amp;^_Gscan != _Grunning {
+        dumpgstatus(gp)
+        throw("bad g status")
+    }
+    // 更改 gp 的状态
+    casgstatus(gp, _Grunning, _Grunnable)
+    // 解除 m 和 g 的关系
+    dropg()
+    lock(&amp;sched.lock)
+    // 将 gp 放入全局可运行队列
+    globrunqput(gp)
+    unlock(&amp;sched.lock)
+
+    // 进入新一轮的调度循环
+    schedule()
+}
+</code></pre>
+<p>将 gp 的状态改为 <code>_Grunnable</code>，放入全局可运行队列，等待下次有 m 来全局队列找工作时才能继续运行，毕竟你已经运行这么长时间了，给别人一点机会嘛。</p>
+<p>最后，调用 <code>schedule()</code> 函数进入新一轮的调度循环，会找出一个 goroutine 来运行，永不返回。</p>
+<p>这样，关于 sysmon 线程在关于调度这块到底做了啥，我们已经回答完了。总结一下：</p>
+<ol>
+<li>抢占处于系统调用的 P，让其他 m 接管它，以运行其他的 goroutine。</li>
+<li>将运行时间过长的 goroutine 调度出去，给其他 goroutine 运行的机会。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/golang-design/go-questions/blob/741cb94826279e6879338565f09b3e71650278f6/content/sched/14-sysmon%20%E5%90%8E%E5%8F%B0%E7%9B%91%E6%8E%A7%E7%BA%BF%E7%A8%8B%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88.md#L395">Go Questions</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka8904cc594ed"></a></p>
+<span class="heading-anchor" id="有了进程为什么还需要线程？"></span><h2 id="_1_2">有了进程为什么还需要线程？</h2>
+<p>核心原因就是<strong>为了在单个应用内实现低开销、高效率的并发</strong>。</p>
+<p>如果一个服务端要同时处理网络读写、业务计算、日志刷盘，用多个进程当然也能做，但进程之间共享状态麻烦，通信要走 IPC，资源占用也更高。改成多个线程后，它们能直接共享堆内存和打开的连接，只要同步写对，协作成本低很多。</p>
+<p>线程也能提高资源利用率。单核 CPU 上，一个线程阻塞在磁盘或网络 I/O 时，其他线程可以继续运行；多核 CPU 上，多个线程有机会在不同核心上并行执行。不过，线程不是越多越好。线程过多会带来栈内存占用、调度开销、锁竞争和缓存失效等问题，CPU 密集型任务和 I/O 密集型任务的线程数配置也不一样。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L209">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k4689d43190bc"></a></p>
+<span class="heading-anchor" id="核心线程空闲时处于什么状态？"></span><h2 id="_1_3">核心线程空闲时处于什么状态？</h2>
+<p>核心线程空闲时，其状态分为以下两种情况：</p>
+<ul>
+<li><strong>设置了核心线程的存活时间</strong>：核心线程在空闲时，会处于 <code>WAITING</code> 状态，等待获取任务。如果阻塞等待的时间超过了核心线程存活时间，则该线程会退出工作，将该线程从线程池的工作线程集合中移除，线程状态变为 <code>TERMINATED</code> 状态。</li>
+<li><strong>没有设置核心线程的存活时间</strong>：核心线程在空闲时，会一直处于 <code>WAITING</code> 状态，等待获取任务，核心线程会一直存活在线程池中。</li>
+</ul>
+<p>当队列中有可用任务时，会唤醒被阻塞的线程，线程的状态会由 <code>WAITING</code> 状态变为 <code>RUNNABLE</code> 状态，之后去执行对应任务。</p>
+<p>接下来通过相关源码，了解一下线程池内部是如何做的。</p>
+<p>线程在线程池内部被抽象为了 <code>Worker</code>，当 <code>Worker</code> 被启动之后，会不断去任务队列中获取任务。</p>
+<p>在获取任务的时候，会根据 <code>timed</code> 值来决定从任务队列（<code>BlockingQueue</code>）获取任务的行为。</p>
+<p>如果「设置了核心线程的存活时间」或者「线程数量超过了核心线程数量」，则将 <code>timed</code> 标记为 <code>true</code>，表明获取任务时需要使用 <code>poll()</code> 指定超时时间。</p>
+<ul>
+<li><code>timed == true</code>：使用 <code>poll(timeout, unit)</code> 来获取任务。使用 <code>poll(timeout, unit)</code> 方法获取任务超时的话，则当前线程会退出执行（<code>TERMINATED</code>），该线程从线程池中被移除。</li>
+<li><code>timed == false</code>：使用 <code>take()</code> 来获取任务。使用 <code>take()</code> 方法获取任务会让当前线程一直阻塞等待（<code>WAITING</code>）。</li>
+</ul>
+<p>源码如下：</p>
+<pre><code class="language-JAVA">// ThreadPoolExecutor
+private Runnable getTask() {
+    boolean timedOut = false;
+    for (;;) {
+        // ...
+
+        // 1、如果「设置了核心线程的存活时间」或者是「线程数量超过了核心线程数量」，则 timed 为 true。
+        boolean timed = allowCoreThreadTimeOut || wc &gt; corePoolSize;
+        // 2、扣减线程数量。
+        // wc &gt; maximuimPoolSize：线程池中的线程数量超过最大线程数量。其中 wc 为线程池中的线程数量。
+        // timed &amp;&amp; timeOut：timeOut 表示获取任务超时。
+        // 分为两种情况：核心线程设置了存活时间 &amp;&amp; 获取任务超时，则扣减线程数量；线程数量超过了核心线程数量 &amp;&amp; 获取任务超时，则扣减线程数量。
+        if ((wc &gt; maximumPoolSize || (timed &amp;&amp; timedOut))
+            &amp;&amp; (wc &gt; 1 || workQueue.isEmpty())) {
+            if (compareAndDecrementWorkerCount(c))
+                return null;
+            continue;
+        }
+        try {
+            // 3、如果 timed 为 true，则使用 poll() 获取任务；否则，使用 take() 获取任务。
+            Runnable r = timed ?
+                workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
+                workQueue.take();
+            // 4、获取任务之后返回。
+            if (r != null)
+                return r;
+            timedOut = true;
+        } catch (InterruptedException retry) {
+            timedOut = false;
+        }
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L616">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k499cb279147b"></a></p>
+<span class="heading-anchor" id="步骤五：检查线程池/队列/信号量是否已满"></span><h2 id="_1_4">步骤五：检查线程池/队列/信号量是否已满</h2>
+<p>如果这个 command 线程池和队列已满，或者 semaphore 信号量已满，那么也不会执行 command，而是直接去调用 fallback 降级机制，同时发送 reject 信息给断路器统计。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-process.md#L82">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k126a90f9ffb2"></a></p>
+<span class="heading-anchor" id="死锁产生原因"></span><h2 id="_1_5">死锁产生原因</h2>
+<p>举个例子：两个线程A和B，两个数据1和2。线程A在执行过程中，首先对资源1加锁，然后再去给资源2加锁，但是由于线程的切换，导致线程A没能给资源2加锁。</p>
+<p>线程切换到B后，线程B先对资源2加锁，然后再去给资源1加锁，由于资源1已经被线程A加锁，因此线程B无法加锁成功，当线程切换为A时，A也无法成功对资源2加锁，由此就造成了线程AB双方相互对一个已加锁资源的等待，死锁产生。</p>
+<p>理论上认为死锁产生有以下四个必要条件，缺一不可：</p>
+<ol>
+<li>
+<p><strong>互斥条件</strong>：进程对所需求的资源具有排他性，若有其他进程请求该资源，请求进程只能等待。</p>
+</li>
+<li>
+<p><strong>不剥夺条件</strong>：进程在所获得的资源未释放前，不能被其他进程强行夺走，只能自己释放。</p>
+</li>
+<li><strong>请求和保持条件</strong>：进程当前所拥有的资源在进程请求其他新资源时，由该进程继续占有。</li>
+<li><strong>循环等待条件</strong>：存在一种进程资源循环等待链，链中每个进程已获得的资源同时被链中下一个进程所请求。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L550">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k85638f84a423"></a></p>
+<span class="heading-anchor" id="死锁必要条件"></span><h2 id="_1_6">死锁必要条件</h2>
+<ul>
+<li>互斥条件：进程对所需求的资源具有排他性，若有其他进程请求该资源，请求进程只能等待。</li>
+<li>不剥夺条件：进程在所获得的资源未释放前，不能被其他进程强行夺走，只能自己释放</li>
+<li>请求和保持条件：进程当前所拥有的资源在进程请求其他新资源时，由该进程继续占有。</li>
+<li>循环等待条件：存在一种进程资源循环等待链，链中每个进程已获得的资源同时被链中下一个进程所请求。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L646">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kfbbe6ea13130"></a></p>
+<span class="heading-anchor" id="死锁有哪些处理方法？"></span><h2 id="_1_7">死锁有哪些处理方法？</h2>
+<p>鸵鸟策略</p>
+<p>直接忽略死锁。因为解决死锁问题的代价很高，因此鸵鸟策略这种不采取任务措施的方案会获得更高的性能。当发生死锁时不会对用户造成多大影响，或发生死锁的概率很低，可以采用鸵鸟策略。</p>
+<p>死锁预防</p>
+<p>基本思想是破坏形成死锁的四个必要条件：
+- 破坏互斥条件：允许某些资源同时被多个进程访问。但是有些资源本身并不具有这种属性，因此这种方案实用性有限；
+- 破坏占有并等待条件：
+    - 实行资源预先分配策略（当一个进程开始运行之前，必须一次性向系统申请它所需要的全部资源，否则不运行）；
+    - 或者只允许进程在没有占用资源的时候才能申请资源（申请资源前先释放占有的资源）；
+    - 缺点：很多时候无法预知一个进程所需的全部资源；同时，会降低资源利用率，降低系统的并发性；
+- 破坏非抢占条件：允许进程强行抢占被其它进程占有的资源。会降低系统性能；
+- 破坏循环等待条件：对所有资源统一编号，所有进程对资源的请求必须按照序号递增的顺序提出，即只有占有了编号较小的资源才能申请编号较大的资源。这样避免了占有大号资源的进程去申请小号资源。</p>
+<p>死锁避免</p>
+<p>动态地检测资源分配状态，以确保系统处于安全状态，只有处于安全状态时才会进行资源的分配。所谓安全状态是指：即使所有进程突然请求需要的所有资源，也能存在某种对进程的资源分配顺序，使得每一个进程运行完毕。</p>
+<blockquote>
+<p>银行家算法</p>
+</blockquote>
+<p>死锁解除</p>
+<blockquote>
+<p>如何检测死锁：检测有向图是否存在环；或者使用类似死锁避免的检测算法。</p>
+</blockquote>
+<p>死锁解除的方法：
+- 利用抢占：挂起某些进程，并抢占它的资源。但应防止某些进程被长时间挂起而处于饥饿状态；
+- 利用回滚：让某些进程回退到足以解除死锁的地步，进程回退时自愿释放资源。要求系统保持进程的历史信息，设置还原点；
+- 利用杀死进程：强制杀死某些进程直到死锁解除为止，可以按照优先级进行。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L458">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4e0e242f3897"></a></p>
+<span class="heading-anchor" id="死锁检测与死锁恢复"></span><h2 id="_1_8">死锁检测与死锁恢复</h2>
+<p>不试图阻止死锁，而是当检测到死锁发生时，采取措施进行恢复。</p>
+<p>1、每种类型一个资源的死锁检测</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.assets/202205212345141.png"/></p>
+<p>上图为资源分配图，其中方框表示资源，圆圈表示进程。资源指向进程表示该资源已经分配给该进程，进程指向资源表示进程请求获取该资源。</p>
+<p>图 a 可以抽取出环，如图 b，它满足了环路等待条件，因此会发生死锁。</p>
+<p>每种类型一个资源的死锁检测算法是通过检测有向图是否存在环来实现，从一个节点出发进行深度优先搜索，对访问过的节点进行标记，如果访问了已经标记的节点，就表示有向图存在环，也就是检测到死锁的发生。</p>
+<p>2、每种类型多个资源的死锁检测</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.assets/202205212345141-20250322001515009.png"/></p>
+<p>上图中，有三个进程四个资源，每个数据代表的含义如下：</p>
+<ul>
+<li>E 向量：资源总量</li>
+<li>A 向量：资源剩余量</li>
+<li>C 矩阵：每个进程所拥有的资源数量，每一行都代表一个进程拥有资源的数量</li>
+<li>R 矩阵：每个进程请求的资源数量</li>
+</ul>
+<p>进程 P<sub>1</sub> 和 P<sub>2</sub> 所请求的资源都得不到满足，只有进程 P<sub>3</sub> 可以，让 P<sub>3</sub> 执行，之后释放 P<sub>3</sub> 拥有的资源，此时 A = (2 2 2 0)。P<sub>2</sub> 可以执行，执行后释放 P<sub>2</sub> 拥有的资源，A = (4 2 2 1) 。P<sub>1</sub> 也可以执行。所有进程都可以顺利执行，没有死锁。</p>
+<p>算法总结如下：</p>
+<p>每个进程最开始时都不被标记，执行过程有可能被标记。当算法结束时，任何没有被标记的进程都是死锁进程。</p>
+<ol>
+<li>寻找一个没有标记的进程 P<sub>i</sub>，它所请求的资源小于等于 A。</li>
+<li>如果找到了这样一个进程，那么将 C 矩阵的第 i 行向量加到 A 中，标记该进程，并转回 1。</li>
+<li>如果没有这样一个进程，算法终止。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L672">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k8480e421e403"></a></p>
+<span class="heading-anchor" id="死锁演示"></span><h2 id="_1_9">死锁演示</h2>
+<p>通过代码的形式进行演示，需要两个线程和两个互斥量。</p>
+<pre><code class="language-C++">#include &lt;iostream&gt;
+#include &lt;vector&gt;
+#include &lt;list&gt;
+#include &lt;thread&gt;
+#include &lt;mutex&gt;  //引入互斥量头文件
+using namespace std;
+
+class A {
+public:
+    //插入消息，模拟消息不断产生
+    void insertMsg() {
+        for (int i = 0; i &lt; 100; i++) {
+            cout &lt;&lt; "插入一条消息:" &lt;&lt; i &lt;&lt; endl;
+            my_mutex1.lock(); //语句1
+            my_mutex2.lock(); //语句2
+            Msg.push_back(i);
+            my_mutex2.unlock();
+            my_mutex1.unlock();
+        }
+    }
+    //读取消息
+    void readMsg() {
+        int MsgCom;
+        for (int i = 0; i &lt; 100; i++) {
+            MsgCom = MsgLULProc(i);
+            if (MsgLULProc(MsgCom)) {
+                //读出消息了
+                cout &lt;&lt; "消息已读出" &lt;&lt; MsgCom &lt;&lt; endl;
+            }
+            else {
+                //消息暂时为空
+                cout &lt;&lt; "消息为空" &lt;&lt; endl;
+            }
+        }
+    }
+    //加解锁代码
+    bool MsgLULProc(int &amp;command) {
+        int curMsg;
+        my_mutex2.lock();   //语句3
+        my_mutex1.lock();   //语句4
+        if (!Msg.empty()) {
+            //读取消息，读完删除
+            command = Msg.front();
+            Msg.pop_front();
+
+            my_mutex1.unlock();
+            my_mutex2.unlock();
+            return true;
+        }
+        my_mutex1.unlock();
+        my_mutex2.unlock();
+        return false;
+    }
+private:
+    std::list&lt;int&gt; Msg;  //消息变量
+    std::mutex my_mutex1; //互斥量对象1
+    std::mutex my_mutex2; //互斥量对象2
+};
+
+int main() {
+    A a;
+    //创建一个插入消息线程
+    std::thread insertTd(&amp;A::insertMsg, &amp;a); //这里要传入引用保证是同一个对象
+    //创建一个读取消息线程
+    std::thread readTd(&amp;A::readMsg, &amp;a); //这里要传入引用保证是同一个对象
+    insertTd.join();
+    readTd.join();
+    return 0;
+}
+</code></pre>
+<p>语句1和语句2表示线程A先锁资源1，再锁资源2，语句3和语句4表示线程B先锁资源2再锁资源1，具备死锁产生的条件。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L564">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2b3c717d4067"></a></p>
+<span class="heading-anchor" id="死锁预防"></span><h2 id="_1_10">死锁预防</h2>
+<ul>
+<li>破坏互斥条件：允许某些资源同时被多个进程访问，但是有些资源本身并不具有这种属性；</li>
+<li>破坏请求与保持条件：</li>
+<li>实行资源预先分配策略（当一个进程开始运行之前，必须一次性向系统申请它所需要的全部资源，否则不运行）；</li>
+<li>只允许进程在没有占用资源的时候才能申请资源（申请资源前先释放占有的资源）；</li>
+<li>破坏不剥夺条件：允许进程强行抢占被其它进程占有的资源，这样做会降低系统性能；</li>
+<li>破坏循环等待条件：将系统中的所有资源统一编号，进程可在任何时刻提出资源申请，但所有申请必须按照资源的编号顺序（升序）提出。</li>
+</ul>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_8">补充说明</h3>
+<p>在程序运行之前预防发生死锁。</p>
+<ol>
+<li>破坏互斥条件</li>
+</ol>
+<p>​       例如假脱机打印机技术允许若干个进程同时输出，唯一真正请求物理打印机的进程是打印机守护进程。</p>
+<ol>
+<li>破坏请求和保持条件</li>
+</ol>
+<p>​      一种实现方式是规定所有进程在开始执行前请求所需要的全部资源。</p>
+<ol>
+<li>破坏不剥夺条件</li>
+</ol>
+<p>​       允许抢占资源</p>
+<ol>
+<li>破坏循环请求等待</li>
+</ol>
+<p>​       给资源统一编号，进程只能按编号顺序来请求资源。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/03-computer-basics/operating-system/processes-and-threads.md#L71">Datawhale</a>，来源许可：GPL-3.0。</li>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-03-os.md#L713">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k6fbbcf185810"></a></p>
+<span class="heading-anchor" id="磁盘调度"></span><h2 id="_1_11">磁盘调度</h2>
+<p>过程：磁头（找到对应的盘面）；磁道（一个盘面上的同心圆环，寻道时间）；扇区（旋转时间）。为减小寻道时间的调度算法：</p>
+<ul>
+<li>先来先服务</li>
+<li>最短寻道时间优先</li>
+<li>电梯算法：电梯总是保持一个方向运行，直到该方向没有请求为止，然后改变运行方向。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L630">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7f3748ece58a"></a></p>
+<span class="heading-anchor" id="系统调用一定会发生上下文切换吗？"></span><h2 id="_1_12">系统调用一定会发生上下文切换吗？</h2>
+<p>系统调用会让 CPU 进入内核态。如果内核很快处理完并返回原线程，整个过程只有用户态/内核态切换，没有切换线程。</p>
+<p>当系统调用需要等待 I/O、锁或其他资源时，当前线程可能阻塞，调度器才会选择另一个可运行任务，此时会发生线程上下文切换。反过来，时钟中断进入内核后，如果调度器仍让原线程继续运行，也不会发生线程切换。</p>
+<p>更完整的 <code>read()</code> 调用链、信号中断和系统调用重启可以看：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/interrupt-exception-syscall.md">中断、异常与系统调用详解：从内核入口到缺页异常</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L156">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1ec11f002e35"></a></p>
+<span class="heading-anchor" id="线性池了解吗？参数有哪些？任务到达线程池的过程？线程池的大小如何设置？"></span><h2 id="_1_13">线性池了解吗？参数有哪些？任务到达线程池的过程？线程池的大小如何设置？</h2>
+<span class="heading-anchor" id="线程池参数"></span><h3 id="_2_11">线程池参数</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>corePoolSize</td>
+<td>核心线程池大小</td>
+</tr>
+<tr>
+<td>maximumPoolSize</td>
+<td>最大线程池大小</td>
+</tr>
+<tr>
+<td>keepAliveTime</td>
+<td>线程池中超过 corePoolSize 数目的空闲线程最大存活时间；可以allowCoreThreadTimeOut(true) 使得核心线程有效时间</td>
+</tr>
+<tr>
+<td>TimeUnit</td>
+<td>keepAliveTime 时间单位</td>
+</tr>
+<tr>
+<td>workQueue</td>
+<td>阻塞任务队列</td>
+</tr>
+<tr>
+<td>threadFactory</td>
+<td>新建线程工厂</td>
+</tr>
+<tr>
+<td>RejectedExecutionHandler</td>
+<td>拒绝策略。当提交任务数超过 maxmumPoolSize+workQueue 之和时，任务会交给RejectedExecutionHandler 来处理</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="线程处理任务过程"></span><h3 id="_3_1">线程处理任务过程</h3>
+<ul>
+<li>当线程池小于 <code>corePoolSize</code>，新提交任务将创建一个新线程执行任务，即使此时线程池中存在空闲线程</li>
+<li>当线程池达到 <code>corePoolSize</code> 时，新提交任务将被放入 <code>workQueue</code> 中，等待线程池中任务调度执行</li>
+<li>当 <code>workQueue</code> 已满，且 <code>maximumPoolSize</code> 大于 <code>corePoolSize</code> 时，新提交任务会创建新线程执行任务</li>
+<li>当提交任务数超过 <code>maximumPoolSize</code> 时，新提交任务由 <code>RejectedExecutionHandler</code> 处理</li>
+<li>当线程池中超过 <code>corePoolSize</code> 线程，空闲时间达到 <code>keepAliveTime</code> 时，关闭空闲线程 </li>
+</ul>
+<span class="heading-anchor" id="线程池的大小设置"></span><h3 id="_4">线程池的大小设置</h3>
+<ul>
+<li><code>CPU</code> 密集型</li>
+<li><code>CPU</code> 密集的意思是该任务需要大量的运算，而没有阻塞，<code>CPU</code> 一直全速运行</li>
+<li>
+<p><code>CPU</code> 密集型任务尽可能的少的线程数量，一般为 <code>CPU</code> 核数 +1 个线程的线程池</p>
+</li>
+<li>
+<p><code>IO</code> 密集型</p>
+</li>
+<li>由于 <code>IO</code> 密集型任务线程并不是一直在执行任务，可以多分配一点线程数，如 <code>CPU * 2</code></li>
+<li>也可以使用公式：<code>CPU</code> 核数 / (1 - 阻塞系数)；其中阻塞系数在 0.8 ～ 0.9 之间</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/02-programming-languages/Java/java-fundamentals.md#L60">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k822a29b85928"></a></p>
+<span class="heading-anchor" id="线程之间的通信方式"></span><h2 id="_1_14">线程之间的通信方式</h2>
+<ul>
+<li>锁机制：包括互斥锁/量（mutex）、读写锁（reader-writer lock）、自旋锁（spin lock）、条件变量（condition）<ul>
+<li>互斥锁/量（mutex）：提供了以排他方式防止数据结构被并发修改的方法。</li>
+<li>读写锁（reader-writer lock）：允许多个线程同时读共享数据，而对写操作是互斥的。</li>
+<li>自旋锁（spin lock）与互斥锁类似，都是为了保护共享资源。互斥锁是当资源被占用，申请者进入睡眠状态；而自旋锁则循环检测保持者是否已经释放锁。</li>
+<li>条件变量（condition）：可以以原子的方式阻塞进程，直到某个特定条件为真为止。对条件的测试是在互斥锁的保护下进行的。条件变量始终与互斥锁一起使用。</li>
+</ul>
+</li>
+<li>信号量机制(Semaphore)<ul>
+<li>无名线程信号量</li>
+<li>命名线程信号量</li>
+</ul>
+</li>
+<li>信号机制(Signal)：类似进程间的信号处理</li>
+<li>屏障（barrier）：屏障允许每个线程等待，直到所有的合作线程都达到某一点，然后从该点继续执行。</li>
+</ul>
+<p>线程间的通信目的主要是用于线程同步，所以线程没有像进程通信中的用于数据交换的通信机制  </p>
+<blockquote>
+<p>进程之间的通信方式以及优缺点来源于：<a href="http://blog.csdn.net/wujiafei_njgcxy/article/details/77098977">进程线程面试题总结</a></p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/huihut/interview/blob/7a7166804a0ffc8f156e906bf4c1a94bb9f6a94b/README.md#L1912">huihut/interview</a>，来源许可：CC-BY-NC-SA-4.0。</li>
+</ul>
+<p><a id="k91eea933f292"></a></p>
+<span class="heading-anchor" id="线程同步有哪些方式？"></span><h2 id="_1_15">线程同步有哪些方式？</h2>
+<blockquote>
+<p>为什么需要线程同步：线程有时候会和其他线程共享一些资源，比如内存、数据库等。当多个线程同时读写同一份共享资源的时候，可能会发生冲突。因此需要线程的同步，多个线程按顺序访问资源。</p>
+</blockquote>
+<ul>
+<li><strong>互斥量</strong> Mutex：互斥量是内核对象，只有拥有互斥对象的线程才有访问互斥资源的权限。因为互斥对象只有一个，所以可以保证互斥资源不会被多个线程同时访问；当前拥有互斥对象的线程处理完任务后必须将互斥对象交出，以便其他线程访问该资源；</li>
+<li><strong>信号量</strong> Semaphore：信号量是内核对象，它允许同一时刻多个线程访问同一资源，但是需要控制同一时刻访问此资源的最大线程数量。信号量对象保存了<strong>最大资源计数</strong>和<strong>当前可用资源计数</strong>，每增加一个线程对共享资源的访问，当前可用资源计数就减1，只要当前可用资源计数大于0，就可以发出信号量信号，如果为0，则将线程放入一个队列中等待。线程处理完共享资源后，应在离开的同时通过<code>ReleaseSemaphore</code>函数将当前可用资源数加1。如果信号量的取值只能为0或1，那么信号量就成为了互斥量；</li>
+<li><strong>事件</strong> Event：允许一个线程在处理完一个任务后，主动唤醒另外一个线程执行任务。事件分为手动重置事件和自动重置事件。手动重置事件被设置为激发状态后，会唤醒所有等待的线程，而且一直保持为激发状态，直到程序重新把它设置为未激发状态。自动重置事件被设置为激发状态后，会唤醒<strong>一个</strong>等待中的线程，然后自动恢复为未激发状态。</li>
+<li><strong>临界区</strong> Critical Section：任意时刻只允许一个线程对临界资源进行访问。拥有临界区对象的线程可以访问该临界资源，其它试图访问该资源的线程将被挂起，直到临界区对象被释放。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L323">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfe723f1a6b24"></a></p>
+<span class="heading-anchor" id="线程和进程的区别？"></span><h2 id="_1_16">线程和进程的区别？</h2>
+<ul>
+<li>
+<p>调度：线程是调度的基本单位（PC，状态码，通用寄存器，线程栈及栈指针）；进程是拥有资源的基本单位（打开文件，堆，静态区，代码段等）。</p>
+</li>
+<li>
+<p>并发性：一个进程内多个线程可以并发（最好和CPU核数相等）；多个进程可以并发。</p>
+</li>
+<li>
+<p>拥有资源：线程不拥有系统资源，但一个进程的多个线程可以共享隶属进程的资源；进程是拥有资源的独立单位。</p>
+</li>
+<li>
+<p>系统开销：线程创建销毁只需要处理PC值，状态码，通用寄存器值，线程栈及栈指针即可；进程创建和销毁需要重新分配及销毁task_struct结构。</p>
+</li>
+</ul>
+<p id="一个进程可以创建多少线程和什么有关">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L81)，来源许可：Apache-2.0。</p>
+<p><a id="k10bb85b8cbef"></a></p>
+<span class="heading-anchor" id="线程持有读锁还能获取写锁吗？"></span><h2 id="_1_17">线程持有读锁还能获取写锁吗？</h2>
+<ul>
+<li>在线程持有读锁的情况下，该线程不能取得写锁（因为获取写锁的时候，如果发现当前的读锁被占用，就马上获取失败，不管读锁是不是被当前线程持有）。</li>
+<li>在线程持有写锁的情况下，该线程可以继续获取读锁（获取读锁时如果发现写锁被占用，只有写锁没有被当前线程占用的情况才会获取失败）。</li>
+</ul>
+<p>读写锁的源码分析，推荐阅读 <a href="https://mp.weixin.qq.com/s/h3VIUyH9L0v14MrQJiiDbw">聊聊 Java 的几把 JVM 级锁 - 阿里巴巴中间件</a> 这篇文章，写的很不错。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-02.md#L959">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k4b9db0319dc7"></a></p>
+<span class="heading-anchor" id="线程池与信号量区别"></span><h2 id="_1_18">线程池与信号量区别</h2>
+<p>线程池隔离技术，并不是说去控制类似 tomcat 这种 web 容器的线程。更加严格的意义上来说，Hystrix 的线程池隔离技术，控制的是 tomcat 线程的执行。Hystrix 线程池满后，会确保说，tomcat 的线程不会因为依赖服务的接口调用延迟或故障而被 hang 住，tomcat 其它的线程不会卡死，可以快速返回，然后支撑其它的事情。</p>
+<p>线程池隔离技术，是用 Hystrix 自己的线程去执行调用；而信号量隔离技术，是直接让 tomcat 线程去调用依赖服务。信号量隔离，只是一道关卡，信号量有多少，就允许多少个 tomcat 线程通过它，然后去执行。</p>
+<p><img alt="hystrix-semphore-thread-pool" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/hystrix-semphore-thread-pool.png"/></p>
+<p><strong>适用场景</strong>：</p>
+<ul>
+<li><strong>线程池技术</strong>，适合绝大多数场景，比如说我们对依赖服务的网络请求的调用和访问、需要对调用的 timeout 进行控制（捕捉 timeout 超时异常）。</li>
+<li><strong>信号量技术</strong>，适合说你的访问不是对外部依赖的访问，而是对内部的一些比较复杂的业务逻辑的访问，并且系统内部的代码，其实不涉及任何的网络请求，那么只要做信号量的普通限流就可以了，因为不需要去捕获 timeout 类似的问题。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-semphore-isolation.md#L20">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k4c0e4a71c9df"></a></p>
+<span class="heading-anchor" id="线程池与进程池的区别是什么?"></span><h2 id="_1_19">线程池与进程池的区别是什么?</h2>
+<span class="heading-anchor" id="1. 线程池"></span><h3 id="1">1. 线程池</h3>
+<p>维护一组可复用线程，降低创建/销毁开销。线程共享内存，切换轻量。</p>
+<ul>
+<li><strong>适用</strong>：I/O 密集（网络请求、磁盘、数据库）。</li>
+<li><strong>限制</strong>：受 GIL，纯 Python CPU 代码无法真正并行。</li>
+</ul>
+<span class="heading-anchor" id="2. 进程池"></span><h3 id="2">2. 进程池</h3>
+<p>维护一组进程，各自独立地址空间，不受 GIL，可吃满多核。</p>
+<ul>
+<li><strong>适用</strong>：CPU 密集（图像处理、特征计算、大量 Python 逻辑）。</li>
+<li><strong>代价</strong>：进程创建贵，进程间通信要 pickle，共享状态复杂。</li>
+</ul>
+<span class="heading-anchor" id="对比表"></span><h3 id="_2_16">对比表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>线程池</th>
+<th>进程池</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务类型</td>
+<td>I/O 密集</td>
+<td>CPU 密集</td>
+</tr>
+<tr>
+<td>GIL</td>
+<td>受限</td>
+<td>不受限</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>共享</td>
+<td>隔离</td>
+</tr>
+<tr>
+<td>切换开销</td>
+<td>小</td>
+<td>大</td>
+</tr>
+<tr>
+<td>通信</td>
+<td>直接共享变量（需锁）</td>
+<td>Queue/Pipe/Manager</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>调 API、读写文件</td>
+<td>解码图像、数值计算</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="如何选择"></span><h3 id="_3_2">如何选择</h3>
+<ol>
+<li>任务大部分时间在等网络/磁盘 → 线程池或 asyncio。</li>
+<li>任务大部分时间在算 → 进程池，或把计算下沉到 C/GPU。</li>
+<li>混合负载：异步调度 I/O，进程池处理 CPU 段。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E7%BC%96%E7%A8%8B%E5%9F%BA%E7%A1%80%EF%BC%9APython/Python%E8%BF%9B%E9%98%B6%E7%9F%A5%E8%AF%86%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L1091">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kdec87943e700"></a></p>
+<span class="heading-anchor" id="线程池中线程异常后，销毁还是复用？"></span><h2 id="_1_20">线程池中线程异常后，销毁还是复用？</h2>
+<p>直接说结论，需要分两种情况：</p>
+<ul>
+<li><strong>使用 <code>execute()</code> 提交任务</strong>：当任务通过 <code>execute()</code> 提交到线程池并在执行过程中抛出异常时，如果这个异常没有在任务内被捕获，那么该异常会导致当前线程终止，并且异常会被打印到控制台或日志文件中。线程池会检测到这种线程终止，并创建一个新线程来替换它，从而保持配置的线程数不变。</li>
+<li><strong>使用 <code>submit()</code> 提交任务</strong>：对于通过 <code>submit()</code> 提交的任务，如果在任务执行中发生异常，这个异常不会直接打印出来。相反，异常会被封装在由 <code>submit()</code> 返回的 <code>Future</code> 对象中。当调用 <code>Future.get()</code> 方法时，可以捕获到一个 <code>ExecutionException</code>。在这种情况下，线程不会因为异常而终止，它会继续存在于线程池中，准备执行后续的任务。</li>
+</ul>
+<p>简单来说：使用 <code>execute()</code> 时，未捕获异常导致线程终止，线程池创建新线程替代；使用 <code>submit()</code> 时，异常被封装在 <code>Future</code> 中，线程继续复用。</p>
+<p>这种设计允许 <code>submit()</code> 提供更灵活的错误处理机制，因为它允许调用者决定如何处理异常，而 <code>execute()</code> 则适用于那些不需要关注执行结果的场景。</p>
+<p>具体的源码分析可以参考这篇：<a href="https://mp.weixin.qq.com/s/9ODjdUU-EwQFF5PrnzOGfw">线程池中线程异常后：销毁还是复用？ - 京东技术</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L881">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k190dd4621889"></a></p>
+<span class="heading-anchor" id="线程池常用的阻塞队列有哪些？"></span><h2 id="_1_21">线程池常用的阻塞队列有哪些？</h2>
+<p>新任务来的时候会先判断当前运行的线程数量是否达到核心线程数，如果达到的话，新任务就会被存放在队列中。</p>
+<p>不同的线程池会选用不同的阻塞队列，我们可以结合内置线程池来分析。</p>
+<ul>
+<li>容量为 <code>Integer.MAX_VALUE</code> 的 <code>LinkedBlockingQueue</code>（无界阻塞队列）：<code>FixedThreadPool</code> 和 <code>SingleThreadExecutor</code>。<code>FixedThreadPool</code> 最多只能创建核心线程数的线程（核心线程数和最大线程数相等），<code>SingleThreadExecutor</code> 只能创建一个线程（核心线程数和最大线程数都是 1），二者的任务队列永远不会被放满。</li>
+<li><code>SynchronousQueue</code>（同步队列）：<code>CachedThreadPool</code>。<code>SynchronousQueue</code> 没有容量，不存储元素，目的是保证对于提交的任务，如果有空闲线程，则使用空闲线程来处理；否则新建一个线程来处理任务。也就是说，<code>CachedThreadPool</code> 的最大线程数是 <code>Integer.MAX_VALUE</code>，可以理解为线程数是可以无限扩展的，可能会创建大量线程，从而导致 OOM。</li>
+<li><code>DelayedWorkQueue</code>（延迟队列）：<code>ScheduledThreadPool</code> 和 <code>SingleThreadScheduledExecutor</code>。<code>DelayedWorkQueue</code> 的内部元素并不是按照放入的时间排序，而是会按照延迟的时间长短对任务进行排序，内部采用的是“堆”的数据结构，可以保证每次出队的任务都是当前队列中执行时间最靠前的。<code>DelayedWorkQueue</code> 是一个无界队列。其底层虽然是数组，但当数组容量不足时，它会自动进行扩容，因此队列永远不会被填满。当任务不断提交时，它们会全部被添加到队列中。这意味着线程池的线程数量永远不会超过其核心线程数，最大线程数参数对于使用该队列的线程池来说是无效的。</li>
+<li><code>ArrayBlockingQueue</code>（有界阻塞队列）：底层由数组实现，容量一旦创建，就不能修改。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L854">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2e440e08c5c2"></a></p>
+<span class="heading-anchor" id="线程池机制的优点"></span><h2 id="_1_22">线程池机制的优点</h2>
+<ul>
+<li>任何一个依赖服务都可以被隔离在自己的线程池内，即使自己的线程池资源填满了，也不会影响任何其他的服务调用。</li>
+<li>服务可以随时引入一个新的依赖服务，因为即使这个新的依赖服务有问题，也不会影响其他任何服务的调用。</li>
+<li>当一个故障的依赖服务重新变好的时候，可以通过清理掉线程池，瞬间恢复该服务的调用，而如果是 tomcat 线程池被占满，再恢复就很麻烦。</li>
+<li>如果一个 client 调用库配置有问题，线程池的健康状况随时会报告，比如成功/失败/拒绝/超时的次数统计，然后可以近实时热修改依赖服务的调用配置，而不用停机。</li>
+<li>基于线程池的异步本质，可以在同步的调用之上，构建一层异步调用层。</li>
+</ul>
+<p>简单来说，最大的好处，就是资源隔离，确保说任何一个依赖服务故障，不会拖垮当前的这个服务。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-thread-pool-current-limiting.md#L37">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k0ec87e885389"></a></p>
+<span class="heading-anchor" id="线程池机制的缺点"></span><h2 id="_1_23">线程池机制的缺点</h2>
+<ul>
+<li>
+<p>线程池机制最大的缺点就是增加了 CPU 的开销。</p>
+<p>除了 tomcat 本身的调用线程之外，还有 Hystrix 自己管理的线程池。</p>
+</li>
+<li>
+<p>每个 command 的执行都依托一个独立的线程，会进行排队，调度，还有上下文切换。</p>
+</li>
+<li>Hystrix 官方自己做了一个多线程异步带来的额外开销统计，通过对比多线程异步调用+同步调用得出，Netflix API 每天通过 Hystrix 执行 10 亿次调用，每个服务实例有 40 个以上的线程池，每个线程池有 10 个左右的线程。）最后发现说，用 Hystrix 的额外开销，就是给请求带来了 3ms 左右的延时，最多延时在 10ms 以内，相比于可用性和稳定性的提升，这是可以接受的。</li>
+</ul>
+<p>我们可以用 Hystrix semaphore 技术来实现对某个依赖服务的并发访问量的限制，而不是通过线程池/队列的大小来限制流量。</p>
+<p>semaphore 技术可以用来限流和削峰，但是不能用来对调用延迟的服务进行 timeout 和隔离。</p>
+<p><code>execution.isolation.strategy</code> 设置为 <code>SEMAPHORE</code>，那么 Hystrix 就会用 semaphore 机制来替代线程池机制，来对依赖服务的访问进行限流。如果通过 semaphore 调用的时候，底层的网络调用延迟很严重，那么是无法 timeout 的，只能一直 block 住。一旦请求数量超过了 semaphore 限定的数量之后，就会立即开启限流。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-thread-pool-current-limiting.md#L47">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k8866b1779e01"></a></p>
+<span class="heading-anchor" id="线程池的拒绝策略有哪些？"></span><h2 id="_1_24">线程池的拒绝策略有哪些？</h2>
+<p>如果当前同时运行的线程数量达到最大线程数量并且队列也已经被放满了任务时，<code>ThreadPoolExecutor</code> 定义一些策略:</p>
+<ul>
+<li><code>ThreadPoolExecutor.AbortPolicy</code>：抛出 <code>RejectedExecutionException</code> 来拒绝新任务的处理。</li>
+<li><code>ThreadPoolExecutor.CallerRunsPolicy</code>：调用执行者自己的线程运行任务，也就是直接在调用 <code>execute</code> 方法的线程中运行(<code>run</code>)被拒绝的任务，如果执行程序已关闭，则会丢弃该任务。因此这种策略会降低对于新任务提交速度，影响程序的整体性能。如果你的应用程序可以承受此延迟并且你要求任何一个任务请求都要被执行的话，你可以选择这个策略。</li>
+<li><code>ThreadPoolExecutor.DiscardPolicy</code>：不处理新任务，直接丢弃掉。</li>
+<li><code>ThreadPoolExecutor.DiscardOldestPolicy</code>：此策略将丢弃最早的未处理的任务请求。</li>
+</ul>
+<p>举个例子：Spring 通过 <code>ThreadPoolTaskExecutor</code> 或者我们直接通过 <code>ThreadPoolExecutor</code> 的构造函数创建线程池的时候，当我们不指定 <code>RejectedExecutionHandler</code> 拒绝策略来配置线程池的时候，默认使用的是 <code>AbortPolicy</code>。在这种拒绝策略下，如果队列满了，<code>ThreadPoolExecutor</code> 将抛出 <code>RejectedExecutionException</code> 异常来拒绝新来的任务，这代表你将丢失对这个任务的处理。如果希望在线程池仍处于运行状态时避免直接丢弃任务，可以使用 <code>CallerRunsPolicy</code>，把任务回退给调用 <code>execute()</code> 的线程执行；如果线程池已经关闭，该策略仍会丢弃任务。</p>
+<pre><code class="language-java">public static class CallerRunsPolicy implements RejectedExecutionHandler {
+
+        public CallerRunsPolicy() { }
+
+        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+            if (!e.isShutdown()) {
+                // 直接主线程执行，而不是线程池中的线程执行
+                r.run();
+            }
+        }
+    }
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L673">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kc1b5e56abf62"></a></p>
+<span class="heading-anchor" id="线程池的核心线程会被回收吗？"></span><h2 id="_1_25">线程池的核心线程会被回收吗？</h2>
+<p><code>ThreadPoolExecutor</code> 默认不会回收核心线程，即使它们已经空闲了。这是为了减少创建线程的开销，因为核心线程通常是要长期保持活跃的。但是，如果线程池是被用于周期性使用的场景，且频率不高（周期之间有明显的空闲时间），可以考虑将 <code>allowCoreThreadTimeOut(boolean value)</code> 方法的参数设置为 <code>true</code>，这样就会回收空闲（时间间隔由 <code>keepAliveTime</code> 指定）的核心线程了。</p>
+<pre><code class="language-java">public void allowCoreThreadTimeOut(boolean value) {
+    // 核心线程的 keepAliveTime 必须大于 0 才能启用超时机制
+    if (value &amp;&amp; keepAliveTime &lt;= 0) {
+        throw new IllegalArgumentException("Core threads must have nonzero keep alive times");
+    }
+    // 设置 allowCoreThreadTimeOut 的值
+    if (value != allowCoreThreadTimeOut) {
+        allowCoreThreadTimeOut = value;
+        // 如果启用了超时机制，清理所有空闲的线程，包括核心线程
+        if (value) {
+            interruptIdleWorkers();
+        }
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L595">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k40c3440b8511"></a></p>
+<span class="heading-anchor" id="线程池隔离技术的设计"></span><h2 id="_1_26">线程池隔离技术的设计</h2>
+<p>Hystrix 采用了 Bulkhead Partition 舱壁隔离技术，来将外部依赖进行资源隔离，进而避免任何外部依赖的故障导致本服务崩溃。</p>
+<p><strong>舱壁隔离</strong>，是说将船体内部空间区隔划分成若干个隔舱，一旦某几个隔舱发生破损进水，水流不会在其间相互流动，如此一来船舶在受损时，依然能具有足够的浮力和稳定性，进而减低立即沉船的危险。</p>
+<p><img alt="bulkhead-partition" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/bulkhead-partition.jpg"/></p>
+<p>Hystrix 对每个外部依赖用一个单独的线程池，这样的话，如果对那个外部依赖调用延迟很严重，最多就是耗尽那个依赖自己的线程池而已，不会影响其他的依赖调用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-thread-pool-current-limiting.md#L11">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k1386eea0088f"></a></p>
+<span class="heading-anchor" id="线程独占哪些资源？"></span><h2 id="_1_27">线程独占哪些资源？</h2>
+<ul>
+<li>线程ID</li>
+<li>一组寄存器的值</li>
+<li>线程自身的栈（堆是共享的）</li>
+<li>错误返回码：线程可能会产生不同的错误返回码，一个线程的错误返回码不应该被其它线程修改；</li>
+<li>信号掩码/信号屏蔽字(Signal mask)：表示是否屏蔽/阻塞相应的信号（SIGKILL,SIGSTOP除外）</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L52">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke8285270deb3"></a></p>
+<span class="heading-anchor" id="线程间的同步的方式有哪些？"></span><h2 id="_1_28">线程间的同步的方式有哪些？</h2>
+<p>线程同步是两个或多个共享关键资源的线程的并发执行。应该同步线程以避免关键的资源使用冲突。</p>
+<p>下面是几种常见的线程同步的方式：</p>
+<ol>
+<li><strong>互斥锁（Mutex）</strong>：采用互斥对象机制，只有拥有互斥对象的线程才有访问公共资源的权限。因为互斥对象只有一个，所以可以保证公共资源不会被多个线程同时访问。比如 Java 中的 <code>synchronized</code> 关键词和各种 <code>Lock</code> 都是这种机制。</li>
+<li><strong>读写锁（Read-Write Lock）</strong>：允许多个线程同时读取共享资源，但只有一个线程可以对共享资源进行写操作。</li>
+<li><strong>信号量（Semaphore）</strong>：它允许同一时刻多个线程访问同一资源，但是需要控制同一时刻访问此资源的最大线程数量。</li>
+<li><strong>屏障（Barrier）</strong>：屏障是一种同步原语，用于等待多个线程到达某个点再一起继续执行。当一个线程到达屏障时，它会停止执行并等待其他线程到达屏障，直到所有线程都到达屏障后，它们才会一起继续执行。比如 Java 中的 <code>CyclicBarrier</code> 是这种机制。</li>
+<li><strong>条件变量（Condition Variable）/事件通知</strong>：线程在条件不满足时等待，其他线程在条件变更后通知等待线程继续执行。它通常需要和互斥锁配合使用，避免“通知先发生、等待后发生”导致的丢通知问题。Java 中的 <code>Object.wait()/notify()</code>、<code>Condition.await()/signal()</code> 都属于这类思路；Windows 中的 Event 对象也可以看作事件通知类同步原语的一种实现。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L227">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k040556991d6f"></a></p>
+<span class="heading-anchor" id="终端退出，终端运行的进程会怎样"></span><h2 id="_1_29">终端退出，终端运行的进程会怎样</h2>
+<p>终端在退出时会发送SIGHUP给对应的bash进程，bash进程收到这个信号后首先将它发给session下面的进程，</p>
+<p>如果程序没有对SIGHUP信号做特殊处理，那么进程就会随着终端关闭而退出.</p>
+<p id="如何让进程后台运行">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-02-os.md#L304)，来源许可：Apache-2.0。</p>
+<p><a id="k62599e8177d4"></a></p>
+<span class="heading-anchor" id="能写一个模拟产生死锁的代码吗？"></span><h2 id="_1_30">能写一个模拟产生死锁的代码吗？</h2>
+<p>下面通过一个实际的例子来复现上面的交叉持锁场景：</p>
+<pre><code class="language-java">public class DeadLockDemo {
+    private static final Object resource1 = new Object(); // 资源 1
+    private static final Object resource2 = new Object(); // 资源 2
+
+    public static void main(String[] args) {
+        new Thread(() -&gt; {
+            synchronized (resource1) {
+                System.out.println(Thread.currentThread() + "get resource1");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                System.out.println(Thread.currentThread() + "waiting get resource2");
+                synchronized (resource2) {
+                    System.out.println(Thread.currentThread() + "get resource2");
+                }
+            }
+        }, "线程 1").start();
+
+        new Thread(() -&gt; {
+            synchronized (resource2) {
+                System.out.println(Thread.currentThread() + "get resource2");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                System.out.println(Thread.currentThread() + "waiting get resource1");
+                synchronized (resource1) {
+                    System.out.println(Thread.currentThread() + "get resource1");
+                }
+            }
+        }, "线程 2").start();
+    }
+}
+</code></pre>
+<p>Output</p>
+<pre><code class="language-text">Thread[线程 1,5,main]get resource1
+Thread[线程 2,5,main]get resource2
+Thread[线程 1,5,main]waiting get resource2
+Thread[线程 2,5,main]waiting get resource1
+</code></pre>
+<p>线程 1 通过 <code>synchronized (resource1)</code> 获得 <code>resource1</code> 的监视器锁，线程 2 通过 <code>synchronized (resource2)</code> 获得 <code>resource2</code> 的监视器锁。<code>Thread.sleep(1000)</code> 不是死锁的原因，它只是把两个线程交错执行的窗口拉大，让死锁更容易复现。休眠结束后，两个线程都开始申请对方持有的资源，于是陷入互相等待。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L397">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k80dea60ffe07"></a></p>
+<span class="heading-anchor" id="虚拟内存是如何实现地址转换和进程隔离的？"></span><h2 id="_1_31">虚拟内存是如何实现地址转换和进程隔离的？</h2>
+<p>面试里问虚拟内存，不要只背“隔离进程”。可以按这条线回答：<strong>虚拟内存把进程看到的地址和真实物理地址隔开，再由 MMU、页表和 TLB 完成地址翻译</strong>。</p>
+<p>进程访问的是虚拟地址（VA），真正落到内存条上的是物理地址（PA）。每个进程都有自己的虚拟地址空间和页表，所以不同进程即使使用相同的虚拟地址，也可以映射到不同的物理页，从而实现进程隔离。</p>
+<p><img alt="虚拟地址到物理地址的映射过程：不同进程的相同虚拟地址通过 MMU 和页表映射到不同物理页" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/virtual-memory-virtual-physical-mapping.png"/></p>
+<p>不过，隔离不代表进程之间完全不能共享数据。操作系统可以有控制地让多个进程映射同一批物理页，例如动态库共享、<code>mmap</code> 文件映射、共享内存 IPC。区别在于：默认隔离由页表权限保证，共享则必须由内核显式建立映射并配合权限控制；如果是共享内存 IPC，还需要额外处理同步问题。</p>
+<p>分页机制把虚拟地址空间和物理内存都切成固定大小的页，通过页表记录“虚拟页号 -&gt; 物理页帧”的映射。这样基本消除了分段容易产生的外部碎片，也让物理内存可以离散分配；页表本身会占空间，所以现代系统会用多级页表按需创建下级页表。</p>
+<p>TLB 可以理解为页表项缓存。CPU 先查 TLB，命中就直接拿到物理页帧号；未命中才去查多级页表，并把结果回填到 TLB。如果页表项显示页面不在内存，就会触发缺页异常，内核再判断访问是否合法，合法则分配页帧、必要时换出旧页、从文件或 Swap 调入页面，最后更新页表并重新执行那条指令。</p>
+<p>页面置换算法可以抓住一句话：<strong>换出去的页，最好是后面最晚再用到的页</strong>。OPT 是理论最优但无法实现，LRU 接近 OPT 但实现成本高，CLOCK 用访问位近似 LRU，FIFO 简单但可能出现 Belady 异常。</p>
+<p>详细介绍：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/virtual-memory.md">虚拟内存详解：地址转换、TLB、缺页异常与页面置换</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-02.md#L419">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k54d49b693dcb"></a></p>
+<span class="heading-anchor" id="虚拟线程"></span><h2 id="_1_32">虚拟线程</h2>
+<p>虚拟线程在 Java 21 正式发布，这是一项重量级的更新。虽然目前面试中问的不多，但还是建议大家去简单了解一下。我写了一篇文章来总结虚拟线程常见的问题：<a href="https://javaguide.cn/java/concurrent/virtual-thread.html">虚拟线程常见问题总结</a>，包含下面这些问题：</p>
+<ol>
+<li>什么是虚拟线程？</li>
+<li>虚拟线程和平台线程有什么关系？</li>
+<li>虚拟线程有什么优点和缺点？</li>
+<li>如何创建虚拟线程？</li>
+<li>虚拟线程的底层原理是什么？</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-03.md#L1583">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2e3b7b211433"></a></p>
+<span class="heading-anchor" id="解决死锁的方法"></span><h2 id="_1_33">解决死锁的方法</h2>
+<p>面试里回答到这个程度即可：解决死锁一般有 <strong>预防、避免、检测和解除/恢复</strong> 四类思路。</p>
+<ul>
+<li><strong>预防</strong>：提前破坏死锁四个必要条件之一。工程里最常见的是固定加锁顺序、缩小锁范围、避免持锁做慢操作。</li>
+<li><strong>避免</strong>：分配资源前判断系统是否仍处于安全状态，典型代表是银行家算法。这个方法更偏教材理解，普通业务系统很少直接实现。</li>
+<li><strong>检测</strong>：允许等待发生，再检查等待图或资源分配图里是否出现环。Java 里可以用 <code>jcmd &lt;pid&gt; Thread.print -l</code>、<code>jstack -l &lt;pid&gt;</code> 或 <code>ThreadMXBean.findDeadlockedThreads()</code> 辅助排查；数据库也会检测事务等待环。</li>
+<li><strong>解除/恢复</strong>：发现死锁后打破等待环，例如终止进程、回滚事务、抢占资源或让应用层重试。数据库事务天然支持回滚，因此更适合采用检测和恢复。</li>
+</ul>
+<p><img alt="死锁处理策略图：预防、避免、检测、恢复四类方法的作用位置和工程常见程度" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/dead-lock-strategies.png"/></p>
+<p>这部分面试不必展开太细，抓住层次即可。想继续看资源分配图、等待图、Java 线程栈排查和数据库死锁重试，可以看：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/dead-lock.md">死锁详解：四个必要条件、Java 死锁排查与数据库死锁处理</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L451">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="ka1e2206afb9c"></a></p>
+<span class="heading-anchor" id="解决计算机文件系统死锁的经典方法有哪些？"></span><h2 id="_1_34">解决计算机文件系统死锁的经典方法有哪些？</h2>
+<ol>
+<li>
+<p><strong>预防死锁（Deadlock Prevention）</strong>
+   - <strong>破坏死锁的四个必要条件之一</strong>：</p>
+<ul>
+<li><strong>打破循环等待</strong>：</li>
+<li>给资源（如文件锁）分配一个顺序编号，进程只能按照编号顺序请求资源。</li>
+<li>示例：如果文件 <code>file1</code> 编号为 1，<code>file2</code> 编号为 2，所有进程必须先请求文件编号较小的锁。</li>
+<li><strong>允许抢占</strong>：</li>
+<li>允许高优先级进程强制抢占低优先级进程的文件锁。</li>
+</ul>
+</li>
+<li>
+<p><strong>避免死锁（Deadlock Avoidance）</strong>
+   - <strong>银行家算法（Banker's Algorithm）</strong>：</p>
+<ul>
+<li>计算每个进程对资源的需求，确保在分配资源后，系统仍然处于安全状态。</li>
+<li>在文件系统中，这可以通过模拟文件锁请求，确保不会导致资源循环等待。</li>
+<li><strong>超时机制</strong>：</li>
+<li>如果进程等待资源的时间超过设定的阈值，释放所有已占用资源，重新尝试操作。</li>
+</ul>
+</li>
+<li>
+<p><strong>检测并恢复（Deadlock Detection and Recovery）</strong>
+   - <strong>检测</strong>：</p>
+<ul>
+<li>定期检查系统中的进程与资源状态，检测是否存在循环等待。</li>
+<li>示例：建立一个资源分配图（Resource Allocation Graph），如果图中存在环，则发生死锁。</li>
+<li><strong>恢复</strong>：</li>
+<li>通过中止某些进程来打破循环等待。</li>
+<li>示例：中止优先级最低的进程，释放其占有的文件锁。</li>
+</ul>
+</li>
+<li>
+<p><strong>文件系统设计层面改进</strong>
+   - <strong>锁分离</strong>：</p>
+<ul>
+<li>读写锁分离，允许多个读操作同时进行，减少死锁的可能性。</li>
+<li><strong>事务机制</strong>：</li>
+<li>在操作多个文件时，使用事务机制确保要么所有操作完成，要么回滚到初始状态。</li>
+<li><strong>分布式锁管理器（Distributed Lock Manager, DLM）</strong>：</li>
+<li>在分布式文件系统中，通过集中管理锁来避免死锁。</li>
+</ul>
+</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1694">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3e6c93960498"></a></p>
+<span class="heading-anchor" id="计算机多线程和多进程的区别？"></span><h2 id="_1_35">计算机多线程和多进程的区别？</h2>
+<p>进程和线程的基本概念：</p>
+<p>进程：是并发执行的程序在执行过程中分配和管理资源的基本单位，是一个动态的概念，竞争计算机系统资源的基本单位。</p>
+<p>线程：是进程的一个执行单元，是进程内的调度实体。比进程更小的独立运行的基本单位。线程也被称为轻量级进程。</p>
+<p>一个程序至少一个进程，一个进程至少一个线程。</p>
+<p>线程的意义：</p>
+<p>每个进程都有自己的地址空间，即进程空间，在网络环境下，一个服务器通常需要接收不确定数量用户的并发请求，为每一个请求都创建一个进程显然行不通（系统开销大响应用户请求效率低），因此操作系统中线程概念被引进。线程的执行过程是线性的，尽管中间会发生中断或者暂停，但是进程所拥有的资源只为该线状执行过程服务，一旦发生线程切换，这些资源需要被保护起来。进程分为单线程进程和多线程进程，单线程进程宏观来看也是线性执行过程，微观上只有单一的执行过程。多线程进程宏观是线性的，微观上多个执行操作。</p>
+<p>进程和线程的区别：</p>
+<p>地址空间：同一进程中的线程共享本进程的地址空间，而进程之间则是独立的地址空间。</p>
+<p>资源拥有：同一进程内的线程共享进程的资源如内存、I/O、CPU等，但是进程之间的资源是独立的。（一个进程崩溃后，在保护模式下不会对其他进程产生影响，但是一个线程崩溃可能导致整个进程都死掉。所以多进程比多线程健壮。进程切换时，消耗的资源大、效率差。所以涉及到频繁的切换时，使用线程要好于进程。同样如果要求同时进行并且又要共享某些变量的并发操作，只能用线程不能用进程。）</p>
+<p>执行过程：每个独立的线程都有一个程序运行的入口、顺序执行序列和程序出口。但是线程不能独立执行，必须依存在应用程序中，由应用程序提供多个线程执行控制。（线程是基于进程的）</p>
+<p>线程是处理器调度的基本单元，但进程不是。</p>
+<p>两者均可并发执行。</p>
+<p>进程和线程的优缺点：</p>
+<p>线程执行开销小，但是不利于资源的管理和保护。</p>
+<p>进程执行开销大，但是能够很好的进行资源管理和保护。</p>
+<p>何时使用多进程，何时使用多线程:</p>
+<p>对资源的管理和保护要求高，不限制开销和效率时，使用多进程。（CPU密集型任务）</p>
+<p>要求效率高，频繁切换时，资源的保护管理要求不是很高时，使用多线程。（I/O密集型任务）</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L90">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke8188751fec3"></a></p>
+<span class="heading-anchor" id="说说线程的生命周期和状态？"></span><h2 id="_1_36">说说线程的生命周期和状态？</h2>
+<p>Java 线程在运行的生命周期中的指定时刻只可能处于下面 6 种不同状态的其中一个状态：</p>
+<ul>
+<li>NEW: 初始状态，线程被创建出来但没有被调用 <code>start()</code>。</li>
+<li>RUNNABLE: 运行状态，线程被调用了 <code>start()</code> 等待运行的状态。</li>
+<li>BLOCKED：阻塞状态，需要等待锁释放。</li>
+<li>WAITING：等待状态，表示该线程需要等待其他线程做出一些特定动作（通知或中断）。</li>
+<li>TIMED_WAITING：超时等待状态，可以在指定的时间后自行返回而不是像 WAITING 那样一直等待。</li>
+<li>TERMINATED：终止状态，表示该线程已经运行完毕。</li>
+</ul>
+<p>线程在生命周期中并不是固定处于某一个状态而是随着代码的执行在不同状态之间切换。</p>
+<p>Java 线程状态变迁图(图源：<a href="https://mp.weixin.qq.com/s/0UTyrJpRKaKhkhHcQtXAiA">挑错 |《Java 并发编程的艺术》中关于线程状态的三处错误</a>)：</p>
+<p><img alt="Java 线程状态变迁图" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/concurrent/640.png"/></p>
+<p>由上图可以看出：线程创建之后它将处于 <strong>NEW（新建）</strong> 状态，调用 <code>start()</code> 方法后开始运行，线程这时候处于 <strong>READY（可运行）</strong> 状态。可运行状态的线程获得了 CPU 时间片（timeslice）后就处于 <strong>RUNNING（运行）</strong> 状态。</p>
+<blockquote>
+<p>在操作系统层面，线程有 READY 和 RUNNING 状态；而在 JVM 层面，只能看到 RUNNABLE 状态（图源：<a href="https://howtodoinJava.com/" title="HowToDoInJava">HowToDoInJava</a>：<a href="https://howtodoinJava.com/Java/multi-threading/Java-thread-life-cycle-and-thread-states/" title="Java Thread Life Cycle and Thread States">Java Thread Life Cycle and Thread States</a>），所以 Java 系统一般将这两个状态统称为 <strong>RUNNABLE（运行中）</strong> 状态。</p>
+<p><strong>为什么 JVM 没有区分这两种状态呢？</strong> Java 的 <code>Thread.State</code> 描述的是 JVM 层面的线程状态，不用于反映操作系统调度器的全部内部状态。具体调度策略、时间片长度和是否采用轮转方式都由操作系统及其配置决定，不能固定概括为 10～20 ms 的轮转调度。</p>
+</blockquote>
+<p><img alt="RUNNABLE-VS-RUNNING" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/RUNNABLE-VS-RUNNING.png"/></p>
+<ul>
+<li>当线程执行 <code>wait()</code> 方法之后，线程进入 <strong>WAITING（等待）</strong> 状态。进入等待状态的线程需要依靠其他线程的通知才能够返回到运行状态。</li>
+<li><strong>TIMED_WAITING（超时等待）</strong> 状态相当于在等待状态的基础上增加了超时限制，比如通过 <code>sleep（long millis）</code> 方法或 <code>wait（long millis）</code> 方法可以将线程置于 TIMED_WAITING 状态。当超时时间结束后，线程将会返回到 RUNNABLE 状态。</li>
+<li>当线程进入 <code>synchronized</code> 方法/块或者调用 <code>wait</code> 后（被 <code>notify</code>）重新进入 <code>synchronized</code> 方法/块，但是锁被其它线程占有，这个时候线程就会进入 <strong>BLOCKED（阻塞）</strong> 状态。</li>
+<li>线程在执行完了 <code>run()</code> 方法之后将会进入到 <strong>TERMINATED（终止）</strong> 状态。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_32">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L127">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kedba6a8b5c37"></a></p>
+<span class="heading-anchor" id="请简要描述线程与进程的关系，区别及优缺点？"></span><h2 id="_1_37">请简要描述线程与进程的关系，区别及优缺点？</h2>
+<p>下图是 Java 内存区域，通过下图我们从 JVM 的角度来说一下线程和进程之间的关系。</p>
+<p><img alt="Java 运行时数据区域（JDK1.8 之后）" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/java/jvm/java-runtime-data-areas-jdk1.8.png"/></p>
+<p>从上图可以看出：一个进程中可以有多个线程，多个线程共享进程的<strong>堆</strong>和<strong>方法区（JDK1.8 之后的元空间）</strong>资源，但是每个线程有自己的<strong>程序计数器</strong>、<strong>虚拟机栈</strong> 和 <strong>本地方法栈</strong>。</p>
+<p><strong>总结：</strong> 线程是进程划分成的更小的运行单位。线程和进程最大的不同在于基本上各进程是独立的，而各线程则不一定，因为同一进程中的线程极有可能会相互影响。线程执行开销小，但不利于资源的管理和保护；而进程正相反。</p>
+<p>下面是该知识点的扩展内容！</p>
+<p>下面来思考这样一个问题：为什么<strong>程序计数器</strong>、<strong>虚拟机栈</strong>和<strong>本地方法栈</strong>是线程私有的呢？为什么堆和方法区是线程共享的呢？</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/java/concurrent/java-concurrent-questions-01.md#L83">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k2f1cc3589cfc"></a></p>
+<span class="heading-anchor" id="进程、线程、协程的区别，单线程多协程模型能否有效利用多核 CPU"></span><h2 id="cpu">进程、线程、协程的区别，单线程多协程模型能否有效利用多核 CPU</h2>
+<p><strong>回答：</strong></p>
+<p>进程拥有独立地址空间和资源隔离，线程共享进程地址空间，协程通常是用户态调度的执行单元。进程切换隔离强但成本高，线程可并行执行，协程切换轻量但必须在阻塞点主动让出。</p>
+<p>单线程多协程不能同时利用多个 CPU 核执行 Python 字节码；它能通过 I/O 等待期间切换协程提高吞吐。CPython 的 GIL 使纯 Python CPU 密集任务通常需要多进程、原生扩展释放 GIL 或分布式执行；异步 I/O、网络服务和大量等待场景适合协程。</p>
+<p><a id="tencent-llm-collection-20260903-q43"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E8%85%BE%E8%AE%AF%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L785">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7cd9ed6706dd"></a></p>
+<span class="heading-anchor" id="进程、线程和协程有什么区别？它们分别适合处理什么任务？"></span><h2 id="_1_39">进程、线程和协程有什么区别？它们分别适合处理什么任务？</h2>
+<p><strong>回答：</strong></p>
+<p>进程是资源隔离和调度的基本容器，拥有独立虚拟地址空间、页表和资源视图；进程间通信需要管道、Socket、共享内存等 IPC。隔离强，故障影响边界清晰，但创建、内存占用和切换成本相对高，适合 CPU 密集计算、权限/故障隔离和多核并行。</p>
+<p>线程是进程内的执行单元，共享地址空间、文件描述符和大部分进程资源，但有独立栈、寄存器和调度状态。线程通信方便、创建与切换通常比进程轻，但共享状态会带来锁、竞态、死锁和崩溃扩散。适合需要共享大量内存的并发任务，以及本地库会释放运行时锁的计算或阻塞 I/O。</p>
+<p>协程是用户态可挂起和恢复的执行单元，通常由事件循环在少量 OS 线程上调度。切换不需要进入内核调度，适合大量高等待比 I/O，例如网络请求、数据库和 Agent 工具调用。协程必须主动在 <code>await</code> 等挂起点让出执行权；其中混入阻塞调用或长时间 CPU 计算会卡住整个事件循环。</p>
+<p>三者不是互斥选择。生产系统常用多进程利用多核和隔离故障，每个进程内用事件循环承载大量 I/O，并把 CPU 密集任务提交到进程池。选择依据是计算/I/O 比、共享状态、隔离要求、运行时模型和可观测性。</p>
+<p><a id="pinduoduo-ai-agent-20260816-q15"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E6%8B%BC%E5%A4%9A%E5%A4%9A%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L365">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k236cddaca6b9"></a></p>
+<span class="heading-anchor" id="进程、线程和协程的区别和联系"></span><h2 id="_1_40">进程、线程和协程的区别和联系</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>进程</th>
+<th>线程</th>
+<th>协程</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定义</td>
+<td>资源分配和拥有的基本单位</td>
+<td>程序执行的基本单位</td>
+<td>用户态的轻量级线程，线程内部调度的基本单位</td>
+</tr>
+<tr>
+<td>切换情况</td>
+<td>进程CPU环境(栈、寄存器、页表和文件句柄等)的保存以及新调度的进程CPU环境的设置</td>
+<td>保存和设置程序计数器、少量寄存器和栈的内容</td>
+<td>先将寄存器上下文和栈保存，等切换回来的时候再进行恢复</td>
+</tr>
+<tr>
+<td>切换者</td>
+<td>操作系统</td>
+<td>操作系统</td>
+<td>用户</td>
+</tr>
+<tr>
+<td>切换过程</td>
+<td>用户态-&gt;内核态-&gt;用户态</td>
+<td>用户态-&gt;内核态-&gt;用户态</td>
+<td>用户态(没有陷入内核)</td>
+</tr>
+<tr>
+<td>调用栈</td>
+<td>内核栈</td>
+<td>内核栈</td>
+<td>用户栈</td>
+</tr>
+<tr>
+<td>拥有资源</td>
+<td>CPU资源、内存资源、文件资源和句柄等</td>
+<td>程序计数器、寄存器、栈和状态字</td>
+<td>拥有自己的寄存器上下文和栈</td>
+</tr>
+<tr>
+<td>并发性</td>
+<td>不同进程之间切换实现并发，各自占有CPU实现并行</td>
+<td>一个进程内部的多个线程并发执行</td>
+<td>同一时间只能执行一个协程，而其他协程处于休眠状态，适合对任务进行分时处理</td>
+</tr>
+<tr>
+<td>系统开销</td>
+<td>切换虚拟地址空间，切换内核栈和硬件上下文，CPU高速缓存失效、页表切换，开销很大</td>
+<td>切换时只需保存和设置少量寄存器内容，因此开销很小</td>
+<td>直接操作栈则基本没有内核切换的开销，可以不加锁的访问全局变量，所以上下文的切换非常快</td>
+</tr>
+<tr>
+<td>通信方面</td>
+<td>进程间通信需要借助操作系统</td>
+<td>线程间可以直接读写进程数据段(如全局变量)来进行通信</td>
+<td>共享内存、消息队列</td>
+</tr>
+</tbody>
+</table></div>
+<p>1、进程是资源分配的基本单位，运行一个可执行程序会创建一个或多个进程，进程就是运行起来的可执行程序</p>
+<p>2、线程是资源调度的基本单位，也是程序执行的基本单位，是轻量级的进程。每个进程中都有唯一的主线程，且只能有一个，主线程和进程是相互依存的关系，主线程结束进程也会结束。多提一句：协程是用户态的轻量级线程，线程内部调度的基本单位</p>
+<p id="线程与进程的比较">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L46)，来源许可：Apache-2.0。</p>
+<p><a id="kd7beab8fc8be"></a></p>
+<span class="heading-anchor" id="进程之间的通信方式以及优缺点"></span><h2 id="_1_41">进程之间的通信方式以及优缺点</h2>
+<ul>
+<li>管道（PIPE）<ul>
+<li>有名管道（命名管道）：一种先进先出的通信方式，它允许无亲缘关系进程间的通信<ul>
+<li>优点：可以实现任意关系的进程间的通信</li>
+<li>缺点：<ol>
+<li>长期存于系统中，使用不当容易出错</li>
+<li>缓冲区有限</li>
+</ol>
+</li>
+</ul>
+</li>
+<li>无名管道（匿名管道）：一种单工先进先出的通信方式，只能在具有亲缘关系的进程间使用（父子进程）<ul>
+<li>优点：简单方便</li>
+<li>缺点：<ol>
+<li>局限于单向通信 </li>
+<li>只能创建在它的进程以及其有亲缘关系的进程之间</li>
+<li>缓冲区有限</li>
+</ol>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>信号量（Semaphore）：一个计数器，可以用来控制多个线程对共享资源的访问<ul>
+<li>优点：可以同步进程</li>
+<li>缺点：信号量有限</li>
+</ul>
+</li>
+<li>信号（Signal）：一种比较复杂的通信方式，用于通知接收进程某个事件已经发生</li>
+<li>消息队列（Message Queue）：是消息的链表，存放在内核中并由消息队列标识符标识<ul>
+<li>优点：可以实现任意进程间的通信，并通过系统调用函数来实现消息发送和接收之间的同步，无需考虑同步问题，方便</li>
+<li>缺点：信息的复制需要额外消耗 CPU 的时间，不适宜于信息量大或操作频繁的场合</li>
+</ul>
+</li>
+<li>共享内存（Shared Memory）：映射一段能被其他进程所访问的内存，这段共享内存由一个进程创建，但多个进程都可以访问<ul>
+<li>优点：无须复制，快捷，信息量大</li>
+<li>缺点：<ol>
+<li>通信是通过将共享空间缓冲区直接附加到进程的虚拟地址空间中来实现的，因此进程间的读写操作存在同步问题</li>
+<li>利用内存缓冲区直接交换信息，内存的实体存在于计算机中，只能同一个计算机系统中的诸多进程共享，不方便网络通信</li>
+</ol>
+</li>
+</ul>
+</li>
+<li>套接字（Socket）：可用于不同计算机间的进程通信<ul>
+<li>优点：<ol>
+<li>传输数据为字节级，传输数据可自定义，数据量小效率高</li>
+<li>传输数据时间短，性能高</li>
+<li>适合于客户端和服务器端之间信息实时交互</li>
+<li>可以加密,数据安全性强</li>
+</ol>
+</li>
+<li>缺点：需对传输的数据进行解析，转化成应用级的数据。</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/huihut/interview/blob/7a7166804a0ffc8f156e906bf4c1a94bb9f6a94b/README.md#L1878">huihut/interview</a>，来源许可：CC-BY-NC-SA-4.0。</li>
+</ul>
+<p><a id="k4293e17ae698"></a></p>
+<span class="heading-anchor" id="进程同步的四种方法？"></span><h2 id="_1_42">进程同步的四种方法？</h2>
+<span class="heading-anchor" id="1. 临界区"></span><h3 id="1_1">1. 临界区</h3>
+<p>对临界资源进行访问的那段代码称为临界区。</p>
+<p>为了互斥访问临界资源，每个进程在进入临界区之前，需要先进行检查。</p>
+<pre><code class="language-html">// entry section
+// critical section;
+// exit section
+</code></pre>
+<span class="heading-anchor" id="2. 同步与互斥"></span><h3 id="2_1">2. 同步与互斥</h3>
+<ul>
+<li>同步：多个进程因为合作产生的直接制约关系，使得进程有一定的先后执行关系。</li>
+<li>互斥：多个进程在同一时刻只有一个进程能进入临界区。</li>
+</ul>
+<span class="heading-anchor" id="3. 信号量"></span><h3 id="3">3. 信号量</h3>
+<p>信号量（Semaphore）是一个整型变量，可以对其执行 down 和 up 操作，也就是常见的 P 和 V 操作。</p>
+<ul>
+<li><strong>down</strong>   : 如果信号量大于 0 ，执行 -1 操作；如果信号量等于 0，进程睡眠，等待信号量大于 0；</li>
+<li><strong>up</strong>  ：对信号量执行 +1 操作，唤醒睡眠的进程让其完成 down 操作。</li>
+</ul>
+<p>down 和 up 操作需要被设计成原语，不可分割，通常的做法是在执行这些操作的时候屏蔽中断。</p>
+<p>如果信号量的取值只能为 0 或者 1，那么就成为了   <strong>互斥量（Mutex）</strong>  ，0 表示临界区已经加锁，1 表示临界区解锁。</p>
+<pre><code class="language-c">typedef int semaphore;
+semaphore mutex = 1;
+void P1() {
+    down(&amp;mutex);
+    // 临界区
+    up(&amp;mutex);
+}
+
+void P2() {
+    down(&amp;mutex);
+    // 临界区
+    up(&amp;mutex);
+}
+</code></pre>
+<p> <strong>使用信号量实现生产者-消费者问题</strong> </p>
+<p>问题描述：使用一个缓冲区来保存物品，只有缓冲区没有满，生产者才可以放入物品；只有缓冲区不为空，消费者才可以拿走物品。</p>
+<p>因为缓冲区属于临界资源，因此需要使用一个互斥量 mutex 来控制对缓冲区的互斥访问。</p>
+<p>为了同步生产者和消费者的行为，需要记录缓冲区中物品的数量。数量可以使用信号量来进行统计，这里需要使用两个信号量：empty 记录空缓冲区的数量，full 记录满缓冲区的数量。</p>
+<p>其中，empty 信号量是在生产者进程中使用，当 empty 不为 0 时，生产者才可以放入物品；full 信号量是在消费者进程中使用，当 full 信号量不为 0 时，消费者才可以取走物品。</p>
+<p><strong>注意</strong>，不能先对缓冲区进行加锁，再测试信号量。也就是说，不能先执行 down(mutex) 再执行 down(empty)。如果这么做了，那么可能会出现这种情况：生产者对缓冲区加锁后，执行 down(empty) 操作，发现 empty = 0，此时生产者睡眠。</p>
+<p>消费者不能进入临界区，因为生产者对缓冲区加锁了，消费者就无法执行 up(empty) 操作，empty 永远都为 0，导致生产者永远等待下，不会释放锁，消费者因此也会永远等待下去。</p>
+<pre><code class="language-c">#define N 100
+typedef int semaphore;
+semaphore mutex = 1;
+semaphore empty = N;
+semaphore full = 0;
+
+void producer() {
+    while(TRUE) {
+        int item = produce_item();
+        down(&amp;empty);
+        down(&amp;mutex);
+        insert_item(item);
+        up(&amp;mutex);
+        up(&amp;full);
+    }
+}
+
+void consumer() {
+    while(TRUE) {
+        down(&amp;full);
+        down(&amp;mutex);
+        int item = remove_item();
+        consume_item(item);
+        up(&amp;mutex);
+        up(&amp;empty);
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="4. 管程"></span><h3 id="4">4. 管程</h3>
+<p>使用信号量机制实现的生产者消费者问题需要客户端代码做很多控制，而管程把控制的代码独立出来，不仅不容易出错，也使得客户端代码调用更容易。</p>
+<p>c 语言不支持管程，下面的示例代码使用了类 Pascal 语言来描述管程。示例代码的管程提供了 insert() 和 remove() 方法，客户端代码通过调用这两个方法来解决生产者-消费者问题。</p>
+<pre><code class="language-pascal">monitor ProducerConsumer
+    integer i;
+    condition c;
+
+    procedure insert();
+    begin
+        // ...
+    end;
+
+    procedure remove();
+    begin
+        // ...
+    end;
+end monitor;
+</code></pre>
+<p>管程有一个重要特性：在一个时刻只能有一个进程使用管程。进程在无法继续执行的时候不能一直占用管程，否则其它进程永远不能使用管程。</p>
+<p>管程引入了   <strong>条件变量</strong>   以及相关的操作：<strong>wait()</strong> 和 <strong>signal()</strong> 来实现同步操作。对条件变量执行 wait() 操作会导致调用进程阻塞，把管程让出来给另一个进程持有。signal() 操作用于唤醒被阻塞的进程。</p>
+<p> <strong>使用管程实现生产者-消费者问题</strong> </p>
+<pre><code class="language-pascal">// 管程
+monitor ProducerConsumer
+    condition full, empty;
+    integer count := 0;
+    condition c;
+
+    procedure insert(item: integer);
+    begin
+        if count = N then wait(full);
+        insert_item(item);
+        count := count + 1;
+        if count = 1 then signal(empty);
+    end;
+
+    function remove: integer;
+    begin
+        if count = 0 then wait(empty);
+        remove = remove_item;
+        count := count - 1;
+        if count = N -1 then signal(full);
+    end;
+end monitor;
+
+// 生产者客户端
+procedure producer
+begin
+    while true do
+    begin
+        item = produce_item;
+        ProducerConsumer.insert(item);
+    end
+end;
+
+// 消费者客户端
+procedure consumer
+begin
+    while true do
+    begin
+        item = ProducerConsumer.remove;
+        consume_item(item);
+    end
+end;
+</code></pre>
+<p id="操作系统在对内存进行管理的时候需要做些什么">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L610)，来源许可：Apache-2.0。</p>
+<p><a id="k00de21dd2200"></a></p>
+<span class="heading-anchor" id="进程有哪几种状态？"></span><h2 id="_1_43">进程有哪几种状态？</h2>
+<p>我们一般把进程大致分为 5 种状态，这一点和线程很像：</p>
+<ul>
+<li><strong>创建状态（new）</strong>：进程正在被创建，尚未到就绪状态。</li>
+<li><strong>就绪状态（ready）</strong>：进程已处于准备运行状态，即进程获得了除了处理器之外的一切所需资源，一旦得到处理器资源（处理器分配的时间片）即可运行。</li>
+<li><strong>运行状态（running）</strong>：进程正在处理器上运行（单核 CPU 下任意时刻只有一个进程处于运行状态）。</li>
+<li><strong>阻塞状态（waiting）</strong>：又称为等待状态，进程正在等待某一事件而暂停运行如等待某资源为可用或等待 IO 操作完成。即使处理器空闲，该进程也不能运行。</li>
+<li><strong>结束状态（terminated）</strong>：进程正在从系统中消失。可能是进程正常结束或其他原因中断退出运行。</li>
+</ul>
+<p><img alt="进程状态图转换图" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/operating-system/state-transition-of-process.png"/></p>
+<p>状态转换要重点看触发原因：就绪态拿到 CPU 后进入运行态；运行态时间片用完，可能回到就绪态；运行中发起阻塞 I/O、等待锁或等待事件，会进入阻塞态；阻塞等待的事件完成后，通常先回到就绪态，等待下一次被调度。</p>
+<p>有些教材还会加入<strong>挂起状态</strong>。挂起强调进程暂时不在内存中，或者被用户/系统暂停；阻塞强调进程在等待某个事件。二者不是一回事：进程可以阻塞但仍在内存里，也可以被换出到外存后处于阻塞挂起。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_36">补充说明</h3>
+<p><img alt="Process State" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/wolverinn/Waking-Up/cf692b53e1b3d1b740a97dab0e4e71db801daf33/_v_images/image-20221216125538480.png"/></p>
+<ul>
+<li>就绪状态：进程已获得除处理机以外的所需资源，等待分配处理机资源</li>
+<li>运行状态：占用处理机资源运行，处于此状态的进程数小于等于CPU数</li>
+<li>阻塞状态： 进程等待某种条件，在条件满足之前无法执行</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L260">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L227">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd3e3c3da12d8"></a></p>
+<span class="heading-anchor" id="进程状态的切换你知道多少？"></span><h2 id="_1_44">进程状态的切换你知道多少？</h2>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.assets/202205220001439.png"/></p>
+<ul>
+<li>就绪状态（ready）：等待被调度</li>
+<li>运行状态（running）</li>
+<li>阻塞状态（waiting）：等待资源</li>
+</ul>
+<p>应该注意以下内容：</p>
+<ul>
+<li>只有就绪态和运行态可以相互转换，其它的都是单向转换。就绪状态的进程通过调度算法从而获得 CPU 时间，转为运行状态；而运行状态的进程，在分配给它的 CPU 时间片用完之后就会转为就绪状态，等待下一次调度。</li>
+<li>阻塞状态是缺少需要的资源从而由运行状态转换而来，但是该资源不包括 CPU 时间，缺少 CPU 时间会从运行态转换为就绪态。</li>
+</ul>
+<blockquote>
+<p>感谢微信好友“Beautiful”指出配图文字笔误，已改正，感谢！-2021.05.31</p>
+</blockquote>
+<p id="一个C/C++程序从开始编译到生成可执行文件的完整过程你能说出来多少">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L488)，来源许可：Apache-2.0。</p>
+<p><a id="kef8b2172cb81"></a></p>
+<span class="heading-anchor" id="进程的异常控制流：陷阱、中断、异常和信号"></span><h2 id="_1_45">进程的异常控制流：陷阱、中断、异常和信号</h2>
+<p>陷阱是<strong>有意</strong>造成的“异常”，是执行一条指令的结果。陷阱是同步的。陷阱的主要作用是实现<strong>系统调用</strong>。比如，进程可以执行 <code>syscall n</code> 指令向内核请求服务。当进程执行这条指令后，会中断当前的控制流，<strong>陷入</strong>到内核态，执行相应的系统调用。内核的处理程序在执行结束后，会将结果返回给进程，同时退回到用户态。进程此时继续执行<strong>下一条指令</strong>。</p>
+<p>中断由处理器<strong>外部</strong>的<strong>硬件</strong>产生，不是执行某条指令的结果，也无法预测发生时机。由于中断独立于当前执行的程序，因此中断是异步事件。中断包括 I/O 设备发出的 I/O 中断、各种定时器引起的时钟中断、调试程序中设置的断点等引起的调试中断等。</p>
+<p>异常是一种错误情况，是执行当前指令的结果，可能被错误处理程序修正，也可能直接终止应用程序。异常是同步的。这里特指因为执行当前指令而产生的<strong>错误情况</strong>，比如除法异常、缺页异常等。有些书上为了区分，也将这类“异常”称为<strong>“故障”</strong>。</p>
+<p>信号是一种<strong>更高层的</strong>软件形式的异常，同样会中断进程的控制流，可以由进程进行处理。一个信号代表了一个消息。信号的作用是用来<strong>通知进程</strong>发生了某种系统事件。</p>
+<p>更详细的可以参考：https://imageslr.github.io/2020/07/09/trap-interrupt-exception.html</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/wolverinn/Waking-Up/blob/cf692b53e1b3d1b740a97dab0e4e71db801daf33/Operating%20Systems.md#L354">Waking-Up</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9251e4deea95"></a></p>
+<span class="heading-anchor" id="进程的调度算法有哪些？"></span><h2 id="_1_46">进程的调度算法有哪些？</h2>
+<p><img alt="常见进程调度算法" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/cs-basics/network/scheduling-algorithms-of-process.png"/></p>
+<p>教材里的进程调度算法用于说明：当可运行任务多于 CPU 核数时，应该让谁先运行。调度器通常需要在<strong>吞吐量、周转时间、响应时间、公平性</strong>和切换开销之间做权衡。</p>
+<p>这些算法可以分为<strong>非抢占式</strong>和<strong>抢占式</strong>两类。</p>
+<p><strong>第一类：非抢占式调度（Non-Preemptive）</strong></p>
+<p>这种方式下，一旦 CPU 分配给一个进程，它就会一直运行下去，直到任务完成或主动放弃（比如等待 I/O）。</p>
+<ol>
+<li><strong>先到先服务（FCFS，First Come, First Served）</strong>：按到达顺序运行，实现简单；长任务排在前面时，后面的短任务也要等待，会出现护航效应。</li>
+<li><strong>短作业优先（SJF，Shortest Job First）</strong>：优先运行预计执行时间短的任务，可以降低平均等待时间；现实中很难准确预测任务长度，也可能让长任务长期得不到运行。</li>
+</ol>
+<p><strong>第二类：抢占式调度（Preemptive）</strong></p>
+<p>操作系统可以暂停当前任务，把 CPU 交给另一个更合适的可运行任务。现代通用操作系统通常支持抢占。</p>
+<ul>
+<li><strong>时间片轮转（RR，Round-Robin）</strong>：每个任务轮流运行一个时间片。时间片太短会放大上下文切换开销，太长又会逐渐接近 FCFS。</li>
+<li><strong>优先级调度（Priority）</strong>：优先运行高优先级任务，能够表达任务的紧急程度，但需要处理低优先级任务饥饿问题。</li>
+</ul>
+<p><strong>多级反馈队列（MLFQ，Multi-Level Feedback Queue）</strong> 设置多个优先级队列，并根据任务的运行行为调整位置。新任务通常先进入高优先级队列；经常用完整个时间片的 CPU 密集型任务会逐步降级，经常主动等待 I/O 的交互任务可保留较高优先级。具体的升降级和防饥饿规则取决于实现。</p>
+<p>FCFS、SJF、RR、优先级和 MLFQ 主要是教材中的简化模型。真实 Linux 调度的是 task 或调度实体，普通任务长期由 CFS 按权重和 <code>vruntime</code> 分配 CPU；Linux 6.6 开始在 fair 调度类中引入 EEVDF，用 lag 和虚拟截止时间改进任务选择。线上机器具体使用哪套实现，还要看内核版本和发行版补丁。</p>
+<p>详细介绍：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/cpu-scheduling-and-load.md">CPU 调度与系统负载详解</a>。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/cs-basics/operating-system/operating-system-basic-questions-01.md#L315">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k265c026b5978"></a></p>
+<span class="heading-anchor" id="进程级资源监控"></span><h2 id="_1_47">进程级资源监控</h2>
+<pre><code class="language-bash">nvidia-smi pmon -s um  # 监控进程显存(u)和计算模式(m)
+# 输出示例：
+# gpu   pid  type    sm   mem   enc   dec   command
+#   0  1234     C    98   15G    0     0   python train.py
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_39">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1705">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k69ab77f334cc"></a></p>
+<span class="heading-anchor" id="进程线程模型你知道多少？"></span><h2 id="_1_48">进程线程模型你知道多少？</h2>
+<p>对于进程和线程的理解和把握可以说基本奠定了对系统的认知和把控能力。其核心意义绝不仅仅是“线程是调度的基本单位，进程是资源分配的基本单位”这么简单。</p>
+<span class="heading-anchor" id="多线程"></span><h3 id="_2_40">多线程</h3>
+<p>我们这里讨论的是用户态的多线程模型，同一个进程内部有多个线程，所有的线程共享同一个进程的内存空间，进程中定义的全局变量会被所有的线程共享，比如有全局变量int i = 10，这一进程中所有并发运行的线程都可以读取和修改这个i的值，而多个线程被CPU调度的顺序又是不可控的，所以对临界资源的访问尤其需要注意安全。</p>
+<p>我们必须知道，<strong>做一次简单的i = i + 1在计算机中并不是原子操作，涉及内存取数，计算和写入内存几个环节，</strong>而线程的切换有可能发生在上述任何一个环节中间，所以不同的操作顺序很有可能带来意想不到的结果。</p>
+<p>但是，虽然线程在安全性方面会引入许多新挑战，但是线程带来的好处也是有目共睹的。首先，原先顺序执行的程序（暂时不考虑多进程）可以被拆分成几个独立的逻辑流，这些逻辑流可以独立完成一些任务（最好这些任务是不相关的）。</p>
+<p>比如 QQ 可以一个线程处理聊天一个线程处理上传文件，两个线程互不干涉，在用户看来是同步在执行两个任务，试想如果线性完成这个任务的话，在数据传输完成之前用户聊天被一直阻塞会是多么尴尬的情况。</p>
+<p>对于线程，我认为弄清以下两点非常重要：</p>
+<ul>
+<li>
+<p>线程之间有无先后访问顺序（线程依赖关系）</p>
+</li>
+<li>
+<p>多个线程共享访问同一变量（同步互斥问题）</p>
+</li>
+</ul>
+<p>另外，我们通常只会去说同一进程的多个线程共享进程的资源，但是每个线程特有的部分却很少提及，除了标识线程的tid，每个线程还有自己独立的栈空间，线程彼此之间是无法访问其他线程栈上内容的。</p>
+<p>而作为处理机调度的最小单位，线程调度只需要保存线程栈、寄存器数据和PC即可，相比进程切换开销要小很多。</p>
+<p>线程相关接口不少，主要需要了解各个参数意义和返回值意义。</p>
+<ol>
+<li>线程创建和结束</li>
+</ol>
+<ul>
+<li>
+<p>背景知识：</p>
+<p>在一个文件内的多个函数通常都是按照main函数中出现的顺序来执行，但是在分时系统下，我们可以让每个函数都作为一个逻辑流并发执行，最简单的方式就是采用多线程策略。在main函数中调用多线程接口创建线程，每个线程对应特定的函数（操作），这样就可以不按照main函数中各个函数出现的顺序来执行，避免了忙等的情况。线程基本操作的接口如下。</p>
+</li>
+<li>
+<p>相关接口：</p>
+<ul>
+<li>创建线程：int pthread_create(pthread_t <em>tidp,const pthread_attr_t </em>attr, void <em>(</em>start_rtn)(void<em>),void </em>arg);</li>
+</ul>
+<p>创建一个新线程，pthread和start_routine不可或缺，分别用于标识线程和执行体入口，其他可以填NULL。</p>
+<ul>
+<li>
+<p>pthread：用来返回线程的tid，*pthread值即为tid，类型pthread_t == unsigned long int。</p>
+</li>
+<li>
+<p>attr：指向线程属性结构体的指针，用于改变所创线程的属性，填NULL使用默认值。</p>
+</li>
+<li>
+<p>start_routine：线程执行函数的首地址，传入函数指针。</p>
+</li>
+<li>
+<p>arg：通过地址传递来传递函数参数，这里是无符号类型指针，可以传任意类型变量的地址，在被传入函数中先强制类型转换成所需类型即可。</p>
+</li>
+<li>
+<p>获得线程ID：pthread_t pthread_self();</p>
+</li>
+</ul>
+<p>调用时，会打印线程ID。</p>
+<ul>
+<li>等待线程结束：int pthread_join(pthread_t tid, void** retval);</li>
+</ul>
+<p>主线程调用，等待子线程退出并回收其资源，类似于进程中wait/waitpid回收僵尸进程，调用pthread_join的线程会被阻塞。</p>
+<ul>
+<li>
+<p>tid：创建线程时通过指针得到tid值。</p>
+</li>
+<li>
+<p>retval：指向返回值的指针。</p>
+</li>
+<li>
+<p>结束线程：pthread_exit(void *retval);</p>
+</li>
+</ul>
+<p>子线程执行，用来结束当前线程并通过retval传递返回值，该返回值可通过pthread_join获得。</p>
+<ul>
+<li>
+<p>retval：同上。</p>
+</li>
+<li>
+<p>分离线程：int pthread_detach(pthread_t tid);</p>
+</li>
+</ul>
+<p>主线程、子线程均可调用。主线程中pthread_detach(tid)，子线程中pthread_detach(pthread_self())，调用后和主线程分离，子线程结束时自己立即回收资源。</p>
+<ul>
+<li>tid：同上。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>
+<p>线程属性值修改</p>
+<p>线程属性对象类型为pthread_attr_t，结构体定义如下：</p>
+</li>
+</ol>
+<pre><code class="language-C">     typedef struct{
+         int detachstate;    // 线程分离的状态
+         int schedpolicy;    // 线程调度策略
+         struct sched_param schedparam;    // 线程的调度参数
+         int inheritsched;    // 线程的继承性
+         int scope;    // 线程的作用域
+         // 以下为线程栈的设置
+         size_t guardsize;    // 线程栈末尾警戒缓冲大小
+         int stackaddr_set;    // 线程的栈设置
+         void *    stackaddr;    // 线程栈的位置
+         size_t stacksize;    // 线程栈大小
+     }pthread_attr_t;
+</code></pre>
+<ul>
+<li>相关接口：</li>
+</ul>
+<p>对上述结构体中各参数大多有：pthread_attr_get()和pthread_attr_set()系统调用函数来设置和获取。这里不一一罗列。</p>
+<span class="heading-anchor" id="多进程"></span><h3 id="_3_4">多进程</h3>
+<p>每一个进程是资源分配的基本单位。</p>
+<p>进程结构由以下几个部分组成：代码段、堆栈段、数据段。代码段是静态的二进制代码，多个程序可以共享。</p>
+<p>实际上在父进程创建子进程之后，父、子进程除了pid外，几乎所有的部分几乎一样。</p>
+<p>父、子进程共享全部数据，但并不是说他们就是对同一块数据进行操作，子进程在读写数据时会通过写时复制机制将公共的数据重新拷贝一份，之后在拷贝出的数据上进行操作。</p>
+<p>如果子进程想要运行自己的代码段，还可以通过调用execv()函数重新加载新的代码段，之后就和父进程独立开了。</p>
+<p>我们在shell中执行程序就是通过shell进程先fork()一个子进程再通过execv()重新加载新的代码段的过程。</p>
+<ol>
+<li>
+<p>进程创建与结束</p>
+<p>进程有两种创建方式，一种是操作系统创建的一种是父进程创建的。从计算机启动到终端执行程序的过程为：0号进程 -&gt; 1号内核进程 -&gt; 1号用户进程(init进程) -&gt; getty进程 -&gt; shell进程 -&gt; 命令行执行进程。所以我们在命令行中通过 ./program执行可执行文件时，所有创建的进程都是shell进程的子进程，这也就是为什么shell一关闭，在shell中执行的进程都自动被关闭的原因。从shell进程到创建其他子进程需要通过以下接口。</p>
+<ul>
+<li>创建进程：pid_t fork(void);</li>
+</ul>
+<p>返回值：出错返回-1；父进程中返回pid &gt; 0；子进程中pid == 0</p>
+<ul>
+<li>
+<p>结束进程：void exit(int status);</p>
+</li>
+<li>
+<p>status是退出状态，保存在全局变量中S?，通常0表示正常退出。</p>
+</li>
+<li>
+<p>获得PID：pid_t getpid(void);</p>
+</li>
+</ul>
+<p>返回调用者pid。</p>
+<ul>
+<li>获得父进程PID：pid_t getppid(void);</li>
+</ul>
+<p>返回父进程pid。</p>
+</li>
+</ol>
+<ul>
+<li>
+<p>其他补充：</p>
+<ul>
+<li>正常退出方式：exit()、_exit()、return（在main中）。</li>
+</ul>
+<p>exit()和_exit()区别：exit()是对__exit()的封装，都会终止进程并做相关收尾工作，最主要的区别是_exit()函数关闭全部描述符和清理函数后不会刷新流，但是exit()会在调用_exit()函数前刷新数据流。</p>
+<p>return和exit()区别：exit()是函数，但有参数，执行完之后控制权交给系统。return若是在调用函数中，执行完之后控制权交给调用进程，若是在main函数中，控制权交给系统。</p>
+<ul>
+<li>异常退出方式：abort()、终止信号。</li>
+</ul>
+</li>
+</ul>
+<ol>
+<li>Linux进程控制</li>
+</ol>
+<ul>
+<li>进程地址空间（地址空间）</li>
+</ul>
+<p>虚拟存储器为每个进程提供了独占系统地址空间的假象。</p>
+<p>尽管每个进程地址空间内容不尽相同，但是他们的都有相似的结构。X86 Linux进程的地址空间底部是保留给用户程序的，包括文本、数据、堆、栈等，其中文本区和数据区是通过存储器映射方式将磁盘中可执行文件的相应段映射至虚拟存储器地址空间中。</p>
+<p>有一些"敏感"的地址需要注意下，对于32位进程来说，代码段从0x08048000开始。从0xC0000000开始到0xFFFFFFFF是内核地址空间，通常情况下代码运行在用户态（使用0x00000000 ~ 0xC00000000的用户地址空间），当发生系统调用、进程切换等操作时CPU控制寄存器设置模式位，进入内和模式，在该状态（超级用户模式）下进程可以访问全部存储器位置和执行全部指令。</p>
+<p>也就说32位进程的地址空间都是4G，但用户态下只能访问低3G的地址空间，若要访问3G ~ 4G的地址空间则只有进入内核态才行。</p>
+<ul>
+<li>进程控制块（处理机）</li>
+</ul>
+<p>进程的调度实际就是内核选择相应的进程控制块，被选择的进程控制块中包含了一个进程基本的信息。</p>
+<ul>
+<li>上下文切换</li>
+</ul>
+<p>内核管理所有进程控制块，而进程控制块记录了进程全部状态信息。每一次进程调度就是一次上下文切换，所谓的上下文本质上就是当前运行状态，主要包括通用寄存器、浮点寄存器、状态寄存器、程序计数器、用户栈和内核数据结构（页表、进程表、文件表）等。</p>
+<p>进程执行时刻，内核可以决定抢占当前进程并开始新的进程，这个过程由内核调度器完成，当调度器选择了某个进程时称为该进程被调度，该过程通过上下文切换来改变当前状态。</p>
+<p>一次完整的上下文切换通常是进程原先运行于用户态，之后因系统调用或时间片到切换到内核态执行内核指令，完成上下文切换后回到用户态，此时已经切换到进程B。</p>
+<blockquote>
+<p>感谢网友勘误https://github.com/forthespada/InterviewGuide/issues/32，-2022.02.22</p>
+</blockquote>
+<p id="进程调度算法你了解多少">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L114)，来源许可：Apache-2.0。</p>
+<p><a id="kf881f4054120"></a></p>
+<span class="heading-anchor" id="进程组（ProcessGroup）管理"></span><h2 id="processgroup">进程组（ProcessGroup）管理</h2>
+<p>PyTorch 通过 <code>dist.init_process_group()</code> 初始化 Gloo 后端：</p>
+<pre><code class="language-python">import torch.distributed as dist
+
+dist.init_process_group(
+    backend="gloo",         # 指定后端为 Gloo
+    init_method="tcp://10.1.1.1:23456",  # 协调节点的 IP:Port
+    rank=0,                 # 当前进程的全局 Rank
+    world_size=4            # 总进程数
+)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_49">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1406">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf60e85f48f10"></a></p>
+<span class="heading-anchor" id="进程绑定与映射（性能优化关键）"></span><h2 id="_1_50">进程绑定与映射（性能优化关键）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><strong>参数</strong></th>
+<th><strong>作用</strong></th>
+<th><strong>示例</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--map-by &lt;type&gt;</code></td>
+<td>按节点/核心映射进程（如 <code>node</code>, <code>core</code>, <code>socket</code>）</td>
+<td><code>--map-by node:pe=4</code>（每节点4进程）</td>
+</tr>
+<tr>
+<td><code>--bind-to &lt;type&gt;</code></td>
+<td>绑定进程到硬件资源（如 <code>core</code>, <code>socket</code>, <code>none</code>）</td>
+<td><code>--bind-to core</code>（绑到独立核心）</td>
+</tr>
+<tr>
+<td><code>--report-bindings</code></td>
+<td>显示进程绑定详情（调试性能瓶颈）</td>
+<td>输出示例：<code>rank 0 bound to socket 0[core 0]</code></td>
+</tr>
+<tr>
+<td><code>--npernode/-N &lt;num&gt;</code></td>
+<td><strong>已弃用</strong>，建议改用 <code>--map-by ppr:&lt;n&gt;:node</code>（如 <code>ppr:2:node</code> 每节点2进程）</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_41">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1621">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k75f6c3e5b0b4"></a></p>
+<span class="heading-anchor" id="进程调度算法你了解多少？"></span><h2 id="_1_51">进程调度算法你了解多少？</h2>
+<span class="heading-anchor" id="1、 先来先服务 first-come first-serverd（FCFS）"></span><h3 id="1-first-come-first-serverdfcfs">1、 <strong>先来先服务 first-come first-serverd（FCFS）</strong></h3>
+<p>非抢占式的调度算法，按照请求的顺序进行调度。</p>
+<p>有利于长作业，但不利于短作业，因为短作业必须一直等待前面的长作业执行完毕才能执行，而长作业又需要执行很长时间，造成了短作业等待时间过长。</p>
+<span class="heading-anchor" id="2、 短作业优先 shortest job first（SJF）"></span><h3 id="2-shortest-job-firstsjf">2、 <strong>短作业优先 shortest job first（SJF）</strong></h3>
+<p>非抢占式的调度算法，按估计运行时间最短的顺序进行调度。</p>
+<p>长作业有可能会饿死，处于一直等待短作业执行完毕的状态。因为如果一直有短作业到来，那么长作业永远得不到调度。</p>
+<span class="heading-anchor" id="3、最短剩余时间优先 shortest remaining time next（SRTN）"></span><h3 id="3-shortest-remaining-time-nextsrtn">3、<strong>最短剩余时间优先 shortest remaining time next（SRTN）</strong></h3>
+<p>最短作业优先的抢占式版本，按剩余运行时间的顺序进行调度。 当一个新的作业到达时，其整个运行时间与当前进程的剩余时间作比较。</p>
+<p>如果新的进程需要的时间更少，则挂起当前进程，运行新的进程。否则新的进程等待。</p>
+<span class="heading-anchor" id="4、时间片轮转"></span><h3 id="4_1">4、<strong>时间片轮转</strong></h3>
+<p>将所有就绪进程按 FCFS 的原则排成一个队列，每次调度时，把 CPU 时间分配给队首进程，该进程可以执行一个时间片。</p>
+<p>当时间片用完时，由计时器发出时钟中断，调度程序便停止该进程的执行，并将它送往就绪队列的末尾，同时继续把 CPU 时间分配给队首的进程。</p>
+<p>时间片轮转算法的效率和时间片的大小有很大关系：</p>
+<ul>
+<li>因为进程切换都要保存进程的信息并且载入新进程的信息，如果时间片太小，会导致进程切换得太频繁，在进程切换上就会花过多时间。</li>
+<li>而如果时间片过长，那么实时性就不能得到保证。</li>
+</ul>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.assets/202205220000782.png"/></p>
+<span class="heading-anchor" id="5、优先级调度"></span><h3 id="5">5、<strong>优先级调度</strong></h3>
+<p>为每个进程分配一个优先级，按优先级进行调度。</p>
+<p>为了防止低优先级的进程永远等不到调度，可以随着时间的推移增加等待进程的优先级。</p>
+<span class="heading-anchor" id="6、多级反馈队列"></span><h3 id="6">6、<strong>多级反馈队列</strong></h3>
+<p>一个进程需要执行 100 个时间片，如果采用时间片轮转调度算法，那么需要交换 100 次。</p>
+<p>多级队列是为这种需要连续执行多个时间片的进程考虑，它设置了多个队列，每个队列时间片大小都不同，例如 1,2,4,8,..。进程在第一个队列没执行完，就会被移到下一个队列。</p>
+<p>这种方式下，之前的进程只需要交换 7 次。每个队列优先权也不同，最上面的优先权最高。因此只有上一个队列没有进程在排队，才能调度当前队列上的进程。</p>
+<p>可以将这种调度算法看成是时间片轮转调度算法和优先级调度算法的结合。</p>
+<p><img alt="" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/forthespada/InterviewGuide/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.assets/202205220000527.png"/></p>
+<p id="里牛客死下进程间通信方式">
+
+
+
+### 参考资料
+
+- [阿秀面试笔记](https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/02-01-os.md#L287)，来源许可：Apache-2.0。</p></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-7471edaa850f.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>进程、线程与同步</strong></a><a class="page-next" href="n-37bf549d76fc.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>进程、线程与同步</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#p">抢占长时间运行的 P</a></li><li class="outline-level-2"><a href="#_1_2">有了进程为什么还需要线程？</a></li><li class="outline-level-2"><a href="#_1_3">核心线程空闲时处于什么状态？</a></li><li class="outline-level-2"><a href="#_1_4">步骤五：检查线程池/队列/信号量是否已满</a></li><li class="outline-level-2"><a href="#_1_5">死锁产生原因</a></li><li class="outline-level-2"><a href="#_1_6">死锁必要条件</a></li><li class="outline-level-2"><a href="#_1_7">死锁有哪些处理方法？</a></li><li class="outline-level-2"><a href="#_1_8">死锁检测与死锁恢复</a></li><li class="outline-level-2"><a href="#_1_9">死锁演示</a></li><li class="outline-level-2"><a href="#_1_10">死锁预防</a></li><li class="outline-level-2"><a href="#_1_11">磁盘调度</a></li><li class="outline-level-2"><a href="#_1_12">系统调用一定会发生上下文切换吗？</a></li><li class="outline-level-2"><a href="#_1_13">线性池了解吗？参数有哪些？任务到达线程池的过程？线程池的大小如何设置？</a></li><li class="outline-level-2"><a href="#_1_14">线程之间的通信方式</a></li><li class="outline-level-2"><a href="#_1_15">线程同步有哪些方式？</a></li><li class="outline-level-2"><a href="#_1_16">线程和进程的区别？</a></li><li class="outline-level-2"><a href="#_1_17">线程持有读锁还能获取写锁吗？</a></li><li class="outline-level-2"><a href="#_1_18">线程池与信号量区别</a></li><li class="outline-level-2"><a href="#_1_19">线程池与进程池的区别是什么?</a></li><li class="outline-level-2"><a href="#_1_20">线程池中线程异常后，销毁还是复用？</a></li><li class="outline-level-2"><a href="#_1_21">线程池常用的阻塞队列有哪些？</a></li><li class="outline-level-2"><a href="#_1_22">线程池机制的优点</a></li><li class="outline-level-2"><a href="#_1_23">线程池机制的缺点</a></li><li class="outline-level-2"><a href="#_1_24">线程池的拒绝策略有哪些？</a></li><li class="outline-level-2"><a href="#_1_25">线程池的核心线程会被回收吗？</a></li><li class="outline-level-2"><a href="#_1_26">线程池隔离技术的设计</a></li><li class="outline-level-2"><a href="#_1_27">线程独占哪些资源？</a></li><li class="outline-level-2"><a href="#_1_28">线程间的同步的方式有哪些？</a></li><li class="outline-level-2"><a href="#_1_29">终端退出，终端运行的进程会怎样</a></li><li class="outline-level-2"><a href="#_1_30">能写一个模拟产生死锁的代码吗？</a></li><li class="outline-level-2"><a href="#_1_31">虚拟内存是如何实现地址转换和进程隔离的？</a></li><li class="outline-level-2"><a href="#_1_32">虚拟线程</a></li><li class="outline-level-2"><a href="#_1_33">解决死锁的方法</a></li><li class="outline-level-2"><a href="#_1_34">解决计算机文件系统死锁的经典方法有哪些？</a></li><li class="outline-level-2"><a href="#_1_35">计算机多线程和多进程的区别？</a></li><li class="outline-level-2"><a href="#_1_36">说说线程的生命周期和状态？</a></li><li class="outline-level-2"><a href="#_1_37">请简要描述线程与进程的关系，区别及优缺点？</a></li><li class="outline-level-2"><a href="#cpu">进程、线程、协程的区别，单线程多协程模型能否有效利用多核 CPU</a></li><li class="outline-level-2"><a href="#_1_39">进程、线程和协程有什么区别？它们分别适合处理什么任务？</a></li><li class="outline-level-2"><a href="#_1_40">进程、线程和协程的区别和联系</a></li><li class="outline-level-2"><a href="#_1_41">进程之间的通信方式以及优缺点</a></li><li class="outline-level-2"><a href="#_1_42">进程同步的四种方法？</a></li><li class="outline-level-2"><a href="#_1_43">进程有哪几种状态？</a></li><li class="outline-level-2"><a href="#_1_44">进程状态的切换你知道多少？</a></li><li class="outline-level-2"><a href="#_1_45">进程的异常控制流：陷阱、中断、异常和信号</a></li><li class="outline-level-2"><a href="#_1_46">进程的调度算法有哪些？</a></li><li class="outline-level-2"><a href="#_1_47">进程级资源监控</a></li><li class="outline-level-2"><a href="#_1_48">进程线程模型你知道多少？</a></li><li class="outline-level-2"><a href="#processgroup">进程组（ProcessGroup）管理</a></li><li class="outline-level-2"><a href="#_1_50">进程绑定与映射（性能优化关键）</a></li><li class="outline-level-2"><a href="#_1_51">进程调度算法你了解多少？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

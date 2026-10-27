@@ -1,0 +1,1388 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>分布式工程问答 · 李杨的学习笔记</title><meta name="description" content="任何一个服务器随时可能故障或宕机，此时 shard 可能就会丢失，因此可以为每个 shard 创建多个 replica 副本。replica 可以在 shard 故障时提供备用服务，保证数据不丢失，多个 replica 还可以提升搜索操作的吞吐量和性能。primary shard（建立索引时一次设置，不能修改，默认 5">
+<meta property="og:type" content="website"><meta property="og:title" content="分布式工程问答 · 李杨的学习笔记"><meta property="og:description" content="任何一个服务器随时可能故障或宕机，此时 shard 可能就会丢失，因此可以为每个 shard 创建多个 replica 副本。replica 可以在 shard 故障时提供备用服务，保证数据不丢失，多个 replica 还可以提升搜索操作的吞吐量和性能。primary shard（建立索引时一次设置，不能修改，默认 5"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-112f105881e9.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-112f105881e9.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html" aria-current="page">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">07-分布式与系统设计</p><h1>分布式工程问答</h1><p class="article-question-meta">53 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-90d2ebfcdeb2">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/07-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%8E%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E5%88%86%E5%B8%83%E5%BC%8F%E5%B7%A5%E7%A8%8B%E9%97%AE%E7%AD%94-02.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#replica">replica</a></li><li class="outline-level-2"><a href="#roundrobinloadbalance">RoundRobinLoadBalance</a></li><li class="outline-level-2"><a href="#shard">shard</a></li><li class="outline-level-2"><a href="#spi">spi 是啥？</a></li><li class="outline-level-2"><a href="#step-1-review-the-scalability-video-lecture">Step 1: Review the scalability video lecture</a></li><li class="outline-level-2"><a href="#strong-consistency">Strong consistency</a></li><li class="outline-level-2"><a href="#task-queues">Task queues</a></li><li class="outline-level-2"><a href="#tighten-up-the-schema">Tighten up the schema</a></li><li class="outline-level-2"><a href="#timeoutenabled">TimeoutEnabled</a></li><li class="outline-level-2"><a href="#timeoutmilliseconds">TimeoutMilliseconds</a></li><li class="outline-level-2"><a href="#type">Type</a></li><li class="outline-level-2"><a href="#under-development">Under development</a></li><li class="outline-level-2"><a href="#use-good-indices">Use good indices</a></li><li class="outline-level-2"><a href="#weak-consistency">Weak consistency</a></li><li class="outline-level-2"><a href="#when-to-update-the-cache">When to update the cache</a></li><li class="outline-level-2"><a href="#_1_16">不同的执行方式</a></li><li class="outline-level-2"><a href="#pb">为什么 PB 的效率是最高的？</a></li><li class="outline-level-2"><a href="#_1_18">为什么你需要这份小册？</a></li><li class="outline-level-2"><a href="#_1_19">使用场景</a></li><li class="outline-level-2"><a href="#_1_20">信号量机制</a></li><li class="outline-level-2"><a href="#demo">信号量简单 Demo</a></li><li class="outline-level-2"><a href="#_1_22">冗余与容灾</a></li><li class="outline-level-2"><a href="#_1_23">写数据底层原理</a></li><li class="outline-level-2"><a href="#_1_24">冷热分离</a></li><li class="outline-level-2"><a href="#_1_25">删除/更新数据底层原理</a></li><li class="outline-level-2"><a href="#hystrixcommand">利用 HystrixCommand 获取单条数据</a></li><li class="outline-level-2"><a href="#hystrixobservablecommand">利用 HystrixObservableCommand 批量获取数据</a></li><li class="outline-level-2"><a href="#_1_28">发起请求</a></li><li class="outline-level-2"><a href="#_1_29">可观测、评测与发布</a></li><li class="outline-level-2"><a href="#_1_30">基本原理</a></li><li class="outline-level-2"><a href="#_1_31">复习时先抓住哪些问题？</a></li><li class="outline-level-2"><a href="#_1_32">大数据量场景</a></li><li class="outline-level-2"><a href="#sentinel-hystrix">如何做技术选型？Sentinel 还是 Hystrix？</a></li><li class="outline-level-2"><a href="#demo_1">实例 Demo</a></li><li class="outline-level-2"><a href="#_1_35">工作流程</a></li><li class="outline-level-2"><a href="#lucene">底层 lucene</a></li><li class="outline-level-2"><a href="#filesystem-cache">性能优化的杀手锏——filesystem cache</a></li><li class="outline-level-2"><a href="#dubbo">拆分后不用 dubbo 可以吗？</a></li><li class="outline-level-2"><a href="#_1_39">按准备时间安排复习</a></li><li class="outline-level-2"><a href="#_1_40">数据预热</a></li><li class="outline-level-2"><a href="#_1_41">断路测试类</a></li><li class="outline-level-2"><a href="#_1_42">最大努力通知方案</a></li><li class="outline-level-2"><a href="#command">步骤一：创建 command</a></li><li class="outline-level-2"><a href="#_1_44">步骤七：断路健康检查</a></li><li class="outline-level-2"><a href="#getbrandnamecommand">步骤二：实现 GetBrandNameCommand</a></li><li class="outline-level-2"><a href="#command_1">步骤六：执行 command</a></li><li class="outline-level-2"><a href="#_1_47">测试结果</a></li><li class="outline-level-2"><a href="#_1_48">生产者会不会弄丢数据？</a></li><li class="outline-level-2"><a href="#_1_49">稳定性、发布与扩缩容</a></li><li class="outline-level-2"><a href="#app">类似于 app 里的推荐商品不断下拉出来一页一页的</a></li><li class="outline-level-2"><a href="#_1_51">这份小册能带给你什么？</a></li><li class="outline-level-2"><a href="#_1_52">适合人群</a></li><li class="outline-level-2"><a href="#_1_53">高频场景题</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kefb1c9e45f53"></a></p>
+<h2 id="replica">replica</h2>
+<p>任何一个服务器随时可能故障或宕机，此时 shard 可能就会丢失，因此可以为每个 shard 创建多个 replica 副本。replica 可以在 shard 故障时提供备用服务，保证数据不丢失，多个 replica 还可以提升搜索操作的吞吐量和性能。primary shard（建立索引时一次设置，不能修改，默认 5 个），replica shard（随时修改数量，默认 1 个），默认每个索引 10 个 shard，5 个 primary shard，5 个 replica shard，最小的高可用配置，是 2 台服务器。</p>
+<p>这么说吧，shard 分为 primary shard 和 replica shard。而 primary shard 一般简称为 shard，而 replica shard 一般简称为 replica。</p>
+<p><img alt="es-cluster-0" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/es-cluster-0.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-introduction.md#L56">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kcf764a71f011"></a></p>
+<span class="heading-anchor" id="RoundRobinLoadBalance"></span><h2 id="roundrobinloadbalance">RoundRobinLoadBalance</h2>
+<p>这个的话默认就是均匀地将流量打到各个机器上去，但是如果各个机器的性能不一样，容易导致性能差的机器负载过高。所以此时需要调整权重，让性能差的机器承载权重小一些，流量少一些。</p>
+<p>举个栗子。</p>
+<p>跟运维同学申请机器，有的时候，我们运气好，正好公司资源比较充足，刚刚有一批热气腾腾、刚刚做好的虚拟机新鲜出炉，配置都比较高：8 核 + 16G 机器，申请到 2 台。过了一段时间，我们感觉 2 台机器有点不太够，我就去找运维同学说，“哥儿们，你能不能再给我一台机器”，但是这时只剩下一台 4 核 + 8G 的机器。我要还是得要。</p>
+<p>这个时候，可以给两台 8 核 16G 的机器设置权重 4，给剩余 1 台 4 核 8G 的机器设置权重 2。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/dubbo-load-balancing.md#L28">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kc8abb0dda9fc"></a></p>
+<h2 id="shard">shard</h2>
+<p>单台机器无法存储大量数据，ES 可以将一个索引中的数据切分为多个 shard，分布在多台服务器上存储。有了 shard 就可以横向扩展，存储更多数据，让搜索和分析等操作分布到多台服务器上去执行，提升吞吐量和性能。每个 shard 都是一个 lucene index。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-introduction.md#L52">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k4f6b489cbf41"></a></p>
+<span class="heading-anchor" id="spi 是啥？"></span><h2 id="spi">spi 是啥？</h2>
+<p>spi，简单来说，就是 <code>service provider interface</code> ，说白了是什么意思呢，比如你有个接口，现在这个接口有 3 个实现类，那么在系统运行的时候对这个接口到底选择哪个实现类呢？这就需要 spi 了，需要<strong>根据指定的配置</strong>或者是<strong>默认的配置</strong>，去<strong>找到对应的实现类</strong>加载进来，然后用这个实现类的实例对象。</p>
+<p>举个栗子。</p>
+<p>你有一个接口 A。A1/A2/A3 分别是接口 A 的不同实现。你通过配置 <code>接口 A = 实现 A2</code> ，那么在系统实际运行的时候，会加载你的配置，用实现 A2 实例化一个对象来提供服务。</p>
+<p>spi 机制一般用在哪儿？<strong>插件扩展的场景</strong>，比如说你开发了一个给别人使用的开源框架，如果你想让别人自己写个插件，插到你的开源框架里面，从而扩展某个功能，这个时候 spi 思想就用上了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/dubbo-spi.md#L15">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k7be1faf7f5de"></a></p>
+<span class="heading-anchor" id="Step 1: Review the scalability video lecture"></span><h2 id="step-1-review-the-scalability-video-lecture">Step 1: Review the scalability video lecture</h2>
+<p><a href="https://www.youtube.com/watch?v=-W9F__D3oY4">Scalability Lecture at Harvard</a></p>
+<ul>
+<li>Topics covered:<ul>
+<li>Vertical scaling</li>
+<li>Horizontal scaling</li>
+<li>Caching</li>
+<li>Load balancing</li>
+<li>Database replication</li>
+<li>Database partitioning</li>
+</ul>
+</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L378">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="kcd6ffe7c8f32"></a></p>
+<span class="heading-anchor" id="Strong consistency"></span><h2 id="strong-consistency">Strong consistency</h2>
+<p>After a write, reads will see it.  Data is replicated synchronously.</p>
+<p>This approach is seen in file systems and RDBMSes.  Strong consistency works well in systems that need transactions.</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L489">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="kb4c3bbc3eaa9"></a></p>
+<span class="heading-anchor" id="Task queues"></span><h2 id="task-queues">Task queues</h2>
+<p>Tasks queues receive tasks and their related data, runs them, then delivers their results.  They can support scheduling and can be used to run computationally-intensive jobs in the background.</p>
+<p><strong><a href="https://docs.celeryproject.org/en/stable/">Celery</a></strong> has support for scheduling and primarily has python support.</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L1349">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="ke41f47bce669"></a></p>
+<span class="heading-anchor" id="Tighten up the schema"></span><h2 id="tighten-up-the-schema">Tighten up the schema</h2>
+<ul>
+<li>MySQL dumps to disk in contiguous blocks for fast access.</li>
+<li>Use <code>CHAR</code> instead of <code>VARCHAR</code> for fixed-length fields.<ul>
+<li><code>CHAR</code> effectively allows for fast, random access, whereas with <code>VARCHAR</code>, you must find the end of a string before moving onto the next one.</li>
+</ul>
+</li>
+<li>Use <code>TEXT</code> for large blocks of text such as blog posts.  <code>TEXT</code> also allows for boolean searches.  Using a <code>TEXT</code> field results in storing a pointer on disk that is used to locate the text block.</li>
+<li>Use <code>INT</code> for larger numbers up to 2^32 or 4 billion.</li>
+<li>Use <code>DECIMAL</code> for currency to avoid floating point representation errors.</li>
+<li>Avoid storing large <code>BLOBS</code>, store the location of where to get the object instead.</li>
+<li><code>VARCHAR(255)</code> is the largest number of characters that can be counted in an 8 bit number, often maximizing the use of a byte in some RDBMS.</li>
+<li>Set the <code>NOT NULL</code> constraint where applicable to <a href="http://stackoverflow.com/questions/1017239/how-do-null-values-affect-performance-in-a-database-search">improve search performance</a>.</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L952">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="k432214194dc5"></a></p>
+<span class="heading-anchor" id="TimeoutEnabled"></span><h2 id="timeoutenabled">TimeoutEnabled</h2>
+<p>这个参数用于控制是否要打开 timeout 机制，默认值是 true。</p>
+<pre><code class="language-java">HystrixCommandProperties.Setter()
+    .withExecutionTimeoutEnabled(boolean)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-timeout.md#L26">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k4904eb7a200a"></a></p>
+<span class="heading-anchor" id="TimeoutMilliseconds"></span><h2 id="timeoutmilliseconds">TimeoutMilliseconds</h2>
+<p>在 Hystrix 中，我们可以手动设置 timeout 时长，如果一个 command 运行时间超过了设定的时长，那么就被认为是 timeout，然后 Hystrix command 标识为 timeout，同时执行 fallback 降级逻辑。</p>
+<p><code>TimeoutMilliseconds</code> 默认值是 1000，也就是 1000ms。</p>
+<pre><code class="language-java">HystrixCommandProperties.Setter()
+    ..withExecutionTimeoutInMilliseconds(int)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-timeout.md#L15">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka07f917df83d"></a></p>
+<span class="heading-anchor" id="Type"></span><h2 id="type">Type</h2>
+<p>类型，每个索引里可以有一个或者多个 type，type 是 index 的一个逻辑分类，比如商品 index 下有多个 type：日化商品 type、电器商品 type、生鲜商品 type。每个 type 下的 document 的 field 可能不太一样。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-introduction.md#L48">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kf0ac9d3b042d"></a></p>
+<span class="heading-anchor" id="Under development"></span><h2 id="under-development">Under development</h2>
+<p>Interested in adding a section or helping complete one in-progress?  <a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#contributing">Contribute</a>!</p>
+<ul>
+<li>Distributed computing with MapReduce</li>
+<li>Consistent hashing</li>
+<li>Scatter gather</li>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#contributing">Contribute</a></li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L1800">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="k2a4110c8bf39"></a></p>
+<span class="heading-anchor" id="Use good indices"></span><h2 id="use-good-indices">Use good indices</h2>
+<ul>
+<li>Columns that you are querying (<code>SELECT</code>, <code>GROUP BY</code>, <code>ORDER BY</code>, <code>JOIN</code>) could be faster with indices.</li>
+<li>Indices are usually represented as self-balancing <a href="https://en.wikipedia.org/wiki/B-tree">B-tree</a> that keeps data sorted and allows searches, sequential access, insertions, and deletions in logarithmic time.</li>
+<li>Placing an index can keep the data in memory, requiring more space.</li>
+<li>Writes could also be slower since the index also needs to be updated.</li>
+<li>When loading large amounts of data, it might be faster to disable indices, load the data, then rebuild the indices.</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L964">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="k14d762fd83a3"></a></p>
+<span class="heading-anchor" id="Weak consistency"></span><h2 id="weak-consistency">Weak consistency</h2>
+<p>After a write, reads may or may not see it.  A best effort approach is taken.</p>
+<p>This approach is seen in systems such as memcached.  Weak consistency works well in real time use cases such as VoIP, video chat, and realtime multiplayer games.  For example, if you are on a phone call and lose reception for a few seconds, when you regain connection you do not hear what was spoken during connection loss.</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L477">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="kf3aab9f37b32"></a></p>
+<span class="heading-anchor" id="When to update the cache"></span><h2 id="when-to-update-the-cache">When to update the cache</h2>
+<p>Since you can only store a limited amount of data in cache, you'll need to determine which cache update strategy works best for your use case.</p>
+<span class="heading-anchor" id="Cache-aside"></span><h3 id="cache-aside">Cache-aside</h3>
+<p><img loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/donnemartin/system-design-primer/ae9bbd7b02d90b9866215de185217d33f39ab733/images/ONjORqk.png"/></p>
+<p><i><a href="http://www.slideshare.net/tmatyashovsky/from-cache-to-in-memory-data-grid-introduction-to-hazelcast">Source: From cache to in-memory data grid</a></i></p>
+<p>The application is responsible for reading and writing from storage.  The cache does not interact with storage directly.  The application does the following:</p>
+<ul>
+<li>Look for entry in cache, resulting in a cache miss</li>
+<li>Load entry from the database</li>
+<li>Add entry to cache</li>
+<li>Return entry</li>
+</ul>
+<pre><code class="language-python">def get_user(self, user_id):
+    user = cache.get("user.{0}", user_id)
+    if user is None:
+        user = db.query("SELECT * FROM users WHERE user_id = {0}", user_id)
+        if user is not None:
+            key = "user.{0}".format(user_id)
+            cache.set(key, json.dumps(user))
+    return user
+</code></pre>
+<p><a href="https://memcached.org/">Memcached</a> is generally used in this manner.</p>
+<p>Subsequent reads of data added to cache are fast.  Cache-aside is also referred to as lazy loading.  Only requested data is cached, which avoids filling up the cache with data that isn't requested.</p>
+<span class="heading-anchor" id="Disadvantage(s): cache-aside"></span><h3 id="disadvantages-cache-aside">Disadvantage(s): cache-aside</h3>
+<ul>
+<li>Each cache miss results in three trips, which can cause a noticeable delay.</li>
+<li>Data can become stale if it is updated in the database.  This issue is mitigated by setting a time-to-live (TTL) which forces an update of the cache entry, or by using write-through.</li>
+<li>When a node fails, it is replaced by a new, empty node, increasing latency.</li>
+</ul>
+<span class="heading-anchor" id="Write-through"></span><h3 id="write-through">Write-through</h3>
+<p><img loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/donnemartin/system-design-primer/ae9bbd7b02d90b9866215de185217d33f39ab733/images/0vBc0hN.png"/></p>
+<p><i><a href="http://www.slideshare.net/jboner/scalability-availability-stability-patterns/">Source: Scalability, availability, stability, patterns</a></i></p>
+<p>The application uses the cache as the main data store, reading and writing data to it, while the cache is responsible for reading and writing to the database:</p>
+<ul>
+<li>Application adds/updates entry in cache</li>
+<li>Cache synchronously writes entry to data store</li>
+<li>Return</li>
+</ul>
+<p>Application code:</p>
+<pre><code class="language-python">set_user(12345, {"foo":"bar"})
+</code></pre>
+<p>Cache code:</p>
+<pre><code class="language-python">def set_user(user_id, values):
+    user = db.query("UPDATE Users WHERE id = {0}", user_id, values)
+    cache.set(user_id, user)
+</code></pre>
+<p>Write-through is a slow overall operation due to the write operation, but subsequent reads of just written data are fast.  Users are generally more tolerant of latency when updating data than reading data.  Data in the cache is not stale.</p>
+<span class="heading-anchor" id="Disadvantage(s): write through"></span><h3 id="disadvantages-write-through">Disadvantage(s): write through</h3>
+<ul>
+<li>When a new node is created due to failure or scaling, the new node will not cache entries until the entry is updated in the database.  Cache-aside in conjunction with write through can mitigate this issue.</li>
+<li>Most data written might never be read, which can be minimized with a TTL.</li>
+</ul>
+<span class="heading-anchor" id="Write-behind (write-back)"></span><h3 id="write-behind-write-back">Write-behind (write-back)</h3>
+<p><img loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/donnemartin/system-design-primer/ae9bbd7b02d90b9866215de185217d33f39ab733/images/rgSrvjG.png"/></p>
+<p>In write-behind, the application does the following:</p>
+<ul>
+<li>Add/update entry in cache</li>
+<li>Asynchronously write entry to the data store, improving write performance</li>
+</ul>
+<span class="heading-anchor" id="Disadvantage(s): write-behind"></span><h3 id="disadvantages-write-behind">Disadvantage(s): write-behind</h3>
+<ul>
+<li>There could be data loss if the cache goes down prior to its contents hitting the data store.</li>
+<li>It is more complex to implement write-behind than it is to implement cache-aside or write-through.</li>
+</ul>
+<span class="heading-anchor" id="Refresh-ahead"></span><h3 id="refresh-ahead">Refresh-ahead</h3>
+<p><img loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/donnemartin/system-design-primer/ae9bbd7b02d90b9866215de185217d33f39ab733/images/kxtjqgE.png"/></p>
+<p>You can configure the cache to automatically refresh any recently accessed cache entry prior to its expiration.</p>
+<p>Refresh-ahead can result in reduced latency vs read-through if the cache can accurately predict which items are likely to be needed in the future.</p>
+<span class="heading-anchor" id="Disadvantage(s): refresh-ahead"></span><h3 id="disadvantages-refresh-ahead">Disadvantage(s): refresh-ahead</h3>
+<ul>
+<li>Not accurately predicting which items are likely to be needed in the future can result in reduced performance than without refresh-ahead.</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/donnemartin/system-design-primer/blob/ae9bbd7b02d90b9866215de185217d33f39ab733/README.md#L1199">donnemartin/system-design-primer</a>，来源许可：CC-BY-4.0。</li>
+</ul>
+<p><a id="k2ed52ea0be05"></a></p>
+<span class="heading-anchor" id="不同的执行方式"></span><h2 id="_1_16">不同的执行方式</h2>
+<ul>
+<li>execute()，获取一个 Future.get()，然后拿到单个结果。</li>
+<li>queue()，返回一个 Future。</li>
+<li>observe()，立即订阅 Observable，然后启动 8 大执行步骤，返回一个拷贝的 Observable，订阅时立即回调给你结果。</li>
+<li>toObservable()，返回一个原始的 Observable，必须手动订阅才会去执行 8 大步骤。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-process.md#L163">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ked894bce12d9"></a></p>
+<span class="heading-anchor" id="为什么 PB 的效率是最高的？"></span><h2 id="pb">为什么 PB 的效率是最高的？</h2>
+<p>其实 PB 之所以性能如此好，主要得益于两个：<strong>第一</strong>，它使用 proto 编译器，自动进行序列化和反序列化，速度非常快，应该比 <code>XML</code> 和 <code>JSON</code> 快上了 <code>20~100</code> 倍；<strong>第二</strong>，它的数据压缩效果好，就是说它序列化后的数据量体积小。因为体积小，传输起来带宽和速度上会有优化。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/dubbo-serialization-protocol.md#L98">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kb75c0e8a9c51"></a></p>
+<span class="heading-anchor" id="为什么你需要这份小册？"></span><h2 id="_1_18">为什么你需要这份小册？</h2>
+<p>近年来，国内技术面试“越来越卷”。越来越多的公司（阿里、美团、字节、腾讯等）开始在面试中考察 <strong>系统设计</strong> 和 <strong>场景问题</strong>，以此来更全面地考察求职者的综合能力——不论是校招还是社招。</p>
+<blockquote>
+<p>很多同学八股文背得滚瓜烂熟，但一遇到“如何设计一个秒杀系统？”这类开放性问题就懵了。</p>
+</blockquote>
+<p><strong>系统设计和场景题的考察特点</strong>：</p>
+<ul>
+<li>✅ 没有标准答案，重点考察思维过程和架构能力</li>
+<li>✅ 考察对高并发、高可用、分布式等技术的综合运用</li>
+<li>✅ 考察解决实际问题的能力和工程经验</li>
+<li>⚠️ 正常面试不会全是场景题，一般会穿插 1-2 道来考察你</li>
+</ul>
+<p>于是，<strong>《后端面试高频系统设计&amp;场景题》</strong> 小册就诞生了！</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L15">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k4a096a938e3b"></a></p>
+<span class="heading-anchor" id="使用场景"></span><h2 id="_1_19">使用场景</h2>
+<p>对于一致性要求高、短流程、并发高 的场景，如：金融核心系统，会优先考虑 TCC 方案。而在另外一些场景下，我们并不需要这么强的一致性，只需要保证最终一致性即可。</p>
+<p>比如 很多金融核心以上的业务（渠道层、产品层、系统集成层），这些系统的特点是最终一致即可、流程多、流程长、还可能要调用其它公司的服务。这种情况如果选择 TCC 方案开发的话，一来成本高，二来无法要求其它公司的服务也遵循 TCC 模式。同时流程长，事务边界太长，加锁时间长，也会影响并发性能。</p>
+<p>所以 Saga 模式的适用场景是：</p>
+<ul>
+<li>业务流程长、业务流程多；</li>
+<li>参与者包含其它公司或遗留系统服务，无法提供 TCC 模式要求的三个接口。</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L66">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k4c1d0b44c6ea"></a></p>
+<span class="heading-anchor" id="信号量机制"></span><h2 id="_1_20">信号量机制</h2>
+<p>信号量的资源隔离只是起到一个开关的作用，比如，服务 A 的信号量大小为 10，那么就是说它同时只允许有 10 个 tomcat 线程来访问服务 A，其它的请求都会被拒绝，从而达到资源隔离和限流保护的作用。</p>
+<p><img alt="hystrix-semphore" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/hystrix-semphore.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-semphore-isolation.md#L14">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k2977308a85c9"></a></p>
+<span class="heading-anchor" id="信号量简单 Demo"></span><h2 id="demo">信号量简单 Demo</h2>
+<p>业务背景里，比较适合信号量的是什么场景呢？</p>
+<p>比如说，我们一般来说，缓存服务，可能会将一些量特别少、访问又特别频繁的数据，放在自己的纯内存中。</p>
+<p>举个栗子。一般我们在获取到商品数据之后，都要去获取商品是属于哪个地理位置、省、市、卖家等，可能在自己的纯内存中，比如就一个 Map 去获取。对于这种直接访问本地内存的逻辑，比较适合用信号量做一下简单的隔离。</p>
+<p>优点在于，不用自己管理线程池啦，不用 care timeout 超时啦，也不需要进行线程的上下文切换啦。信号量做隔离的话，性能相对来说会高一些。</p>
+<p>假如这是本地缓存，我们可以通过 cityId，拿到 cityName。</p>
+<pre><code class="language-java">public class LocationCache {
+    private static Map&lt;Long, String&gt; cityMap = new HashMap&lt;&gt;();
+
+    static {
+        cityMap.put(1L, "北京");
+    }
+
+    /**
+     * 通过cityId 获取 cityName
+     *
+     * @param cityId 城市id
+     * @return 城市名
+     */
+    public static String getCityName(Long cityId) {
+        return cityMap.get(cityId);
+    }
+}
+</code></pre>
+<p>写一个 GetCityNameCommand，策略设置为<strong>信号量</strong>。run() 方法中获取本地缓存。我们目的就是对获取本地缓存的代码进行资源隔离。</p>
+<pre><code class="language-java">public class GetCityNameCommand extends HystrixCommand&lt;String&gt; {
+
+    private Long cityId;
+
+    public GetCityNameCommand(Long cityId) {
+        // 设置信号量隔离策略
+        super(Setter.withGroupKey(HystrixCommandGroupKey.Factory.asKey("GetCityNameGroup"))
+                .andCommandPropertiesDefaults(HystrixCommandProperties.Setter()
+                        .withExecutionIsolationStrategy(HystrixCommandProperties.ExecutionIsolationStrategy.SEMAPHORE)));
+
+        this.cityId = cityId;
+    }
+
+    @Override
+    protected String run() {
+        // 需要进行信号量隔离的代码
+        return LocationCache.getCityName(cityId);
+    }
+}
+</code></pre>
+<p>在接口层，通过创建 GetCityNameCommand，传入 cityId，执行 execute() 方法，那么获取本地 cityName 缓存的代码将会进行信号量的资源隔离。</p>
+<pre><code class="language-java">@RequestMapping("/getProductInfo")
+@ResponseBody
+public String getProductInfo(Long productId) {
+    HystrixCommand&lt;ProductInfo&gt; getProductInfoCommand = new GetProductInfoCommand(productId);
+
+    // 通过command执行，获取最新商品数据
+    ProductInfo productInfo = getProductInfoCommand.execute();
+
+    Long cityId = productInfo.getCityId();
+
+    GetCityNameCommand getCityNameCommand = new GetCityNameCommand(cityId);
+    // 获取本地内存(cityName)的代码会被信号量进行资源隔离
+    String cityName = getCityNameCommand.execute();
+
+    productInfo.setCityName(cityName);
+
+    System.out.println(productInfo);
+    return "success";
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-semphore-isolation.md#L33">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k59942112cc0c"></a></p>
+<span class="heading-anchor" id="冗余与容灾"></span><h2 id="_1_22">冗余与容灾</h2>
+<p>冗余解决“备用资源在哪里”，容灾还要处理检测、切换、数据复制和恢复。对无状态服务，自动摘除故障实例通常比较容易；数据库主切、跨地域切流和资金链路涉及数据风险，往往需要更谨慎的确认与回切方案。</p>
+<p><img alt="RTO 与 RPO" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-availability/redundancy-optimized-rto-rpo-timeline.png"/></p>
+<p>相关内容：<a href="https://javaguide.cn/high-availability/redundancy.html">冗余设计详解</a></p>
+<p>常见面试题：</p>
+<ul>
+<li>什么是冗余？服务、数据库、缓存和机房分别怎样做冗余？</li>
+<li>RTO 和 RPO 分别约束什么？RPO=0 会带来哪些代价？</li>
+<li>冷备、温备、热备和多活有什么区别？</li>
+<li>同城灾备、同城多活和异地多活应该怎样选择？</li>
+<li>什么是故障转移？自动切换和人工确认分别适合哪些场景？</li>
+<li>故障检测太快或太慢会带来什么问题？</li>
+<li>网络分区为什么可能导致脑裂？多数派、租约和 fencing 怎样避免双主写入？</li>
+<li>Redis Sentinel 故障转移能否保证 RPO=0？<code>quorum</code> 在选举中起什么作用？</li>
+</ul>
+<p>RTO/RPO 给出容灾目标，完成配置并不能证明系统已经达到目标。备份能否恢复、流量能否切走、切换后数据是否完整，都要靠定期演练验证。订单查询和资金记账对恢复时间、数据丢失的容忍度不同，也没必要强行使用同一套指标。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md#L56">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k5027e352c000"></a></p>
+<span class="heading-anchor" id="写数据底层原理"></span><h2 id="_1_23">写数据底层原理</h2>
+<p><img alt="es-write-detail" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/es-write-detail.png"/></p>
+<p>先写入内存 buffer，在 buffer 里的时候数据是搜索不到的；同时将数据写入 translog 日志文件。</p>
+<p>如果 buffer 快满了，或者到一定时间，就会将内存 buffer 数据 <code>refresh</code> 到一个新的 <code>segment file</code> 中，但是此时数据不是直接进入 <code>segment file</code> 磁盘文件，而是先进入 <code>os cache</code> 。这个过程就是 <code>refresh</code> 。</p>
+<p>每隔 1 秒钟，es 将 buffer 中的数据写入一个<strong>新的</strong> <code>segment file</code> ，每秒钟会产生一个<strong>新的磁盘文件</strong> <code>segment file</code> ，这个 <code>segment file</code> 中就存储最近 1 秒内 buffer 中写入的数据。</p>
+<p>但是如果 buffer 里面此时没有数据，那当然不会执行 refresh 操作，如果 buffer 里面有数据，默认 1 秒钟执行一次 refresh 操作，刷入一个新的 segment file 中。</p>
+<p>操作系统里面，磁盘文件其实都有一个东西，叫做 <code>os cache</code> ，即操作系统缓存，就是说数据写入磁盘文件之前，会先进入 <code>os cache</code> ，先进入操作系统级别的一个内存缓存中去。只要 <code>buffer</code> 中的数据被 refresh 操作刷入 <code>os cache</code> 中，这个数据就可以被搜索到了。</p>
+<p>为什么叫 es 是<strong>准实时</strong>的？ <code>NRT</code> ，全称 <code>near real-time</code> 。默认是每隔 1 秒 refresh 一次的，所以 es 是准实时的，因为写入的数据 1 秒之后才能被看到。可以通过 es 的 <code>restful api</code> 或者 <code>java api</code> ，<strong>手动</strong>执行一次 refresh 操作，就是手动将 buffer 中的数据刷入 <code>os cache</code> 中，让数据立马就可以被搜索到。只要数据被输入 <code>os cache</code> 中，buffer 就会被清空了，因为不需要保留 buffer 了，数据在 translog 里面已经持久化到磁盘去一份了。</p>
+<p>重复上面的步骤，新的数据不断进入 buffer 和 translog，不断将 <code>buffer</code> 数据写入一个又一个新的 <code>segment file</code> 中去，每次 <code>refresh</code> 完 buffer 清空，translog 保留。随着这个过程推进，translog 会变得越来越大。当 translog 达到一定长度的时候，就会触发 <code>commit</code> 操作。</p>
+<p>commit 操作发生第一步，就是将 buffer 中现有数据 <code>refresh</code> 到 <code>os cache</code> 中去，清空 buffer。然后，将一个 <code>commit point</code> 写入磁盘文件，里面标识着这个 <code>commit point</code> 对应的所有 <code>segment file</code> ，同时强行将 <code>os cache</code> 中目前所有的数据都 <code>fsync</code> 到磁盘文件中去。最后<strong>清空</strong> 现有 translog 日志文件，重启一个 translog，此时 commit 操作完成。</p>
+<p>这个 commit 操作叫做 <code>flush</code> 。默认 30 分钟自动执行一次 <code>flush</code> ，但如果 translog 过大，也会触发 <code>flush</code> 。flush 操作就对应着 commit 的全过程，我们可以通过 es api，手动执行 flush 操作，手动将 os cache 中的数据 fsync 强刷到磁盘上去。</p>
+<p>translog 日志文件的作用是什么？你执行 commit 操作之前，数据要么是停留在 buffer 中，要么是停留在 os cache 中，无论是 buffer 还是 os cache 都是内存，一旦这台机器死了，内存中的数据就全丢了。所以需要将数据对应的操作写入一个专门的日志文件 <code>translog</code> 中，一旦此时机器宕机，再次重启的时候，es 会自动读取 translog 日志文件中的数据，恢复到内存 buffer 和 os cache 中去。</p>
+<p>translog 其实也是先写入 os cache 的，默认每隔 5 秒刷一次到磁盘中去，所以默认情况下，可能有 5 秒的数据会仅仅停留在 buffer 或者 translog 文件的 os cache 中，如果此时机器挂了，会<strong>丢失</strong> 5 秒钟的数据。但是这样性能比较好，最多丢 5 秒的数据。也可以将 translog 设置成每次写操作必须是直接 <code>fsync</code> 到磁盘，但是性能会差很多。</p>
+<ul>
+<li><code>index.translog.sync_interval</code> 控制 translog 多久 fsync 到磁盘,最小为 100ms；</li>
+<li><code>index.translog.durability</code> translog 是每 5 秒钟刷新一次还是每次请求都 fsync，这个参数有 2 个取值：request(每次请求都执行 fsync,es 要等 translog fsync 到磁盘后才会返回成功)和 async(默认值，translog 每隔 5 秒钟 fsync 一次)。</li>
+</ul>
+<p>实际上你在这里，如果面试官没有问你 es 丢数据的问题，你可以在这里给面试官炫一把，你说，其实 es 第一是准实时的，数据写入 1 秒后可以搜索到；可能会丢失数据的。有 5 秒的数据，停留在 buffer、translog os cache、segment file os cache 中，而不在磁盘上，此时如果宕机，会导致 5 秒的<strong>数据丢失</strong>。</p>
+<p><strong>总结一下</strong>，数据先写入内存 buffer，然后每隔 1s，将数据 refresh 到 os cache，到了 os cache 数据就能被搜索到（所以我们才说 es 从写入到能被搜索到，中间有 1s 的延迟）。每隔 5s，将数据写入 translog 文件（这样如果机器宕机，内存数据全没，最多会有 5s 的数据丢失），translog 大到一定程度，或者默认每隔 30mins，会触发 commit 操作，将缓冲区的数据都 flush 到 segment file 磁盘文件中。</p>
+<blockquote>
+<p>数据写入 segment file 之后，同时就建立好了倒排索引。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-write-query-search.md#L52">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kaf45c942b479"></a></p>
+<span class="heading-anchor" id="冷热分离"></span><h2 id="_1_24">冷热分离</h2>
+<p>es 可以做类似于 mysql 的水平拆分，就是说将大量的访问很少、频率很低的数据，单独写一个索引，然后将访问很频繁的热数据单独写一个索引。最好是将<strong>冷数据写入一个索引中，然后热数据写入另外一个索引中</strong>，这样可以确保热数据在被预热之后，尽量都让他们留在 <code>filesystem os cache</code> 里，<strong>别让冷数据给冲刷掉</strong>。</p>
+<p>你看，假设你有 6 台机器，2 个索引，一个放冷数据，一个放热数据，每个索引 3 个 shard。3 台机器放热数据 index，另外 3 台机器放冷数据 index。然后这样的话，你大量的时间是在访问热数据 index，热数据可能就占总数据量的 10%，此时数据量很少，几乎全都保留在 <code>filesystem cache</code> 里面了，就可以确保热数据的访问性能是很高的。但是对于冷数据而言，是在别的 index 里的，跟热数据 index 不在相同的机器上，大家互相之间都没什么联系了。如果有人访问冷数据，可能大量数据是在磁盘上的，此时性能差点，就 10% 的人去访问冷数据，90% 的人在访问热数据，也无所谓了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-optimizing-query-performance.md#L51">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kb1bc02c79060"></a></p>
+<span class="heading-anchor" id="删除/更新数据底层原理"></span><h2 id="_1_25">删除/更新数据底层原理</h2>
+<p>如果是删除操作，commit 的时候会生成一个 <code>.del</code> 文件，里面将某个 doc 标识为 <code>deleted</code> 状态，那么搜索的时候根据 <code>.del</code> 文件就知道这个 doc 是否被删除了。</p>
+<p>如果是更新操作，就是将原来的 doc 标识为 <code>deleted</code> 状态，然后新写入一条数据。</p>
+<p>buffer 每 refresh 一次，就会产生一个 <code>segment file</code> ，所以默认情况下是 1 秒钟一个 <code>segment file</code> ，这样下来 <code>segment file</code> 会越来越多，此时会定期执行 merge。每次 merge 的时候，会将多个 <code>segment file</code> 合并成一个，同时这里会将标识为 <code>deleted</code> 的 doc 给<strong>物理删除掉</strong>，然后将新的 <code>segment file</code> 写入磁盘，这里会写一个 <code>commit point</code> ，标识所有新的 <code>segment file</code> ，然后打开 <code>segment file</code> 供搜索使用，同时删除旧的 <code>segment file</code> 。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-write-query-search.md#L87">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k97b14b1d02d3"></a></p>
+<span class="heading-anchor" id="利用 HystrixCommand 获取单条数据"></span><h2 id="hystrixcommand">利用 HystrixCommand 获取单条数据</h2>
+<p>我们通过将调用商品服务的操作封装在 HystrixCommand 中，限定一个 key，比如下面的 <code>GetProductInfoCommandGroup</code>，在这里我们可以简单认为这是一个线程池，每次调用商品服务，就只会用该线程池中的资源，不会再去用其它线程资源了。</p>
+<pre><code class="language-java">public class GetProductInfoCommand extends HystrixCommand&lt;ProductInfo&gt; {
+
+    private Long productId;
+
+    public GetProductInfoCommand(Long productId) {
+        super(HystrixCommandGroupKey.Factory.asKey("GetProductInfoCommandGroup"));
+        this.productId = productId;
+    }
+
+    @Override
+    protected ProductInfo run() {
+        String url = "http://localhost:8081/getProductInfo?productId=" + productId;
+        // 调用商品服务接口
+        String response = HttpClientUtils.sendGetRequest(url);
+        return JSONObject.parseObject(response, ProductInfo.class);
+    }
+}
+</code></pre>
+<p>我们在缓存服务接口中，根据 productId 创建 Command 并执行，获取到商品数据。</p>
+<pre><code class="language-java">@RequestMapping("/getProductInfo")
+@ResponseBody
+public String getProductInfo(Long productId) {
+    HystrixCommand&lt;ProductInfo&gt; getProductInfoCommand = new GetProductInfoCommand(productId);
+
+    // 通过command执行，获取最新商品数据
+    ProductInfo productInfo = getProductInfoCommand.execute();
+    System.out.println(productInfo);
+    return "success";
+}
+</code></pre>
+<p>上面执行的是 execute() 方法，其实是同步的。也可以对 command 调用 queue() 方法，它仅仅是将 command 放入线程池的一个等待队列，就立即返回，拿到一个 Future 对象，后面可以继续做其它一些事情，然后过一段时间对 Future 调用 get() 方法获取数据。这是异步的。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-thread-pool-isolation.md#L9">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kceca4444c160"></a></p>
+<span class="heading-anchor" id="利用 HystrixObservableCommand 批量获取数据"></span><h2 id="hystrixobservablecommand">利用 HystrixObservableCommand 批量获取数据</h2>
+<p>只要是获取商品数据，全部都绑定到同一个线程池里面去，我们通过 HystrixObservableCommand 的一个线程去执行，而在这个线程里面，批量把多个 productId 的 productInfo 拉回来。</p>
+<pre><code class="language-java">public class GetProductInfosCommand extends HystrixObservableCommand&lt;ProductInfo&gt; {
+
+    private String[] productIds;
+
+    public GetProductInfosCommand(String[] productIds) {
+        // 还是绑定在同一个线程池
+        super(HystrixCommandGroupKey.Factory.asKey("GetProductInfoGroup"));
+        this.productIds = productIds;
+    }
+
+    @Override
+    protected Observable&lt;ProductInfo&gt; construct() {
+        return Observable.unsafeCreate((Observable.OnSubscribe&lt;ProductInfo&gt;) subscriber -&gt; {
+
+            for (String productId : productIds) {
+                // 批量获取商品数据
+                String url = "http://localhost:8081/getProductInfo?productId=" + productId;
+                String response = HttpClientUtils.sendGetRequest(url);
+                ProductInfo productInfo = JSONObject.parseObject(response, ProductInfo.class);
+                subscriber.onNext(productInfo);
+            }
+            subscriber.onCompleted();
+
+        }).subscribeOn(Schedulers.io());
+    }
+}
+</code></pre>
+<p>在缓存服务接口中，根据传来的 id 列表，比如是以 <code>,</code> 分隔的 id 串，通过上面的 HystrixObservableCommand，执行 Hystrix 的一些 API 方法，获取到所有商品数据。</p>
+<pre><code class="language-java">public String getProductInfos(String productIds) {
+    String[] productIdArray = productIds.split(",");
+    HystrixObservableCommand&lt;ProductInfo&gt; getProductInfosCommand = new GetProductInfosCommand(productIdArray);
+    Observable&lt;ProductInfo&gt; observable = getProductInfosCommand.observe();
+
+    observable.subscribe(new Observer&lt;ProductInfo&gt;() {
+        @Override
+        public void onCompleted() {
+            System.out.println("获取完了所有的商品数据");
+        }
+
+        @Override
+        public void onError(Throwable e) {
+            e.printStackTrace();
+        }
+
+        /**
+         * 获取完一条数据，就回调一次这个方法
+         * @param productInfo
+         */
+        @Override
+        public void onNext(ProductInfo productInfo) {
+            System.out.println(productInfo);
+        }
+    });
+    return "success";
+}
+</code></pre>
+<p>我们回过头来，看看 Hystrix 线程池技术是如何实现资源隔离的。</p>
+<p><img alt="hystrix-thread-pool-isolation" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/hystrix-thread-pool-isolation.png"/></p>
+<p>从 Nginx 开始，缓存都失效了，那么 Nginx 通过缓存服务去调用商品服务。缓存服务默认的线程大小是 10 个，最多就只有 10 个线程去调用商品服务的接口。即使商品服务接口故障了，最多就只有 10 个线程会 hang 死在调用商品服务接口的路上，缓存服务的 Tomcat 内其它的线程还是可以用来调用其它的服务，干其它的事情。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-thread-pool-isolation.md#L50">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kff0a4f181f5d"></a></p>
+<span class="heading-anchor" id="发起请求"></span><h2 id="_1_28">发起请求</h2>
+<p>调用接口，查询多个商品的信息。</p>
+<pre><code>http://localhost:8080/getProductInfos?productIds=1,1,1,2,2,5
+</code></pre>
+<p>在控制台，我们可以看到以下结果。</p>
+<pre><code>调用接口查询商品数据，productId=1
+是否是从缓存中取的结果：false
+是否是从缓存中取的结果：true
+是否是从缓存中取的结果：true
+调用接口查询商品数据，productId=2
+是否是从缓存中取的结果：false
+是否是从缓存中取的结果：true
+调用接口查询商品数据，productId=5
+是否是从缓存中取的结果：false
+</code></pre>
+<p>第一次查询 productId=1 的数据，会调用接口进行查询，不是从缓存中取结果。而随后再出现查询 productId=1 的请求，就直接取缓存了，这样的话，效率明显高很多。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-request-cache.md#L156">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k8a3d8d557a44"></a></p>
+<span class="heading-anchor" id="可观测、评测与发布"></span><h2 id="_1_29">可观测、评测与发布</h2>
+<p>相关内容：<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/llm-basis/llm-evaluation.md">《AI 应用评测体系：从 Golden Set 构建到线上灰度闭环》</a>、<a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/system-design/ai-application-architecture.md">《AI 应用系统设计：从 Prompt Demo 到生产级架构》</a></p>
+<p>AI 应用的发布检查除了接口是否成功，还要覆盖答案质量、检索结果、工具轨迹和结构化输出。模型、Prompt、检索配置和代码发生变化时，都需要能够比较和回滚。</p>
+<p>常见面试题：</p>
+<ul>
+<li>AI 应用的可观测指标应该包括哪些内容？</li>
+<li>为什么没有评测集就很难判断一次改动是否有效？</li>
+<li>Golden Set 如何覆盖正常路径、边缘场景、对抗样本和高风险失败？</li>
+<li>离线评测、Trace 回放和线上灰度分别解决什么问题？</li>
+<li>RAG、Agent 和结构化输出为什么不能共用一套评测指标？</li>
+<li>LLM-as-Judge 有哪些偏差？如何用人工抽样和规则校验进行校准？</li>
+<li>CI 中的 AI 评测如何控制成本和运行时间？</li>
+<li>评测记录为什么要绑定模型、Prompt、检索配置和代码版本？</li>
+<li>线上质量下降时，如何区分模型、Prompt、检索、工具和数据分布问题？</li>
+<li>AI 应用如何设计灰度、回滚和失败样本回流？</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/ai/interview-questions/ai-system-design-interview-questions.md#L76">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k363c8124138e"></a></p>
+<span class="heading-anchor" id="基本原理"></span><h2 id="_1_30">基本原理</h2>
+<p>业务流程中每个参与者都提交本地事务，若某一个参与者失败，则补偿前面已经成功的参与者。下图左侧是正常的事务流程，当执行到 T3 时发生了错误，则开始执行右边的事务补偿流程，反向执行 T3、T2、T1 的补偿服务 C3、C2、C1，将 T3、T2、T1 已经修改的数据补偿掉。</p>
+<p><img alt="distributed-transacion-TCC" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/distributed-transaction-saga.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L60">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kfb64be6c2572"></a></p>
+<span class="heading-anchor" id="复习时先抓住哪些问题？"></span><h2 id="_1_31">复习时先抓住哪些问题？</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>需要讲清楚的内容</th>
+<th>常见追问方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>架构与拆分</td>
+<td>为什么拆、按什么拆、拆到什么粒度</td>
+<td>单体、集群、分布式、限界上下文、服务边界、分布式单体</td>
+</tr>
+<tr>
+<td>通信与基础设施</td>
+<td>服务怎样调用和发现彼此，外部请求怎样进入系统</td>
+<td>REST、RPC、消息队列、注册发现、API 网关、配置中心</td>
+</tr>
+<tr>
+<td>数据与一致性</td>
+<td>服务各自管理数据后，跨服务查询和业务事务怎样处理</td>
+<td>Database per Service、聚合查询、Saga、事务消息、Outbox、幂等</td>
+</tr>
+<tr>
+<td>稳定性与交付</td>
+<td>局部故障怎样被控制，服务怎样安全发布和扩缩容</td>
+<td>超时、重试、熔断、限流、隔离、探针、优雅停机、兼容性</td>
+</tr>
+<tr>
+<td>可观测性与安全</td>
+<td>出现问题后怎样定位调用链，身份和权限怎样跨服务传递</td>
+<td>日志、指标、追踪、告警、网关鉴权、服务端授权</td>
+</tr>
+</tbody>
+</table></div>
+<p>回答微服务问题时，组件名称只是方案的一部分。还要说明拆分依据、数据归属、失败时的处理方式，以及团队是否具备独立开发、部署和运维这些服务的能力。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_11">补充说明</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>需要讲清楚的内容</th>
+<th>常见追问方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>分布式理论</td>
+<td>节点和网络都不可靠时，系统怎样在一致性与可用性之间取舍</td>
+<td>CAP、BASE、共识算法、Gossip、一致性哈希</td>
+</tr>
+<tr>
+<td>RPC 与网关</td>
+<td>请求怎样进入系统，服务之间又怎样完成调用</td>
+<td>注册发现、负载均衡、序列化、超时重试、路由和限流</td>
+</tr>
+<tr>
+<td>ID、锁与事务</td>
+<td>多个节点同时读写数据时，怎样控制唯一性、互斥和业务一致性</td>
+<td>Snowflake、Redis 锁、2PC、TCC、事务消息、Saga</td>
+</tr>
+<tr>
+<td>配置与协调</td>
+<td>节点怎样发现配置变化并协同工作</td>
+<td>配置推送、版本管理、ZooKeeper 节点、Watcher、Leader 选举</td>
+</tr>
+</tbody>
+</table></div>
+<p>回答这些问题时，不要停在“方案有哪些”。至少还要说明选型条件、失败时会发生什么，以及项目里准备了哪些兜底措施。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>需要讲清楚的内容</th>
+<th>常见追问方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>高可用基础</td>
+<td>可用性如何衡量，怎样减少故障发生率和影响范围</td>
+<td>SLA、可用性指标、单点故障、灰度发布</td>
+</tr>
+<tr>
+<td>冗余与容灾</td>
+<td>节点或机房故障后，备用资源怎样接管流量和数据</td>
+<td>RTO、RPO、冷备/热备、多活、故障转移、脑裂</td>
+</tr>
+<tr>
+<td>限流、降级与熔断</td>
+<td>流量超过容量或下游持续异常时，怎样保护服务</td>
+<td>限流算法、降级、熔断、隔离、Sentinel</td>
+</tr>
+<tr>
+<td>超时、重试与幂等</td>
+<td>远程调用失败后能否重试，怎样避免重复写入</td>
+<td>Deadline、退避、Retry Budget、幂等键、状态机</td>
+</tr>
+<tr>
+<td>性能与故障治理</td>
+<td>如何确定容量、发现瓶颈并验证容错方案</td>
+<td>P99、压测、容量评估、缓存问题、故障演练</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些机制需要放到一条调用链里理解。入口流量过大时先限流，下游响应过慢要及时超时，瞬态错误可以在预算内重试，持续异常则触发熔断；写请求还要用幂等机制防止重复副作用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/microservices-interview-questions.md#L21">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/distributed-system-interview-questions.md#L21">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md#L25">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k429881f8919b"></a></p>
+<span class="heading-anchor" id="大数据量场景"></span><h2 id="_1_32">大数据量场景</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>核心知识点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>40 亿个 QQ 号，限制 1G 内存，如何去重？</strong></td>
+<td>位图、布隆过滤器、分治思想、外部排序</td>
+</tr>
+<tr>
+<td>⭐ <strong>日活上亿，如何保证推荐视频不重复？</strong></td>
+<td>布隆过滤器、Redis Set、去重策略、空间优化</td>
+</tr>
+<tr>
+<td>⭐ <strong>大数据 Top K 问题</strong></td>
+<td>堆排序、快速选择、分治、MapReduce</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L82">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k4c79a2cc3099"></a></p>
+<span class="heading-anchor" id="如何做技术选型？Sentinel 还是 Hystrix？"></span><h2 id="sentinel-hystrix">如何做技术选型？Sentinel 还是 Hystrix？</h2>
+<p>Sentinel 是阿里中间件团队研发的面向分布式服务架构的轻量级高可用流量控制组件，于 2018 年 7 月正式开源。Sentinel 主要以流量为切入点，从流量控制、熔断降级、系统负载保护等多个维度来帮助用户提升服务的稳定性。大家可能会问：Sentinel 和之前经常用到的熔断降级库 Netflix Hystrix 有什么异同呢？本文将从资源模型和执行模型、隔离设计、熔断降级、实时指标统计设计等角度将 Sentinel 和 Hystrix 进行对比，希望在面临技术选型的时候，对各位开发者能有所帮助。</p>
+<p>Sentinel 项目地址：https://github.com/alibaba/Sentinel</p>
+<span class="heading-anchor" id="总体说明"></span><h3 id="_1_33">总体说明</h3>
+<p>先来看一下 Hystrix 的官方介绍：</p>
+<blockquote>
+<p>Hystrix is a library that helps you control the interactions between these distributed services by adding latency tolerance and fault tolerance logic. Hystrix does this by isolating points of access between the services, stopping cascading failures across them, and providing fallback options, all of which improve your system’s overall resiliency.</p>
+</blockquote>
+<p>可以看到 Hystrix 的关注点在于以隔离和熔断为主的容错机制，超时或被熔断的调用将会快速失败，并可以提供 fallback 机制。</p>
+<p>而 Sentinel 的侧重点在于：</p>
+<ul>
+<li>多样化的流量控制</li>
+<li>熔断降级</li>
+<li>系统负载保护</li>
+<li>实时监控和控制台</li>
+</ul>
+<p>两者解决的问题还是有比较大的不同的，下面我们来具体对比一下。</p>
+<span class="heading-anchor" id="1. 资源模型和执行模型上的对比"></span><h3 id="1">1. 资源模型和执行模型上的对比</h3>
+<p>Hystrix 的资源模型设计上采用了命令模式，将对外部资源的调用和 fallback 逻辑封装成一个命令对象 <code>HystrixCommand</code> 或 <code>HystrixObservableCommand</code>，其底层的执行是基于 RxJava 实现的。每个 Command 创建时都要指定 <code>commandKey</code> 和 <code>groupKey</code>（用于区分资源）以及对应的隔离策略（线程池隔离 or 信号量隔离）。线程池隔离模式下需要配置线程池对应的参数（线程池名称、容量、排队超时等），然后 Command 就会在指定的线程池按照指定的容错策略执行；信号量隔离模式下需要配置最大并发数，执行 Command 时 Hystrix 就会限制其并发调用。</p>
+<p><strong>注</strong>：关于 Hystrix 的详细介绍及代码演示，可以参考本项目<a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/README.md">高可用架构</a>-Hystrix 部分的详细说明。</p>
+<p>Sentinel 的设计则更为简单。相比 Hystrix Command 强依赖隔离规则，Sentinel 的资源定义与规则配置的耦合度更低。Hystrix 的 Command 强依赖于隔离规则配置的原因是隔离规则会直接影响 Command 的执行。在执行的时候 Hystrix 会解析 Command 的隔离规则来创建 RxJava Scheduler 并在其上调度执行，若是线程池模式则 Scheduler 底层的线程池为配置的线程池，若是信号量模式则简单包装成当前线程执行的 Scheduler。</p>
+<p>而 Sentinel 则不一样，开发的时候只需要考虑这个方法/代码是否需要保护，至于用什么来保护，可以任何时候动态实时的去修改。</p>
+<p>从 <code>0.1.1</code> 版本开始，Sentinel 还支持基于注解的资源定义方式，可以通过注解参数指定异常处理函数和 fallback 函数。Sentinel 提供多样化的规则配置方式。除了直接通过 <code>loadRules</code> API 将规则注册到内存态之外，用户还可以注册各种外部数据源来提供动态的规则。用户可以根据系统当前的实时情况去动态地变更规则配置，数据源会将变更推送至 Sentinel 并即时生效。</p>
+<span class="heading-anchor" id="2. 隔离设计上的对比"></span><h3 id="2">2. 隔离设计上的对比</h3>
+<p>隔离是 Hystrix 的核心功能之一。Hystrix 提供两种隔离策略：线程池隔离 <code>Bulkhead Pattern</code> 和信号量隔离，其中最推荐也是最常用的是<strong>线程池隔离</strong>。Hystrix 的线程池隔离针对不同的资源分别创建不同的线程池，不同服务调用都发生在不同的线程池中，在线程池排队、超时等阻塞情况时可以快速失败，并可以提供 fallback 机制。线程池隔离的好处是隔离度比较高，可以针对某个资源的线程池去进行处理而不影响其它资源，但是代价就是线程上下文切换的 overhead 比较大，特别是对低延时的调用有比较大的影响。</p>
+<p>但是，实际情况下，线程池隔离并没有带来非常多的好处。最直接的影响，就是会让机器资源碎片化。考虑这样一个常见的场景，在 Tomcat 之类的 Servlet 容器使用 Hystrix，本身 Tomcat 自身的线程数目就非常多了（可能到几十或一百多），如果加上 Hystrix 为各个资源创建的线程池，总共线程数目会非常多（几百个线程），这样上下文切换会有非常大的损耗。另外，线程池模式比较彻底的隔离性使得 Hystrix 可以针对不同资源线程池的排队、超时情况分别进行处理，但这其实是超时熔断和流量控制要解决的问题，如果组件具备了超时熔断和流量控制的能力，线程池隔离就显得没有那么必要了。</p>
+<p>Hystrix 的信号量隔离限制对某个资源调用的并发数。这样的隔离非常轻量级，仅限制对某个资源调用的并发数，而不是显式地去创建线程池，所以 overhead 比较小，但是效果不错。但缺点是无法对慢调用自动进行降级，只能等待客户端自己超时，因此仍然可能会出现级联阻塞的情况。</p>
+<p>Sentinel 可以通过并发线程数模式的流量控制来提供信号量隔离的功能。并且结合基于响应时间的熔断降级模式，可以在不稳定资源的平均响应时间比较高的时候自动降级，防止过多的慢调用占满并发数，影响整个系统。</p>
+<span class="heading-anchor" id="3. 熔断降级的对比"></span><h3 id="3">3. 熔断降级的对比</h3>
+<p>Sentinel 和 Hystrix 的熔断降级功能本质上都是基于熔断器模式 <code>Circuit Breaker Pattern</code>。Sentinel 与 Hystrix 都支持基于失败比率（异常比率）的熔断降级，在调用达到一定量级并且失败比率达到设定的阈值时自动进行熔断，此时所有对该资源的调用都会被 block，直到过了指定的时间窗口后才启发性地恢复。上面提到过，Sentinel 还支持基于平均响应时间的熔断降级，可以在服务响应时间持续飙高的时候自动熔断，拒绝掉更多的请求，直到一段时间后才恢复。这样可以防止调用非常慢造成级联阻塞的情况。</p>
+<span class="heading-anchor" id="4. 实时指标统计实现的对比"></span><h3 id="4">4. 实时指标统计实现的对比</h3>
+<p>Hystrix 和 Sentinel 的实时指标数据统计实现都是基于滑动窗口的。Hystrix 1.5 之前的版本是通过环形数组实现的滑动窗口，通过锁配合 CAS 的操作对每个桶的统计信息进行更新。Hystrix 1.5 开始对实时指标统计的实现进行了重构，将指标统计数据结构抽象成了响应式流（reactive stream）的形式，方便消费者去利用指标信息。同时底层改造成了基于 RxJava 的事件驱动模式，在服务调用成功/失败/超时的时候发布相应的事件，通过一系列的变换和聚合最终得到实时的指标统计数据流，可以被熔断器或 Dashboard 消费。</p>
+<p>Sentinel 目前抽象出了 Metric 指标统计接口，底层可以有不同的实现，目前默认的实现是基于 LeapArray 的滑动窗口，后续根据需要可能会引入 reactive stream 等实现。</p>
+<span class="heading-anchor" id="Sentinel 特性"></span><h3 id="sentinel">Sentinel 特性</h3>
+<p>除了之前提到的两者的共同特性之外，Sentinel 还提供以下的特色功能：</p>
+<span class="heading-anchor" id="1. 轻量级、高性能"></span><h3 id="1_1">1. 轻量级、高性能</h3>
+<p>Sentinel 作为一个功能完备的高可用流量管控组件，其核心 sentinel-core 没有任何多余依赖，打包后只有不到 200KB，非常轻量级。开发者可以放心地引入 sentinel-core 而不需担心依赖问题。同时，Sentinel 提供了多种扩展点，用户可以很方便地根据需求去进行扩展，并且无缝地切合到 Sentinel 中。</p>
+<p>引入 Sentinel 带来的性能损耗非常小。只有在业务单机量级超过 25W QPS 的时候才会有一些显著的影响（5% - 10% 左右），单机 QPS 不太大的时候损耗几乎可以忽略不计。</p>
+<span class="heading-anchor" id="2. 流量控制"></span><h3 id="2_1">2. 流量控制</h3>
+<p>Sentinel 可以针对不同的调用关系，以不同的运行指标（如 QPS、并发调用数、系统负载等）为基准，对资源调用进行流量控制，将随机的请求调整成合适的形状。</p>
+<p>Sentinel 支持多样化的流量整形策略，在 QPS 过高的时候可以自动将流量调整成合适的形状。常用的有：</p>
+<ul>
+<li><strong>直接拒绝模式</strong>：即超出的请求直接拒绝。</li>
+<li>
+<p><strong>慢启动预热模式</strong>：当流量激增的时候，控制流量通过的速率，让通过的流量缓慢增加，在一定时间内逐渐增加到阈值上限，给冷系统一个预热的时间，避免冷系统被压垮。
+    <img alt="Slow-Start-Preheating-Mode" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/Slow-Start-Preheating-Mode.jpg"/></p>
+</li>
+<li>
+<p><strong>匀速器模式</strong>：利用 Leaky Bucket 算法实现的匀速模式，严格控制了请求通过的时间间隔，同时堆积的请求将会排队，超过超时时长的请求直接被拒绝。Sentinel 还支持基于调用关系的限流，包括基于调用方限流、基于调用链入口限流、关联流量限流等，依托于 Sentinel 强大的调用链路统计信息，可以提供精准的不同维度的限流。
+    <img alt="Homogenizer-mode" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/Homogenizer-mode.jpg"/></p>
+</li>
+</ul>
+<p>目前 Sentinel 对异步调用链路的支持还不是很好，后续版本会着重改善支持异步调用。</p>
+<span class="heading-anchor" id="3. 系统负载保护"></span><h3 id="3_1">3. 系统负载保护</h3>
+<p>Sentinel 对系统的维度提供保护，负载保护算法借鉴了 TCP BBR 的思想。当系统负载较高的时候，如果仍持续让请求进入，可能会导致系统崩溃，无法响应。在集群环境下，网络负载均衡会把本应这台机器承载的流量转发到其它的机器上去。如果这个时候其它的机器也处在一个边缘状态的时候，这个增加的流量就会导致这台机器也崩溃，最后导致整个集群不可用。针对这个情况，Sentinel 提供了对应的保护机制，让系统的入口流量和系统的负载达到一个平衡，保证系统在能力范围之内处理最多的请求。</p>
+<p><img alt="BRP" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/BRP.jpg"/></p>
+<span class="heading-anchor" id="4. 实时监控和控制面板"></span><h3 id="4_1">4. 实时监控和控制面板</h3>
+<p>Sentinel 提供 HTTP API 用于获取实时的监控信息，如调用链路统计信息、簇点信息、规则信息等。如果用户正在使用 Spring Boot/Spring Cloud 并使用了 Sentinel Spring Cloud Starter，还可以方便地通过其暴露的 Actuator Endpoint 来获取运行时的一些信息，如动态规则等。未来 Sentinel 还会支持标准化的指标监控 API，可以方便地整合各种监控系统和可视化系统，如 Prometheus、Grafana 等。</p>
+<p>Sentinel 控制台（Dashboard）提供了机器发现、配置规则、查看实时监控、查看调用链路信息等功能，使得用户可以非常方便地去查看监控和进行配置。</p>
+<p><img alt="Sentinel-Dashboard" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/images/Sentinel-Dashboard.jpg"/></p>
+<span class="heading-anchor" id="5. 生态"></span><h3 id="5">5. 生态</h3>
+<p>Sentinel 目前已经针对 Servlet、Dubbo、Spring Boot/Spring Cloud、gRPC 等进行了适配，用户只需引入相应依赖并进行简单配置即可非常方便地享受 Sentinel 的高可用流量防护能力。未来 Sentinel 还会对更多常用框架进行适配，并且会为 Service Mesh 提供集群流量防护的能力。</p>
+<span class="heading-anchor" id="总结"></span><h3 id="_2_13">总结</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Sentinel</th>
+<th>Hystrix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>隔离策略</td>
+<td>信号量隔离</td>
+<td>线程池隔离/信号量隔离</td>
+</tr>
+<tr>
+<td>熔断降级策略</td>
+<td>基于响应时间或失败比率</td>
+<td>基于失败比率</td>
+</tr>
+<tr>
+<td>实时指标实现</td>
+<td>滑动窗口</td>
+<td>滑动窗口（基于 RxJava）</td>
+</tr>
+<tr>
+<td>规则配置</td>
+<td>支持多种数据源</td>
+<td>支持多种数据源</td>
+</tr>
+<tr>
+<td>扩展性</td>
+<td>多个扩展点</td>
+<td>插件的形式</td>
+</tr>
+<tr>
+<td>基于注解的支持</td>
+<td>支持</td>
+<td>支持</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>基于 QPS，支持基于调用关系的限流</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>流量整形</td>
+<td>支持慢启动、匀速器模式</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>系统负载保护</td>
+<td>支持</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>控制台</td>
+<td>开箱即用，可配置规则、查看秒级监控、机器发现等</td>
+<td>不完善</td>
+</tr>
+<tr>
+<td>常见框架的适配</td>
+<td>Servlet、Spring Cloud、Dubbo、gRPC</td>
+<td>Servlet、Spring Cloud Netflix</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/sentinel-vs-hystrix.md#L1">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k9d66e99b4023"></a></p>
+<span class="heading-anchor" id="实例 Demo"></span><h2 id="demo_1">实例 Demo</h2>
+<p>我们在 command 中，将超时时间设置为 500ms，然后在 run() 方法中，设置休眠时间 1s，这样一个请求过来，直接休眠 1s，结果就会因为超时而执行降级逻辑。</p>
+<pre><code class="language-java">public class GetProductInfoCommand extends HystrixCommand&lt;ProductInfo&gt; {
+
+    private Long productId;
+
+    private static final HystrixCommandKey KEY = HystrixCommandKey.Factory.asKey("GetProductInfoCommand");
+
+    public GetProductInfoCommand(Long productId) {
+        super(Setter.withGroupKey(HystrixCommandGroupKey.Factory.asKey("ProductInfoService"))
+                .andCommandKey(KEY)
+                .andThreadPoolPropertiesDefaults(HystrixThreadPoolProperties.Setter()
+                        .withCoreSize(8)
+                        .withMaxQueueSize(10)
+                        .withQueueSizeRejectionThreshold(8))
+                .andCommandPropertiesDefaults(HystrixCommandProperties.Setter()
+                        .withCircuitBreakerEnabled(true)
+                        .withCircuitBreakerRequestVolumeThreshold(20)
+                        .withCircuitBreakerErrorThresholdPercentage(40)
+                        .withCircuitBreakerSleepWindowInMilliseconds(3000)
+                        // 设置是否打开超时，默认是true
+                        .withExecutionTimeoutEnabled(true)
+                        // 设置超时时间，默认1000(ms)
+                        .withExecutionTimeoutInMilliseconds(500)
+                        .withFallbackIsolationSemaphoreMaxConcurrentRequests(30)));
+        this.productId = productId;
+    }
+
+    @Override
+    protected ProductInfo run() throws Exception {
+        System.out.println("调用接口查询商品数据，productId=" + productId);
+
+        // 休眠1s
+        TimeUtils.sleep(1);
+
+        String url = "http://localhost:8081/getProductInfo?productId=" + productId;
+        String response = HttpClientUtils.sendGetRequest(url);
+        System.out.println(response);
+        return JSONObject.parseObject(response, ProductInfo.class);
+    }
+
+    @Override
+    protected ProductInfo getFallback() {
+        ProductInfo productInfo = new ProductInfo();
+        productInfo.setName("降级商品");
+        return productInfo;
+    }
+}
+</code></pre>
+<p>在测试类中，我们直接发起请求。</p>
+<pre><code class="language-java">@SpringBootTest
+@RunWith(SpringRunner.class)
+public class TimeoutTest {
+
+    @Test
+    public void testTimeout() {
+        HttpClientUtils.sendGetRequest("http://localhost:8080/getProductInfo?productId=1");
+    }
+}
+</code></pre>
+<p>结果中可以看到，打印出了降级商品相关信息。</p>
+<pre><code class="language-c">ProductInfo(id=null, name=降级商品, price=null, pictureList=null, specification=null, service=null, color=null, size=null, shopId=null, modifiedTime=null, cityId=null, cityName=null, brandId=null, brandName=null)
+{"id": 1, "name": "iphone7手机", "price": 5599, "pictureList":"a.jpg,b.jpg", "specification": "iphone7的规格", "service": "iphone7的售后服务", "color": "红色,白色,黑色", "size": "5.5", "shopId": 1, "modifiedTime": "2017-01-01 12:00:00", "cityId": 1, "brandId": 1}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_34">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-timeout.md#L35">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k7d3955dc2b6c"></a></p>
+<span class="heading-anchor" id="工作流程"></span><h2 id="_1_35">工作流程</h2>
+<ul>
+<li>第一步：provider 向注册中心去注册</li>
+<li>第二步：consumer 从注册中心订阅服务，注册中心会通知 consumer 注册好的服务</li>
+<li>第三步：consumer 调用 provider</li>
+<li>第四步：consumer 和 provider 都异步通知监控中心</li>
+</ul>
+<p><img alt="dubbo-operating-principle" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/images/dubbo-operating-principle.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/dubbo-operating-principle.md#L32">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k3ebb556824e3"></a></p>
+<span class="heading-anchor" id="底层 lucene"></span><h2 id="lucene">底层 lucene</h2>
+<p>简单来说，lucene 就是一个 jar 包，里面包含了封装好的各种建立倒排索引的算法代码。我们用 Java 开发的时候，引入 lucene jar，然后基于 lucene 的 api 去开发就可以了。</p>
+<p>通过 lucene，我们可以将已有的数据建立索引，lucene 会在本地磁盘上面，给我们组织索引的数据结构。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-write-query-search.md#L95">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k9840b5bbb7b2"></a></p>
+<span class="heading-anchor" id="性能优化的杀手锏——filesystem cache"></span><h2 id="filesystem-cache">性能优化的杀手锏——filesystem cache</h2>
+<p>你往 es 里写的数据，实际上都写到磁盘文件里去了，<strong>查询的时候</strong>，操作系统会将磁盘文件里的数据自动缓存到 <code>filesystem cache</code> 里面去。</p>
+<p><img alt="es-search-process" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/doocs/advanced-java/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/images/es-search-process.png"/></p>
+<p>es 的搜索引擎严重依赖于底层的 <code>filesystem cache</code> ，你如果给 <code>filesystem cache</code> 更多的内存，尽量让内存可以容纳所有的 <code>idx segment file</code> 索引数据文件，那么你搜索的时候就基本都是走内存的，性能会非常高。</p>
+<p>性能差距究竟可以有多大？我们之前很多的测试和压测，如果走磁盘一般肯定上秒，搜索性能绝对是秒级别的，1 秒、5 秒、10 秒。但如果是走 <code>filesystem cache</code> ，是走纯内存的，那么一般来说性能比走磁盘要高一个数量级，基本上就是毫秒级的，从几毫秒到几百毫秒不等。</p>
+<p>这里有个真实的案例。某个公司 es 节点有 3 台机器，每台机器看起来内存很多，64G，总内存就是 <code>64 * 3 = 192G</code> 。每台机器给 es jvm heap 是 <code>32G</code> ，那么剩下来留给 <code>filesystem cache</code> 的就是每台机器才 <code>32G</code> ，总共集群里给 <code>filesystem cache</code> 的就是 <code>32 * 3 = 96G</code> 内存。而此时，整个磁盘上索引数据文件，在 3 台机器上一共占用了 <code>1T</code> 的磁盘容量，es 数据量是 <code>1T</code> ，那么每台机器的数据量是 <code>300G</code> 。这样性能好吗？ <code>filesystem cache</code> 的内存才 100G，十分之一的数据可以放内存，其他的都在磁盘，然后你执行搜索操作，大部分操作都是走磁盘，性能肯定差。</p>
+<p>归根结底，你要让 es 性能要好，最佳的情况下，就是你的机器的内存，至少可以容纳你的总数据量的一半。</p>
+<p>根据我们自己的生产环境实践经验，最佳的情况下，是仅仅在 es 中就存少量的数据，就是你要<strong>用来搜索的那些索引</strong>，如果内存留给 <code>filesystem cache</code> 的是 100G，那么你就将索引数据控制在 <code>100G</code> 以内，这样的话，你的数据几乎全部走内存来搜索，性能非常之高，一般可以在 1 秒以内。</p>
+<p>比如说你现在有一行数据。 <code>id,name,age ....</code> 30 个字段。但是你现在搜索，只需要根据 <code>id,name,age</code> 三个字段来搜索。如果你傻乎乎往 es 里写入一行数据所有的字段，就会导致说 <code>90%</code> 的数据是不用来搜索的，结果硬是占据了 es 机器上的 <code>filesystem cache</code> 的空间，单条数据的数据量越大，就会导致 <code>filesystem cahce</code> 能缓存的数据就越少。其实，仅仅写入 es 中要用来检索的<strong>少数几个字段</strong>就可以了，比如说就写入 es <code>id,name,age</code> 三个字段，然后你可以把其他的字段数据存在 mysql/hbase 里，我们一般是建议用 <code>es + hbase</code> 这么一个架构。</p>
+<p>hbase 的特点是<strong>适用于海量数据的在线存储</strong>，就是对 hbase 可以写入海量数据，但是不要做复杂的搜索，做很简单的一些根据 id 或者范围进行查询的这么一个操作就可以了。从 es 中根据 name 和 age 去搜索，拿到的结果可能就 20 个 <code>doc id</code> ，然后根据 <code>doc id</code> 到 hbase 里去查询每个 <code>doc id</code> 对应的<strong>完整的数据</strong>，给查出来，再返回给前端。</p>
+<p>写入 es 的数据最好小于等于，或者是略微大于 es 的 filesystem cache 的内存容量。然后你从 es 检索可能就花费 20ms，然后再根据 es 返回的 id 去 hbase 里查询，查 20 条数据，可能也就耗费个 30ms，可能你原来那么玩儿，1T 数据都放 es，会每次查询都是 5~10s，现在可能性能就会很高，每次查询就是 50ms。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_37">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-optimizing-query-performance.md#L17">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k28245bbf14a8"></a></p>
+<span class="heading-anchor" id="拆分后不用 dubbo 可以吗？"></span><h2 id="dubbo">拆分后不用 dubbo 可以吗？</h2>
+<p>当然可以了，大不了最次，就是各个系统之间，直接基于 spring mvc，就纯 http 接口互相通信呗，还能咋样。但是这个肯定是有问题的，因为 http 接口通信维护起来成本很高，你要考虑<strong>超时重试</strong>、<strong>负载均衡</strong>等等各种乱七八糟的问题，比如说你的订单系统调用商品系统，商品系统部署了 5 台机器，你怎么把请求均匀地甩给那 5 台机器？这不就是负载均衡？你要是都自己搞那是可以的，但是确实很痛苦。</p>
+<p>所以 dubbo 说白了，是一种 rpc 框架，就是说本地就是进行接口调用，但是 dubbo 会代理这个调用请求，跟远程机器网络通信，给你处理掉负载均衡、服务实例上下线自动感知、超时重试等等乱七八糟的问题。那你就不用自己做了，用 dubbo 就可以了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/why-dubbo.md#L61">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k36a9d57c60dc"></a></p>
+<span class="heading-anchor" id="按准备时间安排复习"></span><h2 id="_1_39">按准备时间安排复习</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过一遍 <a href="https://interview.javaguide.cn/high-availability/high-availability-system-interview-questions.html">高可用系统常见面试题总结</a>，优先补限流熔断、超时重试和幂等</td>
+<td>能回答高频问题，并说出主要风险和限制</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>补 RTO/RPO、故障转移、隔离、容量评估和缓存高可用，再画一条完整调用链</td>
+<td>能解释各机制怎样配合，遇到故障场景可以继续推演</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>阅读全部专题文章，结合自己的项目整理一次发布、超时、流量突增或依赖故障案例</td>
+<td>能从业务 SLA 讲到方案选择、观测指标、恢复和复盘</td>
+</tr>
+</tbody>
+</table></div>
+<p>社招和中高级岗位还要准备项目里的实际约束。面试官问“为什么把超时设为 500ms”时，会继续追问延迟分布、上游总预算、重试次数、下游容量和动态调整方式。没有参与过对应设计的部分，按学习和调研结果回答即可，不要编造线上数据。</p>
+<span class="heading-anchor" id="补充说明"></span><h3 id="_2_15">补充说明</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过一遍 <a href="https://interview.javaguide.cn/distributed-system/distributed-system.html">分布式系统常见面试题总结</a>，优先补分布式 ID、锁、事务、RPC 和网关</td>
+<td>高频问题能给出完整回答，知道各方案最主要的限制</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>在高频题之外，补 CAP/BASE、Raft、一致性哈希，并画出网关到 RPC 服务的调用链路</td>
+<td>能解释方案背后的取舍，遇到追问不会停在定义上</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>按本文顺序阅读专题文章，再结合自己的项目整理异常案例和选型依据</td>
+<td>能从业务约束讲到方案、故障处理和扩展方式</td>
+</tr>
+</tbody>
+</table></div>
+<p>社招和中高级岗位还要把答案落回自己的项目。面试官问“为什么用 Redis 分布式锁”时，通用优缺点只是开头，接下来往往会问：锁保护了什么资源、并发量有多大、超时和续期怎样处理、释放失败如何发现。没有实际使用过的方案，按学习和调研结果回答即可，不要编造项目数据。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>剩余时间</th>
+<th>建议安排</th>
+<th>复习目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1～2 天</td>
+<td>先过一遍<a href="https://interview.javaguide.cn/distributed-system/microservices-interview-questions.html">微服务常见面试题总结</a>，优先补服务拆分、通信、数据一致性和容错</td>
+<td>能讲清微服务的收益、代价和一条完整调用链</td>
+</tr>
+<tr>
+<td>3～7 天</td>
+<td>补 RPC、网关、配置中心、分布式事务、消息队列和超时熔断，并画出一次下单或支付请求经过的服务与数据变化</td>
+<td>能回答失败路径、方案取舍和常见基础设施追问</td>
+</tr>
+<tr>
+<td>1 周以上</td>
+<td>结合项目整理一次服务拆分或架构设计，补充接口兼容、灰度发布、监控告警、容量和回滚方案</td>
+<td>能从业务约束讲到服务、数据、交付和运维</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md#L154">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/distributed-system-interview-questions.md#L132">JavaGuide</a>，来源许可：Apache-2.0。</li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/microservices-interview-questions.md#L172">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k711ca12e4e3a"></a></p>
+<span class="heading-anchor" id="数据预热"></span><h2 id="_1_40">数据预热</h2>
+<p>假如说，哪怕是你就按照上述的方案去做了，es 集群中每个机器写入的数据量还是超过了 <code>filesystem cache</code> 一倍，比如说你写入一台机器 60G 数据，结果 <code>filesystem cache</code> 就 30G，还是有 30G 数据留在了磁盘上。</p>
+<p>其实可以做<strong>数据预热</strong>。</p>
+<p>举个例子，拿微博来说，你可以把一些大 V，平时看的人很多的数据，你自己提前后台搞个系统，每隔一会儿，自己的后台系统去搜索一下热数据，刷到 <code>filesystem cache</code> 里去，后面用户实际上来看这个热数据的时候，他们就是直接从内存里搜索了，很快。</p>
+<p>或者是电商，你可以将平时查看最多的一些商品，比如说 iphone 8，热数据提前后台搞个程序，每隔 1 分钟自己主动访问一次，刷到 <code>filesystem cache</code> 里去。</p>
+<p>对于那些你觉得比较热的、经常会有人访问的数据，最好<strong>做一个专门的缓存预热子系统</strong>，就是对热数据每隔一段时间，就提前访问一下，让数据进入 <code>filesystem cache</code> 里面去。这样下次别人访问的时候，性能一定会好很多。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_16">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-optimizing-query-performance.md#L39">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k98f401666dc1"></a></p>
+<span class="heading-anchor" id="断路测试类"></span><h2 id="_1_41">断路测试类</h2>
+<p>我们在测试类中，前 30 次请求，传入 productId=-1，然后休眠 3s，之后 70 次请求，传入 productId=1。</p>
+<pre><code class="language-java">@SpringBootTest
+@RunWith(SpringRunner.class)
+public class CircuitBreakerTest {
+
+    @Test
+    public void testCircuitBreaker() {
+        String baseURL = "http://localhost:8080/getProductInfo?productId=";
+
+        for (int i = 0; i &lt; 30; ++i) {
+            // 传入-1，会抛出异常，然后走降级逻辑
+            HttpClientUtils.sendGetRequest(baseURL + "-1");
+        }
+
+        TimeUtils.sleep(3);
+        System.out.println("After sleeping...");
+
+        for (int i = 31; i &lt; 100; ++i) {
+            // 传入1，走服务正常调用
+            HttpClientUtils.sendGetRequest(baseURL + "1");
+        }
+    }
+}
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-circuit-breaker.md#L135">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k6ee40d9a8ec8"></a></p>
+<span class="heading-anchor" id="最大努力通知方案"></span><h2 id="_1_42">最大努力通知方案</h2>
+<p>这个方案的大致意思就是：</p>
+<ol>
+<li>系统 A 本地事务执行完之后，发送个消息到 MQ；</li>
+<li>这里会有个专门消费 MQ 的<strong>最大努力通知服务</strong>，这个服务会消费 MQ 然后写入数据库中记录下来，或者是放入个内存队列也可以，接着调用系统 B 的接口；</li>
+<li>要是系统 B 执行成功就 ok 了；要是系统 B 执行失败了，那么最大努力通知服务就定时尝试重新调用系统 B，反复 N 次，最后还是不行就放弃。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/distributed-system/distributed-transaction.md#L119">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+<li><a href="https://github.com/forthespada/InterviewGuide/blob/25055ccfa146c11f2ccc986402ad36b34471e6c0/docs/notes/03-hunting_job/02-interview/05-01-02-distribution.md#L154">阿秀面试笔记</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k38603d7f39fc"></a></p>
+<span class="heading-anchor" id="步骤一：创建 command"></span><h2 id="command">步骤一：创建 command</h2>
+<p>一个 HystrixCommand 或 HystrixObservableCommand 对象，代表了对某个依赖服务发起的一次请求或者调用。创建的时候，可以在构造函数中传入任何需要的参数。</p>
+<ul>
+<li>HystrixCommand 主要用于仅仅会返回一个结果的调用。</li>
+<li>HystrixObservableCommand 主要用于可能会返回多条结果的调用。</li>
+</ul>
+<pre><code class="language-java">// 创建 HystrixCommand
+HystrixCommand hystrixCommand = new HystrixCommand(arg1, arg2);
+
+// 创建 HystrixObservableCommand
+HystrixObservableCommand hystrixObservableCommand = new HystrixObservableCommand(arg1, arg2);
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_43">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-process.md#L17">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="ka8dd8ee08581"></a></p>
+<span class="heading-anchor" id="步骤七：断路健康检查"></span><h2 id="_1_44">步骤七：断路健康检查</h2>
+<p>Hystrix 会把每一个依赖服务的调用成功、失败、Reject、Timeout 等事件发送给 circuit breaker 断路器。断路器就会对这些事件的次数进行统计，根据异常事件发生的比例来决定是否要进行断路（熔断）。如果打开了断路器，那么在接下来一段时间内，会直接断路，返回降级结果。</p>
+<p>如果在之后，断路器尝试执行 command，调用没有出错，返回了正常结果，那么 Hystrix 就会把断路器关闭。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_19">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-process.md#L132">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k9e61c8c3e76f"></a></p>
+<span class="heading-anchor" id="步骤二：实现 GetBrandNameCommand"></span><h2 id="getbrandnamecommand">步骤二：实现 GetBrandNameCommand</h2>
+<p>在 GetBrandNameCommand 中，run() 方法的正常逻辑是去调用品牌服务的接口获取到品牌名称，如果调用失败，报错了，那么就会去调用 fallback 降级机制。</p>
+<p>这里，我们直接<strong>模拟接口调用报错</strong>，给它抛出个异常。</p>
+<p>而在 getFallback() 方法中，就是我们的<strong>降级逻辑</strong>，我们直接从本地的缓存中，<strong>获取到品牌名称</strong>的数据。</p>
+<pre><code class="language-java">/**
+ * 获取品牌名称的command
+ *
+ */
+public class GetBrandNameCommand extends HystrixCommand&lt;String&gt; {
+
+    private Long brandId;
+
+    public GetBrandNameCommand(Long brandId) {
+        super(Setter.withGroupKey(HystrixCommandGroupKey.Factory.asKey("BrandService"))
+                .andCommandKey(HystrixCommandKey.Factory.asKey("GetBrandNameCommand"))
+                .andCommandPropertiesDefaults(HystrixCommandProperties.Setter()
+                        // 设置降级机制最大并发请求数
+                        .withFallbackIsolationSemaphoreMaxConcurrentRequests(15)));
+        this.brandId = brandId;
+    }
+
+    @Override
+    protected String run() throws Exception {
+        // 这里正常的逻辑应该是去调用一个品牌服务的接口获取名称
+        // 如果调用失败，报错了，那么就会去调用fallback降级机制
+
+        // 这里我们直接模拟调用报错，抛出异常
+        throw new Exception();
+    }
+
+    @Override
+    protected String getFallback() {
+        return BrandCache.getBrandName(brandId);
+    }
+}
+</code></pre>
+<p><code>FallbackIsolationSemaphoreMaxConcurrentRequests</code> 用于设置 fallback 最大允许的并发请求量，默认值是 10，是通过 semaphore 信号量的机制去限流的。如果超出了这个最大值，那么直接 reject。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_45">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-fallback.md#L54">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k8cb7bcf66fa4"></a></p>
+<span class="heading-anchor" id="步骤六：执行 command"></span><h2 id="command_1">步骤六：执行 command</h2>
+<p>调用 HystrixObservableCommand 对象的 construct() 方法，或者 HystrixCommand 的 run() 方法来实际执行这个 command。</p>
+<ul>
+<li>HystrixCommand.run() 返回单条结果，或者抛出异常。</li>
+</ul>
+<pre><code class="language-java">// 通过command执行，获取最新一条商品数据
+ProductInfo productInfo = getProductInfoCommand.execute();
+</code></pre>
+<ul>
+<li>HystrixObservableCommand.construct() 返回一个 Observable 对象，可以获取多条结果。</li>
+</ul>
+<pre><code class="language-java">Observable&lt;ProductInfo&gt; observable = getProductInfosCommand.observe();
+
+// 订阅获取多条结果
+observable.subscribe(new Observer&lt;ProductInfo&gt;() {
+    @Override
+    public void onCompleted() {
+        System.out.println("获取完了所有的商品数据");
+    }
+
+    @Override
+    public void onError(Throwable e) {
+        e.printStackTrace();
+    }
+
+    /**
+     * 获取完一条数据，就回调一次这个方法
+     *
+     * @param productInfo 商品信息
+     */
+    @Override
+    public void onNext(ProductInfo productInfo) {
+        System.out.println(productInfo);
+    }
+});
+</code></pre>
+<p>如果是采用线程池方式，并且 HystrixCommand.run() 或者 HystrixObservableCommand.construct() 的执行时间超过了 timeout 时长的话，那么 command 所在的线程会抛出一个 TimeoutException，这时会执行 fallback 降级机制，不会去管 run() 或 construct() 返回的值了。另一种情况，如果 command 执行出错抛出了其它异常，那么也会走 fallback 降级。这两种情况下，Hystrix 都会发送异常事件给断路器统计。</p>
+<p><strong>注意</strong>，我们是不可能终止掉一个调用严重延迟的依赖服务的线程的，只能说给你抛出来一个 TimeoutException。</p>
+<p>如果没有 timeout，也正常执行的话，那么调用线程就会拿到一些调用依赖服务获取到的结果，然后 Hystrix 也会做一些 logging 记录和 metric 度量统计。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_46">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-process.md#L86">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k8631eaf1c8a8"></a></p>
+<span class="heading-anchor" id="测试结果"></span><h2 id="_1_47">测试结果</h2>
+<p>测试结果，我们可以明显看出系统断路与恢复的整个过程。</p>
+<pre><code class="language-java">调用接口查询商品数据，productId=-1
+ProductInfo(id=null, name=降级商品, price=null, pictureList=null, specification=null, service=null, color=null, size=null, shopId=null, modifiedTime=null, cityId=null, cityName=null, brandId=null, brandName=null)
+// ...
+// 这里重复打印了 20 次上面的结果
+
+
+ProductInfo(id=null, name=降级商品, price=null, pictureList=null, specification=null, service=null, color=null, size=null, shopId=null, modifiedTime=null, cityId=null, cityName=null, brandId=null, brandName=null)
+// ...
+// 这里重复打印了 8 次上面的结果
+
+
+// 休眠 3s 后
+调用接口查询商品数据，productId=1
+ProductInfo(id=1, name=iphone7手机, price=5599.0, pictureList=a.jpg,b.jpg, specification=iphone7的规格, service=iphone7的售后服务, color=红色,白色,黑色, size=5.5, shopId=1, modifiedTime=2017-01-01 12:00:00, cityId=1, cityName=null, brandId=1, brandName=null)
+// ...
+// 这里重复打印了 69 次上面的结果
+</code></pre>
+<p>前 30 次请求，我们传入的 productId 为 -1，所以服务执行过程中会抛出异常。我们设置了最少 20 次请求通过断路器并且异常比例超出 40% 就触发断路。因此执行了 21 次接口调用，每次都抛异常并且走降级，21 次过后，断路器就被打开了。</p>
+<p>之后的 9 次请求，都不会执行 <code>run()</code> 方法，也就不会打印以下信息。</p>
+<pre><code class="language-c">调用接口查询商品数据，productId=-1
+</code></pre>
+<p>而是直接走降级逻辑，调用 getFallback() 执行。</p>
+<p>休眠了 3s 后，我们在之后的 70 次请求中，都传入 productId 为 1。由于我们前面设置了 3000ms 过后断路器变为 <code>half-open</code> 状态。因此 Hystrix 会尝试执行请求，发现成功了，那么断路器关闭，之后的所有请求也都能正常调用了。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-availability/hystrix-circuit-breaker.md#L164">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k58e96fb1bb5d"></a></p>
+<span class="heading-anchor" id="生产者会不会弄丢数据？"></span><h2 id="_1_48">生产者会不会弄丢数据？</h2>
+<p>如果按照上述的思路设置了 <code>acks=all</code> ，一定不会丢，要求是，你的 leader 接收到消息，所有的 follower 都同步到了消息之后，才认为本次写成功了。如果没满足这个条件，生产者会自动不断的重试，重试无限次。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_21">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/how-to-ensure-the-reliable-transmission-of-messages.md#L167">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="kcd4eddb1d1b0"></a></p>
+<span class="heading-anchor" id="稳定性、发布与扩缩容"></span><h2 id="_1_49">稳定性、发布与扩缩容</h2>
+<p>微服务把一次请求分散到多个节点，局部故障发生的频率会随调用环节增加。超时限制等待时间，重试处理短暂错误，熔断阻止持续调用异常下游，限流和隔离保护有限资源；这些机制需要放在同一条调用链中设置。</p>
+<p><img alt="熔断器状态机" loading="lazy" referrerpolicy="no-referrer" src="https://oss.javaguide.cn/github/javaguide/high-availability/fallback-and-circuit-breaker-fuse-state-machine.png"/></p>
+<p>相关内容：</p>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/high-availability-system-interview-questions.md">高可用系统设计面试题总结</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/timeout-and-retry.md">超时与重试详解</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/limit-request.md">服务限流详解</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/fallback-and-circuit-breaker.md">降级与熔断详解</a></li>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/high-availability/redundancy.md">冗余设计详解</a></li>
+</ul>
+<p>常见面试题：</p>
+<ul>
+<li>超时、重试、熔断、限流、降级和隔离分别解决什么问题？</li>
+<li>超时时间怎样结合上游 Deadline 和下游延迟分布设置？</li>
+<li>多层服务同时重试为什么可能产生重试风暴？</li>
+<li>Liveness、Readiness 和 Startup 探针分别应该检查什么？</li>
+<li>服务怎样完成优雅停机，避免仍在处理的请求被直接中断？</li>
+<li>API 和消息格式怎样保持向后兼容？</li>
+<li>灰度发布出现异常后，流量和数据怎样回滚？</li>
+<li>扩容消费者或服务实例前，为什么要先检查分区、连接池和下游容量？</li>
+</ul>
+<p>健康检查不能把所有依赖都塞进一个探针。数据库短暂变慢时，如果所有实例同时因为 Liveness 失败而重启，原来的依赖故障会进一步扩大。探针、流量摘除、连接排空和应用停机顺序需要一起设计。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/distributed-system/microservices-interview-questions.md#L111">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1db33d5f5772"></a></p>
+<span class="heading-anchor" id="类似于 app 里的推荐商品不断下拉出来一页一页的"></span><h2 id="app">类似于 app 里的推荐商品不断下拉出来一页一页的</h2>
+<p>类似于微博中，下拉刷微博，刷出来一页一页的，你可以用 <code>scroll api</code> ，关于如何使用，自行上网搜索。</p>
+<p>scroll 会一次性给你生成<strong>所有数据的一个快照</strong>，然后每次滑动向后翻页就是通过<strong>游标</strong> <code>scroll_id</code> 移动，获取下一页下一页这样子，性能会比上面说的那种分页性能要高很多很多，基本上都是毫秒级的。</p>
+<p>但是，唯一的一点就是，这个适合于那种类似微博下拉翻页的，<strong>不能随意跳到任何一页的场景</strong>。也就是说，你不能先进入第 10 页，然后去第 120 页，然后又回到第 58 页，不能随意乱跳页。所以现在很多产品，都是不允许你随意翻页的，app，也有一些网站，做的就是你只能往下拉，一页一页的翻。</p>
+<p>初始化时必须指定 <code>scroll</code> 参数，告诉 es 要保存此次搜索的上下文多长时间。你需要确保用户不会持续不断翻页翻几个小时，否则可能因为超时而失败。</p>
+<p>除了用 <code>scroll api</code> ，你也可以用 <code>search_after</code> 来做， <code>search_after</code> 的思想是使用前一页的结果来帮助检索下一页的数据，显然，这种方式也不允许你随意翻页，你只能一页页往后翻。初始化时，需要使用一个唯一值的字段作为 sort 字段。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_50">参考资料</h3>
+<ul>
+<li><a href="https://github.com/doocs/advanced-java/blob/80b89fb9496d7ea3213e402c8c3853399e00c363/docs/high-concurrency/es-optimizing-query-performance.md#L79">Advanced Java</a>，来源许可：CC-BY-SA-4.0。</li>
+</ul>
+<p><a id="k96e8e0707fc6"></a></p>
+<span class="heading-anchor" id="这份小册能带给你什么？"></span><h2 id="_1_51">这份小册能带给你什么？</h2>
+<p><strong>1. 面试加分项</strong></p>
+<p>系统设计和场景题回答得好，面试官会对你印象非常好！这类问题稍微准备就能脱颖而出。</p>
+<p><strong>2. 提升系统设计思维</strong></p>
+<p>即使不是准备面试，这份小册也能帮助你建立系统设计的思维框架，提升解决实际问题的能力。</p>
+<p><strong>3. 实战落地参考</strong></p>
+<p>涉及到的很多案例都可以直接用到自己的项目上，比如：</p>
+<ul>
+<li>第三方授权登录（微信/QQ 登录）</li>
+<li>Redis 实现延时任务的正确方式</li>
+<li>动态线程池的设计与实现</li>
+<li>分布式锁的多种实现方案</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L30">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="k1fdf817d1847"></a></p>
+<span class="heading-anchor" id="适合人群"></span><h2 id="_1_52">适合人群</h2>
+<ul>
+<li>🎓 <strong>校招求职者</strong>：应对大厂系统设计面试</li>
+<li>👨‍💻 <strong>社招跳槽者</strong>：提升架构设计能力，拿到更好的 offer</li>
+<li>🔧 <strong>初中级工程师</strong>：学习系统设计思维，提升解决实际问题的能力</li>
+<li>📚 <strong>技术爱好者</strong>：了解常见系统的设计原理</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_24">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L101">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul>
+<p><a id="kf259dfc48c2b"></a></p>
+<span class="heading-anchor" id="高频场景题"></span><h2 id="_1_53">高频场景题</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>核心知识点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>订单超时自动取消如何实现？</strong></td>
+<td>延时队列、定时任务、状态机、幂等性保障</td>
+</tr>
+<tr>
+<td><strong>如何基于 Redis 实现延时任务？</strong></td>
+<td>过期事件监听 vs Redisson DelayedQueue、时效性、可靠性</td>
+</tr>
+<tr>
+<td>⭐ <strong>如何解决大文件上传问题？</strong></td>
+<td>分片上传、断点续传、秒传、并发上传、文件校验</td>
+</tr>
+<tr>
+<td><strong>如何实现 IP 归属地功能？</strong></td>
+<td>IP 库选择、离线库 vs 在线接口、性能优化</td>
+</tr>
+<tr>
+<td><strong>如何统计网站 UV？</strong></td>
+<td>PV/UV/VV/IP 概念、HyperLogLog、去重统计</td>
+</tr>
+<tr>
+<td>⭐ <strong>几种典型的后端面试场景题（补充）</strong></td>
+<td>限流、幂等、缓存穿透等综合场景</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/Snailclimb/JavaGuide/blob/992dae31eade2a34ba8dbbbcf5ed9de5511325ec/docs/zhuanlan/back-end-interview-high-frequency-system-design-and-scenario-questions.md#L61">JavaGuide</a>，来源许可：Apache-2.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-86bede6276d9.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>分布式工程问答</strong></a><a class="page-next" href="n-c66fc670cfcc.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>微服务与服务治理</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#replica">replica</a></li><li class="outline-level-2"><a href="#roundrobinloadbalance">RoundRobinLoadBalance</a></li><li class="outline-level-2"><a href="#shard">shard</a></li><li class="outline-level-2"><a href="#spi">spi 是啥？</a></li><li class="outline-level-2"><a href="#step-1-review-the-scalability-video-lecture">Step 1: Review the scalability video lecture</a></li><li class="outline-level-2"><a href="#strong-consistency">Strong consistency</a></li><li class="outline-level-2"><a href="#task-queues">Task queues</a></li><li class="outline-level-2"><a href="#tighten-up-the-schema">Tighten up the schema</a></li><li class="outline-level-2"><a href="#timeoutenabled">TimeoutEnabled</a></li><li class="outline-level-2"><a href="#timeoutmilliseconds">TimeoutMilliseconds</a></li><li class="outline-level-2"><a href="#type">Type</a></li><li class="outline-level-2"><a href="#under-development">Under development</a></li><li class="outline-level-2"><a href="#use-good-indices">Use good indices</a></li><li class="outline-level-2"><a href="#weak-consistency">Weak consistency</a></li><li class="outline-level-2"><a href="#when-to-update-the-cache">When to update the cache</a></li><li class="outline-level-2"><a href="#_1_16">不同的执行方式</a></li><li class="outline-level-2"><a href="#pb">为什么 PB 的效率是最高的？</a></li><li class="outline-level-2"><a href="#_1_18">为什么你需要这份小册？</a></li><li class="outline-level-2"><a href="#_1_19">使用场景</a></li><li class="outline-level-2"><a href="#_1_20">信号量机制</a></li><li class="outline-level-2"><a href="#demo">信号量简单 Demo</a></li><li class="outline-level-2"><a href="#_1_22">冗余与容灾</a></li><li class="outline-level-2"><a href="#_1_23">写数据底层原理</a></li><li class="outline-level-2"><a href="#_1_24">冷热分离</a></li><li class="outline-level-2"><a href="#_1_25">删除/更新数据底层原理</a></li><li class="outline-level-2"><a href="#hystrixcommand">利用 HystrixCommand 获取单条数据</a></li><li class="outline-level-2"><a href="#hystrixobservablecommand">利用 HystrixObservableCommand 批量获取数据</a></li><li class="outline-level-2"><a href="#_1_28">发起请求</a></li><li class="outline-level-2"><a href="#_1_29">可观测、评测与发布</a></li><li class="outline-level-2"><a href="#_1_30">基本原理</a></li><li class="outline-level-2"><a href="#_1_31">复习时先抓住哪些问题？</a></li><li class="outline-level-2"><a href="#_1_32">大数据量场景</a></li><li class="outline-level-2"><a href="#sentinel-hystrix">如何做技术选型？Sentinel 还是 Hystrix？</a></li><li class="outline-level-2"><a href="#demo_1">实例 Demo</a></li><li class="outline-level-2"><a href="#_1_35">工作流程</a></li><li class="outline-level-2"><a href="#lucene">底层 lucene</a></li><li class="outline-level-2"><a href="#filesystem-cache">性能优化的杀手锏——filesystem cache</a></li><li class="outline-level-2"><a href="#dubbo">拆分后不用 dubbo 可以吗？</a></li><li class="outline-level-2"><a href="#_1_39">按准备时间安排复习</a></li><li class="outline-level-2"><a href="#_1_40">数据预热</a></li><li class="outline-level-2"><a href="#_1_41">断路测试类</a></li><li class="outline-level-2"><a href="#_1_42">最大努力通知方案</a></li><li class="outline-level-2"><a href="#command">步骤一：创建 command</a></li><li class="outline-level-2"><a href="#_1_44">步骤七：断路健康检查</a></li><li class="outline-level-2"><a href="#getbrandnamecommand">步骤二：实现 GetBrandNameCommand</a></li><li class="outline-level-2"><a href="#command_1">步骤六：执行 command</a></li><li class="outline-level-2"><a href="#_1_47">测试结果</a></li><li class="outline-level-2"><a href="#_1_48">生产者会不会弄丢数据？</a></li><li class="outline-level-2"><a href="#_1_49">稳定性、发布与扩缩容</a></li><li class="outline-level-2"><a href="#app">类似于 app 里的推荐商品不断下拉出来一页一页的</a></li><li class="outline-level-2"><a href="#_1_51">这份小册能带给你什么？</a></li><li class="outline-level-2"><a href="#_1_52">适合人群</a></li><li class="outline-level-2"><a href="#_1_53">高频场景题</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>

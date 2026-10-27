@@ -1,0 +1,2096 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fdfdfc">
+<title>推理服务与部署 · 李杨的学习笔记</title><meta name="description" content="如果图像高宽固定，就只让batch动态；如果序列长度动态，就不要让无关维度也动态。">
+<meta property="og:type" content="website"><meta property="og:title" content="推理服务与部署 · 李杨的学习笔记"><meta property="og:description" content="如果图像高宽固定，就只让batch动态；如果序列长度动态，就不要让无关维度也动态。"><meta property="og:url" content="https://uestc-ly.github.io/notes/interview/n-cbb46570fb35.html"><link rel="canonical" href="https://uestc-ly.github.io/notes/interview/n-cbb46570fb35.html">
+<link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+<link rel="preload" href="../../assets/fonts/inter/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../assets/css/site.css"><link rel="stylesheet" href="../notes.css"><script>try{const theme=localStorage.getItem('notes-theme')||'light';document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark')}catch(e){}</script><script defer src="../../assets/js/navigation.js"></script><script defer src="../../assets/js/reader.js"></script><script defer="" src="../vendor/katex/katex.min.js"></script><script defer="" src="../vendor/katex/contrib/auto-render.min.js"></script><link href="../vendor/katex/katex.min.css" rel="stylesheet"/><script src="../render-diagrams.js" type="module"></script><script defer="" src="../article.js"></script>
+</head><body class="module-notes">
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="site-header-bar"><header class="header site-header">
+  <a class="brand" href="../../index.html" aria-label="ly. 技术博客，返回首页"><span class="brand-mark">ly<span>.</span></span><span class="brand-name">技术博客</span></a>
+  <a class="site-search-trigger" href="../index.html" data-index="../manifest.json" aria-label="搜索笔记，全部专题"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><span>搜索笔记</span><kbd aria-hidden="true">/</kbd></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden><span>菜单</span><span class="menu-open"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg></span><span class="menu-close"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></span></button>
+  <nav id="site-navigation" aria-label="主导航"><a href="../../index.html">首页</a><a href="../../projects/index.html">项目</a><a href="../index.html" aria-current="page">笔记</a><a href="../../about/index.html">关于</a><a class="nav-github" href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></nav>
+</header></div>
+<div class="docs-shell"><aside class="docs-sidebar" id="docs-sidebar" aria-label="专题目录"><div class="sidebar-heading"><a href="../index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg> 专题目录</a><button class="sidebar-close" type="button" aria-label="关闭专题目录" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></div>
+<details class="topic-switcher"><summary>计算机八股大全<span aria-hidden="true">⌄</span></summary><nav aria-label="切换专题"><a href="../leetcode/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /> </svg><span>力扣刷题</span></a><a href="../computer-science/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 20v2" /> <path d="M12 2v2" /> <path d="M17 20v2" /> <path d="M17 2v2" /> <path d="M2 12h2" /> <path d="M2 17h2" /> <path d="M2 7h2" /> <path d="M20 12h2" /> <path d="M20 17h2" /> <path d="M20 7h2" /> <path d="M7 20v2" /> <path d="M7 2v2" /> <rect x="4" y="4" width="16" height="16" rx="2" /> <rect x="8" y="8" width="8" height="8" rx="1" /> </svg><span>计算机基础</span></a><a href="../llm/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /> <path d="M9 13a4.5 4.5 0 0 0 3-4" /> <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /> <path d="M3.477 10.896a4 4 0 0 1 .585-.396" /> <path d="M6 18a4 4 0 0 1-1.967-.516" /> <path d="M12 13h4" /> <path d="M12 18h6a2 2 0 0 1 2 2v1" /> <path d="M12 8h8" /> <path d="M16 8V5a2 2 0 0 1 2-2" /> <circle cx="16" cy="13" r=".5" /> <circle cx="18" cy="3" r=".5" /> <circle cx="20" cy="21" r=".5" /> <circle cx="20" cy="8" r=".5" /> </svg><span>大模型</span></a><a href="../ai-agent/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /> </svg><span>AI Agent 开发</span></a><a href="../deep-learning/index.html"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /> </svg><span>深度学习</span></a><a href="index.html" aria-current="true"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /> </svg><span>计算机八股大全</span></a></nav></details><nav class="sidebar-tree" aria-label="笔记章节"><a class="sidebar-overview" href="index.html">专题概览<span>213 篇</span></a><details class="sidebar-group"><summary><span class="chapter-number">·</span><span>阅读指南</span></summary><div class="sidebar-entries"><a href="n-46427c6949e9.html">计算机八股大全 · 阅读指南</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">01</span><span>计算机网络</span></summary><div class="sidebar-entries"><a href="n-273db043ab71.html">计算机网络</a><a href="n-33d6ef8f2b57.html">HTTP与Web通信</a><a href="n-9031e4acb999.html">IP、DNS与路由</a><a href="n-fd9758638a98.html">TCP与连接管理</a><a href="n-bfb538c1b1b4.html">网络基础与应用</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">02</span><span>操作系统与Linux</span></summary><div class="sidebar-entries"><a href="n-f1073a4a5b26.html">操作系统与Linux</a><a href="n-9e11d77d70b6.html">Linux命令与排障</a><a href="n-9614c1d3f4b9.html">内存管理</a><a href="n-82e28515574c.html">文件系统与I-O</a><a href="n-4528d4a7abcf.html">系统机制与实践</a><a href="n-7471edaa850f.html">进程、线程与同步</a><a href="n-676c81a162d4.html">进程、线程与同步</a><a href="n-37bf549d76fc.html">进程、线程与同步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">03</span><span>C与C++</span></summary><div class="sidebar-entries"><a href="n-65af024289e5.html">C与C++</a><a href="n-3e6eeb1c3f16.html">STL与容器</a><a href="n-73925bb4d65d.html">模板与泛型</a><a href="n-9d407431bd67.html">编译、链接与工程</a><a href="n-51aac894d36d.html">语言机制与工程问答</a><a href="n-ef97ec49723f.html">语言机制与工程问答</a><a href="n-69c7b2372cb7.html">资源管理与对象生命周期</a><a href="n-5e1c1b484980.html">资源管理与对象生命周期</a><a href="n-a6c603348114.html">面向对象与类型系统</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">04</span><span>Java与JVM</span></summary><div class="sidebar-entries"><a href="n-887b71433487.html">Java与JVM</a><a href="n-bb7c3f21b666.html">JVM、类加载与垃圾回收</a><a href="n-2d4e4ce09f23.html">Java综合问答</a><a href="n-fc28c2a9a65a.html">Java综合问答</a><a href="n-34d5d1caa592.html">Java综合问答</a><a href="n-5faa230adba4.html">Spring与应用框架</a><a href="n-0e390eecf110.html">并发与线程</a><a href="n-5bf5dca47d37.html">语言基础与对象</a><a href="n-a6daca9c45c6.html">集合与数据结构</a><a href="n-e42cc483425a.html">集合与数据结构</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">05</span><span>数据库与SQL</span></summary><div class="sidebar-entries"><a href="n-f6e2ca4aa1d4.html">数据库与SQL</a><a href="n-7edec20f2abd.html">SQL查询与练习</a><a href="n-47c25280ec1a.html">SQL查询与练习</a><a href="n-7b2e4830ba95.html">SQL查询与练习</a><a href="n-a72ad4495cae.html">事务、锁与MVCC</a><a href="n-a8164c1f8779.html">存储、日志与复制</a><a href="n-0a000ef9c3ed.html">数据库综合问答</a><a href="n-25b9fc27735c.html">数据模型与数据库基础</a><a href="n-0d4ee88d5470.html">数据模型与数据库基础</a><a href="n-498023b0059e.html">索引与查询优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">06</span><span>Redis与缓存</span></summary><div class="sidebar-entries"><a href="n-1939646360c6.html">Redis与缓存</a><a href="n-2b617ce08b09.html">Redis实践问答</a><a href="n-925610c601b4.html">持久化、复制与集群</a><a href="n-283aaf76ccb7.html">数据结构与命令</a><a href="n-b7d2fea1919a.html">缓存一致性与高并发</a><a href="n-4b128ec2391b.html">过期、淘汰与内存</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">07</span><span>分布式与系统设计</span></summary><div class="sidebar-entries"><a href="n-8e46cc9482dc.html">分布式与系统设计</a><a href="n-a4b5f22ec9bd.html">一致性、事务与共识</a><a href="n-86bede6276d9.html">分布式工程问答</a><a href="n-112f105881e9.html">分布式工程问答</a><a href="n-c66fc670cfcc.html">微服务与服务治理</a><a href="n-1326cff3b673.html">架构设计与容量</a><a href="n-18cb0c4c67a8.html">消息队列与事件流</a><a href="n-f6513bfc6321.html">消息队列与事件流</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">08</span><span>机器学习与视觉</span></summary><div class="sidebar-entries"><a href="n-ed3d0e413469.html">机器学习与视觉</a><a href="n-dad7db111235.html">优化、损失与训练</a><a href="n-673f72796851.html">优化、损失与训练</a><a href="n-d6130a2ce657.html">优化、损失与训练</a><a href="n-9ca01c6615d0.html">优化、损失与训练</a><a href="n-4b084cc2ed7e.html">优化、损失与训练</a><a href="n-30f7ab94f87b.html">优化、损失与训练</a><a href="n-45c0ecb90186.html">优化、损失与训练</a><a href="n-7bfa5802fa70.html">卷积网络与视觉架构</a><a href="n-fab6c2c3a9f6.html">卷积网络与视觉架构</a><a href="n-523217687fb3.html">序列模型与注意力</a><a href="n-eb913a93b663.html">序列模型与注意力</a><a href="n-95e5aa96064a.html">归一化与特征处理</a><a href="n-cd672e681113.html">机器学习与视觉问答</a><a href="n-ada479dc2cbd.html">机器学习与视觉问答</a><a href="n-4ba3afd16f3f.html">机器学习与视觉问答</a><a href="n-0c3bbad3d0e4.html">机器学习与视觉问答</a><a href="n-132c46554a44.html">机器学习与视觉问答</a><a href="n-b1ab2cd17d71.html">机器学习与视觉问答</a><a href="n-40c2d5a6d117.html">机器学习与视觉问答</a><a href="n-4fe63258e8c0.html">目标检测、分割与跟踪</a><a href="n-27549bc06277.html">目标检测、分割与跟踪</a><a href="n-9a75f41abc9c.html">经典机器学习模型</a><a href="n-f469c7b0cfe4.html">经典机器学习模型</a><a href="n-d96c6f413814.html">经典机器学习模型</a><a href="n-652b816fba2b.html">视觉应用与生成模型</a><a href="n-7afd10be4701.html">视觉应用与生成模型</a><a href="n-0c223c5484a5.html">视觉应用与生成模型</a><a href="n-0586f3ae8fc4.html">视觉应用与生成模型</a><a href="n-337f12481eae.html">视觉应用与生成模型</a><a href="n-bf85c416cb33.html">视觉应用与生成模型</a><a href="n-a1bd7ff90a88.html">视觉应用与生成模型</a><a href="n-03468cf0e60f.html">视觉应用与生成模型</a><a href="n-d60e57441d3d.html">评估指标与数据划分</a></div></details><details class="sidebar-group" open><summary><span class="chapter-number">09</span><span>大模型训练与推理</span></summary><div class="sidebar-entries"><a href="n-20bae8550e28.html">大模型训练与推理</a><a href="n-597845db8f1b.html">具身智能与世界模型</a><a href="n-5be6ed0edfb7.html">多模态与视觉语言模型</a><a href="n-ec4f8f32fbba.html">多模态与视觉语言模型</a><a href="n-eb57ea256337.html">多模态与视觉语言模型</a><a href="n-a618f80bdb20.html">多模态与视觉语言模型</a><a href="n-df391730578a.html">多模态与视觉语言模型</a><a href="n-e9457cafd325.html">多模态与视觉语言模型</a><a href="n-9c4d907ced10.html">对齐、强化学习与推理能力</a><a href="n-b04d560b8223.html">对齐、强化学习与推理能力</a><a href="n-d99ff8ebe3c7.html">扩散、图像与视频生成</a><a href="n-15e613a25eb4.html">扩散、图像与视频生成</a><a href="n-2c026e790f39.html">推理服务与部署</a><a href="n-49a726804fc4.html">推理服务与部署</a><a href="n-a6fd9e8bc6c7.html">推理服务与部署</a><a href="n-30542c82d0c6.html">推理服务与部署</a><a href="n-cbb46570fb35.html" aria-current="page">推理服务与部署</a><a href="n-5891a10c7310.html">推理服务与部署</a><a href="n-4ff5efaa0dbf.html">推理服务与部署</a><a href="n-a027b11d8166.html">模型应用与工程实践</a><a href="n-6ef1d9456736.html">模型应用与工程实践</a><a href="n-16ba4e990f3b.html">模型应用与工程实践</a><a href="n-3bc6004023cb.html">模型应用与工程实践</a><a href="n-173f593a1458.html">模型应用与工程实践</a><a href="n-c3bd53ac4947.html">模型应用与工程实践</a><a href="n-ebb680d32d77.html">模型应用与工程实践</a><a href="n-9ac5cc568fa4.html">模型应用与工程实践</a><a href="n-37001f1851aa.html">模型应用与工程实践</a><a href="n-01c86e24a307.html">模型应用与工程实践</a><a href="n-dbbc45e8b204.html">模型应用与工程实践</a><a href="n-119a5efe2e6b.html">模型应用与工程实践</a><a href="n-46e2e1374022.html">模型结构与注意力</a><a href="n-aa04c0d9a8f8.html">模型结构与注意力</a><a href="n-55a2bd11ef65.html">模型结构与注意力</a><a href="n-2595eed292ad.html">模型结构与注意力</a><a href="n-f0382b933d2f.html">模型结构与注意力</a><a href="n-904330a6a1c5.html">评估、安全与可靠性</a><a href="n-6d7a7359f3f6.html">评估、安全与可靠性</a><a href="n-359722c0c6ca.html">预训练、微调与优化</a><a href="n-050bc5a7d211.html">预训练、微调与优化</a><a href="n-4dd9f79d099c.html">预训练、微调与优化</a><a href="n-99a2a67e81a2.html">预训练、微调与优化</a><a href="n-4c2bffb14f35.html">预训练、微调与优化</a><a href="n-84b6dfab1f70.html">预训练、微调与优化</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">10</span><span>RAG与Agent</span></summary><div class="sidebar-entries"><a href="n-5d84aef2ce81.html">RAG与Agent</a><a href="n-bafa092ed5bd.html">Agent、工具与工作流</a><a href="n-8e27afb6fd2c.html">Agent、工具与工作流</a><a href="n-651f094164a5.html">Agent、工具与工作流</a><a href="n-32743e379df1.html">Agent、工具与工作流</a><a href="n-e9e9c2abaac1.html">Agent、工具与工作流</a><a href="n-baa8bbd91a97.html">Agent、工具与工作流</a><a href="n-5c76c96d5253.html">Agent、工具与工作流</a><a href="n-8c2a7e9f229a.html">RAG与检索增强</a><a href="n-18555744d416.html">RAG与检索增强</a><a href="n-f66e34817bbe.html">RAG与检索增强</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">11</span><span>Go</span></summary><div class="sidebar-entries"><a href="n-28cd65de7ece.html">Go</a><a href="n-40471a0b282d.html">Go语言问答</a><a href="n-ac004f4e8baa.html">内存、GC与性能</a><a href="n-ff2426ca2a29.html">并发、Channel与调度</a><a href="n-769cb0e710f3.html">并发、Channel与调度</a><a href="n-30593a476d59.html">集合、接口与语言机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">12</span><span>Python</span></summary><div class="sidebar-entries"><a href="n-020b7fb7f165.html">Python</a><a href="n-7c360e706627.html">Python实践问答</a><a href="n-3fbed5933806.html">Python实践问答</a><a href="n-2ca08a13121b.html">函数与语言机制</a><a href="n-0858abdedcf3.html">对象、类型与容器</a><a href="n-c99e615ed507.html">并发与异步</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">13</span><span>Rust</span></summary><div class="sidebar-entries"><a href="n-e7f23886eaf9.html">Rust</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">14</span><span>嵌入式与RTOS</span></summary><div class="sidebar-entries"><a href="n-263ec6de8ce2.html">嵌入式与RTOS</a><a href="n-c26cece74368.html">嵌入式实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">15</span><span>前端与浏览器</span></summary><div class="sidebar-entries"><a href="n-30cd5fa12bd4.html">前端与浏览器</a><a href="n-04f257c6cdc7.html">HTML、CSS与页面布局</a><a href="n-926933f98ed9.html">JavaScript语义与异步</a><a href="n-8ad95d55bba4.html">React与组件状态</a><a href="n-bad57db79187.html">React与组件状态</a><a href="n-627be857903d.html">React与组件状态</a><a href="n-017d3de5a578.html">React与组件状态</a><a href="n-486d581f5c03.html">React与组件状态</a><a href="n-be435b67edba.html">React与组件状态</a><a href="n-58074b02052a.html">Vue与响应式</a><a href="n-5de64a1e3962.html">前端综合问答</a><a href="n-0da5c70a8164.html">前端综合问答</a><a href="n-d4dba14e5a1c.html">前端综合问答</a><a href="n-834238ab2bdd.html">前端综合问答</a><a href="n-c1666d8e38b3.html">工程化与工具链</a><a href="n-e126302565f9.html">浏览器、网络与性能</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">16</span><span>移动端</span></summary><div class="sidebar-entries"><a href="n-3ece28e7ce63.html">移动端</a><a href="n-f783a278ffc7.html">移动应用机制</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">17</span><span>测试开发</span></summary><div class="sidebar-entries"><a href="n-b5a162d88a6c.html">测试开发</a><a href="n-464bc7e78da3.html">测试设计与实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">18</span><span>运维与云原生</span></summary><div class="sidebar-entries"><a href="n-2eea79558398.html">运维与云原生</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">19</span><span>安全</span></summary><div class="sidebar-entries"><a href="n-a8efc5cb6bfc.html">安全</a><a href="n-dc39d0651105.html">Web安全与攻击防护</a><a href="n-5a4ea15bde10.html">加密、证书与协议</a><a href="n-5aca08ff81fb.html">安全实践问答</a><a href="n-bc586b9ec3f9.html">身份认证与授权</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">20</span><span>数据工程</span></summary><div class="sidebar-entries"><a href="n-4da6911e694b.html">数据工程</a><a href="n-17b1f7686a87.html">数据处理与工程实践</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">21</span><span>数据结构与算法</span></summary><div class="sidebar-entries"><a href="n-a259d817e3cf.html">数据结构与算法</a><a href="n-7f88167be333.html">动态规划与状态设计</a><a href="n-2b28825fc62d.html">数组、字符串与双指针</a><a href="n-a0b9055e5e4b.html">查找、排序与复杂度</a><a href="n-f6e23d32c455.html">树、图与遍历</a><a href="n-76b0c36cdd8e.html">算法题解与思维方法</a><a href="n-b9458020fd1e.html">贪心、回溯与组合</a><a href="n-00f640d80af1.html">链表、堆栈与队列</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">22</span><span>项目与行为面试</span></summary><div class="sidebar-entries"><a href="n-0e4dbe42aa53.html">项目与行为面试</a><a href="n-fad77439dc9d.html">协作、排障与复盘</a><a href="n-5f31ed58e966.html">求职与面试问答</a><a href="n-066c4daec5c0.html">求职表达与职业选择</a><a href="n-a7f89bf85b78.html">项目介绍与技术取舍</a><a href="n-fd52eec54c38.html">项目介绍与技术取舍</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">23</span><span>CSharp与NET</span></summary><div class="sidebar-entries"><a href="n-56659882c922.html">CSharp与NET</a></div></details><details class="sidebar-group"><summary><span class="chapter-number">24</span><span>综合专题</span></summary><div class="sidebar-entries"><a href="n-d1b249b9c449.html">综合专题</a><a href="n-d324d1293926.html">Git与开发工具</a><a href="n-d4dc1ad940ce.html">计算机组成与基础</a><a href="n-7bc163584578.html">计算机综合问答</a><a href="n-749439f9372a.html">计算机综合问答</a><a href="n-8db439d24a67.html">计算机综合问答</a><a href="n-8cc01b785d87.html">计算机综合问答</a><a href="n-a46ed881abb7.html">计算机综合问答</a><a href="n-d8058f353dd0.html">设计模式与软件工程</a></div></details></nav></aside><div class="docs-main"><main id="main" class="notes-page wrap" tabindex="-1"><div class="reader-bar"><button class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="docs-sidebar" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /> </svg><span>专题目录</span></button><nav aria-label="当前位置" class="breadcrumb"><a href="../../index.html">首页</a><span>/</span><a href="../index.html">专题笔记</a><span>/</span><a href="index.html">计算机八股大全</a></nav><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button></div><header class="article-header"><p class="eyebrow">09-大模型训练与推理</p><h1>推理服务与部署</h1><p class="article-question-meta">52 个知识条目 · <a href="index.html#question-search">搜索全部题目</a></p><div class="article-actions"><a href="index.html#group-9ac484dbf09d">← 返回分类目录</a><a download="" href="../source/%E7%9F%A5%E8%AF%86%E5%BA%93/%E5%85%AB%E8%82%A1%E9%A2%98%E5%BA%93%E6%90%9C%E9%9B%86/09-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%8E%A8%E7%90%86/%E6%8E%A8%E7%90%86%E6%9C%8D%E5%8A%A1%E4%B8%8E%E9%83%A8%E7%BD%B2-05.md">下载 Markdown ↓</a></div></header><details class="mobile-outline"><summary>本页目录</summary><nav aria-label="本页目录（移动端）"><ul><li class="outline-level-2"><a href="#_1_1">四、历史型号（已逐步淘汰）</a></li><li class="outline-level-2"><a href="#_1_2">四、多节点与容器化部署</a></li><li class="outline-level-2"><a href="#optimization-profile">四、如何设置合理的Optimization Profile？</a></li><li class="outline-level-2"><a href="#_1_4">四、如果输出不一致如何排查？</a></li><li class="outline-level-2"><a href="#_1_5">四、总结</a></li><li class="outline-level-2"><a href="#_1_6">四、技术对比分析</a></li><li class="outline-level-2"><a href="#_1_7">四、调度瓶颈怎么看？</a></li><li class="outline-level-2"><a href="#ai">团队落地AI产品时，怎么平衡大模型推理延迟与成本？</a></li><li class="outline-level-2"><a href="#aigpucpu">在AI行业中，一些模型经过端侧部署框架转换格式后，在GPU上为什么比CPU跑得慢？</a></li><li class="outline-level-2"><a href="#ai_1">在AI领域中模型一共有多少种主流部署形式？</a></li><li class="outline-level-2"><a href="#_1_11">在向量化之前，为什么要对长文档进行切片？如果不切片会有什么后果？</a></li><li class="outline-level-2"><a href="#_1_12">在推理中的应用</a></li><li class="outline-level-2"><a href="#mllms">在推理阶段，如何通过后处理校正来减少MLLMs中的幻觉？</a></li><li class="outline-level-2"><a href="#_1_14">在没有推理能力前，如何让模型“先思考后回答”？</a></li><li class="outline-level-2"><a href="#gpu-rtx-3060-6-gb-7-b-3-b">在端侧 GPU（如 RTX 3060 6 GB）部署 7 B 级多模态模型几乎不可行，3 B 模型如何做到“精度不降反升”？</a></li><li class="outline-level-2"><a href="#trace">在线剖析与离线剖析有何区别？采样、插桩与trace各适用于什么场景？</a></li><li class="outline-level-2"><a href="#_1_17">在金融合同结构化解析中，如何通过多模态联合推理验证逻辑一致性？</a></li><li class="outline-level-2"><a href="#_1_18">大模型如何实现高效推理？模型压缩技术有哪些？</a></li><li class="outline-level-2"><a href="#_1_19">大模型如何赋能家庭服务机器人的场景适应？</a></li><li class="outline-level-2"><a href="#oom">大模型推理中显存OOM如何排查和解决？</a></li><li class="outline-level-2"><a href="#ttfttpotthroughput">大模型推理服务有哪些性能指标？TTFT、TPOT、Throughput分别衡量什么？</a></li><li class="outline-level-2"><a href="#_1_22">大模型推理服务有哪些特殊评估指标？</a></li><li class="outline-level-2"><a href="#_1_23">大模型服务化和传统模型服务化有什么不同？</a></li><li class="outline-level-2"><a href="#_1_24">大模型服务性能评测关键指标</a></li><li class="outline-level-2"><a href="#timeline-cpu-gpu-cudadevicesynchronizecudastreamsynchronize">如何从 Timeline 中识别不必要的 CPU-GPU 同步点（cudaDeviceSynchronize、cudaStreamSynchronize）？</a></li><li class="outline-level-2"><a href="#_1_26">如何从产品需求反推模型选型与部署形态？</a></li><li class="outline-level-2"><a href="#nvidia-nsight-systems-timeline">如何使用 NVIDIA Nsight Systems 进行系统级 Timeline 分析？</a></li><li class="outline-level-2"><a href="#trtexec-onnx-runtime-profiler">如何使用 trtexec 与 ONNX Runtime Profiler 进行推理引擎级分析？</a></li><li class="outline-level-2"><a href="#kernel-launch-overheadcpu-gpu">如何分析 Kernel Launch Overhead、CPU-GPU 同步与算子级热点？</a></li><li class="outline-level-2"><a href="#kv-cache-prefix-caching">如何分析 KV Cache 命中率与利用率？Prefix Caching 的效果如何量化评估？</a></li><li class="outline-level-2"><a href="#_1_31">如何判断推理瓶颈在计算、访存还是调度？</a></li><li class="outline-level-2"><a href="#_1_32">如何判断算子存在问题</a></li><li class="outline-level-2"><a href="#onnxgpucpu">如何将ONNX模型从GPU切换到CPU中进行缓存？</a></li><li class="outline-level-2"><a href="#profile-analyze-hypothesize-optimize-verify">如何建立 Profile → Analyze → Hypothesize → Optimize → Verify 的闭环调优流程？</a></li><li class="outline-level-2"><a href="#slo">如何建立推理服务的性能基线与SLO指标体系？</a></li><li class="outline-level-2"><a href="#_1_36">如何影响显存、吞吐和稳定性？</a></li><li class="outline-level-2"><a href="#_1_37">如何拆解推理全链路时耗？</a></li><li class="outline-level-2"><a href="#tensorrt">如何构建TensorRT模型的缓存机制？</a></li><li class="outline-level-2"><a href="#chrome-trace-tensorboard-profiler">如何用 Chrome Trace 和 TensorBoard 可视化 Profiler 结果并定位耗时算子？</a></li><li class="outline-level-2"><a href="#nsight-compute-roofline-source-page-kernel">如何用 Nsight Compute 的 Roofline 分析图和 Source Page 定位 Kernel 瓶颈？</a></li><li class="outline-level-2"><a href="#nsight-systems-gpu">如何用 Nsight Systems 分析多 GPU 推理的通信与计算重叠情况？</a></li><li class="outline-level-2"><a href="#_1_42">如何让模型给出简洁推理而不是冗长推理？</a></li><li class="outline-level-2"><a href="#_1_43">如何评估一个推理服务的性能和稳定性？</a></li><li class="outline-level-2"><a href="#_1_44">如何评估代码能力和科学推理能力？</a></li><li class="outline-level-2"><a href="#_1_45">如何评估推理服务的稳定性和线上可用性？</a></li><li class="outline-level-2"><a href="#_1_46">如何评估数学推理能力？</a></li><li class="outline-level-2"><a href="#cost">如何识别模型推理中的算子级热点？对 cost 最高的单算子如何进一步下钻分析？</a></li><li class="outline-level-2"><a href="#_1_48">如何识别计算瓶颈与访存瓶颈？</a></li><li class="outline-level-2"><a href="#docker">如何迁移docker服务所在路径？</a></li><li class="outline-level-2"><a href="#gpu-sm">如何进行 GPU 利用率、SM 活跃度与内存带宽分析？</a></li><li class="outline-level-2"><a href="#benchmark">如何进行大模型推理性能Benchmark？有哪些常用评测工具？</a></li><li class="outline-level-2"><a href="#nvidia-smidcgmnsight-gpu-idle-bubble">如何通过 nvidia-smi、DCGM、Nsight 工具组合定位 GPU 利用率异常（假性占满、idle bubble）？</a></li></ul></nav></details><article class="note-content" data-outline="questions">
+<p><a id="kf95f76510c61"></a></p>
+<span class="heading-anchor" id="四、历史型号（已逐步淘汰）"></span><h2 id="_1_1">四、历史型号（已逐步淘汰）</h2>
+<ul>
+<li><strong>Jetson TK1</strong>（2014年）：首款边缘计算开发板，基于Tegra K1芯片，支持CUDA平台。  </li>
+<li><strong>Jetson TX1</strong>（2015年）：性能较TK1提升，引入64位CPU和更高能效设计。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L330">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd0282f5d8d5a"></a></p>
+<span class="heading-anchor" id="四、多节点与容器化部署"></span><h2 id="_1_2">四、多节点与容器化部署</h2>
+<ol>
+<li><strong>跨节点免密要求</strong>：节点间需配置SSH无密码登录。  </li>
+<li><strong>容器内运行</strong>：<br/>
+   - 主机与容器共享端口（<code>docker run --network host</code>）。<br/>
+   - 修改容器SSH端口（非22），通过 <code>-mca plm_rsh_args "-p &lt;port&gt;"</code> 指定端口。  </li>
+<li><strong>进入特定环境</strong>：在容器启动脚本中激活 Conda（如 <code>~/.bashrc</code> 加入 <code>conda activate env</code>）。</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1643">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k10e91a2c4b06"></a></p>
+<span class="heading-anchor" id="四、如何设置合理的Optimization Profile？"></span><h2 id="optimization-profile">四、如何设置合理的Optimization Profile？</h2>
+<p>合理设置Profile可以遵循几个原则：</p>
+<ol>
+<li>只开放必要的动态维度</li>
+</ol>
+<p>如果图像高宽固定，就只让batch动态；如果序列长度动态，就不要让无关维度也动态。</p>
+<p>例如图像分类常见配置是：</p>
+<pre><code class="language-text">min: 1x3x224x224
+opt: 8x3x224x224
+max: 32x3x224x224
+</code></pre>
+<p>这样比同时开放H、W更容易优化。</p>
+<ol>
+<li>opt shape选择最常见输入</li>
+</ol>
+<p>opt shape应该来自真实业务统计，例如线上最常见batch size、图像尺寸或序列长度。</p>
+<p>如果大部分请求batch为8，那么opt设置为8通常比设置为最大batch更合理。</p>
+<ol>
+<li>对差异很大的shape使用多个Profile</li>
+</ol>
+<p>如果线上既有短序列，也有长序列，或者既有小图也有大图，可以设置多个Profile：</p>
+<pre><code class="language-text">Profile 0: 1x3x224x224  ~  8x3x224x224  ~  16x3x224x224
+Profile 1: 1x3x512x512  ~  4x3x512x512  ~  8x3x512x512
+Profile 2: 1x3x1024x1024 ~ 2x3x1024x1024 ~ 4x3x1024x1024
+</code></pre>
+<p>运行时根据输入shape选择合适Profile，可以获得更稳定的性能。</p>
+<ol>
+<li>结合显存和吞吐测试</li>
+</ol>
+<p>Profile设置最终要通过压测验证：</p>
+<ul>
+<li>是否能成功构建Engine</li>
+<li>最大shape下是否OOM</li>
+<li>opt shape延迟是否满足要求</li>
+<li>不同shape下吞吐是否稳定</li>
+<li>是否存在某些shape异常慢</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L1464">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k50c0e99a07bd"></a></p>
+<span class="heading-anchor" id="四、如果输出不一致如何排查？"></span><h2 id="_1_4">四、如果输出不一致如何排查？</h2>
+<p>常见排查思路：</p>
+<ol>
+<li><strong>先检查输入预处理</strong>：很多不一致来自NCHW/NHWC、RGB/BGR、归一化参数不同</li>
+<li><strong>检查训练/推理模式</strong>：确认Dropout关闭、BatchNorm使用固定统计量</li>
+<li><strong>降低后端复杂度</strong>：先用ONNX Runtime CPU EP对齐，再切到CUDA/TensorRT</li>
+<li><strong>检查导出方式</strong>：trace可能固化分支，复杂控制流可考虑script或改写forward</li>
+<li><strong>定位具体算子</strong>：用中间层输出或简化模型定位是哪一段开始出现误差</li>
+</ol>
+<p>可以总结为：<strong>验证ONNX正确性要在相同输入、相同预处理和推理模式下，分别运行PyTorch和ONNX Runtime，比较输出shape、dtype和数值误差，并进一步用真实数据验证任务指标。如果不一致，应先排查输入预处理和模型模式，再逐步定位算子或后端差异。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.2%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%EF%BC%9AONNX%E4%B8%8ETensorRT.md#L614">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k5ce392a0cd94"></a></p>
+<span class="heading-anchor" id="四、总结"></span><h2 id="_1_5">四、总结</h2>
+<p>截至2025年4月，英伟达的架构覆盖从图形渲染到AI计算的全面需求，<strong>Blackwell</strong>是当前最先进的消费级与专业级架构，而<strong>Rubin</strong>与<strong>Feynman</strong>则代表未来量子计算与硅光技术的融合方向。历史架构（如Turing、Ampere）仍在特定领域（如游戏、数据中心）广泛应用。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E8%BE%B9%E4%BA%91%E7%AB%AF%E9%83%A8%E7%BD%B2%E7%9F%A5%E8%AF%86%E7%82%B9.md#L278">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k32e0a00d6943"></a></p>
+<span class="heading-anchor" id="四、技术对比分析"></span><h2 id="_1_6">四、技术对比分析</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>传统API调用</th>
+<th>MCP协议方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开发成本</td>
+<td>每个API需单独适配（平均3人日/个）</td>
+<td>一次接入永久复用（0.5人日/个）</td>
+</tr>
+<tr>
+<td>异常处理</td>
+<td>需手动编写fallback逻辑</td>
+<td>内置自动服务降级机制</td>
+</tr>
+<tr>
+<td>多工具协同</td>
+<td>需开发中间件协调</td>
+<td>原生支持管道式调用</td>
+</tr>
+<tr>
+<td>安全审计</td>
+<td>分散在各服务</td>
+<td>统一权限控制与日志追踪</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1530">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbcc857ca3d2a"></a></p>
+<span class="heading-anchor" id="四、调度瓶颈怎么看？"></span><h2 id="_1_7">四、调度瓶颈怎么看？</h2>
+<p>如果GPU经常空闲、请求排队明显、CPU占用高、kernel很多但每个都很小，就可能是调度瓶颈。</p>
+<p>常见现象：
+- GPU利用率忽高忽低
+- CPU预处理或后处理耗时明显
+- kernel launch数量很多，小算子特别多
+- 请求间等待时间长，batch凑不齐
+- 多模型或多请求之间频繁同步</p>
+<p>常见优化方式：
+- 使用动态batching或continuous batching
+- 合并小算子，减少kernel launch
+- 异步执行，让计算和数据拷贝重叠
+- 优化预处理/后处理，必要时放到GPU上执行
+- 调整请求队列、超时时间和batch策略</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L714">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k85be53203e97"></a></p>
+<span class="heading-anchor" id="团队落地AI产品时，怎么平衡大模型推理延迟与成本？"></span><h2 id="ai">团队落地AI产品时，怎么平衡大模型推理延迟与成本？</h2>
+<p><strong>回答：</strong></p>
+<p>这是一个很好的反问，因为它直指 AI 产品能否规模化。一个成熟团队通常不会只靠单一强模型，而会做模型分层和链路拆分。</p>
+<p>可期待的回答包括：简单任务走小模型或规则，复杂规划走强模型；高频请求做缓存；可异步的任务进入队列；长任务拆成可流式返回的阶段；对用户可见链路优化首 token 延迟；对成本敏感节点做 batch、量化或本地化部署；通过 observability 看每个节点的 token、延迟、失败率和业务收益。</p>
+<p>你也可以继续追问：团队目前更关注首响延迟、总完成时间还是单位生成成本？是否有模型路由策略？是否允许降级生成？这些能帮你判断团队是否真的在做 AI 工程，而不是 demo。</p>
+<p><a id="xiaohongshu-ai-fullstack-20260702-q24"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%B0%8F%E7%BA%A2%E4%B9%A6%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L446">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k76c7d1f58273"></a></p>
+<span class="heading-anchor" id="在AI行业中，一些模型经过端侧部署框架转换格式后，在GPU上为什么比CPU跑得慢？"></span><h2 id="aigpucpu">在AI行业中，一些模型经过端侧部署框架转换格式后，在GPU上为什么比CPU跑得慢？</h2>
+<p>在AI端侧部署中，模型经框架转换后在GPU上运行反而比CPU慢的现象看似反直觉，实则蕴含深刻的硬件-软件协同问题。以下是Rocky针对此问题的系统性解析：</p>
+<span class="heading-anchor" id="2. 传统深度学习：工厂质检系统"></span><h3 id="2">2. <strong>传统深度学习：工厂质检系统</strong></h3>
+<ul>
+<li><strong>典型场景</strong>：PCB板缺陷检测  </li>
+<li><strong>硬件环境</strong>：  </li>
+<li>工业边缘设备Jetson Nano  </li>
+<li>CPU: 4核A57 @1.43GHz  </li>
+<li>
+<p>GPU: 128核Maxwell @921MHz  </p>
+</li>
+<li>
+<p><strong>性能悖论</strong>：<br/>
+  | 模型            | CPU延迟 | GPU延迟 |<br/>
+  |-----------------|---------|---------|<br/>
+  | YOLOv5-nano     | 68ms    | 52ms    |<br/>
+  | 传统图像处理算法 | 22ms | 41ms<br/>← 因OpenCV算子未GPU优化 |</p>
+</li>
+<li>
+<p><strong>破局之道</strong>：  </p>
+</li>
+<li>将传统算法移植到CUDA  </li>
+<li>部署混合调度器：  </li>
+</ul>
+<pre><code class="language-python">    class HybridScheduler:  
+        def select_backend(self, model):  
+            if model.compute_density &lt; 0.5:  # 计算密度阈值  
+                return "CPU"  
+            return "GPU"  
+</code></pre>
+<span class="heading-anchor" id="3. 自动驾驶：车载感知系统"></span><h3 id="3">3. <strong>自动驾驶：车载感知系统</strong></h3>
+<ul>
+<li><strong>核心挑战</strong>：  </li>
+<li>相机/激光雷达多传感器融合  </li>
+<li>
+<p>必须满足100ms端到端延迟  </p>
+</li>
+<li>
+<p><strong>GPU减速案例</strong>：  </p>
+</li>
+</ul>
+<pre><code>  传感器数据 → GPU预处理 → 目标检测 → 多模态融合  
+          ↑_____________CPU干预___________|  
+</code></pre>
+<p>因激光雷达点云处理含大量条件分支，GPU效率仅CPU的60%  </p>
+<ul>
+<li><strong>军工级解决方案</strong>：<br/>
+  1. <strong>异构计算流水线</strong>：  </li>
+</ul>
+<pre class="mermaid">     graph LR  
+         Camera--&gt;GPU["GPU做图像预处理"]  
+         Lidar--&gt;CPU["CPU做点云分割"]  
+         GPU &amp; CPU--&gt;FPGA["融合加速"]  
+</pre>
+<ol>
+<li><strong>GPU保留模式</strong>：  <ul>
+<li>锁频至最高性能档位  </li>
+<li>独占分配50%显存  </li>
+</ul>
+</li>
+</ol>
+<span class="heading-anchor" id="面试回答结构化建议"></span><h3 id="_1_9">面试回答结构化建议</h3>
+<p><strong>回答框架</strong>：<br/>
+1. <strong>分层解析原因</strong>：<br/>
+   “该问题需从硬件特性、算子支持、资源竞争三个维度分析：<br/>
+   - 硬件层面：移动端GPU存在算力带宽双约束<br/>
+   - 软件层面：非标准算子触发昂贵内存拷贝<br/>
+   - 系统层面：多进程争用导致资源碎片化”  </p>
+<ol>
+<li><strong>实例佐证</strong>：<br/>
+   “以人脸检测为例，当自定义后处理算子无法在GPU执行时，单次推理增加3ms拷贝开销，这在低端机占比可达40%”  </li>
+</ol>
+<p><strong>终极洞见</strong>：<br/>
+“GPU在端侧的性能倒挂本质是<strong>硬件能力与软件栈的错配</strong>。破局关键在于：<br/>
+- 算子编译阶段：通过TVM/MNN实现100%算子覆盖<br/>
+- 运行时阶段：构建性能预测模型动态选择后端<br/>
+- 系统级优化：采用CPU-GPU-NPU协同计算框架”</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L775">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k749be0879bf1"></a></p>
+<span class="heading-anchor" id="在AI领域中模型一共有多少种主流部署形式？"></span><h2 id="ai_1">在AI领域中模型一共有多少种主流部署形式？</h2>
+<p><strong>AI领域发展至今，Rocky认为目前主要有三大核心方向，包括AIGC、传统深度学习以及自动驾驶</strong>。以下是这些领域中主流的模型部署形式：</p>
+<span class="heading-anchor" id="1. AIGC领域的模型部署"></span><h3 id="1-aigc">1. AIGC领域的模型部署</h3>
+<p><strong>a. 云端部署</strong>
+- <strong>特点</strong>：模型部署在云服务器上，用户通过API调用服务进行内容生成。
+- <strong>优势</strong>：可扩展，易于更新和维护，适合处理大量并发请求。
+- <strong>应用示例</strong>：OpenAI的GPT-4模型作为API服务提供，用户可以通过互联网调用模型生成文本。</p>
+<p><strong>b. 客户端部署</strong>
+- <strong>特点</strong>：模型部署在用户的设备上，如PC或移动设备。
+- <strong>优势</strong>：保护用户数据隐私，减少网络延迟。
+- <strong>应用示例</strong>：Adobe Photoshop的内容感知工具，可在用户设备上直接运行，不需数据上传到云端。</p>
+<span class="heading-anchor" id="2. 深度学习领域的模型部署"></span><h3 id="2_1">2. 深度学习领域的模型部署</h3>
+<p><strong>a. 云端部署</strong>
+- <strong>特点</strong>：模型部署在云服务器上，利用云计算的强大计算能力进行数据处理和模型推理。
+- <strong>优势</strong>：提供强大的计算资源，易于扩展，便于管理。
+- <strong>应用示例</strong>：在图像识别、语音识别等需要大规模数据处理的应用中，云端部署可以快速处理来自全球的请求。</p>
+<p><strong>b. 边缘部署</strong>
+- <strong>特点</strong>：模型直接部署在本地设备上，如智能手机、IoT设备或本地服务器。
+- <strong>优势</strong>：减少数据传输时间，提高响应速度，增强隐私保护。
+- <strong>应用示例</strong>：在移动应用中，如实时语言翻译和增强现实（AR），模型在本地设备上运行，以实现低延迟和离线功能。</p>
+<span class="heading-anchor" id="3. 自动驾驶领域的模型部署"></span><h3 id="3_1">3. 自动驾驶领域的模型部署</h3>
+<p><strong>a. 车载部署</strong>
+- <strong>特点</strong>：模型直接部署在车辆的计算平台上，处理来自车载传感器的数据。
+- <strong>优势</strong>：实时处理传感器数据，快速做出驾驶决策。
+- <strong>应用示例</strong>：自动驾驶汽车中的决策系统，如特斯拉Autopilot，需要在车辆内部快速处理来自摄像头、雷达和其他传感器的数据。</p>
+<p><strong>b. 云端部署</strong>
+- <strong>特点</strong>：某些控制功能和监控系统部署在云端控制中心。
+- <strong>优势</strong>：可以进行更复杂的数据分析，实时监控和调整车辆行为。
+- <strong>应用示例</strong>：远程监控和调度系统，可用于管理自动驾驶车队，例如在无人配送服务中进行调度和监控。</p>
+<p>总之，AI模型的部署形式应根据具体的应用需求、数据敏感性、可用资源和所需的响应时间来决定。不同的部署策略具有各自的优势和限制，理解这些可以帮助我们选择最适合特定需求的部署方法。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_10">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5.md#L521">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfcfe8fe459a4"></a></p>
+<span class="heading-anchor" id="在向量化之前，为什么要对长文档进行切片？如果不切片会有什么后果？"></span><h2 id="_1_11">在向量化之前，为什么要对长文档进行切片？如果不切片会有什么后果？</h2>
+<p><a id="batch4-p1-q5"></a></p>
+<p><strong>相关解释：</strong> <a href="n-8c2a7e9f229a.html#k1abf61aa73cc">Embedding模型与Reranker差异，二者训练Loss区别</a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_7">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L206">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k1894c8a436ac"></a></p>
+<span class="heading-anchor" id="在推理中的应用"></span><h2 id="_1_12">在推理中的应用</h2>
+<p>在推理阶段，模型通常是冻结的（不更新权重），可以采用以下策略：
+1. <strong>权重分块</strong>：
+   - 将模型分为多个小模块（如 Transformer 的每一层）。
+   - 每次仅加载一个模块进行计算。</p>
+<ol>
+<li>
+<p><strong>分布式推理</strong>：
+   - 使用多个设备分担权重存储和计算负载。
+   - 示例：在 GPU1 上运行模型的前几层，GPU2 上运行后几层。</p>
+</li>
+<li>
+<p><strong>流水线并行</strong>：
+   - 将模型切分为多个部分，每部分运行在不同设备上，同时处理不同批次的数据。</p>
+</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_8">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L1980">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf65b4c6b045f"></a></p>
+<span class="heading-anchor" id="在推理阶段，如何通过后处理校正来减少MLLMs中的幻觉？"></span><h2 id="mllms">在推理阶段，如何通过后处理校正来减少MLLMs中的幻觉？</h2>
+<p>在推理阶段，可以通过以下方法进行后处理校正来减少幻觉：</p>
+<p>（1）Woodpecker：提取生成文本中的关键概念，通过视觉内容验证这些概念，检测并修正幻觉内容。
+（2）LURE：使用一个专门的幻觉修正器模型，将潜在的幻觉描述转换为准确的描述。训练数据集包含图像和幻觉描述，目标是将幻觉描述修正为准确描述。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E7%90%86%E8%AE%BA%E7%9F%A5%E8%AF%86.md#L411">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kbc2d93293461"></a></p>
+<span class="heading-anchor" id="在没有推理能力前，如何让模型“先思考后回答”？"></span><h2 id="_1_14">在没有推理能力前，如何让模型“先思考后回答”？</h2>
+<p>通过<strong>提示词工程</strong>引导模型“思考”，即在 prompt 中显式要求模型列出推理过程，如加上：</p>
+<ul>
+<li><code>"请一步步思考再作答"</code>（思维链）</li>
+<li><code>"请验证你的答案是否与前提一致"</code>（自洽性）</li>
+<li><code>"请考虑多种可能情况，再做判断"</code>（思维树）</li>
+</ul>
+<p><img alt="img" loading="lazy" referrerpolicy="no-referrer" src="https://pic2.zhimg.com/v2-3f4b660786169ca840437a9d0e95fde5_1440w.jpg"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/datawhalechina/daily-interview/blob/f35e8d555f8ff07d568eae569c3641bd76d0eac9/docs/04-ai-algorithms/llm/llm-interview-questions.md#L216">Datawhale</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k45cf96993208"></a></p>
+<span class="heading-anchor" id="在端侧 GPU（如 RTX 3060 6 GB）部署 7 B 级多模态模型几乎不可行，3 B 模型如何做到“精度不降反升”？"></span><h2 id="gpu-rtx-3060-6-gb-7-b-3-b">在端侧 GPU（如 RTX 3060 6 GB）部署 7 B 级多模态模型几乎不可行，3 B 模型如何做到“精度不降反升”？</h2>
+<p>(1)训练数据质量 &gt; 参数规模
+OCRFlux-3B 使用了 110 万页「金融+学术」私域数据，经过多轮人工校验，去除了 GPT-4o 在低质量表格上的错误标签；数据清洗带来的增益远超额外 4 B 参数。</p>
+<p>(2)任务特定的视觉 tokenizer
+采用「切图-合并」策略：高分辨率页面先切成 448×448 不重叠子图，每张图经 ViT 编码后仅保留 64 个 visual token；相比 7 B 模型直接对 1344×1344 全图编码，推理时显存占用下降 ~4×。</p>
+<p>(3)联合训练的单模型多任务
+单页解析与跨页合并共享同一套权重，避免「两阶段流水线」带来的错误累积；同时利用 LoRA+ZeRO-3 在 8×A100 上仅 6 小时即可完成微调，极大降低了再训练门槛。</p>
+<p>(4)量化与算子优化
+推理侧支持 AWQ INT4 量化 + Flash-Attention2，RTX 3060 6 GB 上可跑 2048 token context，吞吐量 12 page/s，满足生产需求。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_15">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E5%89%8D%E6%B2%BF%E6%8A%80%E6%9C%AF.md#L545">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k50c9b8ad47c1"></a></p>
+<span class="heading-anchor" id="在线剖析与离线剖析有何区别？采样、插桩与trace各适用于什么场景？"></span><h2 id="trace">在线剖析与离线剖析有何区别？采样、插桩与trace各适用于什么场景？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、在线剖析与离线剖析"></span><h3 id="_1_16">一、在线剖析与离线剖析</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>在线剖析（Online Profiling）</th>
+<th>离线剖析（Offline Profiling）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定义</td>
+<td>在生产环境或运行时实时采集性能数据</td>
+<td>将运行时事件记录到文件，事后分析</td>
+</tr>
+<tr>
+<td>数据采集方式</td>
+<td>实时采样、实时指标暴露</td>
+<td>Trace/Log 文件落盘后回放分析</td>
+</tr>
+<tr>
+<td>典型工具</td>
+<td>nvidia-smi、DCGM、Prometheus 指标</td>
+<td>Nsight Systems trace、PyTorch Profiler JSON</td>
+</tr>
+<tr>
+<td>性能开销</td>
+<td>低（通常 &lt; 1%）</td>
+<td>可较高（全量 trace 可能产生 GB 级数据）</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>线上监控、实时告警、异常检测</td>
+<td>深度调优、瓶颈定位、版本间对比</td>
+</tr>
+<tr>
+<td>数据粒度</td>
+<td>粗（聚合指标为主）</td>
+<td>细（单次 kernel launch、API 调用）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>选型策略</strong>：先用在线剖析发现"有问题"，再用离线剖析深入分析"问题在哪"。</p>
+<span class="heading-anchor" id="二、采集方式的三种范式"></span><h3 id="_2_10">二、采集方式的三种范式</h3>
+<ol>
+<li>
+<p>采样（Sampling）
+定期中断程序并记录当前调用栈，通过统计采样频率推断热点。
+- <strong>代表工具</strong>：Linux perf、nvidia-smi 利用率查询
+- <strong>优点</strong>：开销极低，适合长期运行的生产服务
+- <strong>缺点</strong>：无法捕获瞬时事件，精度受采样频率限制</p>
+</li>
+<li>
+<p>插桩（Instrumentation）
+在代码中手动或自动插入探针，记录函数的进入/退出和关键参数。
+- <strong>代表工具</strong>：NVTX 标记、PyTorch Profiler <code>profiler.step()</code>、OpenTelemetry
+- <strong>优点</strong>：精确记录关键区间，语义明确
+- <strong>缺点</strong>：需要修改代码，覆盖不全会遗漏问题</p>
+</li>
+<li>
+<p>Trace（全量追踪）
+记录每一条 CUDA API 调用、kernel launch 和内存操作的时间戳。
+- <strong>代表工具</strong>：Nsight Systems（CUDA trace）、PyTorch Profiler（with_stack）
+- <strong>优点</strong>：信息最全，可精确重建执行 Timeline
+- <strong>缺点</strong>：数据量大（GB 级），对被分析程序有性能干扰</p>
+</li>
+</ol>
+<span class="heading-anchor" id="三、三种范式的配合"></span><h3 id="_3">三、三种范式的配合</h3>
+<pre><code>采样（宏观监控）→ 发现异常
+    ↓
+插桩（分段定位）→ 缩小范围
+    ↓
+Trace（微观分析）→ 定位根因
+</code></pre>
+<p>可以总结为：<strong>在线剖析适合监控和发现，离线剖析适合深度分析。采样给你"谁花的时间多"，插桩给你"哪个阶段慢"，Trace 给你"每个操作在什么时刻发生了什么"。三种范式通常配合使用——先用在线指标发现异常，再逐步下钻。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L194">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd0e27de6e9d2"></a></p>
+<span class="heading-anchor" id="在金融合同结构化解析中，如何通过多模态联合推理验证逻辑一致性？"></span><h2 id="_1_17">在金融合同结构化解析中，如何通过多模态联合推理验证逻辑一致性？</h2>
+<p><strong>方法论</strong>：<br/>
+- <strong>规则引擎</strong>：定义业务逻辑的谓词表达式，如<br/>
+   $<span class="arithmatex">\(\forall \text{clause}_i \in \text{Contract}, \text{Amount}(\text{clause}_i) = \text{Sum}(\text{PaymentSchedule}_i)\)</span>$<br/>
+- <strong>神经网络验证</strong>：训练Siamese网络计算条款与表格的语义相似度：<br/>
+   $<span class="arithmatex">\(s(\mathbf{t}, \mathbf{c}) = \sigma(\text{MLP}([\mathbf{t}; \mathbf{c}]))\)</span>$<br/>
+  低于阈值<span class="arithmatex">\(\tau\)</span>时触发人工审核。<br/>
+<strong>数据</strong>：需标注矛盾样本（如故意修改金额）供模型学习。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_11">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E5%89%8D%E6%B2%BF%E6%8A%80%E6%9C%AF.md#L580">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf56bca12faf6"></a></p>
+<span class="heading-anchor" id="大模型如何实现高效推理？模型压缩技术有哪些？"></span><h2 id="_1_18">大模型如何实现高效推理？模型压缩技术有哪些？</h2>
+<ul>
+<li><strong>推理优化</strong>：  </li>
+<li><strong>知识蒸馏</strong>：用小模型（Student）模仿大模型（Teacher）的输出分布。  </li>
+<li><strong>量化</strong>：将FP32参数压缩为INT8/INT4，结合QAT（量化感知训练）。  </li>
+<li><strong>剪枝</strong>：移除冗余注意力头或神经元（如LayerDrop）。  </li>
+<li><strong>硬件加速</strong>：  </li>
+<li>使用TensorRT或ONNX Runtime优化计算图，部署至GPU/TPU。  </li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_12">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80/%E5%A4%9A%E6%A8%A1%E6%80%81-%E5%A4%A7%E6%A8%A1%E5%9E%8B%E4%B8%BB%E5%B9%B2.md#L125">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd89cf6030dcd"></a></p>
+<span class="heading-anchor" id="大模型如何赋能家庭服务机器人的场景适应？"></span><h2 id="_1_19">大模型如何赋能家庭服务机器人的场景适应？</h2>
+<p>个性化场景理解：
+- 学习家庭特定布局和物体摆放习惯
+- 适应不同用户的操作偏好和指令风格
+- 基于历史交互进行行为个性化调整</p>
+<p>开放式任务处理：
+- 处理"整理一下房间"等模糊指令
+- 根据场景上下文进行合理的任务解释
+- 多任务间进行优先级判断和调度</p>
+<p>异常情况处理：
+- 检测环境变化和意外障碍物
+- 生成替代方案应对计划外情况
+- 主动向用户确认不确定操作</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_13">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E5%9F%BA%E7%A1%80/01_%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86.md#L197">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf72b5a5fa79f"></a></p>
+<span class="heading-anchor" id="大模型推理中显存OOM如何排查和解决？"></span><h2 id="oom">大模型推理中显存OOM如何排查和解决？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<p><img alt="图12：显存OOM三分类排查流程" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/oom-troubleshooting.png"/></p>
+<span class="heading-anchor" id="一、OOM的分类与定位"></span><h3 id="oom_1">一、OOM的分类与定位</h3>
+<p>大模型推理中的OOM（Out of Memory）通常分为三类：</p>
+<p><strong>类型1：模型加载OOM</strong>
+- 现象：模型加载阶段就报OOM，根本无法启动
+- 原因：模型权重超过GPU可用显存</p>
+<p><strong>类型2：KV Cache OOM</strong>
+- 现象：服务启动成功，但在运行一段时间后、处理到长文本或多并发时OOM
+- 原因：KV Cache动态增长超出预留空间</p>
+<p><strong>类型3：瞬时OOM</strong>
+- 现象：间歇性OOM，有时正常有时失败
+- 原因：Prefill时大量激活值同时分配，瞬时显存峰值超过容量</p>
+<span class="heading-anchor" id="二、OOM排查流程"></span><h3 id="oom_2">二、OOM排查流程</h3>
+<p><strong>Step 1：确认显存使用情况</strong></p>
+<pre><code class="language-bash"># 实时监控显存
+nvidia-smi -l 1
+# 或使用
+watch -n 1 nvidia-smi
+
+# vLLM启动日志中查看预估显存分配
+# 关键日志行：
+# "GPU memory utilization: 0.9"
+# "Total GPU memory: 80GB"
+# "Free GPU memory: XX GB"
+# "KV Cache capacity: XX tokens"
+</code></pre>
+<p><strong>Step 2：计算显存分配</strong></p>
+<pre><code>总显存分配 = 模型权重 + KV Cache池 + CUDA Context等固定开销
+
+模型权重（FP16）= 参数量 × 2 字节
+例如：7B × 2 = 14GB, 70B × 2 = 140GB
+
+KV Cache池 = 总显存 × gpu_memory_utilization - 模型权重 - 固定开销
+
+每个请求的KV Cache = 2 × 层数 × head_dim × kv_heads × 序列长度 × 2字节
+</code></pre>
+<p><strong>Step 3：根据OOM类型定位</strong></p>
+<ul>
+<li>启动时OOM → 模型权重过大，需要TP或量化</li>
+<li>运行中OOM → KV Cache设置过大或限制太宽松</li>
+<li>瞬时OOM → Prefill burst，max-num-batched-tokens过大</li>
+</ul>
+<span class="heading-anchor" id="三、解决方案"></span><h3 id="_1_20">三、解决方案</h3>
+<p><strong>方案1：降低gpu-memory-utilization</strong></p>
+<pre><code class="language-bash">vllm serve model --gpu-memory-utilization 0.8  # 从0.9降到0.8
+</code></pre>
+<p>减小KV Cache的总池子，降低OOM风险（但会减少可并发请求数）。</p>
+<p><strong>方案2：限制max-model-len</strong></p>
+<pre><code class="language-bash">vllm serve model --max-model-len 4096  # 从8192降到4096
+</code></pre>
+<p>减小每个请求的最大KV Cache预留，有效降低OOM风险。</p>
+<p><strong>方案3：限制max-num-seqs</strong></p>
+<pre><code class="language-bash">vllm serve model --max-num-seqs 64  # 减少最大并发序列数
+</code></pre>
+<p>减少同时活跃的请求数，限制KV Cache的总消耗。</p>
+<p><strong>方案4：使用量化模型</strong></p>
+<pre><code class="language-bash"># INT4量化模型
+vllm serve Qwen/Qwen2-7B-Instruct-AWQ --quantization awq
+
+# FP8量化模型
+vllm serve model --quantization fp8
+</code></pre>
+<p>模型权重减少到原来的1/4（INT4）或1/2（FP8），留出更多空间给KV Cache。</p>
+<p><strong>方案5：张量并行</strong></p>
+<pre><code class="language-bash">vllm serve model --tensor-parallel-size 4
+</code></pre>
+<p>将模型权重切分到多张卡上，每张卡的权重压力减小。</p>
+<p><strong>方案6：启用KV Cache量化（如LMDeploy）</strong></p>
+<pre><code class="language-bash"># LMDeploy启用KV Cache INT8量化
+lmdeploy serve api_server model --kv-cache-dtype 8
+</code></pre>
+<span class="heading-anchor" id="四、OOM排查速查表"></span><h3 id="oom_3">四、OOM排查速查表</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>常见原因</th>
+<th>优先排查方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>启动即OOM</td>
+<td>模型权重 &gt; 显存</td>
+<td>张量并行或量化</td>
+</tr>
+<tr>
+<td>长文本OOM</td>
+<td>max-model-len设太大</td>
+<td>降低max-model-len</td>
+</tr>
+<tr>
+<td>高并发OOM</td>
+<td>KV Cache池耗尽</td>
+<td>降低max-num-seqs或gpu-memory-utilization</td>
+</tr>
+<tr>
+<td>间歇性OOM</td>
+<td>Prefill burst瞬发峰值</td>
+<td>降低max-num-batched-tokens</td>
+</tr>
+<tr>
+<td>运行几小时后OOM</td>
+<td>显存碎片或泄漏</td>
+<td>重启服务，升级vLLM版本</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>大模型推理OOM排查应首先区分是模型加载OOM、KV Cache OOM还是瞬时OOM，然后针对性解决：模型OOM用TP/量化，KV Cache OOM调低gpu-memory-utilization/max-model-len/max-num-seqs，瞬时OOM限制max-num-batched-tokens。量化模型+张量并行是最有效的OOM解决组合。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_14">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L2513">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k072ad625060b"></a></p>
+<span class="heading-anchor" id="大模型推理服务有哪些性能指标？TTFT、TPOT、Throughput分别衡量什么？"></span><h2 id="ttfttpotthroughput">大模型推理服务有哪些性能指标？TTFT、TPOT、Throughput分别衡量什么？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<span class="heading-anchor" id="一、指标体系总览"></span><h3 id="_1_21">一、指标体系总览</h3>
+<p>大模型推理服务的性能评测通常关注四大类指标：</p>
+<ol>
+<li><strong>延迟类</strong>：TTFT、TPOT、E2E Latency</li>
+<li><strong>吞吐类</strong>：Throughput、QPS、Token/s</li>
+<li><strong>资源类</strong>：GPU利用率、显存占用、KV Cache利用率</li>
+<li><strong>质量类</strong>：生成质量（Perplexity、任务指标）、首Token正确率</li>
+</ol>
+<span class="heading-anchor" id="二、TTFT（Time To First Token，首Token延迟）"></span><h3 id="ttfttime-to-first-tokentoken">二、TTFT（Time To First Token，首Token延迟）</h3>
+<p><strong>定义</strong>：从请求发出到收到第一个生成Token的时间间隔。</p>
+<p><strong>TTFT = 排队延迟 + Tokenization时间 + Prefill延迟 + 第一次Decode延迟</strong></p>
+<p><strong>衡量什么</strong>：用户感知的"响应速度"。TTFT越低，用户感觉响应越快。</p>
+<p><strong>影响因素</strong>：
+- Prompt长度：长度越长，Prefill计算量越大，TTFT越高
+- 排队情况：高负载时请求在队列中等待，TTFT 增加
+- Prefill计算能力：GPU FLOPS越高，Prefill越快</p>
+<p><strong>典型目标</strong>：
+- 交互式对话场景：&lt; 200ms（理想），&lt; 500ms（可接受）
+- 批量处理场景：&lt; 2s</p>
+<span class="heading-anchor" id="三、TPOT（Time Per Output Token，逐Token延迟）"></span><h3 id="tpottime-per-output-tokentoken">三、TPOT（Time Per Output Token，逐Token延迟）</h3>
+<p><strong>定义</strong>：生成阶段中，每个输出Token之间的平均时间间隔。</p>
+<p><strong>TPOT ≈ 一次Decode的计算时间 + 访存时间</strong></p>
+<p><strong>衡量什么</strong>：生成过程的"流畅度"。TPOT越低，文字"流"得越快。</p>
+<p><strong>影响因素</strong>：
+- KV Cache大小（已有的Token数）：序列越长，每次Decode需读取的KV Cache越多，TPOT越高
+- HBM带宽：Decode是访存密集型，带宽越大TPOT越低
+- Batch Size（并发请求数）：并发越多，每步需处理的请求越多，TPOT可能增加</p>
+<p><strong>典型目标</strong>（需按模型规模区分）：
+- 7B/13B 模型交互式场景：&lt; 15-20ms/Token（50+ Token/s 的输出速度）
+- 70B+ 模型交互式场景：&lt; 30-50ms/Token（受限于访存瓶颈，单用户 TPOT 难达到 20ms 以内）
+- 流式体验（各规模通用）：&lt; 50ms/Token（低于此值时用户感知流畅）
+- 批量离线处理：&gt; 100ms/Token 也可接受，关注吞吐而非逐 Token 延迟</p>
+<span class="heading-anchor" id="四、E2E Latency（端到端延迟）"></span><h3 id="e2e-latency">四、E2E Latency（端到端延迟）</h3>
+<p><strong>定义</strong>：从请求发出到收到完整回复（包括所有生成Token）的总时间。</p>
+<p><strong>E2E Latency = TTFT + TPOT × (生成Token数 - 1)</strong></p>
+<span class="heading-anchor" id="五、Throughput（吞吐量）"></span><h3 id="throughput">五、Throughput（吞吐量）</h3>
+<p><strong>定义</strong>：单位时间内系统处理的Token总数。</p>
+<p><strong>Throughput = 总输出Token数 / 时间（通常以 tokens/s 度量）</strong></p>
+<p><strong>衡量什么</strong>：系统的整体"产能"。</p>
+<p><strong>影响因素</strong>：
+- 并发请求数
+- 每批处理的Token数
+- Continuous Batching的效率
+- GPU数量和型号</p>
+<p><strong>注意区分</strong>：
+- 单请求吞吐：延迟敏感型场景关注（TTFT、TPOT更重要）
+- 系统总吞吐：批量离线场景关注（Throughput更重要）</p>
+<span class="heading-anchor" id="六、QPS（Queries Per Second）"></span><h3 id="qpsqueries-per-second">六、QPS（Queries Per Second）</h3>
+<p><strong>定义</strong>：单位时间内成功处理的请求数。</p>
+<p><strong>注意</strong>：大模型场景中QPS关联于多个变量（Prompt长度、生成长度），单纯比较QPS意义有限。通常需要标注输入/输出长度条件。</p>
+<p><strong>正常化QPS</strong>：固定条件（如Prompt=500 Tokens, Output=200 Tokens）下的QPS更有可比性。</p>
+<span class="heading-anchor" id="七、其他重要指标"></span><h3 id="_2_15">七、其他重要指标</h3>
+<p><strong>1. GPU利用率（GPU Utilization）</strong>：GPU计算单元的使用比例。Decode阶段因为访存绑定，利用率天然低（往往10-30%），不必追求100%利用率。</p>
+<p><strong>2. KV Cache命中率</strong>：Prefix Caching/RadixAttention的命中率。高命中率→更多请求跳过Prefill→更低TTFT。</p>
+<p><strong>3. P50/P95/P99延迟</strong>：延迟的百分位分布，P95/P99反映了"最差体验"。在在线服务中P99比Average Latency更重要。</p>
+<p><strong>4. Time Per Query（TPQ）</strong>：单个请求从进入系统到返回的耗时。</p>
+<span class="heading-anchor" id="八、指标关系图"></span><h3 id="_3_1">八、指标关系图</h3>
+<pre><code>                   E2E Latency
+    |←————————————————————————————————————→|
+    |←—— TTFT ——→|←—— (N-1) × TPOT ——→|
+    |              |                      |
+发起请求    收到第1个Token   收到第2个Token   ...   收到第N个Token
+</code></pre>
+<p>可以总结为：<strong>大模型推理服务指标中，TTFT衡量"用户等多快能看到第一个字"（取决于Prefill速度），TPOT衡量"生成有多流畅"（取决于Decode访存速度），Throughput衡量"系统多久能处理完一批任务"。在线服务优先关注TTFT和P99延迟，离线批量优先关注Throughput。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_1">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L2028">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka16afc277558"></a></p>
+<span class="heading-anchor" id="大模型推理服务有哪些特殊评估指标？"></span><h2 id="_1_22">大模型推理服务有哪些特殊评估指标？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p><img alt="大模型请求时序" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/llm-timeline.png"/></p>
+<span class="heading-anchor" id="一、TTFT"></span><h3 id="ttft">一、TTFT</h3>
+<p>TTFT是 Time To First Token，表示用户发出请求后，到收到第一个token所需时间。</p>
+<pre><code class="language-text">TTFT = 首个token返回时间 - 请求发送时间
+</code></pre>
+<p>它主要反映Prefill、排队和调度开销，直接影响用户感知的响应速度。</p>
+<span class="heading-anchor" id="二、TPOT"></span><h3 id="tpot">二、TPOT</h3>
+<p>TPOT是 Time Per Output Token，表示生成每个输出token的平均耗时。</p>
+<pre><code class="language-text">TPOT = Decode阶段耗时 / 输出token数量
+</code></pre>
+<p>它主要反映Decode阶段效率，和KV Cache读取、batch调度、显存带宽等因素有关。</p>
+<span class="heading-anchor" id="三、tokens/s"></span><h3 id="tokenss">三、tokens/s</h3>
+<p>tokens/s表示单位时间内系统处理或生成的token数量，常见口径包括输入tokens/s、输出tokens/s、单用户tokens/s和系统总tokens/s。</p>
+<p>其中输入tokens/s通常反映Prefill阶段吞吐，输出tokens/s通常反映Decode阶段吞吐；单用户tokens/s更接近用户体感生成速度，系统总tokens/s更接近服务整体吞吐能力。</p>
+<span class="heading-anchor" id="四、并发会话数"></span><h3 id="_2_16">四、并发会话数</h3>
+<p>大模型服务还要关注在给定显存和延迟约束下，系统能同时服务多少个请求或会话。</p>
+<p>长上下文、多轮对话和高并发都会显著影响这个指标。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_2">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1782">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf3816dca94f4"></a></p>
+<span class="heading-anchor" id="大模型服务化和传统模型服务化有什么不同？"></span><h2 id="_1_23">大模型服务化和传统模型服务化有什么不同？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>对比维度</th>
+<th>传统模型服务化</th>
+<th>大模型服务化</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理模式</td>
+<td>一次前向计算，一次性返回结果</td>
+<td>自回归逐 token 生成，流式返回</td>
+</tr>
+<tr>
+<td>调度策略</td>
+<td>batching + 并发控制</td>
+<td>Prefill/Decode 分离 + 连续批处理 + KV Cache 管理</td>
+</tr>
+<tr>
+<td>主要内存瓶颈</td>
+<td>权重 + 中间激活</td>
+<td>权重 + KV Cache（长上下文和高并发显著放大）</td>
+</tr>
+<tr>
+<td>输入/输出特点</td>
+<td>输入输出形状相对固定</td>
+<td>输出长度动态变化，单请求可能持续数秒至数分钟</td>
+</tr>
+<tr>
+<td>核心评估指标</td>
+<td>QPS、P99 延迟、GPU 利用率</td>
+<td>TTFT、TPOT、tokens/s、并发会话数、上下文长度</td>
+</tr>
+<tr>
+<td>典型框架</td>
+<td>TensorRT、ONNX Runtime、OpenVINO</td>
+<td>vLLM、TensorRT-LLM、SGLang</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_17">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1712">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kf6376df67660"></a></p>
+<span class="heading-anchor" id="大模型服务性能评测关键指标"></span><h2 id="_1_24">大模型服务性能评测关键指标</h2>
+<p>在部署大模型服务接口时，对其性能进行评估是至关重要的，由于目前LLM推理都需要比较高级的GPU，使得LLM推理成本高，因此在不同使用场景下优化推理就很有必要。对于提供公共推理服务，比如openai等来说，提高吞吐率优先级比较高，而在一些专用的业务场景，则对首包延迟和整体请求延迟有着较高要求。
+-   <strong>Throughput</strong>：总的吞吐（output tokens/seconds），对于LLM Serving重要，可以提高总的服务能力。
+-   <strong>Time to First Token(TTFT)</strong>：在prefill阶段后返回的第一个token的时间，在stream输出模式下，对体验影响大，越小用户等待返回第一个token时间越小，体验越好。
+-   <strong>Time per output token</strong>：生成每个token的时间，影响体验。
+-   <strong>Latency</strong>：处理完整请求用时。
+-   <strong>QPS</strong>：每秒处理完成的请求数，对于服务端来说，QPS越高越好。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_18">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2.md#L2149">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k72214fdb43bc"></a></p>
+<span class="heading-anchor" id="如何从 Timeline 中识别不必要的 CPU-GPU 同步点（cudaDeviceSynchronize、cudaStreamSynchronize）？"></span><h2 id="timeline-cpu-gpu-cudadevicesynchronizecudastreamsynchronize">如何从 Timeline 中识别不必要的 CPU-GPU 同步点（cudaDeviceSynchronize、cudaStreamSynchronize）？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、CPU-GPU 同步的本质"></span><h3 id="cpu-gpu">一、CPU-GPU 同步的本质</h3>
+<p>CUDA 的 Kernel Launch 和 Memcpy 是<strong>异步的</strong>——CPU 发出指令后立即返回，GPU 在后台执行。但某些操作会强制 CPU 等待 GPU 完成：</p>
+<pre><code class="language-python"># 显式同步
+torch.cuda.synchronize()              # 等待所有 Stream
+torch.cuda.Stream.synchronize(stream)  # 等待特定 Stream
+
+# 隐式同步
+x = tensor.item()          # 将 GPU 张量转为 Python 标量
+x = tensor.cpu().numpy()   # D2H 拷贝默认是同步的
+torch.cuda.memory_stats()  # 涉及查询 GPU 状态
+</code></pre>
+<p>每次同步都会导致 GPU 端出现一个"气泡"——GPU 忙完后需要等 CPU 确认，下一个 Kernel 才能启动。</p>
+<span class="heading-anchor" id="二、在 Timeline 中识别同步点"></span><h3 id="timeline">二、在 Timeline 中识别同步点</h3>
+<p>在 Nsight Systems 的 Timeline 中，CPU-GPU 同步表现为以下模式：</p>
+<pre><code>模式 1：显式同步
+  CPU Thread:  [Launch K1] [Launch K2] [==== 等待 ====] [Launch K3]
+  GPU Stream:  [Kernel 1 ] [Kernel 2 ]                 [Kernel 3 ]
+                                        ↑ 明显空白 Gap
+
+模式 2：隐式同步（D2H + .item()）
+  CPU Thread:  [Kernel Launch] [==== Memcpy D2H ====] [处理数据]
+  GPU Stream:  [Kernel        ]
+  Copy Stream:                [D2H                    ]
+               ↑ Kernel 之后的后续操作被阻塞
+
+模式 3：频繁小同步
+  Timeline 上 GPU 反复出现微小空白，间隔不规律
+  通常是循环中每次迭代都调用了同步操作
+</code></pre>
+<span class="heading-anchor" id="三、定位技巧"></span><h3 id="_1_25">三、定位技巧</h3>
+<p><strong>方法 1：Nsight Systems 的同步事件过滤</strong>
+在 Nsight Systems GUI 中，可以在 CUDA API 行中直接搜索 <code>cudaDeviceSynchronize</code>、<code>cudaStreamSynchronize</code> 等同步 API 调用，它们的持续时间会在 Timeline 上高亮显示。</p>
+<p><strong>方法 2：PyTorch Profiler 找隐式同步</strong></p>
+<pre><code class="language-python">with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=True) as prof:
+    output = model(input)
+    result = output.sum().item()  # 隐患！触发同步
+
+# 在 Operator 页中找到 .item() 调用
+# 在 Trace 页中看到它前后的 GPU 空闲 Gap
+</code></pre>
+<p><strong>方法 3：代码层面的预防</strong></p>
+<pre><code class="language-python"># 不好的写法
+for i in range(n):
+    loss = model(batch[i])
+    losses.append(loss.item())  # 每次循环都同步
+
+# 好的写法
+losses = []
+for i in range(n):
+    losses.append(model(batch[i]))
+losses = torch.tensor(losses).mean().item()  # 只同步一次
+</code></pre>
+<span class="heading-anchor" id="四、常见的不必要同步来源"></span><h3 id="_2_19">四、常见的不必要同步来源</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>代码特征</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>日志打印张量值</td>
+<td><code>print(tensor)</code> / <code>logger.info(tensor)</code></td>
+<td>每次触发 D2H + 同步</td>
+</tr>
+<tr>
+<td>训练中的 loss 记录</td>
+<td><code>loss.item()</code> 在每步中使用</td>
+<td>每步一次同步（训练正常，推理可优化）</td>
+</tr>
+<tr>
+<td>调试代码残留</td>
+<td><code>assert torch.allclose(a, b)</code></td>
+<td>比 <code>.item()</code> 开销更大</td>
+</tr>
+<tr>
+<td>条件判断 GPU 值</td>
+<td><code>if tensor &gt; threshold:</code></td>
+<td>隐式同步</td>
+</tr>
+<tr>
+<td>显存查询</td>
+<td><code>torch.cuda.memory_allocated()</code></td>
+<td>同步 + 遍历显存分配器</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>不必要的 CPU-GPU 同步是推理性能的隐性杀手。在 Nsight Systems Timeline 上表现为 GPU Kernel 之间的异常 Gap 对应 CPU 线程的同步等待。排查时优先关注 <code>.item()</code>、<code>.cpu()</code>、打印语句和调试代码残留。原则是"将 GPU 结果当作张量继续在 GPU 上处理，只在最终输出时才搬回 CPU"。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1670">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kecbbf478dd65"></a></p>
+<span class="heading-anchor" id="如何从产品需求反推模型选型与部署形态？"></span><h2 id="_1_26">如何从产品需求反推模型选型与部署形态？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<p>部署形态由延迟、成本和合规三项约束共同决定，选型应从这三项约束出发反推模型规格。常见的部署形态有三种，各自对这三项约束的取舍不同：</p>
+<ol>
+<li>
+<p><strong>云端 API。</strong> 云端 API 迭代快、无需自行运维，适合验证期和流量波动大的场景；代价是数据需要出域，金融、医疗和政务客户常因此直接排除这一方案。</p>
+</li>
+<li>
+<p><strong>私有化部署。</strong> 私有化部署满足等保和行业合规要求，模型规格受客户的 GPU 预算限制，通常借助 AWQ、GPTQ 一类 INT4 权重量化把模型放进现有显存[6,7]。</p>
+</li>
+<li>
+<p><strong>端侧部署。</strong> 端侧部署让数据不出设备，可以离线使用，调用也不再按次产生云端费用；但设备上只能运行小模型，并依赖 NPU 的低比特算力，能力上限明显。</p>
+</li>
+</ol>
+<p>延迟预算同时决定模型规格和交互设计。拍照解题这类异步任务允许用户等待数秒，实时语音则要对齐人类对话的话轮节奏。Stivers 等人 2009 年测量了 10 种语言中是非问句的应答时间，各语言的众数都落在 0 到 200 ms 之间，全样本的平均偏移约为 208 ms[8]。这是人类对话的测量分布，产品的超时阈值需要按自身的交互另行设定。同一个模型从异步交互改为实时交互时，可用的系统架构会随之改变。</p>
+<p>成本按单次调用费用乘以日调用量，再对照毛利率，倒推可以承受的模型规格。免费、高频的功能如果全量使用最大的模型，推理费用会最先超出预算，下一问讨论如何用大小模型协同降低这部分费用。</p>
+<blockquote>
+<p><strong>面试速答</strong>：选型先看三项约束：数据能否出域、用户能等多久、单次调用乘以流量后还剩多少毛利。云端 API 迭代快，私有化部署满足合规，端侧部署换来离线和隐私，但只能运行小模型。异步任务可以等待数秒，实时语音要对齐约一两百毫秒的话轮间隔，两者的架构不同。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_20">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/AI%E5%A4%9A%E6%A8%A1%E6%80%81%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6_AI%E5%A4%9A%E6%A8%A1%E6%80%81%E4%B8%8B%E6%B8%B8%E5%BA%94%E7%94%A8%E9%AB%98%E9%A2%91%E8%80%83%E7%82%B9.md#L175">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4569105f23d5"></a></p>
+<span class="heading-anchor" id="如何使用 NVIDIA Nsight Systems 进行系统级 Timeline 分析？"></span><h2 id="nvidia-nsight-systems-timeline">如何使用 NVIDIA Nsight Systems 进行系统级 Timeline 分析？</h2>
+<blockquote>
+<p>Nsight Systems 是 NVIDIA GPU 性能分析的工具，提供系统级的 Timeline 视图。它能精确展示 CPU 线程、CUDA API 调用、GPU Kernel 执行和数据传输在一条统一时间轴上的时序关系，是定位 CPU-GPU 交互问题的首选工具。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_27">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L514">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k8f626fbe5fda"></a></p>
+<span class="heading-anchor" id="如何使用 trtexec 与 ONNX Runtime Profiler 进行推理引擎级分析？"></span><h2 id="trtexec-onnx-runtime-profiler">如何使用 trtexec 与 ONNX Runtime Profiler 进行推理引擎级分析？</h2>
+<blockquote>
+<p>当模型从 PyTorch 转换为 ONNX 或 TensorRT Engine 后，需要在推理引擎层面验证性能。trtexec 和 ONNX Runtime Profiler 分别服务于 TensorRT 和 ONNX Runtime 两大推理引擎，是模型部署环节不可或缺的评测工具。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L858">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k48975f5eca9b"></a></p>
+<span class="heading-anchor" id="如何分析 Kernel Launch Overhead、CPU-GPU 同步与算子级热点？"></span><h2 id="kernel-launch-overheadcpu-gpu">如何分析 Kernel Launch Overhead、CPU-GPU 同步与算子级热点？</h2>
+<blockquote>
+<p>当推理任务被拆解为大量小 Kernel 时，Kernel Launch 开销和 CPU-GPU 同步开销可能成为隐藏的性能杀手——尤其在大模型 Decode 阶段，每次只生成一个 Token，每个 Kernel 的计算量极小，Launch 开销的占比被急剧放大。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1583">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ka28e5e695306"></a></p>
+<span class="heading-anchor" id="如何分析 KV Cache 命中率与利用率？Prefix Caching 的效果如何量化评估？"></span><h2 id="kv-cache-prefix-caching">如何分析 KV Cache 命中率与利用率？Prefix Caching 的效果如何量化评估？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、Prefix Caching 的评估指标"></span><h3 id="prefix-caching">一、Prefix Caching 的评估指标</h3>
+<p>vLLM 和 SGLang 都支持 Prefix Caching（自动缓存相同 Prompt 前缀的 KV Cache），评估其效果需要关注两个指标：</p>
+<p><strong>1. KV Cache 命中率（Hit Rate）</strong></p>
+<pre><code>Hit Rate = 从缓存中复用的 Token 数 / 新请求的 Prompt Token 数
+</code></pre>
+<ul>
+<li>高命中率（&gt; 80%）：大多数请求共享相同前缀（如 System Prompt），缓存价值大</li>
+<li>低命中率（&lt; 20%）：请求之间 Prompt 差异大，缓存价值有限</li>
+</ul>
+<p><strong>2. 缓存空间利用率</strong></p>
+<pre><code>利用率 = 被命中的缓存 Token 数 / 总缓存 Token 数
+</code></pre>
+<ul>
+<li>如果总缓存很大但实际命中的少 → 大量"冷"缓存占用显存</li>
+<li>需要调整缓存淘汰策略或限制缓存大小</li>
+</ul>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1934">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k4a55875cd087"></a></p>
+<span class="heading-anchor" id="如何判断推理瓶颈在计算、访存还是调度？"></span><h2 id="_1_31">如何判断推理瓶颈在计算、访存还是调度？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<p><img alt="推理瓶颈定位流程" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/bottleneck-flow.png"/></p>
+<span class="heading-anchor" id="一、核心思路"></span><h3 id="_2_21">一、核心思路</h3>
+<p>推理慢不一定都是“算力不够”。常见瓶颈可以分为三类：</p>
+<ol>
+<li><strong>计算瓶颈</strong>：主要时间花在计算上，硬件算力不够</li>
+<li><strong>访存瓶颈</strong>：主要时间花在读写内存/显存上，计算单元在等数据</li>
+<li><strong>调度瓶颈</strong>：硬件没有被持续喂满，时间浪费在排队、同步、kernel launch或数据搬运上</li>
+</ol>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_4">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L667">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7e5d0108f4a3"></a></p>
+<span class="heading-anchor" id="如何判断算子存在问题"></span><h2 id="_1_32">如何判断算子存在问题</h2>
+<p><strong>回答：</strong></p>
+<p>判断算子“有问题”先区分正确性与性能。正确性检查 shape、dtype、布局、mask、输出误差、NaN/Inf，训练路径还检查梯度；未定义行为或越界应先修复，不能拿错误结果的速度做比较。</p>
+<p>性能问题要建立可比基线：同样输入与输出语义、硬件、精度、是否含拷贝、是否 warmup。再看该算子是否处于请求关键路径、占端到端时间多少，以及相邻转换和同步是否才是真正瓶颈。</p>
+<p>异常现象包括某些 shape 延迟突增、吞吐远低于可达上限、HBM 流量过多、寄存器 spill、block 数不足或同步等待。‘耗时最长’不等于实现有缺陷，它也可能本来计算量最大；‘GPU 利用率低’也不能单独证明某个算子有错。</p>
+<p>把问题转为可证伪假设，例如“输出转置产生一次额外 HBM 读写”或“长 head dimension 导致 spill”。用 trace、计数器和替代实现验证，最后根据关键路径占比判断优化价值。</p>
+<p><a id="kuaishou-ai-infra-20260928-0511386c-q12"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_22">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E5%8E%82%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98%EF%BC%88%E5%AE%9E%E6%97%B6%E6%9B%B4%E6%96%B0%EF%BC%89/%E5%BF%AB%E6%89%8B%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E9%A2%98.md#L537">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k22b5bd952d28"></a></p>
+<span class="heading-anchor" id="如何将ONNX模型从GPU切换到CPU中进行缓存？"></span><h2 id="onnxgpucpu">如何将ONNX模型从GPU切换到CPU中进行缓存？</h2>
+<p>在AI行业中，在算法服务推理运行结束后，将ONNX模型从GPU切换到CPU中进行缓存，是经典的高性能算法服务的一环。 <strong>ONNX Runtime</strong> 中，可以很方便地将模型从 <strong>GPU</strong> 切换到 <strong>CPU</strong> 上。通过 ONNX Runtime 提供的 <code>providers</code> 参数或 <code>set_providers</code> 方法，可以方便地在 GPU 和 CPU 之间切换模型的运行设备。只需指定 <code>"CPUExecutionProvider"</code> 就可以让模型在 CPU 上进行缓存。</p>
+<span class="heading-anchor" id="方法一：在创建 InferenceSession 时指定 CPUExecutionProvider"></span><h3 id="inferencesession-cpuexecutionprovider">方法一：在创建 <code>InferenceSession</code> 时指定 <code>CPUExecutionProvider</code></h3>
+<p>ONNX Runtime 的 <code>InferenceSession</code> 支持多个计算提供者（Execution Providers），可以通过指定提供者将模型从 GPU 切换到 CPU。只需要在创建 <code>InferenceSession</code> 时将 <code>providers</code> 参数设置为 <code>["CPUExecutionProvider"]</code>，就会强制模型在 CPU 上运行。</p>
+<pre><code class="language-python">import onnxruntime as ort
+
+# 指定使用 CPU 运行
+session = ort.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
+</code></pre>
+<p>如果之前在使用 GPU（如 <code>"CUDAExecutionProvider"</code>）运行模型，将 <code>providers</code> 参数改为 <code>"CPUExecutionProvider"</code> 就可以切换到 CPU 上。</p>
+<span class="heading-anchor" id="方法二：通过 set_providers 方法动态切换到 CPU"></span><h3 id="set_providers-cpu">方法二：通过 <code>set_providers</code> 方法动态切换到 CPU</h3>
+<p>如果已经创建了使用 GPU 的 <code>InferenceSession</code>，可以通过 <code>set_providers</code> 方法动态切换到 CPU 而不重新加载模型。</p>
+<pre><code class="language-python"># 假设已有一个使用 GPU 的 session
+session.set_providers(["CPUExecutionProvider"])
+</code></pre>
+<p>这样可以在同一个 <code>InferenceSession</code> 上切换到 CPU。</p>
+<span class="heading-anchor" id="方法三：通过 providers 属性检查当前的计算提供者"></span><h3 id="providers">方法三：通过 <code>providers</code> 属性检查当前的计算提供者</h3>
+<p>可以使用 <code>session.get_providers()</code> 来查看当前可用的计算提供者，并确认是否成功切换到 CPU。</p>
+<pre><code class="language-python">print(session.get_providers())  # 输出当前会话使用的提供者
+</code></pre>
+<p>如果输出包含 <code>"CPUExecutionProvider"</code>，则表示会话已经在 CPU 上运行。</p>
+<span class="heading-anchor" id="示例：完整流程"></span><h3 id="_1_33">示例：完整流程</h3>
+<pre><code class="language-python">import onnxruntime as ort
+
+# 创建一个使用 GPU 的 session
+session = ort.InferenceSession("model.onnx", providers=["CUDAExecutionProvider"])
+
+# 进行推理
+outputs = session.run(None, {"input_name": input_data})
+
+# 切换到 CPU
+session.set_providers(["CPUExecutionProvider"])
+
+# 确认提供者已切换到 CPU
+print("Current providers:", session.get_providers())
+
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_23">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1046">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k9753d4585276"></a></p>
+<span class="heading-anchor" id="如何建立 Profile → Analyze → Hypothesize → Optimize → Verify 的闭环调优流程？"></span><h2 id="profile-analyze-hypothesize-optimize-verify">如何建立 Profile → Analyze → Hypothesize → Optimize → Verify 的闭环调优流程？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、PAHOV 五步闭环模型"></span><h3 id="pahov">一、PAHOV 五步闭环模型</h3>
+<pre><code>     ┌──────────────────────────────────┐
+     │                                  │
+     ▼                                  │
+  Profile（采集数据）                    │
+     │                                  │
+     ▼                                  │
+  Analyze（分析定位）                    │
+     │                                  │
+     ▼                                  │
+  Hypothesize（提出假设）                │
+     │                                  │
+     ▼                                  │
+  Optimize（实施优化）                   │
+     │                                  │
+     ▼                                  │
+  Verify（验证效果）─────────────────────┘
+</code></pre>
+<p><img alt="PAHOV 性能调优闭环" loading="lazy" referrerpolicy="no-referrer" src="https://raw.githubusercontent.com/WeThinkIn/AIGC-Interview-Book/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/imgs/pahov-loop.png"/></p>
+<span class="heading-anchor" id="二、各步骤的方法"></span><h3 id="_1_34">二、各步骤的方法</h3>
+<ol>
+<li>Profile（采集数据）</li>
+</ol>
+<p><strong>原则</strong>：先粗后细，不要一上来就跑全量 Trace。</p>
+<pre><code>第一轮（粗）：
+  - 代码打点，看各阶段大致耗时
+  - nvidia-smi 看 GPU 利用率和显存
+  - vLLM metrics（如果适用）
+
+第二轮（中）：
+  - PyTorch Profiler / trtexec 输出算子级时间分布
+  - Nsight Systems 简短采集（2-3 次推理）
+
+第三轮（细）：
+  - Nsight Compute 对 top-2 热点 Kernel 做深度分析
+  - Nsight Systems 全量采集（如果需要看多 GPU 通信）
+</code></pre>
+<p><strong>重要的采集原则</strong>：
+- <strong>固定环境</strong>：每次 profiling 的硬件、驱动、CUDA 版本相同
+- <strong>预热后采</strong>：前几次推理丢弃（GPU 频率、缓存未稳定）
+- <strong>多次取稳</strong>：至少跑 100+ 次推理，取 P50/P95/P99
+- <strong>记录基线</strong>：每次采集结果存档，方便后续对比</p>
+<ol>
+<li>Analyze（分析定位）</li>
+</ol>
+<p><strong>分析工具链的使用顺序</strong>：</p>
+<pre><code>数据 → 指标分析 → 系统分析 → 微架构分析
+
+具体路径：
+  TTFT 高？
+    → nvidia-smi: GPU 利用率是否满？
+       → 满 → Compute-Bound → Nsight Compute 分析 Prefill GEMM
+       → 不满 → 检查 CPU/数据/排队 → Nsight Systems Timeline
+
+  TPOT 高？
+    → Nsight Systems: Kernel 片段是长是短？
+       → 短且密 → Launch Overhead → 尝试 CUDA Graph
+       → 长且少 → Nsight Compute 分析单个 Kernel → Memory-Bound？
+</code></pre>
+<ol>
+<li>Hypothesize（提出假设）</li>
+</ol>
+<p><strong>优化的优先级判断矩阵</strong>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>收益高</th>
+<th>收益低</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>成本低</strong></td>
+<td>第一优先级（立即做）</td>
+<td>第二优先级（顺手做）</td>
+</tr>
+<tr>
+<td><strong>成本高</strong></td>
+<td>第三优先级（规划做）</td>
+<td>第四优先级（不做）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>假设示例</strong>：
+- "当前 Decode GEMM Memory-Bound，DRAM 利用率 80%。如果切换到 GQA 减少 KV heads 从 32 到 8，预计访存量降低 4×，每 Token 延迟降低 30-50%。"
+- "当前 Launch Overhead 占比 35%。如果启用 CUDA Graph，预计每 Token 加速 20%。"</p>
+<ol>
+<li>Optimize（实施优化）</li>
+</ol>
+<p>每次只改一个变量——否则无法归因效果。</p>
+<pre><code>正确做法：
+  Round 1: 仅启用 FP16 → 验证
+  Round 2: 仅启用 CUDA Graph → 验证
+  Round 3: 仅调整 max_num_seqs → 验证
+
+错误做法：
+  一次性改 FP16 + CUDA Graph + max_num_seqs + 量化
+  → 效果好不知道归因于谁，效果差不知道谁拖了后腿
+</code></pre>
+<ol>
+<li>Verify（验证效果）</li>
+</ol>
+<p>验证不能只看平均数！要对比 P50/P95/P99。</p>
+<pre><code>Before (FP32):
+  Latency P50=5.2ms  P95=7.1ms  P99=12.3ms
+  Throughput=192 qps
+
+After (FP16):
+  Latency P50=3.1ms  P95=4.2ms  P99=6.8ms
+  Throughput=315 qps
+
+检查：
+  ✓ P50 提升 40%
+  ✓ P95 提升 41%
+  ✓ P99 提升 45%（尾部改善更多）
+  ✓ Throughput 提升 64%
+  ⚠ 需要跑精度验证（FP16 是否有精度损失）
+</code></pre>
+<span class="heading-anchor" id="三、全流程实战案例"></span><h3 id="_2_24">三、全流程实战案例</h3>
+<pre><code>目标：将 Llama-7B 推理的每 Token 延迟从 45ms 降至 25ms 以下
+
+Round 1:
+  Profile  → PyTorch Profiler: Decode 阶段单个 Token 的 GPU 时间分布
+  Analyze  → GEMM 占比 55%，Attention 占比 25%，其余 20%
+  Hypothesize → Decode GEMM (M=1) 严重 Memory-Bound
+  Optimize → 启用 FP16（从 FP32）
+  Verify   → TPOT 从 45ms 降至 28ms ✓
+
+Round 2:
+  Profile  → Nsight Systems: GPU Kernel 短而密集，Gap 明显
+  Analyze  → Launch Overhead 占比约 25-30%
+  Hypothesize → CUDA Graph 可显著减少 Launch 开销
+  Optimize → 启用 CUDA Graph
+  Verify   → TPOT 从 28ms 降至 22ms ✓
+
+Round 3:
+  Profile  → Nsight Compute: DRAM Throughput 仍高（72%）
+  Analyze  → 仍处于 Memory-Bound，需减少显存访问量
+  Hypothesize → KV Cache INT8 量化，减少每次 Decode 的 KV Cache 读量
+  Optimize → 启用 KV Cache FP8 量化
+  Verify   → TPOT 从 22ms 降至 18ms ✓（目标 25ms 以下达成）
+</code></pre>
+<p>可以总结为：<strong>PAHOV 闭环调优方法论的五个步骤——Profile（先粗后细采数据）、Analyze（先指标后根源）、Hypothesize（先低成本高收益后高成本高收益）、Optimize（每次只改一个变量）、Verify（看分布不对称均值）。理念是"用数据驱动，用假设指导，用验证闭环"。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L2096">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k29f290347b7c"></a></p>
+<span class="heading-anchor" id="如何建立推理服务的性能基线与SLO指标体系？"></span><h2 id="slo">如何建立推理服务的性能基线与SLO指标体系？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、什么是性能基线（Performance Baseline）"></span><h3 id="performance-baseline">一、什么是性能基线（Performance Baseline）</h3>
+<p>性能基线是在<strong>可控条件下</strong>对推理服务性能的一次完整测量记录，作为后续性能比较的参照点。基线的价值在于回答"现在比以前快还是慢？"</p>
+<p>性能基线通常包含：
+- 硬件配置（GPU 型号、CPU、内存、网络）
+- 软件版本（驱动、CUDA、推理框架版本）
+- 模型信息（参数量、精度、batch size、序列长度）
+- 测试负载（请求分布、并发数、输入长度分布）
+- 测量结果（延迟 P50/P95/P99、吞吐、显存占用、GPU 利用率）</p>
+<span class="heading-anchor" id="二、什么是 SLO（Service Level Objective）"></span><h3 id="sloservice-level-objective">二、什么是 SLO（Service Level Objective）</h3>
+<p>SLO 是推理服务需要达到的性能目标，它由 SLI（Service Level Indicator，实际测量值）和 SLA（Service Level Agreement，对外承诺）共同定义。</p>
+<p>推理服务的常见 SLO 指标：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>SLO 指标</th>
+<th>说明</th>
+<th>典型值示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P95 延迟</td>
+<td>95% 请求的端到端延迟不超过此值</td>
+<td>&lt; 200ms（在线服务）</td>
+</tr>
+<tr>
+<td>P99 延迟</td>
+<td>99% 请求的端到端延迟不超过此值</td>
+<td>&lt; 500ms</td>
+</tr>
+<tr>
+<td>吞吐下限</td>
+<td>最小保证吞吐</td>
+<td>&gt; 100 TPS</td>
+</tr>
+<tr>
+<td>可用性</td>
+<td>服务正常响应时间占比</td>
+<td>&gt; 99.9%</td>
+</tr>
+<tr>
+<td>显存水位</td>
+<td>显存使用率上限</td>
+<td>&lt; 85%（留余量）</td>
+</tr>
+<tr>
+<td>TTFT P95</td>
+<td>首 Token 延迟的 P95</td>
+<td>&lt; 500ms（大模型）</td>
+</tr>
+<tr>
+<td>TPOT 均值</td>
+<td>每个输出 Token 的平均时间</td>
+<td>&lt; 50ms（大模型）</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="三、建立基线和 SLO 的操作步骤"></span><h3 id="slo_1">三、建立基线和 SLO 的操作步骤</h3>
+<pre><code>1. 确定关键指标
+   ↓
+2. 设计压测场景（模拟真实流量分布）
+   ↓
+3. 在固定环境下多次测量取稳定值
+   ↓
+4. 记录为基线文档（版本化存储）
+   ↓
+5. 设定 SLO 阈值（SLO 以业务需求为准，基线测量值用于校准余量，通常预留 1.2-1.5×）
+   ↓
+6. 接入监控告警（Prometheus + Grafana）
+   ↓
+7. 每次模型/框架/配置变更后重新压测对比
+</code></pre>
+<span class="heading-anchor" id="四、大模型推理的特殊 SLO 考量"></span><h3 id="slo_2">四、大模型推理的特殊 SLO 考量</h3>
+<p>大模型推理的 SLO 比传统模型更复杂：</p>
+<ol>
+<li><strong>TTFT vs TPOT 分开设定</strong>：用户对首 Token 延迟和后续生成速度的容忍度不同</li>
+<li><strong>长尾请求</strong>：输出长度差异大，P99 延迟可能被长文本生成请求严重拉高——需要按输出长度分桶设定 SLO</li>
+<li><strong>并发下的性能衰减</strong>：高并发时 KV Cache 争抢可能导致性能非线性下降，SLO 需考虑不同并发等级</li>
+<li><strong>Prefix Caching 命中率</strong>：影响 TTFT 和吞吐，可设为内部指标</li>
+</ol>
+<p>可以总结为：<strong>建立性能基线和 SLO 是"先测量再管理"的思想——没有基线就无法判断优化是否有效，没有 SLO 就无法判断服务是否健康。大模型推理的 SLO 体系还需特别关注 TTFT/TPOT 分离、长尾管理和并发衰减。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L128">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k01cd983089f7"></a></p>
+<span class="heading-anchor" id="如何影响显存、吞吐和稳定性？"></span><h2 id="_1_36">如何影响显存、吞吐和稳定性？</h2>
+<p>混合精度的价值主要体现在三个方面：第一，降低显存占用，使更大的模型、更大的 batch size 和更长的上下文窗口成为可能；第二，利用 GPU Tensor Core 提升矩阵乘法吞吐，提高训练速度；第三，在保留关键状态高精度的前提下，尽量兼顾效率和数值稳定性。</p>
+<p>大规模大语言模型预训练通常优先使用 BF16，因为 BF16 和 FP16 一样通常占 16 bit，但 BF16 的指数位更多，动态范围接近 FP32，因此比 FP16 更不容易出现 上溢（overflow）或下溢（underflow），训练稳定性通常更好，也通常不需要强依赖损失缩放。</p>
+<p>FP16 的损失缩放会先把 loss 乘以 <span class="arithmatex">\(s\)</span> 后反传，再将梯度除以 <span class="arithmatex">\(s\)</span>；发现 Inf/NaN 时跳过该更新并降低 <span class="arithmatex">\(s\)</span>。FP8 通常把前向权重/激活置于 E4M3（精度较好、范围较窄）或 E5M2（范围较宽、精度较低），并使用每张量/块缩放与更高精度累积。</p>
+<p><a id="pretraining-section-21-question-05"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_25">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/03_%E9%A2%84%E8%AE%AD%E7%BB%83%EF%BC%9A%E8%AE%AD%E7%BB%83%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86.md#L648">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k0b90eacf0b0a"></a></p>
+<span class="heading-anchor" id="如何拆解推理全链路时耗？"></span><h2 id="_1_37">如何拆解推理全链路时耗？</h2>
+<blockquote>
+<p>推理服务的端到端延迟不等于模型推理时间。一个完整的推理请求通常经历：网络接收 → 请求排队 → 数据预处理 → 模型推理（含 H2D / 计算 / D2H）→ 后处理 → 网络返回。只有拆解清楚每个阶段的耗时，才能准确地定位"到底慢在哪"。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_26">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1092">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kc110bcf28f66"></a></p>
+<span class="heading-anchor" id="如何构建TensorRT模型的缓存机制？"></span><h2 id="tensorrt">如何构建TensorRT模型的缓存机制？</h2>
+<p>在TensorRT架构中，模型运行主要依赖GPU，因此直接支持将整个TensorRT引擎从GPU移动到CPU并非直接内置的功能。但是我们可以通过一些技巧，将TensorRT引擎对象序列化到CPU（或者磁盘），并在需要时反序列化加载到GPU，可以有效管理显存，特别是在多模型推理或资源有限的场景下。这种方法实现了类似“缓存”的机制，能够动态加载模型到GPU，同时释放未使用的GPU资源，从而提高硬件资源的利用效率。</p>
+<span class="heading-anchor" id="1. 基本思路"></span><h3 id="1"><strong>1. 基本思路</strong></h3>
+<p>TensorRT模型（即引擎）在推理时需要加载到GPU中运行。如果需要将模型“缓存”到CPU，可以通过以下方法：
+1. <strong>序列化引擎</strong>：
+   - 在推理完成后，将引擎序列化为二进制数据并存储在CPU内存中（甚至可以存储到磁盘）。
+2. <strong>反序列化引擎</strong>：
+   - 在需要推理时，将二进制数据反序列化为TensorRT引擎，并加载到GPU中执行推理。</p>
+<p>这种方法模拟了将模型缓存到CPU的过程，因为TensorRT本身无法直接在CPU上运行。</p>
+<span class="heading-anchor" id="1. 加载模型并创建TensorRT引擎"></span><h3 id="1-tensorrt"><strong>1. 加载模型并创建TensorRT引擎</strong></h3>
+<ul>
+<li>首先我们加载ONNX模型或已有的TensorRT引擎，并创建可用于推理的引擎。</li>
+</ul>
+<pre><code class="language-python">import tensorrt as trt
+
+# 加载 TensorRT Logger
+logger = trt.Logger(trt.Logger.WARNING)
+
+# 创建 TensorRT Builder 和 Network
+builder = trt.Builder(logger)
+network = builder.create_network(flags=1 &lt;&lt; int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+
+# 加载 ONNX 文件
+onnx_file = "model.onnx"
+with trt.OnnxParser(network, logger) as parser:
+    with open(onnx_file, 'rb') as f:
+        parser.parse(f.read())
+
+# 构建引擎
+config = builder.create_builder_config()
+config.max_workspace_size = 1 &lt;&lt; 30  # 设置最大工作空间
+engine = builder.build_engine(network, config)
+</code></pre>
+<span class="heading-anchor" id="2. 将引擎序列化到CPU"></span><h3 id="2-cpu"><strong>2. 将引擎序列化到CPU</strong></h3>
+<ul>
+<li>使用 TensorRT 的序列化功能，将引擎对象保存为二进制数据。</li>
+</ul>
+<pre><code class="language-python"># 序列化引擎
+serialized_engine = engine.serialize()
+
+# 将序列化后的引擎保存到 CPU 内存（或者存储到文件）
+cached_engine_on_cpu = serialized_engine  # 模拟缓存到 CPU
+</code></pre>
+<span class="heading-anchor" id="3. 在需要时重新加载引擎到 GPU"></span><h3 id="3-gpu"><strong>3. 在需要时重新加载引擎到 GPU</strong></h3>
+<ul>
+<li>使用 TensorRT 的反序列化功能，将缓存的引擎加载回 GPU。</li>
+</ul>
+<pre><code class="language-python"># 反序列化引擎
+runtime = trt.Runtime(logger)
+engine_from_cpu = runtime.deserialize_cuda_engine(cached_engine_on_cpu)
+
+# 创建执行上下文
+context = engine_from_cpu.create_execution_context()
+</code></pre>
+<span class="heading-anchor" id="4. 推理流程"></span><h3 id="4"><strong>4. 推理流程</strong></h3>
+<ul>
+<li>构造输入和输出张量，并执行推理。</li>
+</ul>
+<pre><code class="language-python">import numpy as np
+import pycuda.driver as cuda
+import pycuda.autoinit  # 初始化 CUDA 上下文
+
+# 创建输入和输出缓冲区
+input_shape = (1, 3, 224, 224)  # 示例输入维度
+output_shape = (1, 1000)  # 示例输出维度
+
+# 在 GPU 上分配内存
+d_input = cuda.mem_alloc(np.prod(input_shape) * np.float32().nbytes)
+d_output = cuda.mem_alloc(np.prod(output_shape) * np.float32().nbytes)
+
+# 创建主机上的输入数据
+input_data = np.random.rand(*input_shape).astype(np.float32)
+cuda.memcpy_htod(d_input, input_data)
+
+# 执行推理
+bindings = [int(d_input), int(d_output)]
+context.execute_v2(bindings)
+
+# 从 GPU 拷贝结果到主机
+output_data = np.empty(output_shape, dtype=np.float32)
+cuda.memcpy_dtoh(output_data, d_output)
+
+print("Inference result:", output_data)
+</code></pre>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_38">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80/%E6%8E%A8%E7%90%86%E6%A1%86%E6%9E%B6%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1242">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k299d864e74c3"></a></p>
+<span class="heading-anchor" id="如何用 Chrome Trace 和 TensorBoard 可视化 Profiler 结果并定位耗时算子？"></span><h2 id="chrome-trace-tensorboard-profiler">如何用 Chrome Trace 和 TensorBoard 可视化 Profiler 结果并定位耗时算子？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、两种可视化方式的对比"></span><h3 id="_1_39">一、两种可视化方式的对比</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>TensorBoard</th>
+<th>Chrome Trace（chrome://tracing）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>打开方式</td>
+<td><code>tensorboard --logdir=./log_dir</code></td>
+<td>浏览器打开 <code>chrome://tracing</code>，加载 JSON</td>
+</tr>
+<tr>
+<td>数据格式</td>
+<td>TensorBoard 专用 trace 文件</td>
+<td>Chrome Trace Event 格式 JSON</td>
+</tr>
+<tr>
+<td>优势</td>
+<td>与 PyTorch 深度集成，自动聚合统计</td>
+<td>更灵活，可查看 raw trace 细节</td>
+</tr>
+<tr>
+<td>劣势</td>
+<td>需要额外安装 tensorboard</td>
+<td>缺少 PyTorch 语义（算子聚合等）</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>日常分析、快速定位</td>
+<td>深度排查、第三方工具集成</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="二、TensorBoard 可视化实操"></span><h3 id="tensorboard">二、TensorBoard 可视化实操</h3>
+<p>使用 <code>tensorboard_trace_handler</code> 导出：</p>
+<pre><code class="language-python">on_trace_ready=torch.profiler.tensorboard_trace_handler('./log_dir')
+</code></pre>
+<p>在 TensorBoard 中可以看到：
+- <strong>Overview 页</strong>：GPU 利用率、Est. SM Efficiency、Est. Achieved Occupancy 的汇总曲线
+- <strong>Operator 页</strong>：按 GPU 时间排序的算子列表，快速定位 top-N 耗时算子
+- <strong>Trace 页</strong>：Gantt 图式的时间线，展示 CPU/GPU 活动、Kernel 序列、数据传输
+- <strong>Memory 页</strong>：显存分配时间线，峰值分配和释放事件</p>
+<p><strong>定位耗时算子的标准流程</strong>：</p>
+<pre><code>TensorBoard → Operator 页 → 按 "GPU Time" 降序排列
+→ 发现 top3: aten::linear (35%)、aten::layer_norm (15%)、aten::softmax (12%)
+→ 点击 aten::linear → 查看 Trace → 确认 GPU Kernel 执行模式
+→ 结合 "Input Shapes" 列判断是否有 shape 不匹配导致的效率问题
+</code></pre>
+<span class="heading-anchor" id="三、Chrome Trace 深度分析"></span><h3 id="chrome-trace">三、Chrome Trace 深度分析</h3>
+<p>TensorBoard 的数据本质上是 Chrome Trace 格式，可以直接导出 JSON：</p>
+<pre><code class="language-python">prof.export_chrome_trace("trace.json")
+</code></pre>
+<p>在 <code>chrome://tracing</code> 中加载后可以：
+- 按 CUDA Stream 分组查看 GPU Kernel 执行序列
+- 测量相邻 Kernel 之间的 Gap 精确时长
+- 验证异步操作的 overlap 情况（如计算与数据传输）
+- 按 PID/TID 过滤，聚焦特定线程或 CUDA Stream</p>
+<span class="heading-anchor" id="四、常见性能问题定位技巧"></span><h3 id="_2_27">四、常见性能问题定位技巧</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>在 Profiler 中的表现</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPU 利用率低</td>
+<td>GPU Timeline 大量空白</td>
+<td>DataLoader 慢、Python 逻辑阻塞</td>
+</tr>
+<tr>
+<td>Kernel 之间长 Gap</td>
+<td>GPU Stream 上有明显空段</td>
+<td>CPU 处理开销大、算子 launch 序列化</td>
+</tr>
+<tr>
+<td>突然的 GPU 空闲</td>
+<td>Kernel 执行暂停后恢复</td>
+<td><code>.item()</code> 或 <code>cuda.synchronize()</code> 触发同步</td>
+</tr>
+<tr>
+<td>某算子特别慢</td>
+<td>单个 op GPU 时间占比异常高</td>
+<td>输入 shape 不佳、未融合、kernel 选择不当</td>
+</tr>
+<tr>
+<td>频繁显存分配</td>
+<td>Memory Timeline 密集的 alloc/free</td>
+<td>中间张量未复用、shape 频繁变化</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>TensorBoard 是 PyTorch Profiler 的日常分析入口——提供算子聚合排序和汇总指标；Chrome Trace 是深度排查手段——精确查看 Kernel 序列、Gap 时长和 Stream 重叠。定位耗时算子的标准流程是"排序 → 定位 → 下钻 → 追踪调用栈"。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_6">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L450">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd8de370859ec"></a></p>
+<span class="heading-anchor" id="如何用 Nsight Compute 的 Roofline 分析图和 Source Page 定位 Kernel 瓶颈？"></span><h2 id="nsight-compute-roofline-source-page-kernel">如何用 Nsight Compute 的 Roofline 分析图和 Source Page 定位 Kernel 瓶颈？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、Roofline 分析图的构成"></span><h3 id="roofline">一、Roofline 分析图的构成</h3>
+<p>Roofline 模型在 Nsight Compute 中以可视化图表呈现，横轴是计算强度（FLOP/Byte），纵轴是可达性能（FLOP/s）：</p>
+<pre><code>纵轴 ↑ Performance (FLOP/s)
+  │    ┌──────────────────────────────
+  │    │  Memory-Bound 区  │  Compute-Bound 区
+  │    │                   │    ┌──── 理论算力上限
+  │    │    ┌──── 理论带宽上限（斜线）
+  │    │   ╱
+  │    │  ╱  ●← Kernel 性能点
+  │    │ ╱
+  │    └──────────────────────────────→ 横轴
+  │                          计算强度 (FLOP/Byte)
+</code></pre>
+<p><strong>Roofline 图的两个区域</strong>：
+- <strong>斜线区域（Memory-Bound）</strong>：Kernel 性能受限于显存带宽，提升带宽或降低访存量才能加速
+- <strong>水平线区域（Compute-Bound）</strong>：Kernel 性能受限于算力，提升计算效率或使用 Tensor Core 才能加速</p>
+<span class="heading-anchor" id="二、解读 Roofline 图的关键步骤"></span><h3 id="roofline_1">二、解读 Roofline 图的关键步骤</h3>
+<p><strong>步骤 1：定位 Kernel 点</strong>
+Kernel 在图上的位置由两个值决定：
+- 横坐标（计算强度）= 总 FLOP / 总 Byte 访问
+- 纵坐标（实际性能）= 总 FLOP / 实际执行时间</p>
+<p><strong>步骤 2：判断瓶颈类型</strong>
+- Kernel 点落在斜线上 → Memory-Bound → 优化访存
+- Kernel 点落在水平线上 → Compute-Bound → 优化计算
+- Kernel 点远离斜线且远离水平线 → Latency-Bound → 提升并行度</p>
+<p><strong>步骤 3：量化优化空间</strong></p>
+<pre><code>Memory-Bound 优化上限 = (理论带宽 / 实际带宽) × 当前性能
+Compute-Bound 优化上限 = (理论算力 / 实际算力) × 当前性能
+</code></pre>
+<span class="heading-anchor" id="三、Source Page 的实战用法"></span><h3 id="source-page">三、Source Page 的实战用法</h3>
+<p>Source Page 将每个指标映射到具体的 CUDA C++ / PTX / SASS 源代码行：</p>
+<p><strong>定位流程</strong>：</p>
+<pre><code>1. 在 Roofline 图确认瓶颈类型（如 Memory-Bound）
+2. 切换到 Source Page
+3. 找到 DRAM 访问最多的代码行
+4. 检查访存模式：是否合并访问（coalesced）？是否有 Bank Conflict？
+</code></pre>
+<p><strong>Source Page 中的关键信号</strong>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>信号</th>
+<th>含义</th>
+<th>优化建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Uncoalesced Global Access</td>
+<td>全局内存访问未合并</td>
+<td>调整数据布局，确保相邻线程访问相邻地址</td>
+</tr>
+<tr>
+<td>Shared Memory Bank Conflict</td>
+<td>Shared Memory 有 bank 冲突</td>
+<td>padding 或重排访问模式</td>
+</tr>
+<tr>
+<td>Long Scoreboard Stalls</td>
+<td>Warp 长期等待数据</td>
+<td>增加 Occupancy 以隐藏延迟</td>
+</tr>
+<tr>
+<td>Low Pipe Utilization</td>
+<td>某条执行流水线利用率低</td>
+<td>检查是否有大量分支或指令依赖</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="四、典型案例：GEMM Kernel 分析"></span><h3 id="gemm-kernel">四、典型案例：GEMM Kernel 分析</h3>
+<pre><code>Roofline 分析：
+  计算强度 = 50 FLOP/Byte（较高）
+  性能点落在计算上限附近但未达到→ Compute-Bound，但算力未跑满
+
+切换到 Source Page：
+  → 发现 FFMA 指令占比只有 60%，其余为索引计算
+  → 发现 Tensor Core 未启用（指令是 FP32 FFMA 而非 HMMA）
+
+优化：
+  → 启用 Tensor Core（调整精度到 FP16，确保 M/N/K 对齐到 16）
+  → 重新分析，算力利用率从 40% 提升到 75%
+</code></pre>
+<p>可以总结为：<strong>Roofline 图回答"瓶颈在计算还是访存"，Source Page 回答"瓶颈在哪一行代码/指令"。先用 Roofline 确定大方向，再用 Source Page 定位具体指令——这是 Nsight Compute 最经典的"先宏观后微观"分析模式。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_40">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L774">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k405febb17eee"></a></p>
+<span class="heading-anchor" id="如何用 Nsight Systems 分析多 GPU 推理的通信与计算重叠情况？"></span><h2 id="nsight-systems-gpu">如何用 Nsight Systems 分析多 GPU 推理的通信与计算重叠情况？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、多 GPU 推理的 Timeline 特征"></span><h3 id="gpu-timeline">一、多 GPU 推理的 Timeline 特征</h3>
+<p>多 GPU 推理（如张量并行）的 Nsight Systems Timeline 中会出现多行 GPU 活动：</p>
+<pre><code>GPU 0: [AllReduce] [Compute A] [AllReduce] [Compute B] [AllReduce]
+GPU 1: [AllReduce] [Compute A] [AllReduce] [Compute B] [AllReduce]
+</code></pre>
+<p>关键分析维度：
+- <strong>通信时间占比</strong>：AllReduce/NCCL 操作在总时间中的比例
+- <strong>计算与通信重叠</strong>：AllReduce 执行时 GPU 是否同时在做计算
+- <strong>各 GPU 间的负载均衡</strong>：各 GPU 的计算段长度是否一致</p>
+<span class="heading-anchor" id="二、识别 NCCL 通信瓶颈"></span><h3 id="nccl">二、识别 NCCL 通信瓶颈</h3>
+<p>NCCL 通信在 Timeline 中通常以 NCCL Kernel 或 Copy Kernel 的形式出现：</p>
+<p><strong>典型问题模式</strong>：</p>
+<pre><code>理想情况（计算通信重叠）：
+GPU 0: [Compute A]|[AllReduce A]||[Compute B]|[AllReduce B]
+                   ↑ 与 Compute B 重叠
+GPU 1: [Compute A]|[AllReduce A]||[Compute B]|[AllReduce B]
+
+实际情况（串行化）：
+GPU 0: [Compute A]|[AllReduce A          ]|[Compute B]|[AllReduce B]
+GPU 1: [Compute A]| [AllReduce A         ]|[Compute B]|[AllReduce B]
+                    ↑ GPU 空闲等待通信完成
+</code></pre>
+<p>判断通信是否为瓶颈的标准：
+- <strong>通信占比 &gt; 20%</strong>：需关注
+- <strong>通信占比 &gt; 50%</strong>：严重瓶颈，需优化并行策略
+- <strong>通信时将计算完全空闲</strong>：说明未实现 overlap，优化空间大</p>
+<span class="heading-anchor" id="三、分析计算与通信重叠的关键指标"></span><h3 id="_1_41">三、分析计算与通信重叠的关键指标</h3>
+<pre><code>重叠效率 = (通信时间内 GPU 同时执行计算的时间) / 总通信时间
+
+高重叠效率（&gt; 80%）→ 通信和计算并行良好
+低重叠效率（&lt; 30%）→ 基本是串行执行
+</code></pre>
+<p>在 Nsight Systems 中检查重叠的方法：
+1. 放大 Timeline，找到通信 Kernel（NCCL）的时间段
+2. 查看同 GPU 在该时间段内是否还有其他 Kernel 在执行
+3. 如果通信时间段内 GPU 只有通信 Kernel，说明没有 overlap</p>
+<span class="heading-anchor" id="四、Pipeline Bubble 分析"></span><h3 id="pipeline-bubble">四、Pipeline Bubble 分析</h3>
+<p>流水线并行（Pipeline Parallelism）中，Nsight Systems 能直接观察到 Pipeline Bubble：</p>
+<pre><code>GPU 0: [Microbatch 1][空闲=====][Microbatch 2][空闲=====]
+GPU 1: [空闲=====][Microbatch 1][空闲=====][Microbatch 2]
+</code></pre>
+<ul>
+<li>气泡大小 = GPU 空闲时间 / 总时间</li>
+<li>气泡占比越高，流水线效率越低</li>
+<li>优化方向：增加 Microbatch 数量、调整调度策略（1F1B）</li>
+</ul>
+<p>可以总结为：<strong>多 GPU 推理的 Nsight Systems 分析主要看三点：通信时间占比是否合理、计算与通信是否有效重叠、Pipeline Bubble 是否显著。理想的 Timeline 中 NCCL 通信应与计算 Kernel 交错出现而非串行，各 GPU 计算段长度基本一致。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_28">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L612">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kfa61f91b0cf0"></a></p>
+<span class="heading-anchor" id="如何让模型给出简洁推理而不是冗长推理？"></span><h2 id="_1_42">如何让模型给出简洁推理而不是冗长推理？</h2>
+<p>可以在提示中要求：“只列关键依据，不展开冗长推理”“输出三步以内的简要理由”“最终答案必须先给出，理由不超过 100 字”。对于内部链路，可以让模型产生结构化中间状态，但面向用户只展示结论、依据和必要解释。</p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_29">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/05_%E6%8F%90%E7%A4%BA%E5%B7%A5%E7%A8%8B%EF%BC%9A%E5%BA%94%E7%94%A8%E5%A4%A7%E6%A8%A1%E5%9E%8B%E7%9A%84%E9%AB%98%E7%BA%A7%E6%96%B9%E6%B3%95.md#L442">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k7f23050412a4"></a></p>
+<span class="heading-anchor" id="如何评估一个推理服务的性能和稳定性？"></span><h2 id="_1_43">如何评估一个推理服务的性能和稳定性？</h2>
+<blockquote>
+<p>推理服务评估不能只看平均延迟，还要综合P50/P95/P99延迟、吞吐量、资源利用率、显存占用、错误率、超时率、SLA达成率和成本等指标。大模型服务还需要额外关注TTFT、TPOT、tokens/s和并发会话能力。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_30">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1724">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kabd27820278a"></a></p>
+<span class="heading-anchor" id="如何评估代码能力和科学推理能力？"></span><h2 id="_1_44">如何评估代码能力和科学推理能力？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5) | 考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<ul>
+<li>是否理解科学概念和术语；</li>
+<li>是否能进行因果分析和机制解释；</li>
+<li>是否能基于证据推理；</li>
+<li>是否能识别不充分证据和不确定性；</li>
+<li>是否避免伪科学、过度推断和错误解释。</li>
+</ul>
+<blockquote>
+<p><strong>注</strong>：科学、医学等专业任务不能只看选择题准确率。开放式回答还需要专家评审、证据核查、引用检查和安全边界评估。</p>
+</blockquote>
+<p><a id="evaluation-section-42"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_31">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/06_%E6%A8%A1%E5%9E%8B%E8%AF%84%E4%BC%B0%EF%BC%9A%E5%A4%9A%E7%BB%B4%E8%AF%84%E4%BC%B0%E5%A4%A7%E8%AF%AD%E8%A8%80%E6%A8%A1%E5%9E%8B.md#L468">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k57ed4ea076f7"></a></p>
+<span class="heading-anchor" id="如何评估推理服务的稳定性和线上可用性？"></span><h2 id="_1_45">如何评估推理服务的稳定性和线上可用性？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐⭐ (5/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、错误率和超时率"></span><h3 id="_2_32">一、错误率和超时率</h3>
+<p>稳定服务首先要关注请求是否成功完成。常见指标包括：</p>
+<ul>
+<li>5xx错误率</li>
+<li>业务错误率</li>
+<li>超时率</li>
+<li>OOM次数</li>
+<li>模型加载失败次数</li>
+</ul>
+<span class="heading-anchor" id="二、SLA和长尾延迟"></span><h3 id="sla">二、SLA和长尾延迟</h3>
+<p>线上服务通常会定义SLA，例如P99延迟低于某个阈值、可用性达到99.9%。因此需要持续监控P95/P99延迟和SLA达成率。</p>
+<span class="heading-anchor" id="三、资源稳定性"></span><h3 id="_3_7">三、资源稳定性</h3>
+<p>需要观察：</p>
+<ul>
+<li>GPU显存是否持续增长</li>
+<li>队列长度是否堆积</li>
+<li>CPU/GPU利用率是否异常波动</li>
+<li>是否存在内存泄漏</li>
+<li>是否频繁重启或重新加载模型</li>
+</ul>
+<span class="heading-anchor" id="四、压测和灰度验证"></span><h3 id="_4_2">四、压测和灰度验证</h3>
+<p>上线前通常需要压测，验证服务在目标并发下是否满足延迟、吞吐和稳定性要求。上线时可以使用灰度发布，先让少量流量进入新版本，再逐步扩大。</p>
+<p>可以总结为：<strong>评估推理服务稳定性时，要同时看成功率、超时率、长尾延迟、资源利用率、队列堆积和故障恢复能力。性能测试看的是跑得快不快，稳定性评估看的是能不能长期稳定地跑。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_5">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.1%E6%8E%A8%E7%90%86%E9%83%A8%E7%BD%B2%E7%BB%BC%E8%BF%B0.md#L1819">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kcb83c855b76b"></a></p>
+<span class="heading-anchor" id="如何评估数学推理能力？"></span><h2 id="_1_46">如何评估数学推理能力？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5) | 考察频率：⭐⭐⭐⭐⭐ (5/5)</strong></p>
+<ul>
+<li><strong>最终答案准确率</strong>：答案是否正确。</li>
+<li><strong>推理步骤正确性</strong>：中间步骤是否成立。</li>
+<li><strong>解题过程一致性</strong>：过程和最终答案是否匹配。</li>
+<li><strong>多步推理成功率</strong>：长链条推理是否稳定。</li>
+<li><strong>Pass@1</strong>：单次生成答案正确率。</li>
+<li><strong>Pass@k</strong>：采样 $<code>k</code>$ 次中至少一次正确的概率。若一道题生成 $<code>n</code>$ 个候选，其中 $<code>c</code>$ 个候选正确，常用无偏估计形式为 $<code>1-\frac{\binom{n-c}{k}}{\binom{n}{k}}</code>$。</li>
+</ul>
+<p><a id="evaluation-section-41-question-03"></a></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_33">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9F%BA%E7%A1%80/06_%E6%A8%A1%E5%9E%8B%E8%AF%84%E4%BC%B0%EF%BC%9A%E5%A4%9A%E7%BB%B4%E8%AF%84%E4%BC%B0%E5%A4%A7%E8%AF%AD%E8%A8%80%E6%A8%A1%E5%9E%8B.md#L456">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kab3e5e9eeba8"></a></p>
+<span class="heading-anchor" id="如何识别模型推理中的算子级热点？对 cost 最高的单算子如何进一步下钻分析？"></span><h2 id="cost">如何识别模型推理中的算子级热点？对 cost 最高的单算子如何进一步下钻分析？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、算子级热点识别的三步法"></span><h3 id="_1_47">一、算子级热点识别的三步法</h3>
+<p><strong>Step 1：PyTorch Profiler 排序</strong></p>
+<pre><code>TensorBoard Operator 页 → 按 "GPU Time" 降序
+输出：
+  aten::linear     35%  ← 候选热点
+  aten::layer_norm  15%
+  aten::softmax     12%
+  aten::gelu         8%
+  ...
+</code></pre>
+<p><strong>Step 2：检查调用频次与单次耗时</strong></p>
+<pre><code>aten::linear: 总时间 35ms，调用 80 次，单次约 0.44ms → 频繁调用，每次不长
+aten::softmax: 总时间 12ms，调用 1 次，单次约 12ms → 单次长，可能是大矩阵操作
+</code></pre>
+<p>两种情况优化方向不同：
+- 频繁调用但每次短 → 优先考虑算子融合减少调用次数
+- 调用次数少但单次长 → 优先考虑该算子本身的优化</p>
+<p><strong>Step 3：输入 Shape 检查</strong>
+在 Profiler 中开启 <code>record_shapes=True</code>，检查热点算子的输入 shape：
+- GEMM 的 M 或 K 很小 → 可能是 Memory-Bound（如 Decode 阶段）
+- GEMM 的 M/N/K 不对齐到 8/16 的倍数 → Tensor Core 无法充分利用
+- Softmax 的最后一维很大 → 可考虑 FlashAttention 等优化</p>
+<span class="heading-anchor" id="二、单算子的分析流程"></span><h3 id="_2_34">二、单算子的分析流程</h3>
+<p>以 <code>aten::linear</code>（底层为 GEMM）为例：</p>
+<pre><code>Step 1: 用 Nsight Systems 确认该算子对应的具体 GPU Kernel
+  → 在 Timeline 上定位到对应的 Kernel（如 ampere_sgemm_128x128_nn）
+
+Step 2: 用 Nsight Compute 对该 Kernel 做深度分析
+  → ncu --kernel-name regex:ampere_sgemm --set full
+
+Step 3: 检查量化指标
+  → Occupancy: 是否有足够的 warp 隐藏延迟
+  → DRAM Throughput: 评估 Memory-Bound 程度
+  → Tensor Core Utilization: 是否启用 Tensor Core
+  → Shared Memory Bank Conflict: 是否有 bank 冲突
+  → L1/L2 Cache Hit Rate: 数据复用效率
+
+Step 4: 基于指标确定优化方向
+  → Occupancy 低 → 调整 block size / 减少寄存器用
+  → Tensor Core 未启用 → 确保精度为 FP16/INT8，shape 对齐
+  → DRAM Throughput 高 → 尝试算子融合减少访存
+  → Bank Conflict 高 → padding shared memory 访问模式
+</code></pre>
+<span class="heading-anchor" id="三、常见算子热点及优化"></span><h3 id="_3_8">三、常见算子热点及优化</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>热点算子</th>
+<th>常见原因</th>
+<th>优化方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GEMM/Linear</td>
+<td>Shape 不利、未用 Tensor Core</td>
+<td>Shape 对齐、FP16、算子融合</td>
+</tr>
+<tr>
+<td>Attention</td>
+<td>O(n²) 复杂度、未用 FlashAttention</td>
+<td>FlashAttention、PagedAttention</td>
+</tr>
+<tr>
+<td>LayerNorm/Softmax</td>
+<td>Memory-Bound 的逐元素操作</td>
+<td>融合到前序 GEMM 中</td>
+</tr>
+<tr>
+<td>GELU/SiLU</td>
+<td>激活函数 Memory-Bound</td>
+<td>融合到后续 Linear</td>
+</tr>
+<tr>
+<td>Concat/Split</td>
+<td>内存搬运开销</td>
+<td>减少不必要的拼接拆分</td>
+</tr>
+<tr>
+<td>Gather/Scatter</td>
+<td>不规则访存</td>
+<td>替换为批量的索引操作</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>算子级热点识别的是"排序 → 分类 → 插桩"三步法——先用 Profiler 排序找到 top-N 算子，再按"频繁调用"vs"单次慢"分类，最后用 Nsight Compute 对最慢的 1-2 个 Kernel 做微架构分析。插桩时要关注 Occupancy、DRAM Throughput 和 Tensor Core Utilization 这三个指标。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_4_3">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1753">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kb8b5c7a297ce"></a></p>
+<span class="heading-anchor" id="如何识别计算瓶颈与访存瓶颈？"></span><h2 id="_1_48">如何识别计算瓶颈与访存瓶颈？</h2>
+<blockquote>
+<p>计算瓶颈（Compute-Bound）和访存瓶颈（Memory-Bound）是 GPU 性能分析中最主要的两个瓶颈。判断一个 Kernel 或模型属于哪一类，直接决定了优化方向——是降低计算量（量化、低精度）还是减少数据搬运（融合、缓存优化）。6.1 章节已介绍了 Roofline 模型的概念，本节聚焦于用工具进行实操判断。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_35">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1251">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k3b908ab81e2b"></a></p>
+<span class="heading-anchor" id="如何迁移docker服务所在路径？"></span><h2 id="docker">如何迁移docker服务所在路径？</h2>
+<p>在使用docker过程中，"no space left on device"问题时，可以通过迁移docker服务所在路径来解决。</p>
+<span class="heading-anchor" id="1. 停止 Docker 服务"></span><h3 id="1-docker">1. 停止 Docker 服务</h3>
+<p>首先，需要停止正在运行的 Docker 服务。这可以通过以下命令完成：</p>
+<pre><code class="language-bash">sudo systemctl stop docker
+</code></pre>
+<span class="heading-anchor" id="2. 创建新的 Docker 数据目录"></span><h3 id="2-docker">2. 创建新的 Docker 数据目录</h3>
+<p>在新的磁盘分区或目录中创建一个新的 Docker 数据目录。例如，在 <code>/data/docker</code> 目录中创建 Docker 数据目录：</p>
+<pre><code class="language-bash">sudo mkdir -p /data/dockerlib
+</code></pre>
+<span class="heading-anchor" id="3. 复制旧数据到新目录"></span><h3 id="3_2">3. 复制旧数据到新目录</h3>
+<p>将旧 Docker 数据目录中的所有内容复制到新的 Docker 数据目录中，可通过docker info命令查看旧数据目录路径：</p>
+<pre><code class="language-bash">sudo rsync -aP /var/lib/docker /data/dockerlib
+</code></pre>
+<span class="heading-anchor" id="4. 更新 Docker 配置文件"></span><h3 id="4-docker">4. 更新 Docker 配置文件</h3>
+<p>编辑 Docker 的配置文件 <code>/etc/docker/daemon.json</code>，将 <code>data-root</code> 选项指向新的 Docker 数据目录：</p>
+<pre><code class="language-json">{
+  "data-root": "/data/dockerlib/docker"
+}
+</code></pre>
+<p>保存并退出编辑器。</p>
+<span class="heading-anchor" id="5. 启动 Docker 服务"></span><h3 id="5-docker">5. 启动 Docker 服务</h3>
+<p>启动 Docker 服务，并检查 Docker 是否正常运行：</p>
+<pre><code class="language-bash">sudo systemctl start docker
+</code></pre>
+<span class="heading-anchor" id="6. 验证迁移是否成功"></span><h3 id="6">6. 验证迁移是否成功</h3>
+<p>通过 <code>docker info</code> 命令查看 Docker 服务的状态，确认 <code>Docker Root Dir</code> 是否指向新的数据目录：</p>
+<pre><code class="language-bash">docker info | grep "Docker Root Dir"
+</code></pre>
+<p><img alt="docker info" loading="lazy" referrerpolicy="no-referrer" src="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/imgs/docker_info.png"/></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_49">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%B7%A5%E7%A8%8B%E5%9F%BA%E7%A1%80%E9%AB%98%E9%A2%91%E7%9F%A5%E8%AF%86%E7%82%B9.md#L1678">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="kd0a85b5acc1d"></a></p>
+<span class="heading-anchor" id="如何进行 GPU 利用率、SM 活跃度与内存带宽分析？"></span><h2 id="gpu-sm">如何进行 GPU 利用率、SM 活跃度与内存带宽分析？</h2>
+<blockquote>
+<p>GPU 利用率是最容易被误读的指标。高利用率不一定代表高效率——GPU 可能在"假忙"（所有 warp 都在等内存数据）。真正有效的 GPU 分析需要结合 SM 活跃度、显存带宽利用率、计算单元利用率等多个维度综合判断。</p>
+</blockquote>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_1_50">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1414">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="ke37612159af5"></a></p>
+<span class="heading-anchor" id="如何进行大模型推理性能Benchmark？有哪些常用评测工具？"></span><h2 id="benchmark">如何进行大模型推理性能Benchmark？有哪些常用评测工具？</h2>
+<p><strong>难度评分：⭐⭐⭐ (3/5)  |  考察频率：⭐⭐⭐⭐ (4/5)</strong></p>
+<span class="heading-anchor" id="一、Benchmark的基本原则"></span><h3 id="benchmark_1">一、Benchmark的基本原则</h3>
+<p>一个有效的大模型推理Benchmark需要做到：</p>
+<ol>
+<li><strong>控制变量</strong>：固定输入长度/输出长度/并发数等关键参数</li>
+<li><strong>预热（Warmup）</strong>：排除CUDA Graph构建、模型首次加载等冷启动影响</li>
+<li><strong>多轮测试</strong>：取多次测试的中位数/P50/P95，而非单次</li>
+<li><strong>真实负载模拟</strong>：使用与实际场景相似的输入/输出长度分布、并发模式</li>
+<li><strong>结果可复现</strong>：记录硬件配置、框架版本、关键参数</li>
+</ol>
+<span class="heading-anchor" id="二、常用评测工具"></span><h3 id="_1_51">二、常用评测工具</h3>
+<p><strong>1. vLLM benchmark_serving.py</strong></p>
+<p>vLLM内置的压测脚本是最常用的评测工具：</p>
+<pre><code class="language-bash"># 使用随机数据压测
+python benchmarks/benchmark_serving.py \
+    --backend vllm \
+    --model Qwen/Qwen2-7B-Instruct \
+    --dataset-name random \
+    --random-input-len 1024 \
+    --random-output-len 128 \
+    --num-prompts 1000 \
+    --request-rate 10
+</code></pre>
+<p>输出结果包括：TTFT均值/P99、TPOT均值/P99、Throughput (tokens/s)、Request throughput (req/s)等。</p>
+<p><strong>2. SGLang bench_serving</strong></p>
+<p>SGLang也提供类似的内置评测工具：</p>
+<pre><code class="language-bash">python -m sglang.bench_serving \
+    --backend sglang \
+    --num-prompts 500 \
+    --random-input-len 2048 \
+    --random-output-len 512
+</code></pre>
+<p><strong>3. EvalScope</strong></p>
+<p>阿里开源的LLM评测框架，支持性能Benchmark：</p>
+<pre><code class="language-python">from evalscope.perf import PerfBenchmark
+
+benchmark = PerfBenchmark(
+    model="Qwen2-7B",
+    input_len_range=(100, 2000),
+    output_len_range=(50, 500),
+    concurrency=[1, 4, 16, 64]
+)
+results = benchmark.run()
+</code></pre>
+<p><strong>4. GenAI-Perf (NVIDIA)</strong></p>
+<p>NVIDIA官方的大模型性能评测工具，与Triton Inference Server深度集成：</p>
+<pre><code class="language-bash">genai-perf profile \
+    --model llama \
+    --backend tensorrtllm \
+    --num-prompts 100 \
+    --request-rate 5
+</code></pre>
+<p><strong>5. Locust / wrk（通用压测）</strong></p>
+<p>通用HTTP压测工具也适用于大模型API服务的压力测试：</p>
+<pre><code class="language-python"># Locust脚本示例
+class LLMUser(HttpUser):
+    @task
+    def chat(self):
+        self.client.post("/v1/chat/completions", json={
+            "model": "qwen2-7b",
+            "messages": [{"role": "user", "content": "你好"}],
+            "max_tokens": 100
+        })
+</code></pre>
+<span class="heading-anchor" id="三、Benchmark的常见模式"></span><h3 id="benchmark_2">三、Benchmark的常见模式</h3>
+<p><strong>模式1：固定压力测试</strong>
+- 设定固定的请求频率（如10 req/s）
+- 观察延迟和吞吐是否稳定
+- 适用：容量规划</p>
+<p><strong>模式2：阶梯压力测试</strong>
+- 逐步增加请求频率（1→5→10→20→50 req/s）
+- 找到系统的"拐点"——延迟开始快速上升的QPS
+- 适用：容量上限评估</p>
+<p><strong>模式3：突发压力测试</strong>
+- 模拟突发流量（如瞬时100个并发请求）
+- 观察TTFT在突发下的表现
+- 适用：弹性评估</p>
+<p><strong>模式4：长文本专项测试</strong>
+- 使用不同长度的Prompt（1K/4K/16K/32K）
+- 观察TTFT和显存的非线性增长
+- 适用：长上下文能力评估</p>
+<span class="heading-anchor" id="四、Benchmark结果解读"></span><h3 id="benchmark_3">四、Benchmark结果解读</h3>
+<p>一份典型的评测报告应包含：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>值</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模型</td>
+<td>Qwen2-7B-Instruct</td>
+<td>FP16</td>
+</tr>
+<tr>
+<td>并发数</td>
+<td>32</td>
+<td>—</td>
+</tr>
+<tr>
+<td>平均输入长度</td>
+<td>1024 tokens</td>
+<td>—</td>
+</tr>
+<tr>
+<td>平均输出长度</td>
+<td>256 tokens</td>
+<td>—</td>
+</tr>
+<tr>
+<td>TTFT (P50/P99)</td>
+<td>45ms / 120ms</td>
+<td>P99在可接受范围</td>
+</tr>
+<tr>
+<td>TPOT (P50/P99)</td>
+<td>12ms / 18ms</td>
+<td>生成流畅</td>
+</tr>
+<tr>
+<td>Throughput</td>
+<td>3500 tokens/s</td>
+<td>系统总吞吐</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>13.7 req/s</td>
+<td>—</td>
+</tr>
+<tr>
+<td>GPU利用率</td>
+<td>65%</td>
+<td>Decode主导，利用率合理</td>
+</tr>
+<tr>
+<td>显存占用</td>
+<td>48GB / 80GB</td>
+<td>有充足KV Cache空间</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以总结为：<strong>大模型推理Benchmark需要控制变量、预热、多次取样，模拟真实负载。常用工具包括vLLM/SGLang内置的bench_serving、EvalScope、GenAI-Perf等。Benchmark不仅是性能数字，更重要的是通过阶梯压测找到系统瓶颈和容量上限，以及通过P99延迟了解"最差用户体验"。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_2_36">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.3%E5%A4%A7%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E6%8A%80%E6%9C%AF.md#L2133">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul>
+<p><a id="k424bc779982c"></a></p>
+<span class="heading-anchor" id="如何通过 nvidia-smi、DCGM、Nsight 工具组合定位 GPU 利用率异常（假性占满、idle bubble）？"></span><h2 id="nvidia-smidcgmnsight-gpu-idle-bubble">如何通过 nvidia-smi、DCGM、Nsight 工具组合定位 GPU 利用率异常（假性占满、idle bubble）？</h2>
+<p><strong>难度评分：⭐⭐⭐⭐ (4/5)  |  考察频率：⭐⭐⭐ (3/5)</strong></p>
+<span class="heading-anchor" id="一、三层工具的分工"></span><h3 id="_1_52">一、三层工具的分工</h3>
+<pre><code>nvidia-smi → 第一眼：GPU 整体在干什么（秒级粒度）
+    ↓ 如果发现异常
+DCGM → 持续性监控：收集多维度指标的时间序列，发现趋势
+    ↓ 如果需要深度分析
+Nsight Systems/Compute → 微观分析：单次推理的细粒度行为
+</code></pre>
+<span class="heading-anchor" id="二、nvidia-smi：快速诊断"></span><h3 id="nvidia-smi">二、nvidia-smi：快速诊断</h3>
+<pre><code class="language-bash">nvidia-smi dmon -s pucvmet -d 1
+# p=power, u=utilization, c=clock, m=memory, e=temp, t=pcie
+</code></pre>
+<p><strong>常见异常模式</strong>：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>nvidia-smi 表现</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>假性占满</td>
+<td>GPU-Util 高，但功耗低、温度低</td>
+<td>Memory-Bound，SM 在等数据</td>
+</tr>
+<tr>
+<td>Idle Bubble</td>
+<td>GPU-Util 周期性掉到 0</td>
+<td>CPU 处理跟不上，或批处理等待</td>
+</tr>
+<tr>
+<td>显存泄漏</td>
+<td>Memory-Usage 持续增长不降</td>
+<td>缓存未释放、KV Cache 无限增长</td>
+</tr>
+<tr>
+<td>降频（Throttling）</td>
+<td>时钟频率低于额定值</td>
+<td>温度过高、功耗墙</td>
+</tr>
+<tr>
+<td>PCIe 瓶颈</td>
+<td>PCIe Rx/Tx 持续高</td>
+<td>数据加载成为瓶颈</td>
+</tr>
+</tbody>
+</table></div>
+<span class="heading-anchor" id="三、DCGM：持续监控与告警"></span><h3 id="dcgm">三、DCGM：持续监控与告警</h3>
+<p>DCGM（Data Center GPU Manager）提供更丰富的 GPU 指标：</p>
+<pre><code class="language-bash">dcgmi dmon -e 1001,1002,1003,1004,1005,1006
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>DCGM 指标</th>
+<th>含义</th>
+<th>用法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DCGM_FI_PROF_GR_ENGINE_ACTIVE</td>
+<td>图形/计算引擎活跃比例</td>
+<td>替代 nvidia-smi GPU-Util</td>
+</tr>
+<tr>
+<td>DCGM_FI_PROF_SM_ACTIVE</td>
+<td>SM 活跃比例</td>
+<td>比 GPU-Util 更准确反映计算活动</td>
+</tr>
+<tr>
+<td>DCGM_FI_PROF_SM_OCCUPANCY</td>
+<td>SM 平均 Occupancy</td>
+<td>反映 warp 并行度</td>
+</tr>
+<tr>
+<td>DCGM_FI_PROF_DRAM_ACTIVE</td>
+<td>DRAM 活跃比例</td>
+<td>反映显存访问活动</td>
+</tr>
+<tr>
+<td>DCGM_FI_PROF_PCIE_TX_BYTES</td>
+<td>PCIe 发送字节</td>
+<td>评估 D2H 传输</td>
+</tr>
+<tr>
+<td>DCGM_FI_PROF_PCIE_RX_BYTES</td>
+<td>PCIe 接收字节</td>
+<td>评估 H2D 传输</td>
+</tr>
+<tr>
+<td>DCGM_FI_DEV_FB_USED</td>
+<td>显存使用量</td>
+<td>监控显存泄漏</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>利用 DCGM 定位 Idle Bubble</strong>：</p>
+<pre><code>如果 DCGM_FI_PROF_GR_ENGINE_ACTIVE 周期性从 100% 跌到 0%：
+  → 存在 Idle Bubble
+  → 用 DCGM_FI_PROF_SM_ACTIVE 确认 SM 同步空闲
+  → 用 Nsight Systems 找 Bubble 对应时间段的 CPU 线程活动
+</code></pre>
+<span class="heading-anchor" id="四、三层工具联动定位流程"></span><h3 id="_2_37">四、三层工具联动定位流程</h3>
+<pre><code>Step 1: nvidia-smi dmon（快速扫描）
+  → 发现 GPU-Util 在 100% 和 20% 之间剧烈波动
+  → 同时功耗也波动 → 怀疑 Idle Bubble
+
+Step 2: DCGM 5 分钟监控（确认模式）
+  → SM_ACTIVE 与 GR_ENGINE_ACTIVE 同步波动
+  → PCIe_RX 在 SM 空闲前有峰值 → 可能是数据加载瓶颈
+  → 显存使用稳定 → 排除显存泄漏
+
+Step 3: Nsight Systems（精确定位根因）
+  → 在 Idle Bubble 对应的 CPU 线程上发现 Python GIL 等待
+  → 或者在 DataLoader 线程上发现 I/O 阻塞
+  → 确认根因：磁盘 I/O 跟不上推理速度
+</code></pre>
+<p>可以总结为：<strong>nvidia-smi、DCGM、Nsight 系列构成 GPU 分析的三层金字塔——nvidia-smi 看一眼（秒级粒度，判断症状），DCGM 持续看（时序趋势，确认模式），Nsight 深入看（微秒级粒度，定位根因）。常见的"假性占满"可以通过 SM_ACTIVE 和功耗与 GPU-Util 的背离来识别。</strong></p>
+<span class="heading-anchor" id="参考资料"></span><h3 id="_3_9">参考资料</h3>
+<ul>
+<li><a href="https://github.com/WeThinkIn/AIGC-Interview-Book/blob/34e9ee6aa6d35d1e213099a7ae9f433b7b9e6fe6/%E6%A8%A1%E5%9E%8B%E9%83%A8%E7%BD%B2%E5%9F%BA%E7%A1%80%EF%BC%88%E7%B2%BE%E5%8D%8E%E7%89%88%EF%BC%89/6.4%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E4%B8%8E%E8%B0%83%E4%BC%98%E5%B7%A5%E5%85%B7.md#L1504">AIGC Interview Book</a>，来源许可：GPL-3.0。</li>
+</ul></article><nav class="article-pagination" aria-label="相邻笔记"><a class="page-previous" href="n-30542c82d0c6.html"><span>上一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a><a class="page-next" href="n-5891a10c7310.html"><span>下一篇 <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg></span><strong>推理服务与部署</strong></a></nav></main><footer class="footer wrap site-footer"><span>© 2026 李杨</span><span>计算机与 AI</span><a href="https://github.com/UESTC-ly" target="_blank" rel="noopener noreferrer">GitHub <!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg></a></footer></div><aside class="docs-outline" aria-label="阅读辅助"><nav class="outline-nav" aria-label="本页目录"><p class="outline-title">本页目录</p><ul><li class="outline-level-2"><a href="#_1_1">四、历史型号（已逐步淘汰）</a></li><li class="outline-level-2"><a href="#_1_2">四、多节点与容器化部署</a></li><li class="outline-level-2"><a href="#optimization-profile">四、如何设置合理的Optimization Profile？</a></li><li class="outline-level-2"><a href="#_1_4">四、如果输出不一致如何排查？</a></li><li class="outline-level-2"><a href="#_1_5">四、总结</a></li><li class="outline-level-2"><a href="#_1_6">四、技术对比分析</a></li><li class="outline-level-2"><a href="#_1_7">四、调度瓶颈怎么看？</a></li><li class="outline-level-2"><a href="#ai">团队落地AI产品时，怎么平衡大模型推理延迟与成本？</a></li><li class="outline-level-2"><a href="#aigpucpu">在AI行业中，一些模型经过端侧部署框架转换格式后，在GPU上为什么比CPU跑得慢？</a></li><li class="outline-level-2"><a href="#ai_1">在AI领域中模型一共有多少种主流部署形式？</a></li><li class="outline-level-2"><a href="#_1_11">在向量化之前，为什么要对长文档进行切片？如果不切片会有什么后果？</a></li><li class="outline-level-2"><a href="#_1_12">在推理中的应用</a></li><li class="outline-level-2"><a href="#mllms">在推理阶段，如何通过后处理校正来减少MLLMs中的幻觉？</a></li><li class="outline-level-2"><a href="#_1_14">在没有推理能力前，如何让模型“先思考后回答”？</a></li><li class="outline-level-2"><a href="#gpu-rtx-3060-6-gb-7-b-3-b">在端侧 GPU（如 RTX 3060 6 GB）部署 7 B 级多模态模型几乎不可行，3 B 模型如何做到“精度不降反升”？</a></li><li class="outline-level-2"><a href="#trace">在线剖析与离线剖析有何区别？采样、插桩与trace各适用于什么场景？</a></li><li class="outline-level-2"><a href="#_1_17">在金融合同结构化解析中，如何通过多模态联合推理验证逻辑一致性？</a></li><li class="outline-level-2"><a href="#_1_18">大模型如何实现高效推理？模型压缩技术有哪些？</a></li><li class="outline-level-2"><a href="#_1_19">大模型如何赋能家庭服务机器人的场景适应？</a></li><li class="outline-level-2"><a href="#oom">大模型推理中显存OOM如何排查和解决？</a></li><li class="outline-level-2"><a href="#ttfttpotthroughput">大模型推理服务有哪些性能指标？TTFT、TPOT、Throughput分别衡量什么？</a></li><li class="outline-level-2"><a href="#_1_22">大模型推理服务有哪些特殊评估指标？</a></li><li class="outline-level-2"><a href="#_1_23">大模型服务化和传统模型服务化有什么不同？</a></li><li class="outline-level-2"><a href="#_1_24">大模型服务性能评测关键指标</a></li><li class="outline-level-2"><a href="#timeline-cpu-gpu-cudadevicesynchronizecudastreamsynchronize">如何从 Timeline 中识别不必要的 CPU-GPU 同步点（cudaDeviceSynchronize、cudaStreamSynchronize）？</a></li><li class="outline-level-2"><a href="#_1_26">如何从产品需求反推模型选型与部署形态？</a></li><li class="outline-level-2"><a href="#nvidia-nsight-systems-timeline">如何使用 NVIDIA Nsight Systems 进行系统级 Timeline 分析？</a></li><li class="outline-level-2"><a href="#trtexec-onnx-runtime-profiler">如何使用 trtexec 与 ONNX Runtime Profiler 进行推理引擎级分析？</a></li><li class="outline-level-2"><a href="#kernel-launch-overheadcpu-gpu">如何分析 Kernel Launch Overhead、CPU-GPU 同步与算子级热点？</a></li><li class="outline-level-2"><a href="#kv-cache-prefix-caching">如何分析 KV Cache 命中率与利用率？Prefix Caching 的效果如何量化评估？</a></li><li class="outline-level-2"><a href="#_1_31">如何判断推理瓶颈在计算、访存还是调度？</a></li><li class="outline-level-2"><a href="#_1_32">如何判断算子存在问题</a></li><li class="outline-level-2"><a href="#onnxgpucpu">如何将ONNX模型从GPU切换到CPU中进行缓存？</a></li><li class="outline-level-2"><a href="#profile-analyze-hypothesize-optimize-verify">如何建立 Profile → Analyze → Hypothesize → Optimize → Verify 的闭环调优流程？</a></li><li class="outline-level-2"><a href="#slo">如何建立推理服务的性能基线与SLO指标体系？</a></li><li class="outline-level-2"><a href="#_1_36">如何影响显存、吞吐和稳定性？</a></li><li class="outline-level-2"><a href="#_1_37">如何拆解推理全链路时耗？</a></li><li class="outline-level-2"><a href="#tensorrt">如何构建TensorRT模型的缓存机制？</a></li><li class="outline-level-2"><a href="#chrome-trace-tensorboard-profiler">如何用 Chrome Trace 和 TensorBoard 可视化 Profiler 结果并定位耗时算子？</a></li><li class="outline-level-2"><a href="#nsight-compute-roofline-source-page-kernel">如何用 Nsight Compute 的 Roofline 分析图和 Source Page 定位 Kernel 瓶颈？</a></li><li class="outline-level-2"><a href="#nsight-systems-gpu">如何用 Nsight Systems 分析多 GPU 推理的通信与计算重叠情况？</a></li><li class="outline-level-2"><a href="#_1_42">如何让模型给出简洁推理而不是冗长推理？</a></li><li class="outline-level-2"><a href="#_1_43">如何评估一个推理服务的性能和稳定性？</a></li><li class="outline-level-2"><a href="#_1_44">如何评估代码能力和科学推理能力？</a></li><li class="outline-level-2"><a href="#_1_45">如何评估推理服务的稳定性和线上可用性？</a></li><li class="outline-level-2"><a href="#_1_46">如何评估数学推理能力？</a></li><li class="outline-level-2"><a href="#cost">如何识别模型推理中的算子级热点？对 cost 最高的单算子如何进一步下钻分析？</a></li><li class="outline-level-2"><a href="#_1_48">如何识别计算瓶颈与访存瓶颈？</a></li><li class="outline-level-2"><a href="#docker">如何迁移docker服务所在路径？</a></li><li class="outline-level-2"><a href="#gpu-sm">如何进行 GPU 利用率、SM 活跃度与内存带宽分析？</a></li><li class="outline-level-2"><a href="#benchmark">如何进行大模型推理性能Benchmark？有哪些常用评测工具？</a></li><li class="outline-level-2"><a href="#nvidia-smidcgmnsight-gpu-idle-bubble">如何通过 nvidia-smi、DCGM、Nsight 工具组合定位 GPU 利用率异常（假性占满、idle bubble）？</a></li></ul></nav><div class="reader-tools"><button type="button" class="theme-toggle" aria-label="切换到深色模式" hidden><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /> </svg><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /> </svg><span>深色模式</span></button><a href="#main" class="back-to-top"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 7h10v10" /> <path d="M7 17 17 7" /> </svg><span>返回顶部</span></a></div></aside></div>
+<button class="sidebar-backdrop" aria-label="关闭专题目录" type="button" hidden></button>
+<dialog id="search-dialog" class="search-dialog" aria-labelledby="global-search-label"><div class="search-dialog-head"><label id="global-search-label" for="global-search-input">搜索全部笔记</label><form method="dialog"><button aria-label="关闭搜索"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg></button></form></div><div class="global-search-field"><!-- @license lucide-static v1.52.0 - ISC --> <svg aria-hidden="true" focusable="false" class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><input id="global-search-input" type="search" placeholder="输入标题、分类或关键词…" autocomplete="off"></div><p id="global-search-status" role="status">搜索算法、计算机基础与 AI 技术笔记。</p><div id="global-search-results"></div></dialog>
+</body></html>
